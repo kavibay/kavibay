@@ -14,9 +14,11 @@ mod llm;
 mod mcp;
 mod notifications;
 mod palette_app_icons;
+mod paths;
 mod quick_action;
 mod runtime_extensions;
 mod security;
+mod settings_store;
 mod web_storage;
 mod wizard;
 
@@ -208,11 +210,21 @@ pub fn run() {
     // Register `kavibay-ext` before plugins/setup/build so webviews can resolve it.
     let builder = runtime_extensions::register_kavibay_ext_protocol(tauri::Builder::default());
     let builder = runtime_extensions::register_kavibay_img_protocol(builder);
-    builder
-        // Must be the first plugin registered (plugin's own requirement). Without it a
-        // second `kavibay` launch would start a rival instance instead of reaching the
-        // running one — which is what makes `--toggle` possible at all.
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+
+    // Must be the first plugin registered (plugin's own requirement). Without it a
+    // second `kavibay` launch would start a rival instance instead of reaching the
+    // running one — which is what makes `--toggle` possible at all.
+    //
+    // Skipped when `KAVIBAY_DATA_DIR` is set: that instance owns a different data
+    // directory, so it is a separate profile rather than a second copy. Forwarded
+    // to the running app it would hand its launch to the instance that owns the
+    // *real* data and exit before ever reading its own — which looks exactly like
+    // the override being ignored. A dev instance is allowed to sit beside the
+    // normal one; it just loses the global shortcut, which the running app holds.
+    let builder = if paths::has_data_dir_override() {
+        builder
+    } else {
+        builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if argv_asks_for_toggle(&argv) {
                 // Same entry as the double tap, including the Settings "Open on"
                 // preference. No key was pressed, so nothing to show in demo mode.
@@ -229,6 +241,9 @@ pub fn run() {
                 }
             }
         }))
+    };
+
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -272,6 +287,13 @@ pub fn run() {
         )
         .setup(|app| {
             app.manage(DemoMode(Mutex::new(false)));
+            // Before anything reads settings: folds the legacy single-purpose
+            // files into settings.json. A failure here is not fatal — the app
+            // starts on the old files and tries again next time, which beats
+            // refusing to start over a preference.
+            if let Err(error) = settings_store::migrate_legacy_files(app.handle()) {
+                eprintln!("[settings] migration failed: {error}; leaving the old files in place");
+            }
             app.manage(mcp::presence::McpPresenceState::default());
             let mcp_config = match mcp::settings::load(app.handle()) {
                 Ok(config) => config,
@@ -485,10 +507,12 @@ pub fn run() {
             commands::needs_dom_gap_catcher,
             commands::set_open_monitor,
             commands::app_exit,
-            appearance_prefs::appearance_preferences_load,
-            appearance_prefs::appearance_preferences_save,
             appearance_prefs::onboarding_preferences_load,
             appearance_prefs::onboarding_preferences_save,
+            settings_store::settings_load,
+            settings_store::settings_save_sections,
+            settings_store::settings_file_path,
+            settings_store::settings_file_open,
             web_storage::web_storage_load,
             web_storage::web_storage_save,
             extension_providers::extension_provider_fetch,

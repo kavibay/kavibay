@@ -43,6 +43,15 @@ Everything Kavibay keeps lives under `{appData}/` — on Windows
 one Windows gives every user profile: another account without administrator rights
 cannot read it, and **anything running as you can read all of it**.
 
+Setting `KAVIBAY_DATA_DIR` to an absolute path moves that directory, so a
+development build can run against a throwaway profile instead of the real one
+(`src-tauri/src/paths.rs`). This is a development switch, **not** a portable
+mode: the encryption below is bound to this user on this machine, so a data
+directory carried to another machine is unreadable there no matter where it
+sits. An instance started with the override does not join the single-instance
+group, because it is a different profile rather than a second copy of the
+running app.
+
 Encrypted with the OS secret store (DPAPI on Windows, bound to the current user
 profile — see `src-tauri/src/security/secrets.rs`), so a copy of the file is
 useless on another machine or under another account:

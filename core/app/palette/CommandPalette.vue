@@ -2385,6 +2385,32 @@ async function runResultAt(index: number) {
     return;
   }
 
+  if (row.commandId === "settings-open-file") {
+    rememberCommand();
+    try {
+      await invoke("settings_file_open");
+    } catch {
+      // No handler for .json, or the file could not be written — keep the
+      // query so the user can pick Reveal Settings Folder instead.
+      return;
+    }
+    afterPaletteAction();
+    dismissAfterAction();
+    return;
+  }
+
+  if (row.commandId === "settings-reveal-folder") {
+    rememberCommand();
+    try {
+      await revealInFileManager(await invoke<string>("settings_file_path"));
+    } catch {
+      return;
+    }
+    afterPaletteAction();
+    dismissAfterAction();
+    return;
+  }
+
   if (row.commandId.startsWith("open-settings-")) {
     rememberCommand();
     openSettingsSection(

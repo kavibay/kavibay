@@ -10,8 +10,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use rusqlite::{Connection, OptionalExtension};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
+use crate::paths::data_dir;
 use crate::security::secrets::unprotect_or_legacy_plaintext;
 
 use super::db::{self, CredentialRecord, CredentialState, OAuthTokens, SecretData};
@@ -101,8 +102,7 @@ pub fn run_pending_imports(app: &AppHandle, conn: &Connection) {
 }
 
 fn legacy_path(app: &AppHandle, file: &str) -> Result<PathBuf, String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    Ok(dir.join(file))
+    Ok(data_dir(app)?.join(file))
 }
 
 /// True when the table exists — legacy files from a partially-used integration

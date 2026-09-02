@@ -66,6 +66,21 @@ export const commands: Command[] = [
     subtitle: "Settings",
     keywords: ["settings", "heating", "thermostat"],
   },
+  // Deliberately not `open-settings-*`: the dispatcher treats that prefix as
+  // "open this Settings section", so an id shaped like the others would be
+  // routed into the modal with `file` as a section name.
+  {
+    id: "settings-open-file",
+    title: "Open settings.json",
+    subtitle: "Edit the settings file in your editor",
+    keywords: ["settings", "json", "config", "configuration", "edit", "file"],
+  },
+  {
+    id: "settings-reveal-folder",
+    title: "Reveal Settings Folder",
+    subtitle: "Show settings.json in the file manager",
+    keywords: ["settings", "folder", "appdata", "data", "reveal", "explorer"],
+  },
   {
     id: "open-gallery",
     title: "Widget Gallery",

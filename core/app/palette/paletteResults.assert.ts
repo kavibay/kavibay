@@ -25,6 +25,7 @@ import {
 } from "./paletteResults";
 import type { PaletteRow } from "./paletteResults";
 import type { Command } from "./commands";
+import { commands as registeredCommands } from "./commands";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -751,6 +752,50 @@ console.log("paletteResults.assert.ts: merge ok");
 
   const many = resolveActionTarget("timer", [inst("v1", "timer"), inst("v2", "timer")]);
   assert(many.instanceId === "v1", "several visible → first in order (V1 rule)");
+}
+
+// --- the settings-file commands are reachable and route to themselves --------
+//
+// Two things a comment cannot enforce. First, the palette dispatcher treats the
+// `open-settings-` prefix as "open this Settings section", so an id shaped like
+// its neighbours would silently open the modal with `file` as a section name
+// instead of the file. Second, the whole point of these entries is that someone
+// types what they are looking for — "settings.json", "config", "folder" — and
+// finds them.
+{
+  const ids = registeredCommands.map((command) => command.id);
+  assert(ids.includes("settings-open-file"), "the open-the-file command is registered");
+  assert(ids.includes("settings-reveal-folder"), "the reveal-the-folder command is registered");
+
+  for (const id of ["settings-open-file", "settings-reveal-folder"]) {
+    assert(
+      !id.startsWith("open-settings-"),
+      `${id} must not use the prefix the dispatcher reads as a Settings section`,
+    );
+  }
+
+  /** Command ids the palette offers for a query, in rank order. */
+  const idsFor = (query: string) =>
+    filterPaletteRows(query, registeredCommands, [])
+      .filter((row): row is Extract<PaletteRow, { kind: "command" }> => row.kind === "command")
+      .map((row) => row.commandId);
+
+  assert(
+    idsFor("settings.json").includes("settings-open-file"),
+    "typing the file name finds the command that opens it",
+  );
+  assert(
+    idsFor("config").includes("settings-open-file"),
+    "the word people use for the file finds it too",
+  );
+  assert(
+    idsFor("settings folder").includes("settings-reveal-folder"),
+    "asking for the folder finds the reveal command",
+  );
+  assert(
+    idsFor("appdata").includes("settings-reveal-folder"),
+    "so does the name of the place it lives",
+  );
 }
 
 console.log("paletteResults.assert.ts: actions ok");

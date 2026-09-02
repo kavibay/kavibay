@@ -6,7 +6,9 @@ use std::path::PathBuf;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+
+use crate::paths::data_dir;
 
 const CACHE_DIR: &str = "palette-app-icons";
 
@@ -32,11 +34,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 fn cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join(CACHE_DIR))
+    Ok(data_dir(app)?.join(CACHE_DIR))
 }
 
 /// Resolve `{app_data}/palette-app-icons/{sha256_hex}.png` for a launch path.

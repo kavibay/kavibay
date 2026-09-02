@@ -28,8 +28,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use serde_json::{json, Value};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
+use crate::paths::data_dir;
 use crate::security::secrets::{protect_secret, unprotect_secret};
 
 /// Envelope field holding the protected payload.
@@ -41,12 +42,7 @@ use crate::security::secrets::{protect_secret, unprotect_secret};
 const PROTECTED_FIELD: &str = "protected";
 
 fn storage_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?;
-    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
-    Ok(dir.join("web-storage.json"))
+    Ok(data_dir(app)?.join("web-storage.json"))
 }
 
 /// A snapshot is a flat map of strings — localStorage has no other value type,

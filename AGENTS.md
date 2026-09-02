@@ -51,6 +51,19 @@ npm run dev:landing              # serve landing/ on :5180 (same as `.claude/lau
 npx tsx <path>/<name>.assert.ts  # run one colocated pure-logic test
 ```
 
+`KAVIBAY_DATA_DIR=<absolute path> npm run tauri dev` points the whole data
+directory somewhere else — settings, the localStorage mirror, credentials, the
+widget caches — so a dev run cannot migrate or corrupt the real profile. The path
+must be absolute; a relative one is refused rather than resolved. Such an instance
+skips single instancing and may run beside a normal one.
+
+Add `WEBVIEW2_USER_DATA_FOLDER=<absolute path>` (WebView2's own variable, not
+ours) to isolate the run completely. Without it both instances share one WebView
+profile and therefore one `localStorage`, so a dev run's writes reach the other
+instance's mirror and land in the real files. With it, two instances are fully
+independent — which is what makes it safe to test a migration while a normal
+instance is running.
+
 Testing convention: pure TS logic gets a colocated `*.assert.ts` (plain node asserts,
 run via `tsx`); Rust uses `#[cfg(test)]` modules. **No vitest / jest.**
 `scripts/runAsserts.mjs` aggregates every assert file; the repo guards are

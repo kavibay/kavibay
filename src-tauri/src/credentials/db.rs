@@ -12,8 +12,9 @@ use std::path::PathBuf;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
+use crate::paths::data_dir;
 use crate::security::secrets::{protect_secret, unprotect_secret};
 
 /// Connection state of one credential.
@@ -93,11 +94,9 @@ impl SecretData {
     }
 }
 
-/// Resolves `{app_data_dir}/credentials.db` and creates its parent directory.
+/// Resolves `{dataDir}/credentials.db` and creates its parent directory.
 pub fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.join("credentials.db"))
+    Ok(data_dir(app)?.join("credentials.db"))
 }
 
 /// Opens the credential database and applies its idempotent schema migration.

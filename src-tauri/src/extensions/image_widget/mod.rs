@@ -11,7 +11,9 @@ pub const EXTENSION: ExtensionRust = ExtensionRust {
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+
+use crate::paths::data_dir;
 
 const ALLOWED_EXT: &[&str] = &["png", "jpg", "jpeg", "gif", "webp"];
 
@@ -36,12 +38,7 @@ fn extension_ok(path: &Path) -> bool {
 
 fn instance_dir(app: &AppHandle, instance_id: &str) -> Result<PathBuf, String> {
     let id = safe_instance_id(instance_id)?;
-    let base = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("image-widget")
-        .join(id);
+    let base = data_dir(app)?.join("image-widget").join(id);
     Ok(base)
 }
 
