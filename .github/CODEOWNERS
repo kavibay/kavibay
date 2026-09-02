@@ -1,0 +1,11 @@
+# Review is required only where a mistake is expensive — everything else (extensions,
+# docs) can move without waiting on the maintainer.
+
+/src-tauri/src/security/            @aswetlow
+/src-tauri/src/credentials/         @aswetlow
+/src-tauri/src/runtime_extensions/  @aswetlow
+/src-tauri/tauri.conf.json          @aswetlow
+/src-tauri/capabilities/            @aswetlow
+/core/app/runtime/             @aswetlow
+/sdk/                               @aswetlow
+/.github/workflows/                 @aswetlow

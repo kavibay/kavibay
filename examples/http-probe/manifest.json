@@ -1,0 +1,14 @@
+{
+  "id": "http-probe",
+  "name": "Declared HTTP Probe",
+  "version": "1.0.0",
+  "description": "Dev-only: asserts a package cannot escape its declared endpoints",
+  "ui": {
+    "entry": "ui/index.html",
+    "defaultOffset": { "x": 0, "y": 0 },
+    "defaultSize": { "w": 380, "h": 460 },
+    "allowDuplicate": false
+  },
+  "commands": [],
+  "permissions": ["network.declared"]
+}

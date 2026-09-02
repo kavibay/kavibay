@@ -1,0 +1,36 @@
+{
+  "format": "contract",
+  "name": "timer",
+  "displayName": "Timer",
+  "description": "Countdown timer with presets.",
+  "version": "1.0.0",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "timer": {
+      "replaces": "timer",
+      "keywords": ["timer", "countdown", "duration", "start"],
+      "categories": ["productivity"],
+      "ui": {
+        "defaultOffset": { "x": 720, "y": -70 },
+        "defaultSize": { "w": 200, "h": 160 }
+      },
+      "actions": [
+        {
+          "id": "set-timer",
+          "title": "Set Timer",
+          "subtitle": "Start a countdown",
+          "keywords": ["countdown", "start", "set"],
+          "params": [
+            {
+              "name": "duration",
+              "type": "text",
+              "required": true,
+              "placeholder": "Duration (25m, 1h30)"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

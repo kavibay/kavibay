@@ -1,0 +1,23 @@
+{
+  "format": "contract",
+  "name": "now-playing",
+  "version": "1.0.0",
+  "displayName": "Now Playing",
+  "description": "Currently playing media session.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "now-playing": {
+      "replaces": "now-playing",
+      "keywords": ["music", "media", "now playing", "spotify"],
+      "categories": ["media"],
+      "ui": {
+        "defaultOffset": { "x": 200, "y": -220 },
+        "defaultSize": { "w": 320, "h": 120 },
+        "allowDuplicate": false,
+        "flush": true,
+        "defaultHideTitle": true
+      }
+    }
+  }
+}

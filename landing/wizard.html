@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Widget Wizard showcase</title>
+    <!--
+      Same bundle as the playground: this page mounts the shipping
+      WidgetWizardWidget.vue, not a mock of it.
+    -->
+    <link rel="stylesheet" href="embed/kavibay-embed.css" />
+    <script type="module" defer src="embed/kavibay-embed.js"></script>
+    <style>
+      @font-face {
+        font-family: "Plus Jakarta Sans Variable";
+        src: url("fonts/plus-jakarta-sans-latin-wght-normal.woff2") format("woff2");
+        font-weight: 200 800;
+        font-style: normal;
+        font-display: swap;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        font-family: "Plus Jakarta Sans Variable", "Plus Jakarta Sans", system-ui, sans-serif;
+        font-size: 14px;
+        color: rgba(255, 255, 255, 0.72);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        background:
+          url("images/desktop.jpg") center / cover no-repeat fixed,
+          linear-gradient(160deg, #191922 0%, #0f0f15 100%) fixed;
+      }
+
+      .page {
+        box-sizing: border-box;
+        width: min(1108px, calc(100vw - 48px));
+        margin: 0 auto;
+        padding: 32px 0 40px;
+      }
+
+      .intro {
+        max-width: 62ch;
+        margin: 0 auto 24px;
+        text-align: center;
+      }
+
+      .intro h1 {
+        margin: 0 0 10px;
+        font-size: 26px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.94);
+      }
+
+      .intro p {
+        margin: 0 0 8px;
+        line-height: 1.65;
+      }
+
+      /*
+       * Said plainly, above the widget, not in a footnote.
+       *
+       * The component below is the real one and it behaves like the real one,
+       * which is exactly why the disclosure matters: somebody watching files
+       * appear has every reason to believe a model wrote them. On this page one
+       * did not.
+       */
+      .scripted {
+        display: inline-block;
+        margin-top: 6px;
+        padding: 7px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.06);
+        font-size: 13px;
+        line-height: 1.55;
+        color: rgba(255, 255, 255, 0.82);
+      }
+
+      .stage {
+        position: relative;
+        min-height: 680px;
+      }
+
+      kavibay-widget {
+        position: absolute;
+        left: 0;
+        top: 0;
+        font-family: inherit;
+        --surface-radius: 16px;
+        --surface-corner-shape: round;
+        --surface-bg-rgb: 28, 28, 32;
+        --fg-rgb: 255, 255, 255;
+        --inset-rgb: 0, 0, 0;
+        --shadow-rgb: 0, 0, 0;
+        --surface-alpha: 0.72;
+        --surface-sheen: linear-gradient(
+          177deg,
+          rgba(255, 255, 255, 0.05) 0%,
+          rgba(255, 255, 255, 0) 55%
+        );
+        --surface-border: rgba(255, 255, 255, 0.1);
+        --surface-inner-highlight:
+          inset 0 1px 0 rgba(255, 255, 255, 0.09), inset 0 0 0 1px rgba(255, 255, 255, 0.035);
+        --surface-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+        --surface-backdrop-filter: blur(16px) saturate(1);
+        --border: rgba(255, 255, 255, 0.1);
+        --text: rgba(255, 255, 255, 0.92);
+        --text-muted: rgba(255, 255, 255, 0.55);
+        --text-faint: rgba(255, 255, 255, 0.4);
+        --fill: rgba(255, 255, 255, 0.08);
+        --fill-hover: rgba(255, 255, 255, 0.14);
+        --bar-bg: rgba(0, 0, 0, 0.15);
+        --row-selected-bg: rgba(255, 255, 255, 0.1);
+        --row-selected-sheen: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.07) 0%,
+          rgba(255, 255, 255, 0) 62%
+        );
+        --row-selected-rim:
+          inset 0 1px 0 rgba(255, 255, 255, 0.13), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+        --row-selected-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        --action-hover-bg: rgba(255, 255, 255, 0.14);
+        --action-hover-rim: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <!--
+        Static markup: the headline and the disclosure are here, in the
+        document, not drawn by the widget. A crawler, a share preview and a
+        reader with scripting off all get the same sentences.
+      -->
+      <section class="intro">
+        <h1>Describe a widget. Watch it get written.</h1>
+        <p>
+          This is the Widget Wizard from the desktop app — the same component,
+          the same conversation, the same file editor and the same Save flow.
+        </p>
+        <p class="scripted">
+          It types the request itself and the reply is a recording. No model is
+          called from this page and nothing is saved: the draft lives in the tab
+          and disappears with it. Start typing at any point and the demo stops.
+        </p>
+      </section>
+
+      <div class="stage">
+        <kavibay-widget definition="widget-wizard" autoplay></kavibay-widget>
+      </div>
+    </div>
+  </body>
+</html>

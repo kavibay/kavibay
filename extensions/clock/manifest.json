@@ -1,0 +1,20 @@
+{
+  "format": "contract",
+  "name": "clock",
+  "version": "1.0.0",
+  "displayName": "Clock",
+  "description": "Local time with optional seconds and timezone.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "clock": {
+      "replaces": "clock",
+      "keywords": ["clock", "time", "uhr"],
+      "categories": ["productivity"],
+      "ui": {
+        "defaultOffset": { "x": 480, "y": -70 },
+        "defaultSize": { "w": 200, "h": 120 }
+      }
+    }
+  }
+}

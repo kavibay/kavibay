@@ -1,0 +1,30 @@
+{
+  "format": "contract",
+  "name": "color-picker",
+  "displayName": "Color Picker",
+  "description": "Pick and copy screen colors.",
+  "version": "1.0.0",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "keywords": [
+    "color",
+    "picker",
+    "eyedropper",
+    "farbe"
+  ],
+  "categories": [
+    "tools"
+  ],
+  "icon": "icon.svg",
+  "widgets": {
+    "color-picker": {
+      "replaces": "color-picker",
+      "keywords": ["color", "picker", "eyedropper", "farbe"],
+      "categories": ["tools"],
+      "ui": {
+        "defaultOffset": { "x": -480, "y": 320 },
+        "defaultSize": { "w": 200, "h": 160 }
+      }
+    }
+  }
+}

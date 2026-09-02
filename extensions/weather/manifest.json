@@ -1,0 +1,42 @@
+{
+  "format": "contract",
+  "name": "weather",
+  "version": "1.0.0",
+  "displayName": "Weather",
+  "description": "Current weather for a chosen location.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "weather": {
+      "replaces": "weather",
+      "keywords": ["weather", "wetter", "temperature", "forecast"],
+      "categories": ["information"],
+      "ui": {
+        "defaultOffset": { "x": -480, "y": -70 },
+        "defaultSize": { "w": 520, "h": 240 }
+      },
+      "actions": [
+        {
+          "id": "show-weather",
+          "title": "Show Weather",
+          "subtitle": "Weather for a city",
+          "keywords": ["forecast", "city", "temperature", "rain"],
+          "params": [
+            {
+              "name": "city",
+              "type": "text",
+              "required": true,
+              "placeholder": "City"
+            },
+            {
+              "name": "view",
+              "type": "enum",
+              "required": false,
+              "options": ["now", "details", "today", "week"]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

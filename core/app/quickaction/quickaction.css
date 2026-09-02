@@ -1,0 +1,18 @@
+/* Page styles for the quick-action popup, on top of the shared tokens in
+   core/app/styles.css (which this window imports for the theme variables, and
+   which already makes html/body transparent and non-scrolling).
+   Everything here is about one thing: the document must add nothing the menu
+   would have to be measured around. */
+
+#app {
+  /* Shrink-to-fit, so the menu's own box is what `getBoundingClientRect`
+     reports — the window is still oversized at that point. */
+  display: inline-block;
+}
+
+body {
+  /* A text drag inside a popup that sits under the mouse is never intended,
+     and on Windows it would start a selection in a window about to close. */
+  user-select: none;
+  cursor: default;
+}

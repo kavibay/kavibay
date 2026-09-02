@@ -1,0 +1,37 @@
+{
+  "format": "contract",
+  "name": "emoji-picker",
+  "displayName": "Emoji Picker",
+  "description": "Browse, search, and copy emoji.",
+  "version": "1.0.0",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "emoji-picker": {
+      "replaces": "emoji-picker",
+      "keywords": ["emoji", "picker", "copy", "search"],
+      "categories": ["tools"],
+      "ui": {
+        "defaultOffset": { "x": -320, "y": 280 },
+        "defaultSize": { "w": 288, "h": 280 },
+        "grabCursor": false
+      },
+      "actions": [
+        {
+          "id": "search-emojis",
+          "title": "Search Emoji",
+          "subtitle": "Search the emoji picker",
+          "keywords": ["search", "find", "emoji"],
+          "params": [
+            {
+              "name": "search",
+              "type": "text",
+              "required": true,
+              "placeholder": "Emoji name or keyword"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

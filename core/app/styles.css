@@ -1,0 +1,310 @@
+/* Selbst gehostete Schriften statt <link> auf fonts.googleapis.com. Zwei Gründe:
+   der externe Stylesheet blockierte das erste Rendern, und die CSP in
+   tauri.conf.json erlaubt weder googleapis (style-src) noch gstatic (font-src) —
+   im gepackten Build wären die Schriften also stumm auf system-ui zurückgefallen.
+   Die @font-face-Regeln kosten hier nichts: der Browser lädt eine .woff2 erst,
+   wenn die Familie tatsächlich gesetzt ist (siehe FONT_OPTIONS in
+   settings/appearanceLogic.ts). Variable Schnitte, daher eine Datei pro Familie
+   statt drei Gewichte. */
+@import "@fontsource-variable/plus-jakarta-sans";
+@import "@fontsource-variable/manrope";
+@import "@fontsource-variable/jetbrains-mono";
+
+/* Globale Styles für das transparente Vollbild-Overlay-Fenster.
+   html/body/#app MÜSSEN transparent sein — sonst zeichnet WebView2 einen weißen/
+   milchigen Hintergrund und die Fenstertransparenz aus tauri.conf.json geht optisch
+   verloren (siehe PLAN.md §7). */
+
+/*
+ * Two knobs decide how a mode feels, and both are mode-scoped rather than
+ * baked into call sites:
+ *   --surface-alpha  glass body. Dark glass separates from any wallpaper on its
+ *                    own; light glass over a bright desktop does not, so light
+ *                    adds body on top of the user's --surface-opacity setting.
+ *   --shadow-scale   multiplies every shadow preset. A drop shadow tuned to
+ *                    read under a dark card is a smudge under a near-white one.
+ * Tints follow the same rule: light mode never uses neutral black. Its --fg-rgb
+ * is a slate, which quietly warms up every `rgba(var(--fg-rgb), α)` fill and
+ * border already written throughout the app.
+ */
+
+/* Dark tokens as html fallback so first paint stays dark before JS apply. */
+html {
+  --surface-opacity: 0.72;
+  --surface-radius: 16px;
+  --surface-corner-shape: round;
+  --surface-bg-rgb: 28, 28, 32;
+  --fg-rgb: 255, 255, 255;
+  --inset-rgb: 0, 0, 0;
+  --shadow-rgb: 0, 0, 0;
+  --surface-shadow: 1;
+  --surface-alpha: var(--surface-opacity, 0.72);
+  --surface-saturate: 1;
+  --shadow-scale: 1;
+  /* Transparent no-ops so dark mode pays nothing for the light-mode lighting. */
+  /* Dark glass gets the same lit edge, an order of magnitude quieter — enough
+     that a card reads as a pane rather than a hole, without the milky top a
+     light-mode sheen would produce here. */
+  --surface-sheen: linear-gradient(
+    177deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0) 55%
+  );
+  --surface-border: rgba(var(--fg-rgb), 0.1);
+  --surface-inner-highlight:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09), inset 0 0 0 1px rgba(255, 255, 255, 0.035);
+  --surface-box-shadow: 0 8px 24px
+    rgba(var(--shadow-rgb), calc(0.35 * var(--surface-shadow, 1) * var(--shadow-scale, 1)));
+  --desktop-fill-bg: transparent;
+  --bar-bg: rgba(var(--inset-rgb), 0.15);
+  --text: rgba(var(--fg-rgb), 0.92);
+  --text-muted: rgba(var(--fg-rgb), 0.55);
+  --text-faint: rgba(var(--fg-rgb), 0.4);
+  --border: rgba(var(--fg-rgb), 0.1);
+  --border-strong: rgba(var(--fg-rgb), 0.28);
+  --fill: rgba(var(--fg-rgb), 0.08);
+  --fill-hover: rgba(var(--fg-rgb), 0.14);
+  --inset-bg: rgba(var(--inset-rgb), 0.25);
+  --scrollbar: rgba(var(--fg-rgb), 0.22);
+  --native-color-scheme: dark;
+}
+
+html[data-color-mode="dark"] {
+  --surface-bg-rgb: 28, 28, 32;
+  --fg-rgb: 255, 255, 255;
+  --inset-rgb: 0, 0, 0;
+  --shadow-rgb: 0, 0, 0;
+  --surface-alpha: var(--surface-opacity, 0.72);
+  --surface-saturate: 1;
+  --shadow-scale: 1;
+  /* Dark glass gets the same lit edge, an order of magnitude quieter — enough
+     that a card reads as a pane rather than a hole, without the milky top a
+     light-mode sheen would produce here. */
+  --surface-sheen: linear-gradient(
+    177deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0) 55%
+  );
+  --surface-border: rgba(var(--fg-rgb), 0.1);
+  --surface-inner-highlight:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09), inset 0 0 0 1px rgba(255, 255, 255, 0.035);
+  --bar-bg: rgba(var(--inset-rgb), 0.15);
+  --bar-top-highlight: 0 0 transparent;
+  /* Selected row: the card's own glass recipe at row scale — lit top edge,
+     sheen falling off downwards, hairline rim, and just enough shadow to lift
+     it off the list. Shadow tracks the user's strength slider but skips the
+     mode correction: it is small and tight, so it never smudges. */
+  --row-selected-bg: rgba(var(--fg-rgb), 0.1);
+  --row-selected-sheen: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.07) 0%,
+    rgba(255, 255, 255, 0) 62%
+  );
+  --row-selected-rim:
+    inset 0 1px 0 rgba(255, 255, 255, 0.13), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --row-selected-shadow: 0 1px 3px rgba(var(--shadow-rgb), calc(0.3 * var(--surface-shadow, 1)));
+  /* Controls sitting *on* a selected row — one level further up the stack, so
+     they lift again rather than tinting the row they sit on. */
+  --action-rest-bg: rgba(var(--fg-rgb), 0.09);
+  --action-hover-bg: rgba(var(--fg-rgb), 0.14);
+  --action-hover-rim: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  --text: rgba(var(--fg-rgb), 0.92);
+  --text-muted: rgba(var(--fg-rgb), 0.55);
+  --text-faint: rgba(var(--fg-rgb), 0.4);
+  --border: rgba(var(--fg-rgb), 0.1);
+  --border-strong: rgba(var(--fg-rgb), 0.28);
+  --fill: rgba(var(--fg-rgb), 0.08);
+  --fill-hover: rgba(var(--fg-rgb), 0.14);
+  --inset-bg: rgba(var(--inset-rgb), 0.25);
+  --scrollbar: rgba(var(--fg-rgb), 0.22);
+  --native-color-scheme: dark;
+}
+
+html[data-color-mode="light"] {
+  /*
+   * Only just cool. The panel carries almost no hue of its own — what tints it
+   * is the desktop coming through the glass. Building the colour into the fill
+   * instead makes it fight whatever is behind it.
+   */
+  --surface-bg-rgb: 246, 246, 250;
+  --fg-rgb: 38, 40, 58;
+  --inset-rgb: 30, 32, 52;
+  /* Violet-tinted, because a neutral-black shadow under a lavender panel
+     reads as a separate, dirtier object sitting behind it. */
+  --shadow-rgb: 42, 40, 72;
+  /* Additive, not a factor: a user who pulled opacity down to 0.2 still wants
+     glass, just with enough body that text does not sit on the wallpaper. */
+  --surface-alpha: min(1, calc(var(--surface-opacity, 0.72) + 0.11));
+  /* What is showing through is bright and already washed out by the blur —
+     without this the backdrop turns to grey mush. */
+  --surface-saturate: 1.35;
+  --shadow-scale: 0.55;
+  /*
+   * The single biggest thing separating light glass from a flat light card:
+   * a real panel is lit from above, so the top of the fill is brighter than
+   * the bottom and the whole outline is rimmed in light. Two parts to it —
+   * a sheen layered over the fill, and the rim below.
+   */
+  /*
+   * Sits deliberately between the old surface value and the selected row's:
+   * the row is a small object you look straight at, the card is a large field
+   * you look *through*, so the same curve at full strength turns into a visible
+   * wash across 300px of results instead of a lit edge.
+   */
+  --surface-sheen: linear-gradient(
+    177deg,
+    rgba(255, 255, 255, 0.48) 0%,
+    rgba(255, 255, 255, 0.13) 44%,
+    rgba(255, 255, 255, 0) 82%
+  );
+  /*
+   * Light mode inverts the outline: a light panel is separated from the desktop
+   * by its shadow, not by a dark stroke. A dark hairline here is exactly what
+   * made the old light mode look like a grey box cut out of the wallpaper.
+   */
+  --surface-border: rgba(255, 255, 255, 0.7);
+  --surface-inner-highlight:
+    inset 0 1px 0 rgba(255, 255, 255, 0.98), inset 0 0 0 1px rgba(255, 255, 255, 0.45);
+  /*
+   * The footer is *lighter* than the row above it, not darker. The sheen has
+   * faded out by the time it reaches the bottom of the card, so the footer
+   * starts its own lit section rather than sinking further — which is why a
+   * dark tint here looked wrong at any strength.
+   */
+  --bar-bg: rgba(255, 255, 255, 0.22);
+  /*
+   * The selected row goes *brighter* than the list, not darker — a raised sheet
+   * of glass. Its legibility comes from the rim and the shadow rather than from
+   * fill contrast, which is what keeps it from turning into the grey slab the
+   * old rgba(fg, 0.12) produced on a light panel.
+   */
+  --row-selected-bg: rgba(255, 255, 255, 0.78);
+  --row-selected-sheen: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.7) 0%,
+    rgba(255, 255, 255, 0.15) 55%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  --row-selected-rim:
+    inset 0 1px 0 rgb(255, 255, 255), inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+  --row-selected-shadow: 0 1px 4px rgba(var(--shadow-rgb), calc(0.16 * var(--surface-shadow, 1)));
+  /*
+   * The selected row is already near-white, so a dark tint here reads as a grey
+   * block dropped onto it. The control goes brighter still and earns its edge
+   * from a hairline plus a tight shadow — the same move as the row itself, one
+   * level further up.
+   */
+  --action-rest-bg: rgba(255, 255, 255, 0.55);
+  --action-hover-bg: rgba(255, 255, 255, 0.92);
+  --action-hover-rim:
+    inset 0 0 0 1px rgba(var(--fg-rgb), 0.08),
+    0 1px 3px rgba(var(--shadow-rgb), calc(0.16 * var(--surface-shadow, 1)));
+  /* Letterpress: the divider is a faint dark line with a lit one directly
+     under it, the same edge a real stacked panel would have. Kept well under
+     the outer rim's strength — this is a seam, not an edge of the card. */
+  --bar-top-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  /*
+   * Dividers stay faint (they sit on glass, they are not controls) while
+   * secondary text goes noticeably darker than in dark mode: light grey text on
+   * a light panel loses legibility long before white-on-dark does.
+   */
+  --text: rgba(var(--fg-rgb), 0.92);
+  --text-muted: rgba(var(--fg-rgb), 0.74);
+  --text-faint: rgba(var(--fg-rgb), 0.46);
+  /* Lower than dark mode's 0.1, not higher: these hairlines sit on a bright
+     fill where the same alpha reads a full step heavier. */
+  --border: rgba(var(--fg-rgb), 0.075);
+  --border-strong: rgba(var(--fg-rgb), 0.22);
+  --fill: rgba(var(--fg-rgb), 0.055);
+  --fill-hover: rgba(var(--fg-rgb), 0.09);
+  --inset-bg: rgba(var(--inset-rgb), 0.04);
+  --scrollbar: rgba(var(--fg-rgb), 0.26);
+  --native-color-scheme: light;
+}
+
+html {
+  corner-shape: var(--surface-corner-shape, round);
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
+
+body {
+  overflow: hidden;
+  font-family: var(
+    --font-family,
+    -apple-system,
+    "Segoe UI",
+    Inter,
+    Avenir,
+    Helvetica,
+    Arial,
+    sans-serif
+  );
+  color: var(--text);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/*
+ * Native scrollbars stay hidden — they reserve a gutter on Windows.
+ * Visual thumbs come from `installOverlayScrollbars()` (paint on top of content).
+ * Opt out of the overlay helper with `data-native-scroll` on the scroller.
+ */
+* {
+  box-sizing: border-box;
+  scrollbar-width: none;
+}
+
+/*
+ * Corner geometry is a global preference, so it propagates instead of being
+ * repeated. `corner-shape` is not an inherited property, and there are ~200
+ * rounded rules across core and extensions — declaring it at each one would
+ * mean the setting silently stops applying the moment anybody (including a
+ * third-party extension author) adds a border-radius without knowing about it.
+ * Forcing inheritance makes the setting cover the whole tree, present and
+ * future, from one declaration. `html` wins over `*` on specificity, so the
+ * root still reads the variable rather than inheriting from nothing.
+ * Opt an element out with an explicit `corner-shape: round` (see .qa-spinner).
+ */
+*,
+*::before,
+*::after {
+  corner-shape: inherit;
+}
+
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Fixed rail aligned to a scrollable’s right edge (see overlayScroll.ts). */
+.kavibay-overlay-scroll-rail {
+  position: fixed;
+  z-index: 5000;
+  width: 8px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.kavibay-overlay-scroll-rail--visible {
+  opacity: 1;
+}
+
+.kavibay-overlay-scroll-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.22);
+}

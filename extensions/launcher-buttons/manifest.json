@@ -1,0 +1,32 @@
+{
+  "format": "contract",
+  "name": "launcher-buttons",
+  "displayName": "Launcher Buttons",
+  "description": "Launch pinned apps with keyboard shortcuts.",
+  "version": "1.0.0",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "keywords": [
+    "apps",
+    "launcher",
+    "applications",
+    "start"
+  ],
+  "categories": [
+    "system"
+  ],
+  "icon": "icon.svg",
+  "widgets": {
+    "launcher-buttons": {
+      "replaces": "launcher-buttons",
+      "keywords": ["apps", "launcher", "applications", "start"],
+      "categories": ["system"],
+      "ui": {
+        "defaultOffset": { "x": 0, "y": 220 },
+        "defaultSize": { "w": 222, "h": 120 },
+        "compact": true,
+        "hugHeight": true
+      }
+    }
+  }
+}

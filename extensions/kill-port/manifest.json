@@ -1,0 +1,29 @@
+{
+  "format": "contract",
+  "name": "kill-port",
+  "displayName": "Kill Port",
+  "description": "Stop the process listening on a TCP port.",
+  "version": "1.0.0",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "keywords": ["kill", "port", "tcp", "process", "listener", "freigeben"],
+  "categories": ["tools"],
+  "icon": "icon.svg",
+  "actions": [
+    {
+      "id": "kill-port",
+      "title": "Kill Port",
+      "subtitle": "Stop the process listening on a TCP port",
+      "keywords": ["kill", "port", "tcp", "process", "free", "freigeben"],
+      "params": [
+        {
+          "name": "port",
+          "type": "text",
+          "required": true,
+          "placeholder": "Port (3000, :8080)"
+        }
+      ],
+      "needsInstance": false
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "format": "contract",
+  "name": "fitbit",
+  "version": "1.0.0",
+  "displayName": "Fitbit",
+  "description": "Fitbit profile, activity and sleep for widgets that connect a Fitbit account.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" }
+}

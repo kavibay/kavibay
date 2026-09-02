@@ -1,0 +1,8 @@
+# Text files are stored with LF in the repository regardless of a contributor's local
+# core.autocrlf, and checked out with the platform's native endings. Without this the
+# repo's line endings depend on each clone's git config: a Windows contributor with
+# autocrlf=false commits CRLF, and the next diff from Linux touches every line.
+* text=auto
+
+# Shell scripts must stay LF — a CRLF shebang makes Linux fail with "bad interpreter".
+*.sh text eol=lf

@@ -1,0 +1,35 @@
+name: PR title
+
+# PRs are squash-merged, so the title becomes the commit message and the line in the
+# auto-generated release notes. This is the whole changelog process.
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  conventional-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            refactor
+            perf
+            test
+            build
+            ci
+            chore
+          # Scope is optional; when given, it is usually the extension id.
+          requireScope: false
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: |
+            The subject "{subject}" should start lowercase, e.g.
+            "feat(extensions): add moon phase widget".

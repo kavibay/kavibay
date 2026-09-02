@@ -1,0 +1,20 @@
+{
+  "format": "contract",
+  "name": "ai-usage",
+  "version": "1.0.0",
+  "displayName": "AI Usage",
+  "description": "Codex and Claude Code subscription usage.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "ai-usage": {
+      "keywords": ["ai", "usage", "codex", "claude", "limits"],
+      "categories": ["system"],
+      "ui": {
+        "defaultOffset": { "x": -420, "y": 100 },
+        "defaultSize": { "w": 420, "h": 310 },
+        "keepAliveWhenHidden": true
+      }
+    }
+  }
+}

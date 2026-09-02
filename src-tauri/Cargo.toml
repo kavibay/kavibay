@@ -1,0 +1,103 @@
+[package]
+name = "kavibay"
+version = "0.1.0"
+description = "Raycast-like launcher prototype"
+authors = ["you"]
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "kavibay_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# `macos-private-api` is required by `macOSPrivateApi` in tauri.conf.json — without
+# it a transparent window is simply opaque on macOS, and the whole overlay look is
+# gone. The trade is deliberate: it rules out App Store distribution.
+tauri = { version = "2", features = ["protocol-asset", "tray-icon", "macos-private-api"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-global-shortcut = "2.3.2"
+tauri-plugin-single-instance = "2"
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1"] }
+rmcp = { version = "3.1.4", default-features = false, features = ["server", "transport-streamable-http-server"] }
+sysinfo = "0.39.6"
+starship-battery = "0.11"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "ico", "gif"] }
+tauri-plugin-dialog = "2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "json", "stream"] }
+futures-util = "0.3"
+regex = "1"
+url = "2"
+percent-encoding = "2"
+arboard = "3"
+sha2 = "0.10"
+# Widget export writes its own zip: one deflate stream per file plus two
+# headers. Both crates are already in the tree through reqwest, so this pins no
+# new download — and a zip crate would add archive reading and encryption that
+# nothing here uses.
+flate2 = "1"
+crc32fast = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+tokio = { version = "1", features = ["time", "net", "io-util", "rt"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+rand = "0.10"
+open = "5"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+plist = "1.7"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Global mouse button state for "Hide on outside click" (XQueryPointer). Already in
+# the tree via arboard/global-hotkey, so this pins no new version — and its own
+# connection keeps the read off GDK, which is not safe from the watcher thread.
+x11rb = "0.13"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+tauri-winrt-notification = "0.7.3"
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse",
+  # Quick actions ask UI Automation whether the focused control is read-only.
+  "Win32_UI_Accessibility",
+  "Win32_UI_Shell",
+  "Win32_Storage_FileSystem",
+  "Win32_Media_Audio",
+  "Win32_Media_Audio_Endpoints",
+  "Win32_NetworkManagement_IpHelper",
+  "Win32_Networking_WinSock",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_DataExchange",
+  "Win32_System_Shutdown",
+  "Win32_System_Environment",
+  "Win32_System_Threading",
+  "Win32_System_ProcessStatus",
+  "Win32_System_SystemInformation",
+  "Win32_Security_Cryptography",
+  "Foundation",
+  "Foundation_Collections",
+  "Media_Control",
+  "Storage",
+  "Storage_Search",
+  "Storage_Streams",
+] }
+
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

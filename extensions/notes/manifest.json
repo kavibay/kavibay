@@ -1,0 +1,34 @@
+{
+  "format": "contract",
+  "name": "notes",
+  "version": "1.0.0",
+  "displayName": "Notes",
+  "description": "Sticky notes with rich text.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "keywords": ["notes", "notiz", "text", "markdown"],
+  "categories": ["productivity"],
+  "widgets": {
+    "notes": {
+      "replaces": "notes",
+      "keywords": ["notes", "notiz", "text", "markdown", "write"],
+      "categories": ["productivity"],
+      "ui": {
+        "defaultOffset": { "x": 480, "y": 560 },
+        "defaultSize": { "w": 280, "h": 200 },
+        "grabCursor": false
+      },
+      "actions": [
+        {
+          "id": "new-note",
+          "title": "New Note",
+          "subtitle": "Jot something down",
+          "keywords": ["note", "jot", "write", "capture"],
+          "params": [
+            { "name": "text", "type": "text", "required": true, "placeholder": "Note text" }
+          ]
+        }
+      ]
+    }
+  }
+}

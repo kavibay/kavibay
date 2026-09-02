@@ -1,0 +1,4075 @@
+/* Landing Page — Hero plus the rest of the marketing site.
+   HTML, CSS and script.js stay the source of the document. The palette and
+   (later) widgets arrive as custom elements from `core/embed/`, loaded with
+   one script tag; they are enhancement, not the page. */
+
+/* Dieselben drei Familien, die auch die App ausliefert (siehe FONT_OPTIONS in
+   core/app/settings/appearanceLogic.ts) — die Seite spricht damit dieselbe
+   Sprache wie das Produkt. Die Dateien sind aus node_modules/@fontsource-variable
+   nach landing/fonts/ kopiert, weil ein bare import ("@fontsource-variable/…")
+   einen Build-Schritt bräuchte; so bleibt der Ordner statisch.
+   Nur die Latin-Subsets: die kyrillischen und griechischen Schnitte kosten
+   Bytes für Zeichen, die auf dieser Seite nicht vorkommen.
+   Alle drei sind variable Fonts — eine Datei deckt den ganzen Gewichtsbereich
+   ab, statt drei Dateien für Regular/Semibold/Bold. */
+@font-face {
+  font-family: "Manrope Variable";
+  src: url("fonts/manrope-latin-wght-normal.woff2") format("woff2");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Plus Jakarta Sans Variable";
+  src: url("fonts/plus-jakarta-sans-latin-wght-normal.woff2") format("woff2");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono Variable";
+  src: url("fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --ink: #0b0b0d; /* Fließtext/Headline, fast schwarz statt reinem #000 */
+  --ink-soft: #55565d;
+  --ink-faint: #9a9aa4; /* Schrittnummern und andere stille Marker */
+  --line: #e6e6ea;
+  --paper: #ffffff;
+  --accent: #8fe3b8; /* Der versetzte Block hinter dem Mockup */
+
+  --page-max: 1180px;
+  --radius: 14px;
+  /* Gleicher Weißraum zwischen den Blöcken auf Papier: nach den drei Spalten
+     unter einer Bühne, vor der nächsten Bühne, vor Get notified, vor dem Fuß. */
+  --section-gap: 96px;
+
+  /* Drei Rollen statt einer Schrift:
+     display — Manrope. Enge, geometrische Versalien; in 800 und mit negativem
+               Tracking wird die Headline eine Wand statt einer Zeile.
+     sans    — Plus Jakarta Sans. Die Default-Schrift der App, etwas offener
+               und wärmer als Manrope, deshalb der Fließtext.
+     mono    — JetBrains Mono. Trägt die kleinen technischen Signale:
+               Wortmarke, Eyebrow, Tastenkappen, Zeilen-Meta im Mockup.
+     Der Systemfallback steht dahinter, falls eine .woff2 nicht lädt. */
+  --font-display:
+    "Manrope Variable", "Manrope", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --font-sans:
+    "Plus Jakarta Sans Variable", "Plus Jakarta Sans", ui-sans-serif, system-ui, "Segoe UI",
+    sans-serif;
+  --font-mono:
+    "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas,
+    monospace;
+
+  /* Das Mockup skaliert über eine einzige Einheit: alles darin rechnet in
+     Vielfachen von --u. Dadurch bleibt die Fensterkomposition bei jeder
+     Breite stimmig, statt dass Text und Karten unterschiedlich schnell
+     schrumpfen. */
+  --u: clamp(7px, 0.92vw, 12px);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  /* Keep every existing high-radius corner on the same soft squircle geometry. */
+  corner-shape: squircle;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  /* Der Get-notified-Button im Hero ist ein Anker auf #notify. Den weichen
+     Sprung übernimmt direkt der Browser. */
+  scroll-behavior: smooth;
+  /* Raster, Punkte und der versetzte Akzentblock ragen absichtlich über den
+     Textbereich hinaus. Ohne das hier erzeugen sie eine horizontale Scrollbar
+     — auf html *und* body, weil der Browser die Angabe von body sonst an den
+     Viewport weiterreicht und body selbst wieder sichtbar überlaufen lässt. */
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-synthesis-weight: none;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ---------------------------------------------------------------- Dekor --
+   Zwei rein dekorative Flächen hinter dem Inhalt. Beide sind aus Gradients
+   gebaut statt aus Bildern: kostet keinen Request und bleibt bei jedem
+   Zoomlevel scharf. */
+
+.decor {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Das Raster sitzt hinter der Wortmarke und strahlt von dort nach außen aus.
+   Statt die Nav-Rechnung (zentrierte Spalte, Innenabstand, Breakpoint) hier zu
+   wiederholen, greift es die Wortmarke direkt per Anker — damit stimmt der
+   Mittelpunkt auch dann noch, wenn sich Padding oder Schriftgrad ändern.
+   left/top davor sind die Rückfallwerte ohne Anker-Unterstützung. */
+.decor--grid {
+  left: 84px;
+  top: 46px;
+  position-anchor: --logo;
+  left: anchor(center);
+  top: anchor(center);
+  translate: -50% -50%;
+  width: 880px;
+  height: 880px;
+  background-image:
+    linear-gradient(to right, var(--line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+  background-size: 120px 120px;
+  /* `center` legt eine Zellenmitte genau auf den Mittelpunkt des Elements, also
+     auf die Wortmarke — sonst liefe ein Linienkreuz mitten durch die Schrift. */
+  background-position: center;
+  /* Ausblenden in alle Richtungen, damit das Raster nirgends abrupt endet. */
+  mask-image: radial-gradient(circle 400px at 50% 50%, #000 12%, transparent 72%);
+}
+
+/* Hängt am Showcase statt an einer festen Seitenposition — so bleibt sie neben
+   dem Mockup, egal wie hoch Headline und Text darüber ausfallen. */
+.decor--dots {
+  right: -96px;
+  bottom: -16px;
+  width: 320px;
+  height: 280px;
+  background: radial-gradient(currentColor 2px, transparent 2px) 0 0 / 40px 40px;
+  color: #d7d7de;
+  mask-image: radial-gradient(80% 80% at 100% 50%, #000 30%, transparent 78%);
+}
+
+/* ------------------------------------------------------------------ Nav -- */
+
+.nav {
+  position: relative;
+  z-index: 2;
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 28px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+/* Die Wortmarke ist das ganze Logo, also darf sie Charakter haben: Mono,
+   weit gesperrt. Das rechte Sperrmaß erzeugt rechts einen Leerraum, den
+   margin-right wieder abzieht — sonst sitzt sie optisch zu weit links. */
+.wordmark {
+  /* Ankerpunkt für das Rasterdekor, siehe .decor--grid. */
+  anchor-name: --logo;
+  font-family: var(--font-mono);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  margin-right: -0.3em;
+  text-transform: uppercase;
+}
+
+.nav__links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav__link,
+.nav__cta {
+  font-size: 15px;
+  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: 999px;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.nav__link {
+  color: var(--ink-soft);
+}
+
+.nav__link:hover {
+  color: var(--ink);
+  background: #f2f2f5;
+}
+
+.nav__cta {
+  background: var(--ink);
+  color: #fff;
+  padding: 11px 22px;
+}
+
+.nav__cta:hover {
+  background: #26262c;
+}
+
+/* ----------------------------------------------------------------- Hero -- */
+
+.hero {
+  position: relative;
+  z-index: 1;
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 56px 24px 0;
+  text-align: center;
+}
+
+/* Kleine, gesperrte Mono-Zeile über der Headline. Sie gibt dem Block eine
+   zweite typografische Ebene und beantwortet nebenbei die erste Frage, die
+   jeder Besucher hat: Was ist das, für welches System, zu welchem Preis. */
+.eyebrow {
+  margin: 0 0 22px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.hero__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(40px, 7.2vw, 88px);
+  line-height: 1.02;
+  /* Manrope läuft von Haus aus eng; im Displaygrad darf noch mehr weg, sonst
+     zerfällt die Zeile in Wörter statt einen Block zu bilden. */
+  letter-spacing: -0.045em;
+  font-weight: 800;
+}
+
+.hero__spark {
+  color: #f0b429;
+  font-size: 0.62em;
+  vertical-align: 0.32em;
+  margin-left: 0.06em;
+}
+
+.hero__sub {
+  /* 700px statt der 620px der Sektionssublines: die Zeile wächst auf großen
+     Displays auf 19px mit und braucht die Breite, um in zwei Zeilen zu
+     bleiben. balance verteilt den Text gleichmäßig auf sie, sonst hängt am
+     Ende eine kurze Restzeile. */
+  max-width: 700px;
+  margin: 26px auto 0;
+  font-size: clamp(16px, 1.35vw, 19px);
+  line-height: 1.6;
+  text-wrap: balance;
+  color: var(--ink-soft);
+}
+
+/* Hält "Ctrl Space" zusammen — sonst landet die eine Taste am Zeilenende und
+   die andere in der nächsten Zeile. */
+.shortcut {
+  white-space: nowrap;
+}
+
+.kbd {
+  display: inline-block;
+  padding: 2px 10px 5px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  corner-shape: squircle;
+  background: linear-gradient(180deg, #fff 0%, #f1f1f4 100%);
+  color: var(--ink);
+  font-size: 0.8em;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  box-shadow:
+    rgba(0, 0, 0, 0.4) 0px 2px 4px,
+    rgba(0, 0, 0, 0.3) 0px 7px 13px -3px,
+    rgba(0, 0, 0, 0.2) 0px -3px 0px inset;
+}
+
+.hero__actions {
+  margin-top: 34px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  /* Auch <button> trägt diese Klasse (Early-Access-Formular), deshalb hier
+     der Reset — sonst erbt es Systemschrift und Systemrahmen. */
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 17px 30px;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 700;
+  transition:
+    transform 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+}
+
+.btn--primary {
+  background: var(--ink);
+  color: #fff;
+}
+
+.btn--primary:hover {
+  background: #26262c;
+}
+
+.btn--ghost {
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.btn--ghost:hover {
+  border-color: #c9c9d2;
+}
+
+/* ------------------------------------------------------------- Showcase --
+   Laptop-Mockup mit versetztem Akzentblock dahinter. */
+
+.showcase {
+  position: relative;
+  margin: 88px auto 0;
+  max-width: 1080px;
+  /* Platz für den Überstand des Akzentblocks — der ragt aus .showcase__frame
+     heraus und würde sonst am Seitenende abgeschnitten. */
+  padding-bottom: 56px;
+}
+
+.showcase__frame {
+  position: relative;
+}
+
+.showcase__accent {
+  position: absolute;
+  inset: 40px -34px -34px 60px;
+  border-radius: 22px;
+  background: var(--accent);
+  z-index: 0;
+}
+
+.laptop {
+  position: relative;
+  z-index: 1;
+  width: 94%;
+  margin: 0 auto;
+}
+
+.laptop__screen {
+  position: relative;
+  --screen-radius-top: 24px;
+  --screen-radius-bottom: 10px;
+  --screen-inset-x: 14px;
+  --screen-inset-top: 14px;
+  --screen-inset-bottom: 16px;
+  aspect-ratio: 1920 / 1200;
+  padding: var(--screen-inset-top) var(--screen-inset-x) var(--screen-inset-bottom);
+  border: 1px solid #34363c;
+  border-radius: var(--screen-radius-top) var(--screen-radius-top)
+    var(--screen-radius-bottom) var(--screen-radius-bottom);
+  background: linear-gradient(145deg, #24262b 0%, #0e0f12 72%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 28px 70px rgba(16, 16, 24, 0.24);
+}
+
+/* Die kleine Kamera im oberen Displayrand macht die Geräteform auch ohne
+   Logo eindeutig, bleibt aber bewusst zurückhaltend. */
+.laptop__screen::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: #06070a;
+  box-shadow: inset 0 0 0 1px rgba(78, 104, 128, 0.34);
+}
+
+.laptop__base {
+  position: relative;
+  width: 108%;
+  height: 20px;
+  margin-left: -4%;
+  border-radius: 2px 2px 18px 18px;
+  background: linear-gradient(180deg, #e4e5e8 0%, #b9bcc2 48%, #858992 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 14px 24px rgba(16, 16, 24, 0.18);
+}
+
+.laptop__base::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 15%;
+  height: 5px;
+  transform: translateX(-50%);
+  border-radius: 0 0 8px 8px;
+  background: #8f939b;
+  box-shadow: inset 0 1px 1px rgba(46, 48, 54, 0.35);
+}
+
+/* Gemeinsame Glas-Rezeptur für die statische Palette — dieselben Zutaten
+   wie in der App: getönte Fläche, feiner Rahmen, aufgehellte Oberkante,
+   Schatten. Not `.wiz`: that class is the Widget Wizard grid, which has
+   no chrome of its own. */
+.card,
+.palette {
+  background: rgba(28, 28, 32, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: calc(var(--u) * 1.4);
+  backdrop-filter: blur(20px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 calc(var(--u) * 0.8) calc(var(--u) * 2.4) rgba(0, 0, 0, 0.45);
+}
+
+.hero__video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Die innere Rundung entspricht dem äußeren Radius minus dem Displayrand. */
+  border-radius:
+    max(0px, calc(var(--screen-radius-top) - var(--screen-inset-top)))
+    max(0px, calc(var(--screen-radius-top) - var(--screen-inset-top)))
+    max(0px, calc(var(--screen-radius-bottom) - var(--screen-inset-bottom)))
+    max(0px, calc(var(--screen-radius-bottom) - var(--screen-inset-bottom)));
+  object-fit: cover;
+  background: #0e0f12;
+}
+
+.video-chapters {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  width: 88%;
+  margin: 64px auto 0;
+}
+
+.video-chapter {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #dce5e0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 8px 22px rgba(20, 60, 45, 0.06);
+  transition:
+    border-color 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.video-chapter::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--chapter-progress, 0%);
+  background: linear-gradient(90deg, rgba(143, 227, 184, 0.72), rgba(143, 227, 184, 0.5));
+  pointer-events: none;
+  will-change: width;
+}
+
+.video-chapter:hover {
+  border-color: #a9d9c2;
+  transform: translateY(-1px);
+  box-shadow: 0 10px 26px rgba(20, 60, 45, 0.1);
+}
+
+.video-chapter[aria-current="true"] {
+  border-color: #6fcf9d;
+  box-shadow: 0 10px 28px rgba(49, 145, 98, 0.14);
+}
+
+.video-chapter:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
+.video-chapter__label,
+.video-chapter__time {
+  position: relative;
+  z-index: 1;
+}
+
+.video-chapter__label {
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-chapter__time {
+  flex: none;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------- Scharnier --
+   Der Hero reißt alle drei Funktionen einmal an, danach fängt der Detailteil
+   an. Die Zeile steht kleiner als eine Sektionsüberschrift: sie markiert den
+   Übergang und soll den drei Abschnitten darunter nicht die Aufmerksamkeit
+   wegnehmen. */
+
+.handoff {
+  position: relative;
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 88px 24px 48px;
+  text-align: center;
+}
+
+/* Dasselbe Raster wie hinter der Wortmarke, auf die Headline zentriert. */
+.handoff__grid {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 0;
+  width: 880px;
+  height: 880px;
+  translate: -50% -50%;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, var(--line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+  background-size: 120px 120px;
+  background-position: center;
+  mask-image: radial-gradient(circle 400px at 50% 50%, #000 12%, transparent 72%);
+}
+
+.handoff__line {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(32px, 4.4vw, 52px);
+  line-height: 1.25;
+  letter-spacing: -0.035em;
+  font-weight: 800;
+}
+
+/* Keycaps sit a hair low in the display line; lift them so the 3D lip
+   doesn't collide with the subline. */
+.handoff__line .kbd,
+.wizplay__intro .kbd {
+  vertical-align: 0.12em;
+  padding: 4px 12px 8px;
+  border-radius: 14px;
+}
+
+.handoff__sub {
+  margin: 16px 0 0;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+/* Dünner Strich als Weiterlese-Signal. Er läuft nach unten ins Transparente
+   aus, damit er wie eine Fortsetzung wirkt und nicht wie ein Schlussstrich. */
+.handoff__rule {
+  display: block;
+  width: 1px;
+  height: 64px;
+  margin: 32px auto 0;
+  background: linear-gradient(180deg, var(--line), transparent);
+}
+
+/* ------------------------------------------------------ Widget gallery --
+   Two full-bleed rows make the extension range feel larger than the page
+   column. The shared stage keeps both rows horizontally scrollable together. */
+
+.widget-gallery__intro {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 0 24px 64px;
+  text-align: center;
+}
+
+.widget-gallery {
+  --gallery-gap: 32px;
+  --gallery-offset: clamp(18px, 3vw, 56px);
+  --gallery-row-shift: 100px;
+  --gallery-card-width: clamp(320px, 33.333vw, 720px);
+  --gallery-radius: 32px;
+  width: calc(100vw - clamp(48px, 6vw, 120px));
+  margin: var(--section-gap) 0 0 50%;
+  padding: 72px 0 var(--gallery-gap);
+  background: #1a1a1f;
+  border-radius: 32px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  transform: translateX(-50%);
+  scrollbar-width: none;
+}
+
+.widget-gallery::-webkit-scrollbar {
+  display: none;
+}
+
+/* Unter der dunklen Galerie und unter der Launcher-Bühne, auf Papier.
+   Dieselben drei Spalten wie die Takte unter der Wizard-Bühne — eigene
+   Klasse, weil .wizplay__copy in .wizplay sitzt und dessen Innenabstand
+   mitnimmt. */
+.widget-gallery__points,
+.overlay__points {
+  max-width: 1000px;
+  margin: 56px auto 0;
+  padding: 0 24px;
+  text-align: left;
+}
+
+.widget-gallery__stage {
+  width: max(108vw, 1180px);
+  padding: 0 var(--gallery-offset);
+}
+
+.widget-gallery__row {
+  display: grid;
+  grid-template-columns: none;
+  grid-auto-columns: var(--gallery-card-width);
+  grid-auto-flow: column;
+  gap: var(--gallery-gap);
+}
+
+.widget-gallery__row--upper {
+  margin-inline: 0;
+  transform: translateX(
+    calc(var(--gallery-gap) - var(--gallery-offset) + var(--gallery-parallax, 0px))
+  );
+}
+
+.widget-gallery__row--lower {
+  margin-inline: calc(var(--gallery-offset) * -2);
+  margin-right: calc(var(--gallery-offset) * -2 - var(--gallery-row-shift));
+  margin-top: 32px;
+  transform: translateX(
+    calc(var(--gallery-offset) - var(--gallery-row-shift) - var(--gallery-parallax, 0px))
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .widget-gallery__row--upper,
+  .widget-gallery__row--lower {
+    --gallery-parallax: 0px !important;
+  }
+}
+
+/* An die Galerie gebunden, nicht global.
+   .widget-card ist auch der Klassenname der echten WidgetCard.vue, und die
+   steht seit dem Playground weiter unten mit im Dokument. Ungebunden erbte sie
+   von hier eine zweite Hintergrundfläche, einen zweiten Schlagschatten,
+   will-change: transform (das einen Containing Block erzeugt und das
+   position: fixed Menü im Wizard verschiebt) und ein scale(1.05) beim Hovern.
+   Die __-Kindklassen kollidieren nicht: die App schreibt widget-card-surface,
+   nicht widget-card__surface. */
+.widget-gallery .widget-card {
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  position: relative;
+  z-index: 0;
+  display: grid;
+  align-items: center;
+  grid-template-columns: minmax(190px, 58%) minmax(0, 1fr);
+  gap: 18px;
+  padding: calc(var(--gallery-gap) / 2);
+  border: 0;
+  border-radius: var(--gallery-radius);
+  background: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.widget-card__media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border-radius: var(--gallery-radius);
+  background:
+    radial-gradient(80% 70% at 20% 12%, rgba(143, 227, 184, 0.24), transparent 65%),
+    linear-gradient(145deg, #292a31 0%, #111216 100%);
+}
+
+.widget-card__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.widget-card__media::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 20px 20px;
+  transition: opacity 0.18s ease;
+}
+
+.widget-card__play {
+  position: relative;
+  z-index: 1;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  transition: opacity 0.18s ease;
+}
+
+.widget-card__play::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 52%;
+  transform: translate(-40%, -50%);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 8px solid rgba(255, 255, 255, 0.8);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .widget-gallery .widget-card:hover {
+    z-index: 2;
+    transform: scale(1.05);
+  }
+
+  .widget-gallery .widget-card:hover .widget-card__media--video::after,
+  .widget-gallery .widget-card:hover .widget-card__play {
+    opacity: 0;
+  }
+}
+
+.widget-card__copy {
+  min-width: 0;
+  align-self: center;
+  padding: 0;
+  color: #fff;
+  text-align: left;
+}
+
+.widget-card__category {
+  display: block;
+  margin: 0 0 12px;
+  color: rgba(255, 255, 255, 0.58);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.widget-card__title {
+  margin: 0 0 9px;
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: clamp(22px, 2vw, 32px);
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+}
+
+.widget-card__description {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: clamp(14px, 1.1vw, 17px);
+  line-height: 1.55;
+}
+
+.widget-gallery__title {
+  color: #fff;
+}
+
+.widget-gallery__subtitle {
+  color: rgba(255, 255, 255, 0.68);
+}
+
+/* This selector stays more specific than the shared light-page subtitle rule. */
+.widget-gallery__intro .widget-gallery__subtitle {
+  color: rgba(255, 255, 255, 0.68);
+}
+
+/* An den Nachbau gebunden, aus demselben Grund wie .widget-card weiter oben:
+   .wiz ist die Wurzelklasse von WidgetWizardWidget.vue, und die steht seit dem
+   Playground mit im Dokument. Ungebunden bekam die echte Karte hier width: 97%
+   und stand mit 31px Luft rechts in ihrem eigenen Body. */
+.wiz-demo .wiz {
+  width: 97%;
+  height: 94%;
+  display: grid;
+  grid-template-columns: 15% minmax(0, 1fr) minmax(0, 1.05fr);
+  gap: calc(var(--u) * 1.1);
+  padding: calc(var(--u) * 1.1);
+  font-size: calc(var(--u) * 1.05);
+  line-height: 1.45;
+}
+
+.wiz__side,
+.wiz__chat,
+.wiz__preview {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--u) * 0.5);
+  min-width: 0;
+  min-height: 0;
+}
+
+.wiz__side {
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  padding-right: calc(var(--u) * 1);
+}
+
+.wiz__new {
+  padding: calc(var(--u) * 0.5) calc(var(--u) * 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: calc(var(--u) * 0.7);
+  background: rgba(255, 255, 255, 0.08);
+  margin-bottom: calc(var(--u) * 0.4);
+}
+
+.wiz__label {
+  margin: calc(var(--u) * 0.6) 0 calc(var(--u) * 0.1);
+  font-family: var(--font-mono);
+  font-size: calc(var(--u) * 0.8);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.5;
+}
+
+.wiz__item {
+  padding: calc(var(--u) * 0.32) calc(var(--u) * 0.5);
+  border-radius: calc(var(--u) * 0.5);
+  color: rgba(255, 255, 255, 0.75);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wiz__item--on {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+/* Mitte: Name, Verlauf, Eingabe */
+
+.wiz__name {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--u) * 0.6);
+}
+
+.wiz__name-field {
+  flex: 1;
+  padding: calc(var(--u) * 0.35) calc(var(--u) * 0.6);
+  border-radius: calc(var(--u) * 0.7);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: calc(var(--u) * 1.2);
+}
+
+.wiz__id {
+  font-family: var(--font-mono);
+  font-size: calc(var(--u) * 0.8);
+  opacity: 0.5;
+}
+
+.wiz__transcript {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--u) * 0.7);
+  padding-top: calc(var(--u) * 0.4);
+  min-height: 0;
+}
+
+.bubble {
+  margin: 0;
+}
+
+/* Der Satz des Nutzers ist der Ausgangspunkt der ganzen Seite — er sitzt rechts
+   in der Blase, genau wie im Produkt, und bekommt hier etwas mehr Kontrast als
+   die Antwort darunter. */
+.bubble--you {
+  align-self: flex-end;
+  max-width: 88%;
+  padding: calc(var(--u) * 0.6) calc(var(--u) * 0.9);
+  border-radius: calc(var(--u) * 1.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.bubble--wiz {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+.wiz__compose {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--u) * 0.5);
+}
+
+.wiz__compose-hint {
+  padding: calc(var(--u) * 0.6) calc(var(--u) * 0.6) calc(var(--u) * 1.6);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: calc(var(--u) * 0.75);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.wiz__compose-bar {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 0.5);
+}
+
+.wiz__spacer {
+  flex: 1;
+}
+
+.wiz__plus,
+.wiz__model,
+.wiz__send,
+.wiz__action {
+  padding: calc(var(--u) * 0.3) calc(var(--u) * 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: calc(var(--u) * 0.5);
+  background: rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+}
+
+.wiz__plus {
+  padding: calc(var(--u) * 0.3) calc(var(--u) * 0.55);
+}
+
+.wiz__action--quiet {
+  opacity: 0.45;
+}
+
+/* Rechts: Tabs, Bühne, Aktionen */
+
+.wiz__tabs {
+  display: flex;
+  gap: calc(var(--u) * 0.3);
+}
+
+.wiz__tab {
+  padding: calc(var(--u) * 0.3) calc(var(--u) * 0.6);
+  border-radius: calc(var(--u) * 0.5);
+  font-family: var(--font-mono);
+  font-size: calc(var(--u) * 0.8);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.5;
+}
+
+.wiz__tab--on {
+  background: rgba(255, 255, 255, 0.1);
+  opacity: 0.95;
+}
+
+/* Die Bühne zeigt den Entwurf in der Kartenhülle, die er auf dem Desk tragen
+   wird — deshalb steht hier eine echte Karte und kein Bildrahmen. */
+.wiz__stage {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: calc(var(--u) * 0.9);
+  padding: calc(var(--u) * 1);
+  min-height: 0;
+}
+
+.card {
+  width: 100%;
+  max-width: calc(var(--u) * 22);
+  overflow: hidden;
+}
+
+.card__bar {
+  padding: calc(var(--u) * 0.45) calc(var(--u) * 0.8);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: calc(var(--u) * 0.9);
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.card__body {
+  padding: calc(var(--u) * 0.9);
+}
+
+.tracker__amount {
+  font-family: var(--font-display);
+  font-size: calc(var(--u) * 2.6);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.tracker__unit {
+  font-size: 0.45em;
+  font-weight: 500;
+  opacity: 0.6;
+  margin-left: 0.25em;
+}
+
+.tracker__goal {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: calc(var(--u) * 0.95);
+}
+
+.tracker__bar {
+  height: calc(var(--u) * 0.5);
+  margin: calc(var(--u) * 0.8) 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.tracker__bar i {
+  display: block;
+  width: var(--p);
+  height: 100%;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.tracker__buttons {
+  display: flex;
+  gap: calc(var(--u) * 0.5);
+}
+
+.tracker__add {
+  flex: 1;
+  text-align: center;
+  padding: calc(var(--u) * 0.4) 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: calc(var(--u) * 0.6);
+  background: rgba(255, 255, 255, 0.08);
+  font-size: calc(var(--u) * 0.95);
+}
+
+.wiz__actions {
+  display: flex;
+  gap: calc(var(--u) * 0.5);
+}
+
+/* ---- Palette ---- */
+
+.palette {
+  position: absolute;
+  left: 50%;
+  top: 9%;
+  transform: translateX(-50%);
+  width: 46%;
+  padding: calc(var(--u) * 0.9);
+}
+
+/*
+ * Tokens inherit across the shadow boundary. These are the app's dark-glass
+ * values, scoped to the elements so the rest of the (light) page does not
+ * pick them up. Fallbacks inside the components cover the standalone proof
+ * pages, which have none of this sheet.
+ *
+ * Both embed elements read the same set, so they share the rule rather than
+ * carrying two copies that drift. What is palette-specific — where it sits in
+ * the mock window, how tall its result list is — follows below.
+ */
+kavibay-palette-demo,
+.wizplay__desk kavibay-widget {
+  --surface-radius: 16px;
+  /*
+   * Squircle, wie in der App unter Einstellungen → Darstellung → Ecken.
+   *
+   * Die App liefert `round` aus (DEFAULT_CORNER_SHAPE) und schreibt die
+   * gewählte Form zur Laufzeit als `--surface-corner-shape` auf <html>
+   * (appearanceLogic.applyCornerShapeToDocument). Genau dieses Token wird hier
+   * gesetzt — es ist derselbe Schalter, nicht eine zweite Geometrie: Palette,
+   * Zeilen, Chips und Karten folgen ihm gemeinsam. Und es ist die Form, die
+   * die Seite ohnehin überall verwendet.
+   */
+  --surface-corner-shape: squircle;
+  --surface-bg-rgb: 28, 28, 32;
+  --fg-rgb: 255, 255, 255;
+  --inset-rgb: 0, 0, 0;
+  --shadow-rgb: 0, 0, 0;
+  --surface-alpha: 0.72;
+  --surface-sheen: linear-gradient(
+    177deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0) 55%
+  );
+  --surface-border: rgba(255, 255, 255, 0.1);
+  --surface-inner-highlight:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09), inset 0 0 0 1px rgba(255, 255, 255, 0.035);
+  --surface-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --surface-backdrop-filter: blur(16px) saturate(1);
+  --border: rgba(255, 255, 255, 0.1);
+  --text: rgba(255, 255, 255, 0.92);
+  --text-muted: rgba(255, 255, 255, 0.55);
+  --text-faint: rgba(255, 255, 255, 0.4);
+  --fill: rgba(255, 255, 255, 0.08);
+  --fill-hover: rgba(255, 255, 255, 0.14);
+  --bar-bg: rgba(0, 0, 0, 0.15);
+  --row-selected-bg: rgba(255, 255, 255, 0.1);
+  --row-selected-sheen: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.07) 0%,
+    rgba(255, 255, 255, 0) 62%
+  );
+  --row-selected-rim:
+    inset 0 1px 0 rgba(255, 255, 255, 0.13), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --row-selected-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --action-hover-bg: rgba(255, 255, 255, 0.14);
+  --action-hover-rim: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Wo die Palette auf dem Desk sitzt.
+
+   Früher hing diese Regel am Mock-Fenster (`.window__body`): ungebunden
+   hätte eine zweite Palette auf der Seite die 46%-Breite und den 9%-Abstand
+   jenes Mockups geerbt. Beide Paletten liegen jetzt auf einem Desk, und die
+   Maße sind dieselben wie bei der Tour oben. */
+.wizplay__desk kavibay-palette-demo,
+.wizplay__desk .palette {
+  --palette-list-height: 280px;
+  position: absolute;
+  left: 50%;
+  top: 280px;
+  width: min(640px, 100%);
+  transform: translateX(-50%);
+  pointer-events: auto;
+  z-index: 2;
+}
+
+/* Hidden until the embed script upgrades it, so a missing bundle does not
+   leave an empty box on top of the static mock. */
+kavibay-palette-demo:not(:defined) {
+  display: none;
+}
+
+/* The static mock is the no-JS document. Once the live element is a real
+   custom element, showing both would be two palettes. */
+kavibay-palette-demo:defined + .palette {
+  display: none;
+}
+
+.palette__search {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 0.8);
+  padding: calc(var(--u) * 0.9) calc(var(--u) * 0.9) calc(var(--u) * 1.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.icon {
+  width: calc(var(--u) * 1.6);
+  height: calc(var(--u) * 1.6);
+  flex: none;
+}
+
+.palette__query {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: calc(var(--u) * 1.45);
+}
+
+/* Cursor blinkt — das einzige Stück Bewegung im Mockup. */
+.caret {
+  display: inline-block;
+  width: 1px;
+  height: calc(var(--u) * 1.5);
+  margin-left: 2px;
+  vertical-align: -0.18em;
+  background: rgba(255, 255, 255, 0.85);
+  animation: blink 1.1s steps(1) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.palette__list {
+  list-style: none;
+  margin: calc(var(--u) * 0.7) 0 0;
+  padding: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 0.9);
+  padding: calc(var(--u) * 0.62) calc(var(--u) * 0.8);
+  border-radius: calc(var(--u) * 0.7);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Ausgewählte Zeile: dieselbe Glas-Logik eine Ebene höher. */
+.row--active {
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.13),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  color: #fff;
+}
+
+.row__icon {
+  width: calc(var(--u) * 1.6);
+  text-align: center;
+  font-size: calc(var(--u) * 1.1);
+}
+
+.row__label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row__meta {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: calc(var(--u) * 1);
+}
+
+.row__kbd {
+  padding: 0 calc(var(--u) * 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: calc(var(--u) * 0.4);
+  font-size: calc(var(--u) * 0.9);
+  color: rgba(255, 255, 255, 0.7);
+  font-family: var(--font-mono);
+}
+
+/* -------------------------------------------------------- Wizard-Sektion --
+   Headline und Demo sitzen in derselben almost-full-bleed Box wie die
+   Widget-Galerie, auf dem Cosmic-Cliffs-Still. */
+
+.wizard {
+  margin: 0;
+  padding: 0;
+  text-align: center;
+}
+
+.wiz-stage-wrap {
+  margin-top: 0;
+}
+
+.wiz-stage {
+  position: relative;
+  width: calc(100vw - clamp(48px, 6vw, 120px));
+  margin: 0 0 0 50%;
+  padding: 64px 24px;
+  overflow: hidden;
+  border-radius: 32px;
+  background: #1a1a1f;
+  transform: translateX(-50%);
+}
+
+.wiz-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(8, 10, 18, 0.78) 0%,
+    rgba(8, 10, 18, 0.32) 42%,
+    rgba(8, 10, 18, 0.22) 100%
+  );
+}
+
+.wiz-stage__intro {
+  position: relative;
+  z-index: 2;
+  max-width: 720px;
+  margin: 0 auto 48px;
+  padding: 0 12px;
+}
+
+.wiz-stage__intro .wizard__line {
+  color: #fff;
+}
+
+.wiz-stage__intro .wizard__sub {
+  max-width: 520px;
+  margin: 14px auto 0;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.wiz-desktop {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* After the conversation the wizard card leaves and these slots hold
+   finished widgets on the wallpaper, like real overlay instances. */
+.wiz-placed {
+  --fg-rgb: 255, 255, 255;
+  --surface-bg-rgb: 28, 28, 32;
+  --surface-sheen: linear-gradient(
+    177deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0) 55%
+  );
+  --surface-border: rgba(var(--fg-rgb), 0.1);
+  --surface-inner-highlight:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09), inset 0 0 0 1px rgba(255, 255, 255, 0.035);
+
+  display: none;
+  position: absolute;
+  top: 50%;
+  z-index: 3;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  text-align: left;
+  color-scheme: dark;
+}
+
+/* Water sits left of center; reviews to its right; Actions further left;
+   Uptime further right of the inbox. */
+.wiz-placed[data-wiz-placed] {
+  left: 50%;
+  transform: translate(calc(-100% - 14px), -50%);
+}
+
+.wiz-placed--reviews {
+  left: 50%;
+  transform: translate(14px, -50%);
+}
+
+.wiz-placed--actions {
+  left: 50%;
+  transform: translate(calc(-100% - 348px), -50%);
+}
+
+.wiz-placed--uptime {
+  left: 50%;
+  /* 14px gap + 300px inbox + 14px gap */
+  transform: translate(328px, -50%);
+}
+
+.wiz-placed.is-dragging {
+  cursor: grabbing;
+  animation: none;
+}
+
+.wiz-stage--placed .wiz-demo {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.wiz-stage--placed .wiz-placed[data-wiz-placed] {
+  display: block;
+  animation: wiz-placed-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.wiz-stage--placed .wiz-placed--reviews {
+  display: block;
+  animation: wiz-reviews-in 520ms cubic-bezier(0.22, 1, 0.36, 1) 160ms both;
+}
+
+.wiz-stage--placed .wiz-placed--actions {
+  display: block;
+  animation: wiz-actions-in 520ms cubic-bezier(0.22, 1, 0.36, 1) 80ms both;
+}
+
+.wiz-stage--placed .wiz-placed--uptime {
+  display: block;
+  animation: wiz-uptime-in 520ms cubic-bezier(0.22, 1, 0.36, 1) 240ms both;
+}
+
+@keyframes wiz-placed-in {
+  from {
+    opacity: 0;
+    transform: translate(calc(-100% - 14px), -46%) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translate(calc(-100% - 14px), -50%) scale(1);
+  }
+}
+
+@keyframes wiz-reviews-in {
+  from {
+    opacity: 0;
+    transform: translate(14px, -46%) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translate(14px, -50%) scale(1);
+  }
+}
+
+@keyframes wiz-actions-in {
+  from {
+    opacity: 0;
+    transform: translate(calc(-100% - 348px), -46%) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translate(calc(-100% - 348px), -50%) scale(1);
+  }
+}
+
+@keyframes wiz-uptime-in {
+  from {
+    opacity: 0;
+    transform: translate(328px, -46%) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translate(328px, -50%) scale(1);
+  }
+}
+
+@media (max-width: 840px) {
+  .wiz-placed[data-wiz-placed] {
+    transform: translate(-50%, calc(-100% - 12px));
+  }
+
+  .wiz-placed--reviews {
+    transform: translate(-50%, 12px);
+  }
+
+  .wiz-stage--placed .wiz-placed--actions,
+  .wiz-stage--placed .wiz-placed--uptime {
+    display: none;
+  }
+
+  @keyframes wiz-placed-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, calc(-100% - 4px)) scale(0.92);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, calc(-100% - 12px)) scale(1);
+    }
+  }
+
+  @keyframes wiz-reviews-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, 20px) scale(0.92);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, 12px) scale(1);
+    }
+  }
+}
+
+.wiz-desktop__wallpaper {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------- Widget-Wizard-Nachbau --
+   Statischer Clone der leeren "New Widget"-Karte. Tokens, Raster, Composer
+   und Preview kommen aus WidgetCard + WidgetWizardWidget, nicht aus der
+   restlichen Landing-Palette — auf Weiß wäre Glas mit 0.72 Alpha ein
+   grauer Fleck, deshalb sitzt die Fläche deckend und wirft einen Schatten. */
+
+.wiz-demo {
+  container-type: inline-size;
+  width: min(1060px, 100%);
+  margin: 0 auto;
+  text-align: left;
+  color-scheme: dark;
+}
+
+.wiz-stage .wiz-demo {
+  position: relative;
+  z-index: 2;
+  width: min(1060px, 92%);
+  transition: opacity 420ms ease;
+}
+
+.wiz-demo,
+.wiz-demo * {
+  corner-shape: round;
+}
+
+.wiz-demo-scale {
+  --wiz-scale: min(1, 100cqi / 1060px);
+  position: relative;
+  width: 100%;
+  height: calc(660px * var(--wiz-scale));
+}
+
+/* Windows 11-style bar along the bottom of the desktop box. Decorative
+   only — pointer-events off so widget drags and Restart still work. */
+.wiz-taskbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 48px;
+  padding: 0 10px 0 0;
+  pointer-events: none;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(22, 22, 26, 0.72);
+  backdrop-filter: blur(40px) saturate(1.5);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color-scheme: dark;
+}
+
+.wiz-taskbar__pins {
+  position: absolute;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  translate: -50% 0;
+}
+
+.wiz-taskbar__pin,
+.wiz-taskbar__glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+}
+
+.wiz-taskbar__pin svg,
+.wiz-taskbar__glyph svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+.wiz-taskbar__pin--start svg {
+  width: 18px;
+  height: 18px;
+}
+
+.wiz-taskbar__tray {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+}
+
+.wiz-taskbar__glyph {
+  flex: none;
+  width: 28px;
+  height: 48px;
+}
+
+.wiz-taskbar__glyph svg {
+  width: 16px;
+  height: 16px;
+}
+
+.wiz-taskbar__clock {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  margin-left: 4px;
+  padding: 0 8px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+/* Playhead for the building beat only. Presentation is a cut, not a fill. */
+.wiz-playhead {
+  position: absolute;
+  left: 50%;
+  bottom: 56px;
+  z-index: 4;
+  display: flex;
+  gap: 8px;
+  width: min(380px, 56%);
+  translate: -50% 0;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45));
+}
+
+.wiz-playhead[hidden] {
+  display: none !important;
+}
+
+.wiz-stage--placed .wiz-playhead {
+  display: none;
+}
+
+.wiz-playhead__step {
+  flex: 1;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.wiz-playhead__step i {
+  display: block;
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: #fff;
+}
+
+/* Replay sits on the wallpaper, just above the taskbar. */
+.wiz-stage .wiz-demo-restart {
+  appearance: none;
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  margin: 0;
+  padding: 12px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #111118;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  transform: translateX(-50%);
+  cursor: pointer;
+  color-scheme: light;
+}
+
+.wiz-stage .wiz-demo-restart:hover {
+  background: #fff;
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.wiz-stage .wiz-demo-restart[hidden] {
+  display: none !important;
+}
+
+.wiz-demo-card {
+  --fg-rgb: 255, 255, 255;
+  --surface-bg-rgb: 28, 28, 32;
+  --surface-alpha: 1;
+  --surface-radius: 16px;
+  --surface-sheen: linear-gradient(
+    177deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0) 55%
+  );
+  --surface-border: rgba(var(--fg-rgb), 0.1);
+  --surface-inner-highlight:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09), inset 0 0 0 1px rgba(255, 255, 255, 0.035);
+  --surface-box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.35), 0 28px 64px rgba(0, 0, 0, 0.18);
+  --surface-backdrop-filter: none;
+  --text-muted: rgba(var(--fg-rgb), 0.55);
+  --card-bg: rgba(28, 28, 30, 0.98);
+  --kavibay-surface: #1b1b1b;
+  --kavibay-border: rgba(255, 255, 255, 0.15);
+  --bg: #111;
+
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: 1;
+  isolation: isolate;
+  box-sizing: border-box;
+  width: 1060px;
+  height: 660px;
+  padding: 14px 16px;
+  border-radius: var(--surface-radius);
+  color: rgba(var(--fg-rgb), 0.92);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  transform: translateX(-50%) scale(var(--wiz-scale));
+  transform-origin: top center;
+  display: flex;
+  flex-direction: column;
+}
+
+.wiz-demo-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    var(--surface-sheen),
+    rgba(var(--surface-bg-rgb), var(--surface-alpha));
+  border: 1px solid var(--surface-border);
+  box-shadow: var(--surface-box-shadow), var(--surface-inner-highlight);
+}
+
+.wiz-demo-title {
+  position: relative;
+  z-index: 1;
+  margin: 0 0 6px;
+  padding-right: 64px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(var(--fg-rgb), 0.5);
+}
+
+.wiz-demo-chrome {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.wiz-demo-card:hover .wiz-demo-chrome,
+.wiz-demo-card:focus-within .wiz-demo-chrome {
+  opacity: 1;
+}
+
+.wiz-demo-chrome-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: rgba(var(--fg-rgb), 0.55);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.wiz-demo-chrome-eye {
+  width: 12px;
+  height: 12px;
+}
+
+.wiz-demo-chrome-eye-off {
+  opacity: 0;
+}
+
+.wiz-demo-body {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.wiz-demo-body > .wiz {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+.wiz-demo .wiz {
+  display: grid;
+  grid-template-columns: 0px 6px minmax(220px, 1fr) 6px 360px;
+  gap: 10px;
+  width: auto;
+  height: 100%;
+  padding: 10px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  font-size: 12px;
+  color: rgba(var(--fg-rgb), 0.9);
+}
+
+.wiz-demo .wiz-c2 {
+  grid-column: 2;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  left: 0;
+  z-index: 2;
+}
+
+.wiz-demo .wiz-c3 {
+  grid-column: 3;
+}
+
+.wiz-demo .wiz--sidebar-collapsed .wiz-main {
+  width: calc(100% + 26px);
+  margin-left: -26px;
+}
+
+.wiz-demo .wiz-c4 {
+  grid-column: 4;
+}
+
+.wiz-demo .wiz-c5 {
+  grid-column: 5;
+}
+
+.wiz-demo .wiz-main,
+.wiz-demo .wiz-preview {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  gap: 8px;
+}
+
+.wiz-demo button {
+  font: inherit;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(var(--fg-rgb), 0.14);
+  background: rgba(var(--fg-rgb), 0.08);
+  color: inherit;
+  cursor: pointer;
+}
+
+.wiz-demo button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.wiz-demo .wiz-transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 4px 8px;
+  user-select: text;
+  cursor: text;
+}
+
+.wiz-demo .wiz-hint {
+  margin: 0;
+  opacity: 0.5;
+  font-size: 11px;
+}
+
+.wiz-demo .wiz-transcript--empty {
+  align-items: center;
+  justify-content: center;
+}
+
+.wiz-demo .wiz-transcript--empty .wiz-hint {
+  max-width: 90%;
+  font-size: 16px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.wiz-demo .wiz-compose {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 11px 7px;
+  border: 1px solid rgba(var(--fg-rgb), 0.14);
+  border-radius: 16px;
+  background: rgba(var(--fg-rgb), 0.045);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.wiz-demo .wiz-composer-editor {
+  min-height: 57px;
+  max-height: 160px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  padding: 2px 3px;
+  border: none;
+  border-radius: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  cursor: text;
+  text-align: left;
+}
+
+.wiz-demo .wiz-composer-editor--empty::before {
+  content: attr(data-placeholder);
+  color: rgba(var(--fg-rgb), 0.42);
+  pointer-events: none;
+}
+
+.wiz-demo .wiz-composer-editor:focus {
+  outline: none;
+}
+
+.wiz-demo .wiz-compose-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+}
+
+.wiz-demo .wiz-compose-bar .picker-button {
+  max-width: 240px;
+  padding: 4px 5px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.wiz-demo .wiz-compose-bar .picker-button:hover:not(:disabled) {
+  background: rgba(var(--fg-rgb), 0.08);
+  opacity: 1;
+}
+
+.wiz-demo .wiz-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(var(--fg-rgb), 0.9);
+  color: var(--bg, #111);
+  font-size: 0;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.wiz-demo .wiz-send::before {
+  content: "↑";
+  font-size: 16px;
+}
+
+.wiz-demo .wiz-send:hover:not(:disabled) {
+  background: rgba(var(--fg-rgb), 1);
+}
+
+.wiz-demo .wiz-spacer {
+  flex: 1;
+}
+
+.wiz-demo .wiz-plus {
+  position: relative;
+}
+
+.wiz-demo .wiz-attach {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 21px;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.wiz-demo .wiz-attach:hover:not(:disabled) {
+  background: rgba(var(--fg-rgb), 0.1);
+  opacity: 1;
+}
+
+.wiz-demo .wiz-plus-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  padding: 4px;
+  border-radius: 9px;
+  border: 1px solid rgba(var(--fg-rgb), 0.14);
+  background: var(--card-bg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+}
+
+.wiz-demo .wiz-plus-item {
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+
+.wiz-demo .wiz-plus-item:hover {
+  background: rgba(var(--fg-rgb), 0.1);
+}
+
+.wiz-demo .wizard-chevron {
+  display: block;
+  flex: 0 0 9px;
+  width: 9px;
+  height: 9px;
+  color: currentColor;
+  opacity: 0.5;
+}
+
+.wiz-demo .wizard-chevron path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.wiz-demo .wiz-accounts {
+  position: relative;
+  font-size: 12px;
+}
+
+.wiz-demo .wiz-accounts > summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.6;
+  list-style: none;
+}
+
+.wiz-demo .wiz-accounts > summary::-webkit-details-marker {
+  display: none;
+}
+
+.wiz-demo .wiz-accounts > summary:hover,
+.wiz-demo .wiz-accounts[open] > summary {
+  background: rgba(var(--fg-rgb), 0.08);
+  opacity: 1;
+}
+
+.wiz-demo .wiz-accounts[open] .wizard-chevron {
+  transform: rotate(180deg);
+}
+
+.wiz-demo .wiz-accounts-icon {
+  flex: 0 0 auto;
+}
+
+.wiz-demo .wiz-accounts-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiz-demo .wiz-accounts > ul {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  z-index: 5;
+  min-width: 248px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border: 1px solid var(--kavibay-border);
+  border-radius: 8px;
+  background: var(--kavibay-surface);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+}
+
+.wiz-demo .wiz-account-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wiz-demo .wiz-account-item:hover,
+.wiz-demo .wiz-account-item:focus-visible {
+  background: rgba(var(--fg-rgb), 0.1);
+  outline: none;
+}
+
+.wiz-demo .wiz-account-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiz-demo .wiz-account-status {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.08);
+  color: rgba(var(--fg-rgb), 0.5);
+  white-space: nowrap;
+}
+
+.wiz-demo .picker {
+  position: relative;
+}
+
+.wiz-demo .picker-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 11px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  border: 1px solid rgba(var(--fg-rgb), 0.14);
+  background: rgba(var(--fg-rgb), 0.07);
+  color: inherit;
+  cursor: pointer;
+  max-width: 240px;
+}
+
+.wiz-demo .picker-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiz-demo .picker-effort {
+  opacity: 0.55;
+  white-space: nowrap;
+}
+
+.wiz-demo .picker-list {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  min-width: 250px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--fg-rgb), 0.14);
+  background: var(--card-bg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  outline: none;
+}
+
+.wiz-demo .picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.wiz-demo .picker-row:hover {
+  background: rgba(var(--fg-rgb), 0.1);
+}
+
+.wiz-demo .picker-row-name {
+  flex: 1;
+}
+
+.wiz-demo .picker-row-value {
+  opacity: 0.55;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiz-demo .picker-row-more {
+  opacity: 0.4;
+  font-size: 11px;
+}
+
+.wiz-demo .picker-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  font: inherit;
+  font-size: 10px;
+  text-align: left;
+  padding: 4px 8px 6px;
+  margin-bottom: 2px;
+  border: none;
+  border-bottom: 1px solid rgba(var(--fg-rgb), 0.1);
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+.wiz-demo .picker-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.wiz-demo .picker-item:hover {
+  background: rgba(var(--fg-rgb), 0.1);
+}
+
+.wiz-demo .picker-item--current .picker-item-name {
+  font-weight: 600;
+}
+
+.wiz-demo .picker-item-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wiz-demo .picker-item-name {
+  font-size: 12px;
+  flex: 1;
+}
+
+.wiz-demo .picker-check {
+  opacity: 0.7;
+  font-size: 11px;
+}
+
+.wiz-demo .picker-item-note {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.wiz-demo .wiz-consent-btn,
+.wiz-demo .wiz-actions button {
+  padding: 4px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--fg-rgb), 0.22);
+  background: rgba(var(--fg-rgb), 0.1);
+  color: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.wiz-demo .wiz-actions button:hover:not(:disabled) {
+  background: rgba(var(--fg-rgb), 0.18);
+}
+
+.wiz-demo .wiz-actions button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.wiz-demo .wiz-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  border-radius: 0;
+  background-color: rgba(var(--surface-bg-rgb), var(--surface-alpha, 0.72));
+  background-image:
+    linear-gradient(rgba(var(--fg-rgb), 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--fg-rgb), 0.05) 1px, transparent 1px),
+    var(--surface-sheen);
+  background-size: 20px 20px, 20px 20px, 100% 100%;
+  background-repeat: repeat, repeat, no-repeat;
+  box-shadow: none;
+  color: var(--text-muted);
+}
+
+.wiz-demo .wiz-empty-label {
+  margin: 0;
+}
+
+.wiz-demo [hidden] {
+  display: none !important;
+}
+
+.wiz-demo .wiz-turn {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.wiz-demo .wiz-turn.user {
+  align-items: flex-end;
+}
+
+.wiz-demo .wiz-bubble {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.wiz-demo .wiz-bubble.user {
+  /* Hug the text. A block-level div would otherwise sit at 85% width. */
+  width: fit-content;
+  max-width: 85%;
+  padding: 9px 13px;
+  border-radius: 14px;
+  background: rgba(var(--fg-rgb), 0.1);
+}
+
+.wiz-demo .wiz-bubble.assistant {
+  padding: 0 2px;
+}
+
+.wiz-demo .wiz-working {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.wiz-demo .wiz-working-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.wiz-demo .wiz-composer-editor--typing::after {
+  content: "";
+  display: inline-block;
+  width: 1px;
+  height: 13px;
+  margin-left: 1px;
+  background: rgba(255, 255, 255, 0.85);
+  vertical-align: text-bottom;
+  animation: blink 1.1s steps(1) infinite;
+}
+
+.wiz-demo .wiz-generation-status {
+  display: grid;
+  place-items: center;
+  color: rgba(var(--fg-rgb), 0.72);
+}
+
+.wiz-demo .wiz-generation-icon {
+  display: block;
+  width: 64px;
+  height: 64px;
+  animation: wiz-brain-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes wiz-brain-pulse {
+  50% {
+    transform: scale(1.08);
+    opacity: 0.78;
+  }
+}
+
+:is(.wiz-demo, .wiz-placed) .wiz-preview-card {
+  position: relative;
+  isolation: isolate;
+  width: 200px;
+  padding: 14px 16px;
+  border-radius: var(--surface-radius, 16px);
+  corner-shape: round;
+  text-align: left;
+  color: rgba(var(--fg-rgb), 0.92);
+  animation: wiz-preview-in 320ms ease;
+}
+
+:is(.wiz-demo, .wiz-placed) .wiz-preview-card-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  corner-shape: inherit;
+  background:
+    var(--surface-sheen),
+    rgba(var(--surface-bg-rgb), 0.96);
+  border: 1px solid var(--surface-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), var(--surface-inner-highlight);
+}
+
+:is(.wiz-demo, .wiz-placed) .wiz-preview-card-title {
+  position: relative;
+  z-index: 1;
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+  color: rgba(var(--fg-rgb), 0.5);
+}
+
+:is(.wiz-demo, .wiz-placed) .wiz-preview-card-body {
+  position: relative;
+  z-index: 1;
+}
+
+:is(.wiz-demo, .wiz-placed) .wiz-water-amount {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: rgba(var(--fg-rgb), 0.92);
+}
+
+:is(.wiz-demo, .wiz-placed) .wiz-water-amount span {
+  margin-left: 0.2em;
+  font-size: 0.45em;
+  font-weight: 500;
+  opacity: 0.55;
+}
+
+:is(.wiz-demo, .wiz-placed) .wiz-water-value {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+:is(.wiz-demo, .wiz-placed) .wiz-water-pct {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: rgba(var(--fg-rgb), 0.55);
+}
+
+:is(.wiz-demo, .wiz-placed) .wiz-water-goal {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: rgba(var(--fg-rgb), 0.5);
+}
+
+:is(.wiz-demo, .wiz-placed) .wiz-water-bar {
+  height: 6px;
+  margin: 10px 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.12);
+}
+
+:is(.wiz-demo, .wiz-placed) .wiz-water-bar i {
+  display: block;
+  width: var(--p);
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(var(--fg-rgb), 0.55);
+  transition: width 280ms ease;
+}
+
+:is(.wiz-demo, .wiz-placed) .wiz-water-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+:is(.wiz-demo, .wiz-placed) .wiz-water-buttons button {
+  flex: 1;
+  padding: 5px 0;
+  border: 1px solid rgba(var(--fg-rgb), 0.14);
+  border-radius: 6px;
+  background: rgba(var(--fg-rgb), 0.08);
+  font-size: 11px;
+  text-align: center;
+  color: rgba(var(--fg-rgb), 0.85);
+}
+
+:is(.wiz-demo, .wiz-placed) .wiz-water-buttons button:hover {
+  background: rgba(var(--fg-rgb), 0.14);
+}
+
+/* Desktop instance is larger than the in-wizard preview. After the :is()
+   rules so these sizes actually win. */
+.wiz-placed[data-wiz-placed] .wiz-preview-card {
+  animation: none;
+  width: 320px;
+  padding: 22px 24px;
+}
+
+.wiz-placed[data-wiz-placed] .wiz-preview-card-title {
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.wiz-placed .wiz-water-amount {
+  font-size: 44px;
+}
+
+.wiz-placed .wiz-water-pct {
+  font-size: 18px;
+}
+
+.wiz-placed .wiz-water-goal {
+  font-size: 13px;
+}
+
+.wiz-placed .wiz-water-bar {
+  height: 8px;
+  margin: 14px 0;
+}
+
+.wiz-placed .wiz-water-buttons button {
+  padding: 9px 0;
+  font-size: 13px;
+}
+
+.wiz-placed--reviews .wiz-care-card {
+  animation: none;
+  width: 300px;
+  padding: 18px 18px 14px;
+}
+
+.wiz-placed--reviews .wiz-care-title {
+  text-transform: none;
+  letter-spacing: -0.02em;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(var(--fg-rgb), 0.88);
+  margin-bottom: 10px;
+}
+
+.wiz-care-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wiz-care-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(var(--fg-rgb), 0.06);
+}
+
+.wiz-care-mark {
+  display: flex;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: rgba(var(--fg-rgb), 0.92);
+}
+
+.wiz-care-mark svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.wiz-care-copy {
+  min-width: 0;
+}
+
+.wiz-care-name {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 550;
+  color: rgba(var(--fg-rgb), 0.9);
+}
+
+.wiz-care-meta {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: rgba(var(--fg-rgb), 0.45);
+}
+
+/* Static clone of GithubActionsWidget for the finished desktop scene. */
+.wiz-placed--actions .wiz-gha-card {
+  animation: none;
+  width: 280px;
+  padding: 16px 16px 12px;
+}
+
+.wiz-gha-repo {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(var(--fg-rgb), 0.92);
+}
+
+.wiz-gha-spotlight {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 10px;
+  border: 1px solid rgba(var(--fg-rgb), 0.08);
+  border-radius: 10px;
+  background: rgba(var(--fg-rgb), 0.04);
+}
+
+.wiz-gha-pill {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.wiz-gha-pill--progress {
+  background: rgba(100, 160, 200, 0.2);
+  color: rgba(160, 210, 240, 0.95);
+}
+
+.wiz-gha-spot-name {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(var(--fg-rgb), 0.92);
+}
+
+.wiz-gha-spot-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-size: 11px;
+  color: rgba(var(--fg-rgb), 0.5);
+}
+
+.wiz-gha-dot {
+  opacity: 0.6;
+}
+
+.wiz-gha-progress-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.wiz-gha-progress-label {
+  align-self: flex-end;
+  font-size: 10px;
+  color: rgba(var(--fg-rgb), 0.4);
+  font-variant-numeric: tabular-nums;
+}
+
+.wiz-gha-progress {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.08);
+}
+
+.wiz-gha-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(140, 190, 220, 0.75);
+}
+
+.wiz-gha-jobs,
+.wiz-gha-recent {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.wiz-gha-jobs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.wiz-gha-job,
+.wiz-gha-recent-row {
+  display: grid;
+  align-items: center;
+  gap: 6px;
+}
+
+.wiz-gha-job {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 2px 0;
+}
+
+.wiz-gha-job-name {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(var(--fg-rgb), 0.85);
+}
+
+.wiz-gha-job-status {
+  font-size: 10px;
+  color: rgba(var(--fg-rgb), 0.45);
+}
+
+.wiz-gha-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wiz-gha-recent-row {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+
+.wiz-gha-recent-name {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(var(--fg-rgb), 0.88);
+}
+
+.wiz-gha-recent-branch {
+  max-width: 72px;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(var(--fg-rgb), 0.45);
+}
+
+.wiz-gha-recent-age {
+  min-width: 48px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: rgba(var(--fg-rgb), 0.4);
+}
+
+.wiz-gha-mark {
+  width: 12px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.wiz-gha-tone--success {
+  color: rgba(120, 220, 160, 0.95);
+}
+
+.wiz-gha-tone--failure {
+  color: rgba(255, 130, 130, 0.95);
+}
+
+.wiz-gha-tone--progress {
+  color: rgba(160, 210, 240, 0.95);
+}
+
+.wiz-gha-mark--pulse {
+  animation: wiz-gha-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes wiz-gha-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Static clone of an uptime / status-page widget for the finished desktop. */
+.wiz-placed--uptime .wiz-up-card {
+  animation: none;
+  width: 280px;
+  padding: 16px 16px 12px;
+}
+
+.wiz-up-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wiz-up-site {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(var(--fg-rgb), 0.06);
+}
+
+.wiz-up-icon {
+  display: flex;
+  width: 16px;
+  height: 16px;
+}
+
+.wiz-up-icon svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.wiz-up-host {
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: rgba(var(--fg-rgb), 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiz-up-pct {
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: rgba(var(--fg-rgb), 0.72);
+}
+
+.wiz-up-bars {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 2px;
+  height: 22px;
+}
+
+.wiz-up-bars i {
+  flex: 1;
+  min-width: 0;
+  border-radius: 999px;
+}
+
+.wiz-up-bars i.ok {
+  background: #3dcf8e;
+}
+
+.wiz-up-bars i.warn {
+  background: #e8906a;
+}
+
+.wiz-up-bars i.off {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+@keyframes wiz-preview-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.wiz-demo .wiz-actions {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wiz-demo .wiz-grip {
+  position: relative;
+  cursor: col-resize;
+  border-radius: 3px;
+  background: transparent;
+  transition: background-color 120ms;
+}
+
+.wiz-demo .wiz-grip:hover,
+.wiz-demo .wiz-grip:focus-visible {
+  background: rgba(232, 232, 234, 0.14);
+  outline: none;
+}
+
+.wiz-demo .wiz-side-toggle {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  min-width: 132px;
+  padding: 7px 10px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  background: rgba(12, 12, 14, 0.96);
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.32);
+  color: rgba(255, 255, 255, 0.95);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.25;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: background-color 120ms, opacity 120ms;
+  z-index: 5;
+}
+
+.wiz-demo .wiz-grip.wiz-c2--sidebar-collapsed,
+.wiz-demo .wiz-grip.wiz-c2--sidebar-collapsed:hover,
+.wiz-demo .wiz-grip.wiz-c2--sidebar-collapsed:focus-visible {
+  background: transparent;
+}
+
+.wiz-demo .wiz-c2--sidebar-collapsed .wiz-side-toggle {
+  top: 50%;
+  left: -16px;
+  min-width: 14px;
+  width: 14px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(var(--fg-rgb), 0.1);
+  border-radius: 4px;
+  background: rgba(var(--fg-rgb), 0.06);
+  color: inherit;
+  font-size: 0;
+  opacity: 0.55;
+  pointer-events: none;
+  transform: translateY(-50%);
+  box-shadow: none;
+  display: grid;
+  place-items: center;
+}
+
+.wiz-demo .wiz-c2--sidebar-collapsed .wiz-side-toggle::before {
+  content: "›";
+  font-size: 14px;
+  line-height: 1;
+}
+
+.wiz-demo .wiz-c2--sidebar-collapsed .wiz-side-toggle-title,
+.wiz-demo .wiz-c2--sidebar-collapsed .wiz-side-toggle-hint {
+  display: none;
+}
+
+/* ------------------------------------------------------- Overlay-Sektion --
+   Dieselbe Desktop-Bühne wie die Wizard-Demo, eine Ebene tiefer: erst die
+   Palette allein. Überschrift liegt auf dem Wallpaper, der Desk teilt sich
+   die Klassen mit `.wizplay`. */
+
+.overlay {
+  max-width: var(--page-max);
+  margin: var(--section-gap) auto 0;
+  padding: 0 24px;
+  text-align: center;
+}
+
+.overlay__line,
+.wizard__line,
+.wizplay__line,
+.widget-gallery__title,
+.download__line {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(28px, 3.6vw, 46px);
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+  font-weight: 800;
+}
+
+.overlay__sub,
+.wizard__sub,
+.wizplay__sub,
+.widget-gallery__subtitle,
+.download__sub {
+  max-width: 520px;
+  margin: 16px auto 0;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+/* ------------------------------------------------------ Download / Notify --
+   Ziel des Hero-Buttons. Aktuell eine Warteliste in der Box, nicht die
+   drei OS-Tafeln. */
+
+/* Kein Farbband mehr: die Farbe kommt aus der Wolke hinter der Box, der
+   Hintergrund bleibt Papier wie auf dem Rest der Seite. */
+.download {
+  padding: var(--section-gap) 24px;
+  text-align: center;
+  /* Der Anker soll nicht bündig an der Fensterkante kleben. */
+  scroll-margin-top: 0;
+}
+
+.download__inner {
+  max-width: var(--page-max);
+  margin: 0 auto;
+}
+
+.download__stage {
+  position: relative;
+  max-width: 760px;
+  margin: 44px auto 0;
+}
+
+/* Weiche Farbwolke hinter der Box. Vier überlagerte Radialverläufe statt eines
+   Bildes: skaliert mit, kostet keine Anfrage. Der Weichzeichner nimmt den
+   Verläufen die letzte Kante, sodass es eine Wolke wird und kein Farbfleck.
+   Sie ragt bewusst über die Box hinaus — sonst wäre sie ein Rahmen. */
+.decor--cloud {
+  position: absolute;
+  /* Zwei Farbkerne, Violett links und Rosa rechts, beide im oberen Drittel und
+     nah genug beieinander, dass sie in der Mitte ineinanderlaufen — die Wolke
+     sitzt zentral hinter der Box statt in den Ecken. Sie ist größer als die
+     Box, weil deren weiße Fläche die Mitte abdeckt: sichtbar bleibt nur der
+     Hof ringsum. */
+  inset: -30% -18%;
+  z-index: 0;
+  background:
+    radial-gradient(44% 52% at 32% 50%, rgba(163, 141, 245, 0.62), transparent 72%),
+    radial-gradient(44% 52% at 68% 48%, rgba(243, 157, 195, 0.56), transparent 72%);
+  filter: blur(52px);
+}
+
+.os {
+  position: relative;
+  /* Über der Wolke, nicht darin. */
+  z-index: 1;
+  text-align: left;
+  border: 1px solid #dcece3;
+  border-radius: 18px;
+  background: var(--paper);
+  /* Hebt die Box vom Band ab — ohne den Schatten schwimmt Weiß auf Mint. */
+  box-shadow: 0 1px 2px rgba(20, 60, 45, 0.04), 0 18px 40px rgba(20, 60, 45, 0.07);
+  overflow: hidden;
+}
+
+.os--notify {
+  padding: 28px 28px 32px;
+}
+
+.signup .btn {
+  padding: 14px 22px;
+  font-size: 15px;
+}
+
+/* Der Kasten für das, was man vor dem Klick wissen sollte. Bewusst ruhig:
+   keine Warnfarbe, weil hier nichts kaputt ist — es ist nur der Stand.
+
+   Hieß .note, bis der Playground das echte Widget ins Dokument holte: im
+   Wizard ist note eine Modifier-Klasse an Transkript-Zeilen
+   (.wiz-bubble.system.note). Die Regel hier hätte deren Systemmeldungen einen
+   hellgrauen Kasten mit hellgrauem Text verpasst — mitten im dunklen
+   Transkript und nur in dem einen Zustand sichtbar, in dem so eine Zeile
+   auftaucht. scripts/landingCssIsolation.assert.mjs hält solche Namen
+   auseinander. */
+.callout {
+  padding: 18px 20px;
+  border-radius: 12px;
+  background: #f5f5f7;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.callout__title {
+  margin: 0 0 8px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.callout p {
+  margin: 0 0 10px;
+}
+
+.callout p:last-child {
+  margin-bottom: 0;
+}
+
+.callout strong {
+  color: var(--ink);
+}
+
+/* ---- Notify ---- */
+
+.signup__label {
+  display: block;
+  margin-bottom: 8px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.signup__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.signup__input {
+  flex: 1;
+  min-width: 220px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 16px;
+}
+
+.signup__input::placeholder {
+  color: #a4a4b0;
+}
+
+.signup__input:focus {
+  outline: none;
+  border-color: #b9b9c4;
+}
+
+.signup__note {
+  margin: 14px 0 0;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+/* Honeypot: in the DOM for bots, out of the layout for people. */
+.signup__hp {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.signup__sink {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.signup__status {
+  margin: 14px 0 0;
+  font-size: 14px;
+  overflow-anchor: none;
+}
+
+.signup__status--ok {
+  color: var(--ink);
+}
+
+.signup__status--err {
+  color: #8a3b3b;
+}
+
+/* ---------------------------------------------------------------- Fuß ----
+   Dunkel, weil die Seite sonst nach unten ausfranst: der Block schließt sie ab
+   und nimmt dabei den Ton der Codeblöcke und des Produkts selbst auf. */
+
+.foot {
+  background: #0e0e11;
+  color: rgba(255, 255, 255, 0.62);
+  padding: 68px 24px 34px;
+  font-size: 15px;
+}
+
+.foot__inner {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1.6fr repeat(2, 1fr);
+  gap: 40px;
+}
+
+.foot__mark {
+  display: inline-block;
+  margin: 0 0 12px;
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: #fff;
+  text-decoration: none;
+}
+
+.foot__tagline {
+  margin: 0;
+  max-width: 22ch;
+  font-family: var(--font-display);
+  font-size: 17px;
+  line-height: 1.4;
+  letter-spacing: -0.02em;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.foot__col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.foot__head {
+  margin: 0 0 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.foot__col a {
+  color: rgba(255, 255, 255, 0.72);
+  transition: color 0.15s ease;
+}
+
+.foot__col a:hover {
+  color: #fff;
+}
+
+/* Die Schlusszeile sitzt unter einer Haarlinie, nicht in einem eigenen Block —
+   sie ist Fußnote, keine vierte Spalte. */
+.foot__base {
+  max-width: var(--page-max);
+  margin: 56px auto 0;
+  padding-top: 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 24px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.foot__base p {
+  margin: 0;
+}
+
+/* ------------------------------------------------------------- Rechtstext --
+   Eine Spalte, ruhig gesetzt. Solche Seiten werden gelesen, wenn jemand etwas
+   sucht — Zeilenlänge und Zwischenräume entscheiden, ob er es findet. */
+
+.legal {
+  padding: 72px 24px 110px;
+}
+
+.legal__inner {
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.legal__title {
+  margin: 0 0 14px;
+  font-family: var(--font-display);
+  font-size: clamp(34px, 5vw, 52px);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+  font-weight: 800;
+}
+
+.legal__meta {
+  margin: 0 0 34px;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+
+.legal__h2 {
+  margin: 44px 0 12px;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.legal__text {
+  margin: 0 0 14px;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--ink-soft);
+}
+
+.legal__text a,
+.legal__back a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: #c9c9d2;
+  text-decoration-thickness: 2px;
+}
+
+.legal__back {
+  margin: 56px 0 0;
+  padding-top: 26px;
+  border-top: 1px solid var(--line);
+  font-size: 15px;
+}
+
+/* ------------------------------------------------------ Wizard-Playground --
+   Der einzige Abschnitt der Seite, den man wirklich anfassen kann: das echte
+   WidgetWizardWidget der App, eingehängt als <kavibay-widget> aus
+   core/embed/. Kein Nachbau wie oben — deshalb darf die Bühne nichts tun, was
+   Aussehen oder Verhalten der Karte verändert. Zwei Dinge sind damit
+   ausgeschlossen, und beide fallen erst spät auf, wenn man sie doch tut:
+
+   1. Kein transform, filter oder backdrop-filter auf einem Vorfahren. Jedes
+      davon erzeugt einen Containing Block, und .wiz-integrations-menu im
+      Wizard ist position: fixed mit Koordinaten aus getBoundingClientRect() —
+      das Menü landet dann irgendwo neben seinem Button. Die volle Breite
+      läuft deshalb über einen negativen Rand statt über translateX(-50%).
+
+   2. Kein scale(). Der Drag rechnet in unskalierten CSS-Pixeln gegen den
+      Viewport (core/embed/widget/useDragOffset.ts), unter einer Skalierung
+      liefe die Karte dem Zeiger davon. Passt die 1060px-Karte nicht in die
+      Breite, scrollt die Schiene — sie schrumpft nicht. */
+
+.wizplay {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 0 24px;
+  text-align: center;
+}
+
+/* Maße von .wiz-stage__intro, damit der Kopf hier genauso sitzt wie über dem
+   Nachbau: gleiche Breite, gleiches Weiß.
+
+   Absolut, seit der Bildschirm die ganze Bühne ist: im Fluss würde er den
+   Desk nach unten schieben und damit genau die Fläche kosten, die die Karten
+   bekommen sollen. Er liegt jetzt oben auf dem Wallpaper — und der Wizard
+   legt sich beim Öffnen darüber. */
+.wizplay__intro {
+  position: absolute;
+  left: 50%;
+  top: 56px;
+  z-index: 2;
+  width: min(720px, calc(100% - 48px));
+  transform: translateX(-50%);
+  text-align: center;
+}
+
+.wizplay__line {
+  color: #fff;
+}
+
+.wizplay__sub {
+  max-width: 520px;
+  margin: 14px auto 0;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+/* Gemeinsame Spalte unter der Bühne. Ohne den Wrapper zentriert jede Zeile
+   ihre eigene max-width — die Takte auf 1000px, die Fragen auf 640px — und
+   der Fragenblock sitzt dann optisch unter der zweiten Spalte. */
+.wizplay__copy {
+  max-width: 1000px;
+  margin: 56px auto 0;
+  text-align: left;
+}
+
+/* Die drei Takte der Tour, als Text unter dem Bild.
+
+   Eine <ol>, weil es eine Reihenfolge ist und keine Aufzählung: wer die
+   Bühne nicht anschaut, soll trotzdem in der richtigen Reihenfolge lesen. Die
+   Zahlen selbst bleiben aus, das Bild darüber zeigt den Ablauf schon. */
+.wizplay__beats,
+.wizplay__facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 28px 32px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wizplay__beats h3,
+.wizplay__facts strong {
+  display: block;
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.wizplay__beats p,
+.wizplay__facts p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--ink-soft);
+}
+
+/* Die drei Fragen, die nach dem Zusehen offen bleiben. Dieselbe Rasterbreite
+   wie die Takte, durch die Linie als zweiter Takt erkennbar. */
+.wizplay__facts {
+  margin-top: 32px;
+  padding-top: 32px;
+  border-top: 1px solid var(--line);
+}
+
+.wizplay__small {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Volle Fensterbreite ohne transform (siehe oben): so breit wie das Fenster
+   minus Rand, per margin-left um die eigene halbe Überbreite zurückgeschoben. */
+.wizplay__stage {
+  position: relative;
+  width: calc(100vw - clamp(48px, 6vw, 120px));
+  margin: 44px 0 0 calc(50% - 50vw + clamp(48px, 6vw, 120px) / 2);
+  /*
+   * Der Bildschirm ist die Bühne, nicht mehr ein Kasten darin.
+   *
+   * Vorher lag ein fester 1060x596-Desk in einer Bühne mit Innenabstand, und
+   * eine gezogene Karte blieb an dessen unsichtbarem Rand stehen, während
+   * ringsum noch Wallpaper zu sehen war. Jetzt ist das Wallpaper der
+   * Bildschirm: Seitenverhältnis wie ein Monitor, die Karten liegen absolut
+   * darin und dürfen bis an seine Kanten.
+   *
+   * Das Format ist ein MacBook Pro 16" (1728x1117 logische Punkte, ~1.55),
+   * nicht 16:9. Bei gleicher Breite ist der Bildschirm damit gut 100px höher,
+   * und diese Höhe fehlte: die Wizard-Karte stand der Überschrift im Nacken.
+   * Ein Laptop ist ohnehin das Gerät, auf dem diese Demo laufen soll — die
+   * Zeile darunter sagt Besuchern genau das.
+   *
+   * `min-height`, weil die Wizard-Karte 660px hoch ist: in einem schmalen
+   * Fenster gäbe das Seitenverhältnis allein einen Bildschirm, in den sie
+   * nicht mehr passt. Dann wird das Bild etwas höher statt die Karte
+   * abgeschnitten.
+   */
+  aspect-ratio: 1728 / 1117;
+  min-height: 900px;
+  border-radius: 32px;
+  background: #1a1a1f;
+  text-align: left;
+  /*
+   * KEIN color-scheme hier. Es stand kurz auf dark, für Scrollbalken und
+   * Formularfelder im Wizard — und hat die Vorschau im Wizard weiß gemacht.
+   *
+   * color-scheme vererbt bis auf das <iframe>-Element der Vorschau. Das
+   * Dokument darin ist absichtlich transparent, damit die Karte dahinter das
+   * Glas liefert; sobald das Frame-Element ein eigenes Farbschema trägt, legt
+   * Chrome eine deckende Fläche darunter statt durchscheinen zu lassen — und
+   * die ist hell. Ergebnis: weißer Kasten, weiße Schrift darauf, nur der blaue
+   * Fortschrittsbalken übrig.
+   *
+   * Die App selbst setzt hier ebenfalls nichts: sie hält --native-color-scheme
+   * als Token bereit, und nur ein Widget, das es braucht, wendet es auf sich
+   * an (CalendarWidget.vue). Ohne die Zeile stimmt beides — die Vorschau und
+   * die Treue zum Desktop.
+   */
+}
+
+/* Solange das Bundle nicht da ist, fällt der Desk zusammen — nicht die Bühne.
+
+   Vorher verschwand hier der ganze Abschnitt; seit Überschrift, Hinweis und
+   Taskbar auf der Bühne stehen, wäre das zu viel. Ohne JavaScript bleibt so
+   ein ruhiges Standbild des Produkts stehen statt 830px leerer Wand, und
+   sobald kavibay-widget definiert ist, klappt der Desk auf. */
+.wizplay__stage:has(kavibay-widget:not(:defined)) .wizplay__scroll {
+  display: none;
+}
+
+.wizplay__wallpaper {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+/* Derselbe Verlauf wie über .wiz-stage. Ohne ihn steht die Überschrift auf
+   dem hellsten Teil des Nebels und ist kaum zu lesen — oben dunkel, nach
+   unten hin lichter, weil dort die Karten liegen und ihr eigenes Glas
+   mitbringen. */
+.wizplay__stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(
+    180deg,
+    rgba(8, 10, 18, 0.78) 0%,
+    rgba(8, 10, 18, 0.32) 42%,
+    rgba(8, 10, 18, 0.22) 100%
+  );
+}
+
+/* Ein Desk wie in der App: fester Ausschnitt, Karten liegen frei darin.
+
+   Die Höhe steht fest und richtet sich nicht nach dem Inhalt. Die Karten
+   starten geschlossen und kommen einzeln dazu; eine mitwachsende Bühne würde
+   bei jedem Schritt der Tour die halbe Seite verschieben.
+
+   Breite = die Wizard-Karte (1060). Alles andere wird darin platziert, damit
+   die Schiene darunter genau dann scrollt, wenn die Karte nicht ins Fenster
+   passt.
+
+   Er füllt den Bildschirm, statt als fester Kasten darin zu liegen: die
+   Karten sollen bis an die Kanten des Wallpapers dürfen und nur nicht
+   darüber hinaus. Was er nicht einschließt, ist die Taskbar — die 48px am
+   Fuß gehören ihr, wie auf einem echten Desktop.
+
+   `min-width` ist knapp die Breite der Wizard-Karte (940): schmaler darf der
+   Desk nicht werden, sonst hätte sie keinen Platz. Darunter scrollt die
+   Schiene.
+
+   Palette und Karte liegen übereinander, nicht untereinander: die Palette
+   öffnet mittig, und sobald der Wizard da ist, deckt er sie zu. */
+.wizplay__desk {
+  position: relative;
+  height: 100%;
+  min-width: 980px;
+  /* Die Bühne fängt sonst jeden Klick ab, der eigentlich einer Karte galt —
+     gemessen auf der Tour-Seite: nichts ließ sich mehr anfassen. */
+  pointer-events: none;
+}
+
+.wizplay__desk > kavibay-widget {
+  position: absolute;
+  pointer-events: auto;
+}
+
+/* Geschlossen heißt weg, nicht leer: die Tour öffnet beide Karten selbst, und
+   ein reservierter Platz sähe aus wie ein Ladefehler. */
+.wizplay__desk kavibay-widget:not([data-open]) {
+  display: none;
+}
+
+/* Ohne Wizard-Karte braucht der Desk deren 980px nicht — sonst scrollt die
+   Launcher-Bühne horizontal, obwohl nur die 640px-Palette darauf liegt. */
+.wizplay__desk--palette {
+  min-width: 0;
+}
+
+/* Der Bildschirm ohne die Taskbar — die Fläche, auf der die Karten liegen und
+   in der sie sich bewegen dürfen. Zugleich der einzige Kasten, der scrollen
+   darf.
+
+   Nicht die Bühne selbst: die trägt das Wallpaper als absolut positioniertes
+   <img> mit inset: 0, das in einem Scroll-Container nur den sichtbaren
+   Ausschnitt deckt — daneben stünde die Fläche ohne Bild.
+
+   Oberhalb der Schwelle bleibt overflow visible, damit eine gezogene Karte
+   nicht am Rand abgeschnitten wird. Darunter ist Erreichbarkeit wichtiger:
+   die Wizard-Karte ist 1060px breit und passt in ein schmales Fenster nicht
+   hinein.
+
+   z-index über dem Intro, damit der Wizard beim Öffnen die Überschrift
+   verdeckt statt umgekehrt. */
+.wizplay__scroll {
+  position: absolute;
+  inset: 0 0 48px;
+  z-index: 3;
+  padding: 0 24px;
+}
+
+@media (max-width: 1100px) {
+  .wizplay__scroll {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+}
+
+/* Die Bedienung der Demo, unten mittig auf dem Bildschirm und knapp über der
+   Taskbar. z-index über den Karten, weil sie sonst hinter einer gezogenen
+   Karte verschwindet — und wer die Demo anhalten will, will das oft genau
+   dann, wenn viel auf dem Schirm liegt. */
+.wizplay__transport {
+  position: absolute;
+  left: 50%;
+  bottom: 62px;
+  z-index: 5;
+  width: min(380px, calc(100% - 48px));
+  transform: translateX(-50%);
+}
+
+/* Die Leiste sitzt absolut am Fuß der Bühne, und die Bühne clippt nicht
+   (overflow bleibt visible, damit eine gezogene Karte heil bleibt). Also
+   rundet die Leiste ihre eigenen unteren Ecken. */
+.wizplay__stage .wiz-taskbar {
+  border-radius: 0 0 32px 32px;
+}
+
+/* Auf dem Telefon und auf Touch-Geräten bleibt der Desk weg — aus zwei
+   gemessenen Gründen, nicht aus Geschmack:
+
+   Die Karte ist 1060px breit; auf einem 375px-Gerät sieht man ein knappes
+   Drittel davon. Und das Demo-Skript fokussiert den Composer, um zu tippen
+   (wizardAutoplay.ts) — auf einem Touch-Gerät fährt damit die Bildschirm-
+   tastatur hoch und schiebt die halbe Seite weg, ohne dass jemand etwas
+   angefasst hat.
+
+   Die Bühne selbst bleibt: Wallpaper, Überschrift und Taskbar sind ein
+   ruhiges Bild des Produkts und kosten nichts. Eine Zeile erklärt
+   stattdessen, warum der Desk auf dem Telefon nicht da ist. */
+.wizplay__small {
+  display: none;
+}
+
+@media (max-width: 720px), (pointer: coarse) {
+  .wizplay__scroll,
+  .wizplay__transport {
+    display: none;
+  }
+
+  /* Ohne Desk trägt die Bühne nur noch Überschrift und Leiste, also richtet
+     sich ihre Höhe wieder nach dem Text statt nach einem Bildschirmformat —
+     und der Kopf steht dafür wieder im Fluss. */
+  .wizplay__stage {
+    aspect-ratio: auto;
+    min-height: 0;
+    padding: 40px 18px calc(28px + 48px);
+    border-radius: 22px;
+  }
+
+  .wizplay__stage .wiz-taskbar {
+    border-radius: 0 0 22px 22px;
+  }
+
+  /* Ohne Desk trägt die Bühne nur noch Text, und der steht dann bis unten auf
+     dem hellsten Teil des Nebels. Der Verlauf für den Desktop verhält sich
+     nach 42% zurück, weil dort Karten und kein Text liegen; hier wird er
+     durchgezogen, sonst verliert die letzte Zeile gegen das Bild. */
+  .wizplay__stage::before {
+    background: linear-gradient(
+      180deg,
+      rgba(8, 10, 18, 0.82) 0%,
+      rgba(8, 10, 18, 0.66) 55%,
+      rgba(8, 10, 18, 0.52) 100%
+    );
+  }
+
+  /* `relative`, nicht `static`: der Text läuft hier im Fluss, muss aber
+     positioniert bleiben, damit sein z-index gilt. Ohne das wird er vom
+     Wallpaper verdeckt — ein absolut positioniertes Element mit z-index 0
+     malt über nicht positionierte Nachbarn, also blieb auf dem Telefon nur
+     Bild und Taskleiste übrig, mit der Überschrift unsichtbar dahinter. */
+  .wizplay__intro {
+    position: relative;
+    /* Die Offsets der Desktop-Regel gelten sonst weiter und verschieben den
+       Block um die halbe Bühnenbreite nach rechts und 56px nach unten —
+       unter `static` waren sie wirkungslos, unter `relative` nicht. */
+    left: auto;
+    top: auto;
+    width: auto;
+    max-width: 40ch;
+    margin: 0 auto;
+    transform: none;
+  }
+
+  .wizplay__small {
+    display: block;
+    max-width: 40ch;
+    margin: 22px auto 0;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+}
+
+
+
+/* Die Kapitel tragen ganze Aussagen, keine Kapitelnamen. In einer Zeile
+   nebeneinander passen die längsten davon nur, solange eine Spalte ~260px
+   breit ist; darunter stünde ein abgeschnittenes "Launch over any wi…". Statt
+   zu kürzen wandert die Zeitangabe unter das Label, das damit die volle
+   Buttonbreite bekommt und umbrechen darf. */
+@media (max-width: 1040px) {
+  .video-chapter {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .video-chapter__label {
+    overflow: visible;
+    white-space: normal;
+  }
+
+  /* Four widgets don't fit this width; drop the rightmost. */
+  .wiz-stage--placed .wiz-placed--uptime {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------ Responsive --
+   Unter ~720px wird das Laptop-Chassis schlanker. Beim Launcher-Bild
+   verschwinden die Desk-Karten und die Palette bekommt die Bühne. Die
+   Videokapitel stehen dort untereinander: drei Spalten wären auf dem Handy je
+   ~95px breit und würden jedes Label über vier Zeilen brechen. */
+
+@media (max-width: 720px) {
+  :root {
+    --section-gap: 64px;
+  }
+
+  .video-chapters {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    margin-top: 44px;
+  }
+
+  .video-chapter {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .nav {
+    padding: 20px 18px;
+  }
+
+  .nav__link,
+  .nav__cta {
+    padding: 9px 14px;
+    font-size: 14px;
+  }
+
+  .hero {
+    padding-top: 34px;
+  }
+
+  /* Die gesperrte Mono-Zeile läuft auf schmalen Displays sonst bis an beide
+     Ränder — kleiner Grad und weniger Sperrung halten sie in der Mitte. */
+  .eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    margin-bottom: 16px;
+  }
+
+  .btn {
+    padding: 15px 22px;
+    font-size: 15px;
+  }
+
+  .showcase {
+    margin-top: 56px;
+    padding-bottom: 40px;
+  }
+
+  .showcase__accent {
+    inset: 26px -14px -18px 26px;
+  }
+
+  .laptop {
+    width: 96%;
+  }
+
+  .laptop__screen {
+    --screen-radius-top: 15px;
+    --screen-radius-bottom: 6px;
+    --screen-inset-x: 8px;
+    --screen-inset-top: 8px;
+    --screen-inset-bottom: 10px;
+    padding: var(--screen-inset-top) var(--screen-inset-x) var(--screen-inset-bottom);
+    border-radius: var(--screen-radius-top) var(--screen-radius-top)
+      var(--screen-radius-bottom) var(--screen-radius-bottom);
+  }
+
+  .laptop__screen::before {
+    top: 2px;
+    width: 3px;
+    height: 3px;
+  }
+
+  .laptop__base {
+    height: 12px;
+    border-radius: 1px 1px 11px 11px;
+  }
+
+  .laptop__base::before {
+    height: 3px;
+  }
+
+  .video-chapters {
+    gap: 8px;
+    width: 92%;
+    margin-top: 44px;
+  }
+
+  .video-chapter {
+    padding: 11px 12px;
+  }
+
+  .video-chapter__time {
+    display: none;
+  }
+
+  .widget-gallery {
+    --gallery-gap: 20px;
+    --gallery-card-width: 350px;
+    width: calc(100vw - 48px);
+    padding: 48px 0 var(--gallery-gap);
+    border-radius: 24px;
+  }
+
+  .wiz-stage {
+    width: calc(100vw - 48px);
+    padding: 40px 16px;
+    border-radius: 24px;
+  }
+
+  .wiz-taskbar__pin--extra {
+    display: none;
+  }
+
+  .widget-gallery__intro {
+    padding: 0 18px 44px;
+  }
+
+  .widget-gallery__stage {
+    width: 1120px;
+  }
+
+  .widget-gallery__row {
+    gap: var(--gallery-gap);
+  }
+
+  .widget-gallery__row--lower {
+    margin-top: 20px;
+  }
+
+  .widget-gallery .widget-card {
+    height: auto;
+    min-height: 0;
+    grid-template-columns: minmax(164px, 56%) minmax(0, 1fr);
+    gap: 12px;
+    padding: calc(var(--gallery-gap) / 2);
+  }
+
+  .widget-card__media {
+    min-height: 0;
+  }
+
+  /* Höhe aus dem Inhalt statt aus dem Fenster: eine Prozenthöhe auf einer
+     Karte, deren Fenster wiederum vom Inhalt lebt, lässt die Spalten
+     überlappen. */
+  /* Hier stand ein Block für einen älteren Wizard-Nachbau: .wiz (von
+     .wiz-demo .wiz überstimmt, also ohne Wirkung) und .wiz__transcript /
+     .wiz__side / .wiz__stage, deren Klassen in keiner der drei Seiten mehr
+     vorkommen. Entfernt, weil .wiz inzwischen auch die Wurzelklasse des
+     echten Widgets im Playground ist: eine tote Regel auf einem Namen, der
+     jetzt zwei Dinge trifft, ist eine Falle für den nächsten Umbau. */
+
+  .overlay {
+    padding: 0 18px;
+  }
+
+  .download {
+    padding: var(--section-gap) 18px;
+  }
+
+  .wizplay {
+    padding: 0 18px;
+  }
+
+  /* Nebeneinander wären das drei Spalten zu je ~100px. Untereinander, und die
+     Takte behalten ihre Reihenfolge. Dieselbe Regel für die Fragen darunter. */
+  .wizplay__beats,
+  .wizplay__facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .wizplay__copy {
+    margin-top: 32px;
+  }
+
+  .widget-gallery__points,
+  .overlay__points {
+    margin-top: 32px;
+    padding: 0 18px;
+  }
+
+  .os--notify {
+    padding: 22px 18px 26px;
+  }
+
+  /* Nebeneinander wird das Feld unter ~300px unbrauchbar schmal. */
+  .signup__input {
+    min-width: 100%;
+  }
+
+  /* Marke oben, Product und Legal darunter zu zweit. */
+  .foot__inner {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 32px 24px;
+  }
+
+  .foot__brand {
+    grid-column: 1 / -1;
+  }
+
+  .foot {
+    padding: 48px 18px 28px;
+  }
+
+  .legal {
+    padding: 44px 18px 80px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .caret,
+  .wiz-demo .wiz-composer-editor--typing::after,
+  .wiz-demo .wiz-generation-icon,
+  :is(.wiz-demo, .wiz-placed) .wiz-preview-card,
+  .wiz-stage--placed .wiz-placed {
+    animation: none;
+  }
+
+  .wiz-gha-mark--pulse {
+    animation: none;
+  }
+
+  .wiz-stage--placed .wiz-demo {
+    transition: none;
+  }
+
+  :is(.wiz-demo, .wiz-placed) .wiz-water-bar i,
+  .wiz-playhead__step i {
+    transition: none;
+  }
+
+  .btn:hover {
+    transform: none;
+  }
+}

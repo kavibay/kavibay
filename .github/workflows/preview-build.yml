@@ -1,0 +1,51 @@
+name: Preview build
+
+# Reviewing a widget without running it is guesswork, but building an installer on
+# every PR would blow the CI time budget. So: add the `build:installer` label to the
+# PRs where it matters, and every push to main produces a rolling build for testers.
+on:
+  pull_request:
+    types: [labeled]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    if: github.event_name != 'pull_request' || github.event.label.name == 'build:installer'
+    name: Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - run: npm ci
+      - run: npm run package:win
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kavibay-windows-${{ github.sha }}
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/kavibay.exe

@@ -1,0 +1,27 @@
+version: 2
+
+# Grouped on purpose: one PR per ecosystem per week. Ungrouped Dependabot produces
+# thirty PRs a month and trains everyone to ignore the notifications.
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 3
+    groups:
+      npm:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 3
+    groups:
+      cargo:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+    groups:
+      actions:
+        patterns: ["*"]

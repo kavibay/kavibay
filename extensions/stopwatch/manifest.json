@@ -1,0 +1,21 @@
+{
+  "format": "contract",
+  "name": "stopwatch",
+  "version": "1.0.0",
+  "displayName": "Stopwatch",
+  "description": "Count-up stopwatch.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "stopwatch": {
+      "replaces": "stopwatch",
+      "keywords": ["stopwatch", "stoppuhr", "elapsed"],
+      "categories": ["productivity"],
+      "ui": {
+        "defaultOffset": { "x": 720, "y": 200 },
+        "defaultSize": { "w": 520, "h": 240 },
+        "defaultHideTitle": true
+      }
+    }
+  }
+}

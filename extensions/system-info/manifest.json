@@ -1,0 +1,20 @@
+{
+  "format": "contract",
+  "name": "system-info",
+  "version": "1.0.0",
+  "displayName": "System Info",
+  "description": "CPU, memory, and battery information from the host.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "system-info": {
+      "replaces": "system-info",
+      "keywords": ["system", "cpu", "memory", "ram", "battery"],
+      "categories": ["system"],
+      "ui": {
+        "defaultOffset": { "x": -480, "y": 130 },
+        "defaultSize": { "w": 520, "h": 240 }
+      }
+    }
+  }
+}

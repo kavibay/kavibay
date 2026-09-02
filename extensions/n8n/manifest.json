@@ -1,0 +1,9 @@
+{
+  "format": "contract",
+  "name": "n8n",
+  "version": "1.0.0",
+  "displayName": "n8n",
+  "description": "n8n workflows and executions for widgets that connect an n8n instance.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" }
+}

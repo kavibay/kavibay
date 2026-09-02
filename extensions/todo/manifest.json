@@ -1,0 +1,34 @@
+{
+  "format": "contract",
+  "name": "todo",
+  "version": "1.0.0",
+  "displayName": "Todo",
+  "description": "Nestable checklist with drag reorder and inline editing.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "keywords": ["todo", "tasks", "checklist", "aufgaben", "liste"],
+  "categories": ["productivity"],
+  "widgets": {
+    "todo": {
+      "replaces": "todo",
+      "keywords": ["todo", "tasks", "checklist", "aufgaben", "liste"],
+      "categories": ["productivity"],
+      "ui": {
+        "defaultOffset": { "x": 240, "y": 420 },
+        "defaultSize": { "w": 280, "h": 260 },
+        "grabCursor": false
+      },
+      "actions": [
+        {
+          "id": "todo-add",
+          "title": "Add Todo",
+          "subtitle": "Append a task",
+          "keywords": ["todo", "task", "add", "new"],
+          "params": [
+            { "name": "item", "type": "text", "required": true, "placeholder": "Task" }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A force-push should kill the run it superseded instead of queueing behind it.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Reports in ~90s so a contributor gets an answer while Rust is still compiling.
+  frontend:
+    name: Frontend (typecheck · lint · asserts)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      # Includes the repo guards: sandbox, import boundaries, manifests, SPDX, versions.
+      - name: Assert tests
+        run: npm run test:assert
+
+  # Rust runs on Windows, not Linux: large parts of src-tauri are behind
+  # #[cfg(windows)] (the windows crate, winreg, DPAPI in security/secrets.rs), so a
+  # Linux-only job would pass while the shipped target is broken.
+  rust:
+    name: Rust (fmt · clippy · test)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          # PRs restore the cache but must not write it — ten concurrent PRs would
+          # otherwise thrash the repo's 10 GB cache quota and evict each other.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --lib
+
+  # Not a required check yet: Linux support is X11-only and still settling. It exists
+  # so a Linux-breaking change is visible in the PR rather than at release time.
+  linux-build:
+    name: Linux build check (non-blocking)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: linux
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - run: cargo check --manifest-path src-tauri/Cargo.toml

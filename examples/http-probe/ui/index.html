@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Declared HTTP Probe</title>
+    <!-- SPDX-License-Identifier: MIT -->
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 12px;
+        background: transparent;
+        color: #e8e8ea;
+        font-size: 12px;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 13px;
+      }
+      p.sub {
+        margin: 0 0 10px;
+        color: #9a9aa2;
+        font-size: 11px;
+        line-height: 1.4;
+      }
+      .verdict {
+        margin: 0 0 10px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+      }
+      .verdict.pass {
+        background: rgba(120, 200, 150, 0.16);
+        color: #a6dcb4;
+      }
+      .verdict.fail {
+        background: rgba(255, 120, 120, 0.16);
+        color: #ff9d9d;
+      }
+      .verdict.pending {
+        background: rgba(255, 255, 255, 0.08);
+        color: #b9b9c2;
+      }
+      ul {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      li {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .name {
+        font-weight: 600;
+      }
+      .detail {
+        color: #9a9aa2;
+        font-size: 11px;
+      }
+      .blocked {
+        color: #a6dcb4;
+      }
+      .escaped {
+        color: #ff9d9d;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Declared HTTP Probe</h1>
+    <p class="sub">
+      Tries to escape its own <code>api.json</code>. Every breakout must be
+      BLOCKED; the one declared call is expected to succeed.
+    </p>
+    <p id="verdict" class="verdict pending">RUNNING…</p>
+    <ul id="results"></ul>
+
+    <script src="@kavibay/runtime.js"></script>
+    <script>
+      (function () {
+        "use strict";
+
+        var results = document.getElementById("results");
+        var verdict = document.getElementById("verdict");
+        var escaped = 0;
+
+        function row(name, pass, detail, labels) {
+          if (!pass) escaped += 1;
+          var li = document.createElement("li");
+
+          var title = document.createElement("span");
+          title.className = "name " + (pass ? "blocked" : "escaped");
+          title.textContent = (pass ? labels[0] : labels[1]) + "  " + name;
+
+          var note = document.createElement("span");
+          note.className = "detail";
+          // textContent, never innerHTML: these strings come from the host.
+          note.textContent = detail;
+
+          li.appendChild(title);
+          li.appendChild(note);
+          results.appendChild(li);
+        }
+
+        function describe(res) {
+          if (res.ok) return "ok, status " + res.status;
+          return "code " + res.code + (res.detail ? " (" + res.detail + ")" : "");
+        }
+
+        /** A breakout attempt passes when the call is refused. */
+        function attempt(name, endpointId, args) {
+          return kavibay.http(endpointId, args).then(function (res) {
+            row(name, !res.ok, describe(res), ["BLOCKED", "ESCAPED"]);
+          });
+        }
+
+        var checks = [
+          attempt(
+            "undeclared endpoint id",
+            "secretEndpoint",
+            {},
+          ),
+          attempt("endpoint id belonging to another package", "forecast", {}),
+          attempt("undeclared argument", "allowed", {
+            latitude: 52.5,
+            longitude: 13.4,
+            redirect: "https://evil.example.com",
+          }),
+          attempt("override a const argument", "allowed", {
+            latitude: 52.5,
+            longitude: 13.4,
+            current: "everything",
+          }),
+          attempt("missing required argument", "allowed", { latitude: 52.5 }),
+          attempt("wrong argument type", "allowed", {
+            latitude: "52.5",
+            longitude: 13.4,
+          }),
+          attempt("path traversal in a segment", "pathBound", { section: ".." }),
+          attempt("separator inside a segment", "pathBound", { section: "v1/admin" }),
+          attempt("charset violation in a segment", "pathBound", {
+            section: "v1$admin",
+          }),
+        ];
+
+        // The declared call is the control: if this fails too, the probe is
+        // measuring a broken host rather than a working boundary.
+        checks.push(
+          kavibay
+            .http("allowed", { latitude: 52.52, longitude: 13.405 })
+            .then(function (res) {
+              row(
+                "declared call (control, must succeed)",
+                res.ok,
+                describe(res),
+                ["OK", "FAILED"],
+              );
+            }),
+        );
+
+        Promise.all(checks)
+          .then(function () {
+            if (escaped === 0) {
+              verdict.className = "verdict pass";
+              verdict.textContent = "ALL BLOCKED";
+            } else {
+              verdict.className = "verdict fail";
+              verdict.textContent = escaped + " ESCAPED — stop ship";
+            }
+          })
+          .catch(function (error) {
+            verdict.className = "verdict fail";
+            verdict.textContent = "probe error: " + error.message;
+          });
+      })();
+    </script>
+  </body>
+</html>

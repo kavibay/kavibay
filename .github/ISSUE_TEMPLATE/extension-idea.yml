@@ -1,0 +1,43 @@
+name: Widget / extension idea
+description: Propose a widget — for yourself to build, or for someone else to pick up
+labels: [extension, idea]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        You do **not** need an issue before opening a PR. This is for ideas you want
+        to discuss first, or want to hand to someone else.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What does the widget do?
+      description: One or two sentences, as a user would describe it.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: data
+    attributes:
+      label: Where does its data come from?
+      options:
+        - Nothing — it is self-contained (calculator, timer, game)
+        - The local machine (files, system info, clipboard)
+        - A public API with no key
+        - An API that needs an account or API key
+    validations:
+      required: true
+
+  - type: input
+    id: api
+    attributes:
+      label: API / data source
+      description: Link the docs if there is an API.
+
+  - type: checkboxes
+    id: build
+    attributes:
+      label: Are you planning to build it?
+      options:
+        - label: Yes, I want to build this myself
+        - label: I would like someone else to pick it up

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 Show your widget / ask a question
+    url: https://github.com/aswetlow/kavibay/discussions
+    about: Discussions is the place for showing what you built, half-formed ideas, and questions.
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/aswetlow/kavibay/security/advisories/new
+    about: Please report privately, not as a public issue. See SECURITY.md.

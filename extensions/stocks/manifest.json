@@ -1,0 +1,36 @@
+{
+  "format": "contract",
+  "name": "stocks",
+  "version": "1.0.0",
+  "displayName": "Stocks",
+  "description": "Watchlist with Yahoo quotes and expandable detail.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "stocks": {
+      "replaces": "stocks",
+      "keywords": ["stocks", "quotes", "finance", "watchlist", "ticker"],
+      "categories": ["information"],
+      "ui": {
+        "defaultOffset": { "x": -240, "y": 80 },
+        "defaultSize": { "w": 520, "h": 280 }
+      },
+      "actions": [
+        {
+          "id": "add-symbol",
+          "title": "Add Ticker",
+          "subtitle": "Add a symbol to the watchlist",
+          "keywords": ["ticker", "symbol", "watchlist", "quote", "add"],
+          "params": [
+            {
+              "name": "symbol",
+              "type": "text",
+              "required": true,
+              "placeholder": "Ticker (AAPL)"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

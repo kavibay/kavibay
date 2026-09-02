@@ -1,0 +1,32 @@
+{
+  "format": "contract",
+  "name": "alarm",
+  "version": "1.0.0",
+  "displayName": "Alarm",
+  "description": "Set alarms that ring at a chosen time.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "alarm": {
+      "replaces": "alarm",
+      "keywords": ["alarm", "wecker", "reminder"],
+      "categories": ["productivity"],
+      "ui": {
+        "defaultOffset": { "x": 720, "y": 400 },
+        "defaultSize": { "w": 280, "h": 160 }
+      },
+      "actions": [
+        {
+          "id": "set-alarm",
+          "title": "Set Alarm",
+          "subtitle": "Add an alarm",
+          "keywords": ["alarm", "wake", "remind", "set"],
+          "params": [
+            { "name": "time", "type": "text", "required": true, "placeholder": "Time (07:30)" },
+            { "name": "label", "type": "text", "required": false, "placeholder": "Label (optional)" }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "format": "contract",
+  "name": "redacted",
+  "version": "1.0.0",
+  "displayName": "Redacted",
+  "description": "Opaque cover for sensitive areas while screensharing.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "redacted": {
+      "replaces": "redacted",
+      "keywords": ["redacted", "privacy", "cover", "screenshare", "overlay", "zensiert"],
+      "categories": ["tools"],
+      "ui": {
+        "defaultOffset": { "x": 320, "y": 200 },
+        "defaultSize": { "w": 240, "h": 160 },
+        "allowDuplicate": true,
+        "flush": true,
+        "defaultHideTitle": true,
+        "fullDrag": true
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+
+# Legal pages carry noindex in their own head. Listed here so a crawler that
+# only reads robots.txt does not treat them as part of the marketing surface.
+Disallow: /imprint
+Disallow: /privacy
+Disallow: /notify
+Disallow: /palette-demo.html
+Disallow: /playground.html
+
+Sitemap: https://kavibay.com/sitemap.xml

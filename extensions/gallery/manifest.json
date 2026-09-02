@@ -1,0 +1,33 @@
+{
+  "format": "contract",
+  "name": "gallery",
+  "displayName": "Widget Gallery",
+  "description": "Browse widgets with video previews and add them to your desk.",
+  "version": "1.0.0",
+  "author": "kavibay",
+  "keywords": [
+    "gallery",
+    "widgets",
+    "browse",
+    "add",
+    "onboarding"
+  ],
+  "categories": [
+    "tools"
+  ],
+  "icon": "icon.svg",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "gallery": {
+      "replaces": "gallery",
+      "keywords": ["gallery", "widgets", "browse", "add", "onboarding"],
+      "categories": ["tools"],
+      "ui": {
+        "defaultOffset": { "x": 0, "y": -80 },
+        "defaultSize": { "w": 720, "h": 480 },
+        "allowDuplicate": false,
+        "grabCursor": true
+      }
+    }
+  }
+}

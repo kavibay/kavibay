@@ -1,0 +1,20 @@
+{
+  "format": "contract",
+  "name": "spotify",
+  "version": "1.0.0",
+  "displayName": "Spotify",
+  "description": "Spotify now-playing, library, top lists and playlists for widgets that connect a Spotify account.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "playlists": {
+      "keywords": ["spotify", "playlist", "music", "playlists"],
+      "categories": ["information"],
+      "ui": {
+        "defaultOffset": { "x": -320, "y": 40 },
+        "defaultSize": { "w": 280, "h": 320 },
+        "allowDuplicate": true
+      }
+    }
+  }
+}

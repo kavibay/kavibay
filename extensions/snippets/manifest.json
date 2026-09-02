@@ -1,0 +1,47 @@
+{
+  "format": "contract",
+  "name": "snippets",
+  "version": "1.0.0",
+  "displayName": "Snippets",
+  "description": "Fill a text template with placeholders and copy it to the clipboard.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "snippets": {
+      "replaces": "snippets",
+      "keywords": [
+        "snippet",
+        "snippets",
+        "template",
+        "placeholder",
+        "clipboard",
+        "copy",
+        "textbaustein",
+        "vorlage"
+      ],
+      "categories": ["productivity"],
+      "ui": {
+        "defaultOffset": { "x": 280, "y": 240 },
+        "defaultSize": { "w": 280, "h": 240 },
+        "grabCursor": false
+      },
+      "actions": [
+        {
+          "id": "expand",
+          "title": "Expand Snippet",
+          "subtitle": "Fill a template and copy it",
+          "keywords": ["snippet", "template", "placeholder", "clipboard", "copy"],
+          "needsInstance": false,
+          "params": [
+            {
+              "name": "template",
+              "type": "text",
+              "required": true,
+              "placeholder": "Template (hallo {name})"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

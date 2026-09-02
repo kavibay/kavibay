@@ -1,0 +1,13 @@
+{
+  "format": "contract",
+  "name": "tado",
+  "version": "1.0.0",
+  "displayName": "Tado",
+  "description": "Read-only smart thermostat tiles for tado° heating zones.",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "tile": {
+      "replaces": "tado"
+    }
+  }
+}

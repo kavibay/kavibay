@@ -1,0 +1,9 @@
+{
+  "format": "contract",
+  "name": "notion",
+  "version": "1.0.0",
+  "displayName": "Notion",
+  "description": "Notion pages and databases for widgets that connect a Notion integration.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" }
+}

@@ -1,0 +1,30 @@
+# Auto-labels a PR by what it touches, so the PR list is readable at a glance and the
+# release notes group themselves. Used by .github/workflows/labeler.yml.
+extension:
+  - changed-files:
+      - any-glob-to-any-file: "extensions/**"
+
+rust:
+  - changed-files:
+      - any-glob-to-any-file: "src-tauri/**"
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file: ["docs/**", "**/*.md"]
+
+sdk:
+  - changed-files:
+      - any-glob-to-any-file: "sdk/**"
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file: [".github/**", "scripts/**", "eslint.config.js"]
+
+security:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src-tauri/src/security/**"
+          - "src-tauri/src/credentials/**"
+          - "src-tauri/src/runtime_extensions/**"
+          - "src-tauri/tauri.conf.json"
+          - "core/app/runtime/**"

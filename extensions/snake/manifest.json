@@ -1,0 +1,23 @@
+{
+  "format": "contract",
+  "name": "snake",
+  "version": "1.0.0",
+  "displayName": "Snake",
+  "description": "Classic Nokia-style Snake on a small grid.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "snake": {
+      "replaces": "snake",
+      "keywords": ["snake", "game", "nokia", "spiel"],
+      "categories": ["tools"],
+      "ui": {
+        "defaultOffset": { "x": 560, "y": 320 },
+        "defaultSize": { "w": 400, "h": 400 },
+        "compact": true,
+        "grabCursor": false,
+        "playground": true
+      }
+    }
+  }
+}

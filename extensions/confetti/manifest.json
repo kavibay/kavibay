@@ -1,0 +1,28 @@
+{
+  "format": "contract",
+  "name": "confetti",
+  "displayName": "Confetti",
+  "description": "Launch a fullscreen confetti burst from the command palette.",
+  "version": "1.0.0",
+  "author": "kavibay",
+  "keywords": ["confetti", "celebrate", "party", "celebration"],
+  "categories": ["tools"],
+  "engines": { "kavibay": "^0.1" },
+  "actions": [
+    {
+      "id": "launch",
+      "title": "Launch Confetti",
+      "subtitle": "Start a fullscreen celebration",
+      "keywords": ["confetti", "celebrate", "party"],
+      "params": [
+        {
+          "name": "intensity",
+          "type": "number",
+          "required": false,
+          "placeholder": "Intensity (1–5, default 3)"
+        }
+      ],
+      "needsInstance": false
+    }
+  ]
+}

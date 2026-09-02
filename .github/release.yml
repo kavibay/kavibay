@@ -1,0 +1,18 @@
+# Categories for GitHub's auto-generated release notes. Squash-merge means one PR is
+# one line, so the changelog is a side effect of labelling instead of a file to edit.
+changelog:
+  exclude:
+    labels: [skip-changelog]
+  categories:
+    - title: 🧩 New extensions
+      labels: [extension]
+    - title: ✨ Features
+      labels: [feature]
+    - title: 🐛 Fixes
+      labels: [bug]
+    - title: 🔒 Security
+      labels: [security]
+    - title: 📚 Docs
+      labels: [docs]
+    - title: 🔧 Maintenance
+      labels: ["*"]

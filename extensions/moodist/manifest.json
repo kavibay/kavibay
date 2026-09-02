@@ -1,0 +1,22 @@
+{
+  "format": "contract",
+  "name": "moodist",
+  "version": "1.0.0",
+  "displayName": "Moodist",
+  "description": "Mix looping ambient sounds for focused work.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "moodist": {
+      "replaces": "moodist",
+      "keywords": ["ambient", "sound", "focus", "moodist", "noise"],
+      "categories": ["productivity"],
+      "ui": {
+        "defaultOffset": { "x": 360, "y": 240 },
+        "defaultSize": { "w": 280, "h": 360 },
+        "allowDuplicate": true,
+        "keepAliveWhenHidden": true
+      }
+    }
+  }
+}

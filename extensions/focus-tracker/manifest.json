@@ -1,0 +1,21 @@
+{
+  "format": "contract",
+  "name": "focus-tracker",
+  "version": "1.0.0",
+  "displayName": "Focus Tracker",
+  "description": "Day, week, and month focus time by app or window title, with habit limits.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "focus-tracker": {
+      "replaces": "focus-tracker",
+      "keywords": ["focus", "tracker", "time", "habits", "productivity", "usage"],
+      "categories": ["productivity"],
+      "ui": {
+        "defaultOffset": { "x": -240, "y": 360 },
+        "defaultSize": { "w": 300, "h": 440 },
+        "allowDuplicate": false
+      }
+    }
+  }
+}

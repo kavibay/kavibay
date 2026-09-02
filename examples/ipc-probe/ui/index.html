@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ipc-probe</title>
+    <style>
+      body {
+        margin: 0;
+        font: 13px/1.4 system-ui, sans-serif;
+        color: #e8e8e8;
+        background: transparent;
+        padding: 10px 12px;
+      }
+      h1 {
+        font-size: 13px;
+        font-weight: 600;
+        margin: 0 0 8px;
+      }
+      #summary {
+        margin-bottom: 8px;
+        font-weight: 600;
+      }
+      #summary.pass {
+        color: #6dce8a;
+      }
+      #summary.fail {
+        color: #f07178;
+      }
+      ul {
+        margin: 0;
+        padding-left: 1.2em;
+      }
+      li.pass::marker {
+        color: #6dce8a;
+      }
+      li.fail::marker {
+        color: #f07178;
+      }
+      code {
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>IPC isolation probe</h1>
+    <div id="summary">running…</div>
+    <ul id="results"></ul>
+    <script src="./main.js"></script>
+  </body>
+</html>

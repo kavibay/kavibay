@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "endpoints": [
+    {
+      "id": "allowed",
+      "description": "Reads the current temperature for a location from Open-Meteo.",
+      "method": "GET",
+      "url": "https://api.open-meteo.com/v1/forecast",
+      "query": {
+        "latitude": { "type": "number", "required": true },
+        "longitude": { "type": "number", "required": true },
+        "current": { "type": "const", "value": "temperature_2m" }
+      },
+      "rate": { "minIntervalSeconds": 5 }
+    },
+    {
+      "id": "pathBound",
+      "description": "Reads one public status document, addressed by a path segment.",
+      "method": "GET",
+      "url": "https://api.open-meteo.com/{section}/forecast",
+      "path": {
+        "section": { "type": "string", "required": true, "charset": "alnumDash" }
+      }
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "format": "contract",
+  "name": "time-tracker",
+  "version": "1.0.0",
+  "displayName": "Time Tracker",
+  "description": "Track time on projects and tasks with day, week, and month totals.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "keywords": ["time", "track", "tracker", "project", "aufgabe", "timer", "zeiterfassung"],
+  "categories": ["productivity"],
+  "widgets": {
+    "time-tracker": {
+      "replaces": "time-tracker",
+      "keywords": ["time", "track", "project", "task", "timer", "zeiterfassung"],
+      "categories": ["productivity"],
+      "ui": {
+        "defaultOffset": { "x": 160, "y": 200 },
+        "defaultSize": { "w": 340, "h": 320 },
+        "grabCursor": false
+      }
+    }
+  }
+}

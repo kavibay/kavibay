@@ -1,0 +1,21 @@
+{
+  "format": "contract",
+  "name": "github",
+  "version": "1.0.0",
+  "displayName": "GitHub",
+  "description": "GitHub widgets for workflow runs and repository activity.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "github-actions": {
+      "replaces": "github-actions",
+      "keywords": ["github", "actions", "ci", "workflow", "runs"],
+      "categories": ["information"],
+      "ui": {
+        "defaultOffset": { "x": -320, "y": 40 },
+        "defaultSize": { "w": 300, "h": 280 },
+        "allowDuplicate": true
+      }
+    }
+  }
+}

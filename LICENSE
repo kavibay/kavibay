@@ -1,0 +1,27 @@
+Kavibay — license map
+=====================
+
+This repository uses per-directory licenses (SPDX). Full license texts live in
+each directory's LICENSE file.
+
+| Path | SPDX | Notes |
+|------|------|-------|
+| core/ | GPL-3.0-or-later | Application frontend under core/app/ |
+| src-tauri/ | GPL-3.0-or-later | Rust backend; part of core (kept at repo root for Tauri CLI) |
+| Root build/config (package.json, vite.config.ts, tsconfig*.json, index.html, …) | GPL-3.0-or-later | Core build tooling |
+| scripts/ | GPL-3.0-or-later | |
+| sdk/ | MIT | Extension-facing SDK implementations |
+| extensions/ | MIT | First-party FE reference widgets |
+| examples/ | MIT | Runtime package templates / probes |
+| docs/ | CC-BY-4.0 | Guides, specs, plans (code snippets additionally MIT — see docs/LICENSE) |
+
+Binary distributions of the Kavibay application are licensed under GPL-3.0-or-later
+as a whole, even though they may embed MIT-licensed extension and SDK code.
+
+The name "Kavibay" and related branding are not licensed under the code licenses
+above; no trademark license is granted by this file.
+
+`.superpowers/` (if present) contains internal agent work logs only. No license
+grant applies to those files.
+
+Copyright (c) 2026 Alex Swetlow. See per-directory LICENSE files for terms.

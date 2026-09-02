@@ -1,0 +1,36 @@
+{
+  "format": "contract",
+  "name": "widget-wizard",
+  "version": "1.0.0",
+  "displayName": "Widget Wizard",
+  "description": "Describe a widget in plain language and watch it get built.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "keywords": ["wizard", "widget", "ai", "build", "generate"],
+  "categories": ["productivity"],
+  "icon": "icon.svg",
+  "widgets": {
+    "widget-wizard": {
+      "replaces": "widget-wizard",
+      "keywords": ["wizard", "widget", "ai", "build", "generate"],
+      "categories": ["productivity"],
+      "ui": {
+        "defaultOffset": { "x": 0, "y": 0 },
+        "defaultSize": { "w": 1060, "h": 660 },
+        "grabCursor": false,
+        "defaultHideTitle": false,
+        "opaque": true
+      },
+      "actions": [
+        {
+          "id": "new-widget",
+          "title": "New Widget",
+          "subtitle": "Start a new project in the Widget Wizard",
+          "keywords": ["new", "widget", "wizard", "create", "build", "generate", "project"],
+          "needsInstance": false,
+          "replacesCatalogRow": true
+        }
+      ]
+    }
+  }
+}

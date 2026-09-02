@@ -1,0 +1,31 @@
+/*
+ * Chrome the Widget Wizard offers that this host cannot honour.
+ *
+ * Loaded from `lazyWizard.ts`, so only a page that mounts the Wizard carries
+ * it. Addressed under `kavibay-widget` so it can never reach the app.
+ *
+ * SAVE, SAVE & RUN, DISCARD
+ *
+ * All three end in `wizardDraftPromote` or `wizardDraftDiscard`, and the
+ * fixture refuses the first: there is no desktop app here to install into.
+ * That refusal was correct and read badly — the Wizard wraps a failed promote
+ * as "The package did not pass validation: …", which says the generated
+ * package is broken when the truth is that this page cannot install anything.
+ *
+ * So the buttons take the Wizard's own disabled look — `opacity: .55` and
+ * `cursor: default` are its values, not invented here — and stop taking
+ * clicks. Switched off rather than hidden, because the row is part of what the
+ * product looks like and a demo that quietly removes it shows a Wizard that
+ * does not exist.
+ *
+ * KNOWN LIMIT: `pointer-events` stops the pointer, not the keyboard. Tabbing
+ * to one and pressing Enter still runs it, and lands on the same refusal as
+ * before. Closing that needs the `disabled` attribute, which belongs to the
+ * component's own state — and forking the component to add a demo flag would
+ * cost more than the case is worth.
+ */
+kavibay-widget .wiz-actions button {
+  pointer-events: none;
+  opacity: 0.55;
+  cursor: default;
+}

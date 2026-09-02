@@ -1,0 +1,13 @@
+{
+  "id": "ipc-probe",
+  "name": "IPC Isolation Probe",
+  "version": "1.0.0",
+  "description": "Dev-only: asserts the runtime iframe cannot reach Tauri IPC or parent DOM",
+  "ui": {
+    "entry": "ui/index.html",
+    "defaultOffset": { "x": 0, "y": 0 },
+    "allowDuplicate": false
+  },
+  "commands": [],
+  "permissions": []
+}

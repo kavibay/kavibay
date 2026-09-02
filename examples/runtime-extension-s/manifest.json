@@ -1,0 +1,14 @@
+{
+  "id": "runtime-extension-s",
+  "name": "Runtime Extension S",
+  "version": "1.0.0",
+  "description": "Fixture: storage get/set via postMessage bridge",
+  "icon": "icon.svg",
+  "ui": {
+    "entry": "ui/index.html",
+    "defaultOffset": { "x": 0, "y": 0 },
+    "allowDuplicate": true
+  },
+  "commands": [],
+  "permissions": ["storage.instance"]
+}

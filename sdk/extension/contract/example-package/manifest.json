@@ -1,0 +1,17 @@
+{
+  "name": "counter",
+  "version": "1.0.0",
+  "displayName": "Counter",
+  "description": "A number that goes up. The smallest complete widget package.",
+  "engines": { "kavibay": "^0.1" },
+  "widget": {
+    "name": "counter",
+    "displayName": "Counter",
+    "description": "Counts, and remembers across restarts.",
+    "defaultSize": { "w": 2, "h": 2 },
+    "permissions": { "queries": [], "actions": [] },
+    "configuration": {
+      "label": { "type": "string", "label": "Label", "default": "Count" }
+    }
+  }
+}

@@ -1,0 +1,48 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Embed custom-element bundle. Built by `npm run build:embed` into a path the
+# landing serves as a static file. Regenerated, not edited.
+landing/embed/
+
+# Written by notify.php on the webserver. Never commit.
+landing/.notify-rate
+
+# Superpowers brainstorm / SDD session artifacts
+.superpowers/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Git worktrees. `.worktrees/` is where they used to live; the Claude Code
+# harness puts them under `.claude/` instead, and that path was ignored by
+# nothing — 15 GB of full repo checkouts, each with its own .git, one
+# `git add -A` away from being committed. It is also why eslint reported 900
+# parsing errors from the main checkout and why runAsserts skips the directory.
+.worktrees/
+.claude/worktrees/
+
+# Machine-local Claude Code settings: a per-machine permission allowlist, which
+# is what the `.local` suffix means. `.claude/launch.json` is deliberately NOT
+# ignored — it describes how to start this project's dev servers, which is the
+# same for everyone working on it.
+.claude/settings.local.json

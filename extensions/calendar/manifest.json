@@ -1,0 +1,21 @@
+{
+  "format": "contract",
+  "name": "calendar",
+  "version": "1.0.0",
+  "displayName": "Google Calendar",
+  "description": "Google Calendar month view for multiple calendars with day list and quick add.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "calendar": {
+      "replaces": "calendar",
+      "keywords": ["calendar", "google", "events", "agenda", "termine"],
+      "categories": ["information"],
+      "ui": {
+        "defaultOffset": { "x": -200, "y": 200 },
+        "defaultSize": { "w": 260, "h": 320 },
+        "allowDuplicate": true
+      }
+    }
+  }
+}

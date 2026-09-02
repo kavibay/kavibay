@@ -1,0 +1,112 @@
+// SPDX-License-Identifier: MIT
+import { computed, onScopeDispose, ref, type ComputedRef, type Ref } from "vue";
+import {
+  defineWidget,
+  type NowPlayingControl,
+  type WidgetContext,
+} from "@sdk/contract/sdk";
+import {
+  emptyNowPlaying,
+  normalizeNowPlaying,
+  type NowPlayingInfo,
+} from "../nowPlayingLogic";
+
+export interface NowPlayingModel {
+  info: ComputedRef<NowPlayingInfo>;
+  loading: Ref<boolean>;
+  error: Ref<string | null>;
+  onPrev(): void;
+  onPlayPause(): void;
+  onNext(): void;
+  onOpenSource(): void;
+}
+
+const REFRESH_MS = 1_000;
+
+export const nowPlayingWidget = defineWidget({
+  name: "now-playing",
+  displayName: "Now Playing",
+  description: "Currently playing media session.",
+  defaultSize: { w: 4, h: 2 },
+  minSize: { w: 3, h: 2 },
+  mode: "both",
+  capabilities: { nowPlaying: true },
+  component: {
+    setup(ctx: WidgetContext): NowPlayingModel {
+      const display = ref<NowPlayingInfo>(emptyNowPlaying());
+      const loading = ref(false);
+      const error = ref<string | null>(null);
+      const pending = ref(false);
+      let request: Promise<void> | undefined;
+      let alive = true;
+
+      const readSnapshot = async (): Promise<NowPlayingInfo> => {
+        if (!ctx.nowPlaying) throw new Error("Now Playing capability unavailable");
+        return normalizeNowPlaying(await ctx.nowPlaying.snapshot<NowPlayingInfo>());
+      };
+
+      const refresh = (): Promise<void> => {
+        if (pending.value || request) return request ?? Promise.resolve();
+        loading.value = true;
+        request = (async () => {
+          try {
+            const snapshot = await readSnapshot();
+            if (!alive) return;
+            display.value = snapshot;
+            error.value = null;
+          } catch (cause) {
+            if (alive) error.value = cause instanceof Error ? cause.message : String(cause);
+          }
+        })().finally(() => {
+          loading.value = false;
+          request = undefined;
+        });
+        return request;
+      };
+
+      async function runControl(action: NowPlayingControl, optimistic?: Partial<NowPlayingInfo>) {
+        if (!display.value.has_session || !ctx.nowPlaying) return;
+        if (optimistic) display.value = { ...display.value, ...optimistic };
+        pending.value = true;
+        try {
+          await ctx.nowPlaying.control(action);
+          display.value = await readSnapshot();
+          error.value = null;
+        } catch (cause) {
+          error.value = cause instanceof Error ? cause.message : String(cause);
+          try {
+            display.value = await readSnapshot();
+          } catch {
+            // Keep the last display if the recovery snapshot also fails.
+          }
+        } finally {
+          pending.value = false;
+        }
+      }
+
+      const onPrev = () => { void runControl("previous"); };
+      const onPlayPause = () => {
+        void runControl("playPause", { is_playing: !display.value.is_playing });
+      };
+      const onNext = () => { void runControl("next"); };
+      const onOpenSource = () => { void runControl("openSource"); };
+
+      const timer = ctx.nowPlaying ? setInterval(() => void refresh(), REFRESH_MS) : undefined;
+      onScopeDispose(() => {
+        alive = false;
+        if (timer !== undefined) clearInterval(timer);
+      });
+
+      void refresh();
+      return {
+        info: computed(() => display.value),
+        loading,
+        error,
+        onPrev,
+        onPlayPause,
+        onNext,
+        onOpenSource,
+      };
+    },
+  },
+});

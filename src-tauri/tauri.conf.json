@@ -1,0 +1,54 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "kavibay",
+  "version": "0.1.0",
+  "identifier": "com.kavibay.kavibay",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Kavibay",
+        "width": 800,
+        "height": 600,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "zoomHotkeysEnabled": true,
+        "resizable": false,
+        "shadow": false
+      }
+    ],
+    "macOSPrivateApi": true,
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost kavibay-ext: http://kavibay-ext.localhost kavibay-img: http://kavibay-img.localhost https: http: data: blob:; media-src 'self' asset: http://asset.localhost blob: data:; connect-src ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src 'self' kavibay-ext: http://kavibay-ext.localhost https://kavibay-ext.localhost; child-src 'self' kavibay-ext: http://kavibay-ext.localhost https://kavibay-ext.localhost",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/**", "$APPLOCALDATA/**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

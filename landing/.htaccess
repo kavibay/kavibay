@@ -1,0 +1,44 @@
+# Document root = this folder (the contents of landing/, not the repo root).
+# Needs Apache mod_rewrite. Do not set Options here: many managed hosts only
+# allow FileInfo in .htaccess, and a forbidden Options line 500s the site.
+
+# PHP-FPM/CGI does not fill PHP_AUTH_USER unless the header is copied.
+<IfModule mod_setenvif.c>
+  SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+</IfModule>
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # PHP-FPM/CGI does not fill PHP_AUTH_USER unless the header is copied.
+  RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+  # /imprint/ → /imprint. The relative stylesheet would otherwise resolve as
+  # /imprint/styles.css.
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^(.+)/$ /$1 [R=301,L]
+
+  # External *.html bookmarks → clean URLs.
+  RewriteCond %{THE_REQUEST} \s/index\.html[\s?]
+  RewriteRule ^index\.html$ / [R=301,L]
+  RewriteCond %{THE_REQUEST} \s/imprint\.html[\s?]
+  RewriteRule ^imprint\.html$ /imprint [R=301,L]
+  RewriteCond %{THE_REQUEST} \s/privacy\.html[\s?]
+  RewriteRule ^privacy\.html$ /privacy [R=301,L]
+
+  # HTML never goes out raw: DirectoryIndex / and the clean URLs run auth.php.
+  RewriteRule ^$ auth.php?file=index.html [L,QSA]
+  RewriteRule ^index\.html$ auth.php?file=index.html [L,QSA]
+  RewriteRule ^imprint$ auth.php?file=imprint.html [L,QSA]
+  RewriteRule ^privacy$ auth.php?file=privacy.html [L,QSA]
+  RewriteRule ^notify$ notify.php [L]
+</IfModule>
+
+<Files ".notify-rate">
+  Require all denied
+</Files>
+
+<Files "auth.inc.php">
+  Require all denied
+</Files>

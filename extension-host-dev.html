@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Extension host — Phase 3 gate states</title>
+  </head>
+
+  <body>
+    <!--
+      Dev-only surface for the Phase 3 widget runtime. Deliberately NOT listed in
+      vite.config.ts `build.rollupOptions.input`: the dev server serves any HTML
+      under the project root, so this page exists for `npm run dev` and is absent
+      from a production build. Delete the file and nothing else changes.
+    -->
+    <div id="app"></div>
+    <script type="module" src="/core/app/extension-host-dev/main.ts"></script>
+  </body>
+</html>

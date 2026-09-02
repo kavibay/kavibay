@@ -1,0 +1,31 @@
+{
+  "format": "contract",
+  "name": "clipboard",
+  "displayName": "Clipboard",
+  "description": "Recent clipboard history.",
+  "version": "1.0.0",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "keywords": [
+    "clipboard",
+    "paste",
+    "history",
+    "zwischenablage"
+  ],
+  "categories": [
+    "productivity"
+  ],
+  "icon": "icon.svg",
+  "widgets": {
+    "clipboard": {
+      "replaces": "clipboard",
+      "keywords": ["clipboard", "paste", "history", "zwischenablage"],
+      "categories": ["productivity"],
+      "ui": {
+        "defaultOffset": { "x": -480, "y": 500 },
+        "defaultSize": { "w": 560, "h": 340 },
+        "allowDuplicate": false
+      }
+    }
+  }
+}

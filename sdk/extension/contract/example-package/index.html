@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Counter</title>
+    <style>
+      /*
+        The host pushes its design tokens onto this document's root, so a
+        package styles itself from them and follows a theme change without
+        reloading. The fallbacks are what renders in the moment before the
+        first theme message arrives.
+      */
+      html, body {
+        height: 100%;
+        margin: 0;
+        background: transparent;
+        color-scheme: var(--native-color-scheme, dark);
+        font-family: var(--font-family, system-ui, sans-serif);
+        color: var(--text, rgba(255, 255, 255, 0.92));
+      }
+      #kavibay-widget { height: 100%; }
+    </style>
+  </head>
+
+  <body>
+    <!-- The host's guest runtime looks for this id and fills it. -->
+    <div id="kavibay-widget"></div>
+
+    <!--
+      Both classic scripts, and that is not a style choice: this document has an
+      opaque origin, which makes every `type="module"` fetch cross-origin, so a
+      module script does not load here at all.
+
+      `@kavibay/contract.js` is served by the host, not shipped in the package.
+      No package can put a file under that name — it is answered before the
+      package directory is consulted — so the channel cannot be replaced by
+      whoever wrote the package.
+    -->
+    <script src="@kavibay/contract.js"></script>
+    <script src="widget.js"></script>
+  </body>
+</html>

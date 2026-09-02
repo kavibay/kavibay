@@ -1,0 +1,43 @@
+{
+  "format": "contract",
+  "name": "pomodoro",
+  "version": "1.0.0",
+  "displayName": "Pomodoro",
+  "description": "Focus timer with work and break sessions.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "pomodoro": {
+      "replaces": "pomodoro",
+      "keywords": ["pomodoro", "focus", "timer", "session"],
+      "categories": ["productivity"],
+      "ui": {
+        "defaultOffset": { "x": 480, "y": 200 },
+        "defaultSize": { "w": 520, "h": 280 },
+        "defaultHideTitle": true
+      },
+      "actions": [
+        {
+          "id": "pomodoro",
+          "title": "Pomodoro",
+          "subtitle": "Start, stop or restart a session",
+          "keywords": ["focus", "session", "start", "stop", "restart"],
+          "params": [
+            {
+              "name": "mode",
+              "type": "enum",
+              "required": true,
+              "options": ["start", "stop", "restart"]
+            },
+            {
+              "name": "minutes",
+              "type": "number",
+              "required": false,
+              "placeholder": "Focus min (optional)"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

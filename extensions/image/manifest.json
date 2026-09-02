@@ -1,0 +1,31 @@
+{
+  "format": "contract",
+  "name": "image",
+  "displayName": "Image",
+  "description": "Show a local image or URL on the desktop.",
+  "version": "1.0.0",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "keywords": [
+    "image",
+    "picture",
+    "photo",
+    "bild"
+  ],
+  "categories": [
+    "media"
+  ],
+  "icon": "icon.svg",
+  "widgets": {
+    "image": {
+      "replaces": "image",
+      "keywords": ["image", "picture", "photo", "bild"],
+      "categories": ["media"],
+      "ui": {
+        "defaultOffset": { "x": 200, "y": 380 },
+        "defaultSize": { "w": 220, "h": 140 },
+        "flush": true
+      }
+    }
+  }
+}

@@ -1,0 +1,153 @@
+name: Release
+
+# Tag-driven: `git tag v0.2.0 && git push origin v0.2.0`.
+# The result is a *draft* release — nothing reaches users until you press Publish.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build (e.g. v0.2.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  # One release row for the matrix to upload into, created before any build starts —
+  # otherwise two jobs finishing at once race to create the same release.
+  create-release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create.outputs.result }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # A tag that disagrees with the manifests ships an installer whose "about"
+      # screen lies. Cheaper to fail here than to yank a release.
+      - name: Check the tag matches package.json / Cargo.toml / tauri.conf.json
+        id: version
+        run: |
+          node scripts/versionSync.assert.mjs
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="${{ inputs.tag || github.ref_name }}"
+          if [ "v$VERSION" != "$TAG" ]; then
+            echo "::error::Tag $TAG does not match version v$VERSION from package.json"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/github-script@v7
+        id: create
+        with:
+          script: |
+            const tag = context.payload.inputs?.tag || context.ref.replace('refs/tags/', '');
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: `Kavibay ${tag}`,
+              draft: true,
+              generate_release_notes: true,
+              body: [
+                '> Windows shows a SmartScreen warning because the binaries are not code-signed',
+                '> (no free option exists that Windows trusts). Verify the SHA256 below if in doubt.',
+                '',
+                '> Linux is **experimental and X11-only** — on Wayland the always-on-top desk does not work.',
+                '',
+              ].join('\n'),
+            });
+            return data.id;
+          result-encoding: string
+
+  build:
+    name: Build ${{ matrix.label }}
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows (installer + standalone)
+            os: windows-latest
+            bundles: nsis
+          # Built on 22.04, not latest, on purpose: an AppImage links against the
+          # glibc of its build machine, and one built on 24.04 refuses to start on
+          # Ubuntu 22.04 or Debian 12. 22.04 (glibc 2.35) covers those too.
+          - label: Linux (AppImage + deb)
+            os: ubuntu-22.04
+            bundles: appimage,deb
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Install Tauri system dependencies
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: release-${{ matrix.os }}
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          args: --bundles ${{ matrix.bundles }}
+
+      # The standalone .exe falls out of the same build in target/release — no second
+      # compile needed. tauri-action only knows about bundles, so upload it by hand.
+      - name: Upload Windows standalone binary
+        if: startsWith(matrix.os, 'windows')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          cp src-tauri/target/release/kavibay.exe "kavibay_${VERSION}_x64-standalone.exe"
+          gh release upload "${{ inputs.tag || github.ref_name }}" \
+            "kavibay_${VERSION}_x64-standalone.exe" --clobber
+
+  checksums:
+    name: Publish SHA256SUMS
+    needs: [create-release, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hash every asset on the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          mkdir assets && cd assets
+          gh release download "$TAG" --pattern '*' --clobber
+          sha256sum * > ../SHA256SUMS.txt
+          cd ..
+          cat SHA256SUMS.txt
+          gh release upload "$TAG" SHA256SUMS.txt --clobber

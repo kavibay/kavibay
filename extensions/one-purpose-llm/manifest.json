@@ -1,0 +1,52 @@
+{
+  "format": "contract",
+  "name": "one-purpose-llm",
+  "version": "1.0.0",
+  "displayName": "Single Purpose LLM",
+  "description": "Pick a purpose, adjust its prompt and run it on a configured LLM.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "one-purpose-llm": {
+      "replaces": "one-purpose-llm",
+      "keywords": ["llm", "ai", "translate", "grammar", "anthropic", "openai", "cloudflare"],
+      "categories": ["productivity"],
+      "ui": {
+        "defaultOffset": { "x": 420, "y": 220 },
+        "defaultSize": { "w": 640, "h": 420 },
+        "allowDuplicate": true,
+        "grabCursor": false,
+        "defaultHideTitle": true
+      },
+      "actions": [
+        {
+          "id": "use-template",
+          "title": "Use template",
+          "subtitle": "Choose a purpose and optionally fill its prompt",
+          "keywords": ["template", "prompt", "translate", "email", "grammar"],
+          "params": [
+            {
+              "name": "template",
+              "type": "enum",
+              "required": true,
+              "options": ["Translate", "Correct grammar", "New email", "Write an answer", "Explain it like I'm 12"]
+            },
+            {
+              "name": "text",
+              "type": "text",
+              "required": false,
+              "placeholder": "Optional prompt text"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "textActions": [
+    { "id": "translate", "title": "Translate", "subtitle": "German ↔ English", "widgetAction": { "id": "use-template", "args": { "template": "Translate" } } },
+    { "id": "correct-grammar", "title": "Correct grammar", "subtitle": "Same wording, fixed", "widgetAction": { "id": "use-template", "args": { "template": "Correct grammar" } } },
+    { "id": "new-email", "title": "Write as email", "subtitle": "Notes → subject + body", "widgetAction": { "id": "use-template", "args": { "template": "New email" } } },
+    { "id": "answer-email", "title": "Write an answer", "subtitle": "Drafts a reply", "widgetAction": { "id": "use-template", "args": { "template": "Write an answer" } } },
+    { "id": "explain-like-im-12", "title": "Explain it like I'm 12", "subtitle": "Clear and simple", "widgetAction": { "id": "use-template", "args": { "template": "Explain it like I'm 12" } } }
+  ]
+}
