@@ -14,6 +14,6 @@ jobs:
     steps:
       # pull_request_target is required so fork PRs can be labelled, and is safe here
       # only because this job never checks out or runs the PR's code.
-      - uses: actions/labeler@v5
+      - uses: actions/labeler@v7
         with:
           configuration-path: .github/labeler.yml
