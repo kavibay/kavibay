@@ -31,7 +31,7 @@ axum = { version = "0.8", default-features = false, features = ["tokio", "http1"
 rmcp = { version = "3.1.4", default-features = false, features = ["server", "transport-streamable-http-server"] }
 sysinfo = "0.39.6"
 starship-battery = "0.11"
-base64 = "0.22"
+base64 = "0.23"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "ico", "gif"] }
 tauri-plugin-dialog = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "json", "stream"] }
@@ -40,14 +40,14 @@ regex = "1"
 url = "2"
 percent-encoding = "2"
 arboard = "3"
-sha2 = "0.10"
+sha2 = "0.11"
 # Widget export writes its own zip: one deflate stream per file plus two
 # headers. Both crates are already in the tree through reqwest, so this pins no
 # new download — and a zip crate would add archive reading and encryption that
 # nothing here uses.
 flate2 = "1"
 crc32fast = "1"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 tokio = { version = "1", features = ["time", "net", "io-util", "rt"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 rand = "0.10"
@@ -60,12 +60,12 @@ plist = "1.7"
 # Global mouse button state for "Hide on outside click" (XQueryPointer). Already in
 # the tree via arboard/global-hotkey, so this pins no new version — and its own
 # connection keeps the read off GDK, which is not safe from the watcher thread.
-x11rb = "0.13"
+x11rb = "0.14"
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.52"
-tauri-winrt-notification = "0.7.3"
-windows = { version = "0.61", features = [
+winreg = "0.55"
+tauri-winrt-notification = "0.8.1"
+windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
   "Win32_UI_WindowsAndMessaging",
