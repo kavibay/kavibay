@@ -16,7 +16,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use arboard::{Clipboard, ImageData};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
+
+use crate::paths::data_dir;
 
 pub const MAX_ENTRIES: usize = 20;
 pub const MAX_TEXT_BYTES: usize = 100 * 1024;
@@ -192,11 +194,7 @@ fn now_ms() -> u64 {
 }
 
 fn root_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("clipboard-widget"))
+    Ok(data_dir(app)?.join("clipboard-widget"))
 }
 
 fn images_dir(app: &AppHandle) -> Result<PathBuf, String> {

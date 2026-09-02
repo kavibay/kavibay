@@ -24,7 +24,6 @@ import {
   normalizeDesktopFillColor,
   normalizeDesktopFillMode,
   normalizeDesktopFillOpacity,
-  normalizeAppearance,
   normalizeOpenMonitor,
   normalizeShadowStyle,
   normalizeSurfaceBlur,
@@ -109,57 +108,12 @@ function persist() {
     desktopFillColor: desktopFillColor.value,
     desktopFillOpacity: desktopFillOpacity.value,
   };
+  // localStorage is the immediate cache; `system/durableStorage` mirrors it
+  // into `settings.json`, which is what survives a WebView profile reset.
+  // Appearance used to write its own AppData file here as well — one file per
+  // preference area, none of them readable together. That is now one section of
+  // one document, and this function no longer knows about the disk at all.
   saveAppearance(state);
-  // Local storage is just the immediate cache. The AppData copy survives a
-  // WebView profile reset (which otherwise makes Settings look like defaults).
-  if (hasTauri()) {
-    void invoke("appearance_preferences_save", {
-      value: JSON.stringify(state),
-    }).catch(() => {});
-  }
-}
-
-/** Replace the shared refs and document tokens after the durable store loads. */
-function applyPersistedState(state: AppearanceState) {
-  fontId.value = state.fontId;
-  colorMode.value = state.colorMode;
-  hideOnOutsideClick.value = state.hideOnOutsideClick;
-  openMonitor.value = state.openMonitor;
-  widgetLayoutMode.value = state.widgetLayoutMode;
-  surfaceOpacity.value = state.surfaceOpacity;
-  surfaceBlur.value = state.surfaceBlur;
-  surfaceShadow.value = state.surfaceShadow;
-  surfaceShadowStyle.value = state.surfaceShadowStyle;
-  surfaceRadius.value = state.surfaceRadius;
-  cornerShape.value = state.cornerShape;
-  desktopFillMode.value = state.desktopFillMode;
-  desktopFillColor.value = state.desktopFillColor;
-  desktopFillOpacity.value = state.desktopFillOpacity;
-
-  applyColorModeToDocument(state.colorMode);
-  applyFontToDocument(state.fontId);
-  applySurfaceOpacityToDocument(state.surfaceOpacity);
-  applySurfaceBlurToDocument(state.surfaceBlur);
-  applySurfaceShadowToDocument(state.surfaceShadow);
-  applySurfaceShadowStyleToDocument(state.surfaceShadowStyle);
-  applySurfaceRadiusToDocument(state.surfaceRadius);
-  applyCornerShapeToDocument(state.cornerShape);
-  applyDesktopFill();
-  syncOpenMonitorToRust(state.openMonitor);
-  saveAppearance(state);
-}
-
-// Migrate an existing local setting once, then always prefer the AppData copy.
-if (hasTauri()) {
-  void invoke<string | null>("appearance_preferences_load")
-    .then((raw) => {
-      if (!raw) {
-        persist();
-        return;
-      }
-      applyPersistedState(normalizeAppearance(JSON.parse(raw) as unknown));
-    })
-    .catch(() => {});
 }
 
 /** Re-apply desktop fill CSS from current refs. */

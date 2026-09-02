@@ -13,11 +13,15 @@
 //! home, and it belongs next to the switches that decide what it may pick.
 
 use std::collections::BTreeSet;
-use std::fs;
-use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use serde_json::Value;
+use tauri::AppHandle;
+
+use crate::settings_store;
+
+/// Section of `settings.json` these preferences live in.
+const SECTION: &str = "ai";
 
 /// On-disk shape of `{appData}/llm-models.json`.
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -33,16 +37,6 @@ struct StoredPrefs {
     /// Quick-action manifest ids hidden from the selection popup only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     disabled_quick_actions: Vec<String>,
-}
-
-/// `{appData}/llm-models.json`, creating the directory if needed.
-fn prefs_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?;
-    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
-    Ok(dir.join("llm-models.json"))
 }
 
 /// Reads the stored ids. A file that cannot be parsed means "nothing disabled":
@@ -115,12 +109,24 @@ pub fn apply(disabled: &BTreeSet<String>, model_id: &str, enabled: bool) -> BTre
     next
 }
 
-/// The raw file contents, or an empty string when there is nothing to read.
+/// The section as JSON text, or an empty string when there is nothing to read.
+///
+/// Text rather than a `Value` so the tolerant `parse_*` helpers below — and the
+/// tests that pin them — keep working unchanged: the section *is* the object
+/// they used to read out of `llm-models.json`.
 fn read_raw(app: &AppHandle) -> String {
-    prefs_path(app)
+    settings_store::read_section(app, SECTION)
         .ok()
-        .and_then(|path| fs::read_to_string(path).ok())
+        .flatten()
+        .map(|value| value.to_string())
         .unwrap_or_default()
+}
+
+/// Store what `render_disabled` produced, as a section rather than a file.
+fn write_raw(app: &AppHandle, rendered: &str) -> Result<(), String> {
+    let value: Value = serde_json::from_str(rendered)
+        .map_err(|error| format!("could not serialize ai preferences: {error}"))?;
+    settings_store::write_section(app, SECTION, value)
 }
 
 /// The ids currently switched off. A missing or unreadable file reads as empty.
@@ -145,45 +151,42 @@ pub fn disabled_quick_actions(app: &AppHandle) -> BTreeSet<String> {
 pub fn set_enabled(app: &AppHandle, model_id: &str, enabled: bool) -> Result<(), String> {
     let raw = read_raw(app);
     let next = apply(&parse_disabled(&raw), model_id, enabled);
-    fs::write(
-        prefs_path(app)?,
-        render_disabled(
+    write_raw(
+        app,
+        &render_disabled(
             &next,
             parse_quick_model(&raw),
             parse_quick_shortcut(&raw),
             &parse_disabled_quick_actions(&raw),
         ),
     )
-    .map_err(|error| error.to_string())
 }
 
 /// Stores the quick-action model; `None` returns to automatic selection.
 pub fn set_quick_model(app: &AppHandle, model_id: Option<String>) -> Result<(), String> {
     let raw = read_raw(app);
-    fs::write(
-        prefs_path(app)?,
-        render_disabled(
+    write_raw(
+        app,
+        &render_disabled(
             &parse_disabled(&raw),
             model_id,
             parse_quick_shortcut(&raw),
             &parse_disabled_quick_actions(&raw),
         ),
     )
-    .map_err(|error| error.to_string())
 }
 
 pub fn set_quick_shortcut(app: &AppHandle, shortcut: String) -> Result<(), String> {
     let raw = read_raw(app);
-    fs::write(
-        prefs_path(app)?,
-        render_disabled(
+    write_raw(
+        app,
+        &render_disabled(
             &parse_disabled(&raw),
             parse_quick_model(&raw),
             Some(shortcut),
             &parse_disabled_quick_actions(&raw),
         ),
     )
-    .map_err(|error| error.to_string())
 }
 
 pub fn set_disabled_quick_actions(
@@ -191,16 +194,15 @@ pub fn set_disabled_quick_actions(
     action_ids: BTreeSet<String>,
 ) -> Result<(), String> {
     let raw = read_raw(app);
-    fs::write(
-        prefs_path(app)?,
-        render_disabled(
+    write_raw(
+        app,
+        &render_disabled(
             &parse_disabled(&raw),
             parse_quick_model(&raw),
             parse_quick_shortcut(&raw),
             &action_ids,
         ),
     )
-    .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

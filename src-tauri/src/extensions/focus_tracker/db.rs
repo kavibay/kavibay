@@ -7,7 +7,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+
+use crate::paths::data_dir;
 
 use super::types::{
     FocusHabitHit, FocusSummaryPayload, FocusSummaryRow, GroupBy, HabitRule, IgnoreRule,
@@ -58,14 +60,9 @@ impl FocusDb {
     }
 }
 
-/// Resolves `{app_data_dir}/focus_tracker.db` and creates its parent directory.
+/// Resolves `{dataDir}/focus_tracker.db` and creates its parent directory.
 pub fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?;
-    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
-    Ok(dir.join("focus_tracker.db"))
+    Ok(data_dir(app)?.join("focus_tracker.db"))
 }
 
 /// Opens the DB and applies schema/indexes without pruning (for tests / rare one-offs).

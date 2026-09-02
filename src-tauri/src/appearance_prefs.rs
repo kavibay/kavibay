@@ -1,50 +1,28 @@
-//! Durable storage for Settings → Appearance and Settings → Behavior.
+//! Durable storage for the onboarding tour's progress.
 //!
 //! WebView localStorage is convenient for immediate UI state, but its profile
 //! can be recreated independently of the app data directory. Keep the actual
-//! user preference in AppData so a new WebView never resets it to defaults.
+//! record in AppData so a new WebView never replays a finished tour.
+//!
+//! Appearance and Behavior used to live here too, in their own `appearance.json`
+//! written alongside the localStorage copy. They are now one section of
+//! `settings.json` (`settings_store`), reached through the same durable mirror
+//! as everything else the frontend stores — one readable document instead of a
+//! file per preference area, and one writer instead of two.
+//!
+//! The tour's progress has not moved: it is state, not a setting. Nobody wants
+//! to hand-edit "has seen the tour", and putting it in the settings file would
+//! invite exactly that.
 
 use std::fs;
 use std::path::PathBuf;
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
-fn prefs_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?;
-    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
-    Ok(dir.join("appearance.json"))
-}
+use crate::paths::data_dir;
 
 fn onboarding_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?;
-    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
-    Ok(dir.join("onboarding.json"))
-}
-
-#[tauri::command]
-pub fn appearance_preferences_load(app: AppHandle) -> Result<Option<String>, String> {
-    let path = prefs_path(&app)?;
-    match fs::read_to_string(path) {
-        Ok(value) => Ok(Some(value)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.to_string()),
-    }
-}
-
-#[tauri::command]
-pub fn appearance_preferences_save(app: AppHandle, value: String) -> Result<(), String> {
-    let parsed: serde_json::Value = serde_json::from_str(&value)
-        .map_err(|error| format!("invalid appearance preferences: {error}"))?;
-    if !parsed.is_object() {
-        return Err("appearance preferences must be an object".to_string());
-    }
-    fs::write(prefs_path(&app)?, parsed.to_string()).map_err(|error| error.to_string())
+    Ok(data_dir(app)?.join("onboarding.json"))
 }
 
 #[tauri::command]
