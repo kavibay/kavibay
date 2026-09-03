@@ -63,7 +63,7 @@ fn open_folder(dir: &Path) -> Result<StorageFolder, String> {
     let path = HSTRING::from(dir.as_os_str());
     StorageFolder::GetFolderFromPathAsync(&path)
         .map_err(|e| format!("open_folder:{e}"))?
-        .get()
+        .join()
         .map_err(|e| format!("open_folder_await:{e}"))
 }
 
@@ -96,7 +96,7 @@ fn search_files(
     let files = result
         .GetFilesAsync(0, limit)
         .map_err(|e| format!("get_files:{e}"))?
-        .get()
+        .join()
         .map_err(|e| format!("get_files_await:{e}"))?;
 
     let mut out = Vec::new();
@@ -141,7 +141,7 @@ fn search_folders(
     let folders = result
         .GetFoldersAsync(0, limit)
         .map_err(|e| format!("get_folders:{e}"))?
-        .get()
+        .join()
         .map_err(|e| format!("get_folders_await:{e}"))?;
 
     let mut out = Vec::new();

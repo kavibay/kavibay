@@ -47,32 +47,6 @@ another window to manage.
   once, encrypted at rest, and resolved in Rust. A widget only ever learns
   *whether* it is connected.
 
-### How it works
-
-```mermaid
-flowchart TB
-    subgraph win["One transparent, always-on-top window"]
-        direction LR
-        palette["Command palette"] --> host["Widget host<br/>desks · drag · resize · undo"]
-        host --> fp["First-party widgets<br/>Vue, compiled in"]
-        host --> rt["Runtime packages<br/>sandboxed iframe"]
-    end
-
-    subgraph rust["Rust backend"]
-        direction LR
-        hotkey["Global hotkey<br/>tray · click-through"]
-        cmds["Commands<br/>apps · files · clipboard"]
-        net["Declared HTTP<br/>host owns the URL"]
-        creds["Credentials<br/>encrypted, DPAPI"]
-    end
-
-    fp -- invoke --> cmds
-    rt -- postMessage bridge --> net
-    fp --> net
-    cmds --> creds
-    net --> creds
-    hotkey -. show / hide .-> win
-```
 
 ## Quickstart
 

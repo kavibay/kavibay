@@ -58,8 +58,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* Fängt selbst keine Zeiger-Events — Palette, Griff und Widgets setzen pointer-events
-   wieder auf auto. Alles dazwischen ist eine Lücke und wird durchgereicht. */
+/* Does not catch pointer events itself — the palette, handle, and widgets set pointer-events
+   back to auto. Everything between them is a gap and passes through to the OS. */
 .app-shell {
   position: fixed;
   inset: 0;

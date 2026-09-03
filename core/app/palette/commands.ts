@@ -4,22 +4,22 @@ export interface Command {
   id: string;
   title: string;
   subtitle?: string;
-  /** Zusätzliche Suchbegriffe, gegen die fuzzyMatch neben dem Titel matcht. */
+  /** Additional search terms matched by fuzzyMatch alongside the title. */
   keywords: string[];
   /**
-   * Parameter, die vor der Ausführung per Tab abgefragt werden.
-   * Leer/fehlend = Enter führt sofort aus.
-   * (Extension-Actions stehen nicht hier — die hängen an ihrer Widget-Zeile.)
+   * Parameters requested with Tab before execution.
+   * Empty or missing means Enter executes immediately.
+   * (Extension actions live on their widget row rather than here.)
    */
   params?: ActionParam[];
   /**
-   * Tauri-Command, der statt `execute_action` aufgerufen wird — für Commands,
-   * deren Rust-Seite es schon gibt (Media-Transport).
+   * Tauri command invoked instead of `execute_action` for commands whose Rust
+   * implementation already exists (media transport).
    */
   invokeCommand?: string;
 }
 
-/** Statische Dummy-Commands für den Prototyp — execute_action() macht in V1 nur ein println!. */
+/** Static prototype commands — execute_action() only prints in V1. */
 export const commands: Command[] = [
   // "New Note" lives on the Notes extension row as an action (Tab) — a static
   // command here would be a second row for the same thing, and it forced a

@@ -1,8 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { nextTick, onMounted, onUnmounted } from "vue";
 
-// Läuft der Code im echten Tauri-Fenster (nicht als nackter localhost-Tab im Browser)?
-// Nur dann existiert die IPC-Brücke zum Rust-Backend.
+// Is this running in the real Tauri window rather than a bare localhost browser tab?
+// Only the Tauri window has the IPC bridge to the Rust backend.
 const hasTauri = () => "__TAURI_INTERNALS__" in window;
 
 /** Mirrors Rust `paused`: while true, rects are unused (window stays interactive). */
@@ -12,9 +12,9 @@ let clickThroughPaused = false;
 let lastRectsKey = "";
 
 /**
- * Meldet dem Backend die Rechtecke aller interaktiven UI-Elemente. Rust pollt damit die
- * Cursor-Position und schaltet das Fenster außerhalb dieser Rechtecke klick-durchlässig
- * (siehe src-tauri/src/lib.rs). Interaktive Elemente markieren sich per `data-interactive`.
+ * Reports the rectangles of all interactive UI elements to the backend. Rust uses them
+ * to poll the cursor position and make the window click-through outside those rectangles
+ * (see src-tauri/src/lib.rs). Interactive elements opt in with `data-interactive`.
  *
  * No-op while click-through is paused — Rust ignores rects until unpause, so a full DOM
  * scan + IPC on every drag/resize frame only burns main-thread time.
@@ -25,8 +25,8 @@ export function syncInteractiveRegions() {
   const rects = [...document.querySelectorAll<HTMLElement>("[data-interactive]")].map(
     (el) => {
       const r = el.getBoundingClientRect();
-      // CSS-Pixel relativ zur Fenster-Oberkante. Die DPI-/Fensterversatz-Umrechnung
-      // macht Rust anhand von scale_factor + outer_position.
+      // CSS pixels relative to the top-left of the window. Rust applies the DPI and
+      // window-offset conversion using scale_factor + outer_position.
       // Round so sub-pixel jitter does not force redundant IPC.
       return {
         x: Math.round(r.left),
@@ -45,9 +45,8 @@ export function syncInteractiveRegions() {
 }
 
 /**
- * Pausiert die Click-through-Erkennung. Während eines Drags nötig: sonst könnte der
- * Cursor kurz aus dem Karten-Rechteck geraten, das Fenster würde durchlässig geschaltet
- * und der Webview bekäme keine Pointer-Events mehr — der Drag risse ab.
+ * Pauses click-through detection. Needed during drags: the cursor can briefly leave the
+ * card rectangle, which would make the window transparent to clicks and interrupt the drag.
  */
 export function setClickThroughPaused(paused: boolean) {
   clickThroughPaused = paused;
@@ -59,18 +58,17 @@ export function setClickThroughPaused(paused: boolean) {
 let lastOutsideClickArmed: boolean | undefined;
 
 /**
- * Schaltet die native Außenklick-Erkennung scharf. Rust meldet dann `cockpit:outside-click`,
- * sobald in eine Lücke geklickt wird.
+ * Arms native outside-click detection. Rust then emits `cockpit:outside-click` when a gap
+ * is clicked.
  *
- * Warum nicht im DOM abfangen: ein bildschirmfüllender Fänger müsste sich als interaktives
- * Rechteck melden, damit er den Klick überhaupt sieht — womit das Fenster für das OS
- * undurchlässig wird und der Klick nicht mehr an die App darunter geht. Der erste Klick
- * ginge verloren. Nativ erkannt bleibt die Lücke klick-durchlässig und Windows stellt den
- * Klick regulär zu.
+ * Why not catch this in the DOM: a full-screen catcher would have to report itself as an
+ * interactive rectangle to see the click, making the window opaque to the OS and preventing
+ * the click from reaching the app underneath. The first click would be lost. Native
+ * detection keeps the gap click-through, so Windows delivers the click normally.
  *
- * Das Argument setzt allerdings voraus, dass die Lücke überhaupt klick-durchlässig *ist*.
- * Wo Click-through gar nicht läuft (natives Wayland), ist nichts mehr zu verlieren — dort
- * übernimmt der DOM-Fänger, siehe {@link needsDomGapCatcher}.
+ * This assumes that the gap is actually click-through. Where click-through is unavailable
+ * (native Wayland), there is nothing to preserve, so the DOM catcher takes over; see
+ * {@link needsDomGapCatcher}.
  */
 export function setOutsideClickDismiss(armed: boolean) {
   if (!hasTauri() || armed === lastOutsideClickArmed) return;
@@ -79,19 +77,19 @@ export function setOutsideClickDismiss(armed: boolean) {
 }
 
 /**
- * Muss der Außenklick im DOM abgefangen werden, weil Rust ihn auf dieser Plattform nicht
- * melden kann? Die Plattform-Matrix und die Begründung stehen bei `dom_gap_catcher_needed`
- * in `commands.rs` — bewusst dort, damit es genau eine Quelle der Wahrheit gibt.
+ * Must the DOM catch outside clicks because Rust cannot report them on this platform? The
+ * platform matrix and rationale live next to `dom_gap_catcher_needed` in `commands.rs`, so
+ * there is one source of truth.
  *
- * Im Browser (ohne Tauri) gibt es weder Click-through noch Lücken: `false`.
+ * In a browser (without Tauri), there is neither click-through nor a gap to catch: `false`.
  */
 export async function needsDomGapCatcher(): Promise<boolean> {
   if (!hasTauri()) return false;
   return await invoke<boolean>("needs_dom_gap_catcher");
 }
 
-// Für hochfrequente Aufrufer (Hover-Chrome, Drag-Ende, Resize): auf einen Frame zusammenfassen,
-// damit pointerdown / Textauswahl nicht hinter einem synchronen DOM-Scan warten.
+// Coalesce high-frequency callers (hover chrome, drag end, resize) into one frame, so
+// pointerdown and text selection do not wait behind a synchronous DOM scan.
 let frame = 0;
 export function scheduleRegionSync() {
   cancelAnimationFrame(frame);
@@ -99,9 +97,9 @@ export function scheduleRegionSync() {
 }
 
 /**
- * Einmal in der Wurzelkomponente aufrufen. Hält die gemeldeten Rechtecke aktuell, wenn
- * sich das Fenster oder die Größe interaktiver Elemente ändert (z. B. wenn das System-
- * Info-Widget seine Daten lädt oder die Ergebnisliste der Palette wächst).
+ * Call once from the root component. Keeps reported rectangles current when the window or
+ * interactive element sizes change, for example when System Info loads data or the palette
+ * result list grows.
  */
 export function useRegionSync() {
   let observer: ResizeObserver | undefined;

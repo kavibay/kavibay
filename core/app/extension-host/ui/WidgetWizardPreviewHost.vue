@@ -195,7 +195,7 @@ function onContentScale(next: number) {
  * scroll the one call that matters off the panel.
  *
  * WHY THIS EXISTS. A generated widget catches its own failures and renders a
- * sentence it wrote — "Die WAQI-Stationssuche konnte nicht ausgeführt werden" —
+ * sentence it wrote — "The WAQI station search could not be completed" —
  * and that sentence is all anybody sees. The host knew the call was refused as
  * `unknown_endpoint`, or answered 401, and had nowhere to say so. Asking the
  * model to render better errors is the wrong fix: it is the party with the

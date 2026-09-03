@@ -31,8 +31,8 @@ import { redactArgs } from "./redact";
  * One thing a widget asked the host to do, and what came back.
  *
  * WHY THE BRIDGE AND NOT THE WIDGET. A widget catches its own failures and
- * renders a sentence it wrote — "Die WAQI-Stationssuche konnte nicht ausgeführt
- * werden" — which is the only thing anybody sees. The host knew it was
+ * renders a sentence it wrote — "The WAQI station search could not be completed" —
+ * which is the only thing anybody sees. The host knew it was
  * `unknown_endpoint`, or `consent_stale`, or an HTTP 401, and threw that away at
  * the boundary. This is the boundary, and every capability call crosses it, so
  * recording here catches all of them without a widget cooperating.
@@ -398,4 +398,3 @@ function targetOf(req: WidgetRequest): string {
       return req.url;
   }
 }
-

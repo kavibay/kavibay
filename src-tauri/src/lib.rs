@@ -1,5 +1,5 @@
-// Builder-Setup: Fenstergröße/-position, Global-Shortcut, Command-Registrierung.
-// main.rs bleibt ein reiner Einstiegspunkt (siehe PLAN.md §1).
+// Builder setup: window size/position, global shortcuts, and command registration.
+// main.rs remains a pure entry point (see PLAN.md §1).
 
 mod appearance_prefs;
 mod commands;
@@ -33,7 +33,7 @@ use extensions::{
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-// `Emitter` muss importiert sein, damit `window.emit()` verfügbar ist (Trait-Methode).
+// `Emitter` must be imported so `window.emit()` is available (trait method).
 use serde::Serialize;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -184,11 +184,11 @@ fn peek_cockpit(app: &tauri::AppHandle, active: bool) {
 fn register_optional_shortcut(app: &tauri::AppHandle, accelerator: &str) -> bool {
     match app.global_shortcut().register(accelerator) {
         Ok(()) => {
-            println!("[shortcut] {accelerator} registriert");
+            println!("[shortcut] {accelerator} registered");
             true
         }
         Err(error) => {
-            eprintln!("[shortcut] {accelerator} nicht verfügbar: {error}");
+            eprintln!("[shortcut] {accelerator} unavailable: {error}");
             false
         }
     }
@@ -248,9 +248,9 @@ pub fn run() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
-                    // Der Handler feuert für Press UND Release. Nur Hold-to-peek
-                    // will beide Hälften; für alles andere würde ein einziger
-                    // Tastendruck das Fenster zweimal umschalten.
+                    // The handler fires for both press AND release. Only hold-to-peek
+                    // needs both halves; for everything else, one key press would toggle
+                    // the window twice.
                     let pressed = event.state() == ShortcutState::Pressed;
 
                     // Quick actions never touch the cockpit: they run on text in
@@ -332,8 +332,8 @@ pub fn run() {
             let open_monitor: SharedOpenMonitor = Arc::new(Mutex::new(OpenMonitor::default()));
             app.manage(open_monitor);
 
-            // Bewusst kein `fullscreen: true` (siehe PLAN.md §2) — Fenster manuell
-            // auf die Ziel-Monitorgröße bringen (physische Pixel für DPI).
+            // Deliberately no `fullscreen: true` (see PLAN.md §2): size the window manually
+            // to the target monitor (physical pixels for DPI).
             fit_window_to_target_monitor(&window)?;
 
             // Ctrl+Space (held) = peek at the widgets; Shift+Ctrl+Space = open on
@@ -358,7 +358,7 @@ pub fn run() {
             );
             if !cursor_toggle {
                 eprintln!(
-                    "[shortcut] Cockpit bleibt über Doppeltipp auf Ctrl, das Tray-Icon und `kavibay --toggle` erreichbar"
+                    "[shortcut] Cockpit remains available via Ctrl double tap, the tray icon, or `kavibay --toggle`"
                 );
             }
             let quick_shortcut_text = quick_action::configured_shortcut(app.handle());
@@ -373,11 +373,11 @@ pub fn run() {
             // combination, and everything else still works without it.
             let registered_quick_shortcut = match app.global_shortcut().register(quick_shortcut) {
                 Ok(()) => {
-                    println!("[shortcut] {quick_shortcut_text} (quick actions) registriert");
+                    println!("[shortcut] {quick_shortcut_text} (quick actions) registered");
                     Some(quick_shortcut)
                 }
                 Err(error) => {
-                    eprintln!("[shortcut] {quick_shortcut_text} nicht verfügbar: {error}");
+                    eprintln!("[shortcut] {quick_shortcut_text} (quick actions) unavailable: {error}");
                     None
                 }
             };
@@ -386,8 +386,8 @@ pub fn run() {
             ));
             app.manage(quick_action::QuickActionShortcutCapture::default());
 
-            // Geteilter Click-through-State: von den Commands beschrieben, vom Poll-Thread
-            // gelesen. `manage` macht ihn für die Commands als State verfügbar.
+            // Shared click-through state: written by commands and read by the polling thread.
+            // `manage` makes it available to commands as managed state.
             let click_through: SharedClickThrough = Arc::new(Mutex::new(ClickThrough::default()));
             app.manage(click_through.clone());
             app.manage(color_picker::ColorPickerSession::default());
@@ -849,17 +849,17 @@ fn fit_window_to_monitor_win32(window: &tauri::WebviewWindow, target: OpenMonito
     true
 }
 
-/// Hintergrund-Thread, der die globale Cursor-Position prüft und das Fenster
-/// klick-durchlässig schaltet, sobald der Cursor über keinem interaktiven Rechteck liegt.
+/// Background thread that checks the global cursor position and makes the window
+/// click-through when the cursor is over no interactive rectangle.
 ///
-/// Warum Polling statt DOM-Events: Sobald das Fenster Cursor-Events ignoriert, bekommt der
-/// Webview KEINE Mausbewegungen mehr — er könnte also gar nicht merken, wann der Cursor
-/// wieder auf eine Karte zurückkehrt. Deshalb muss diese Erkennung im Backend laufen.
+/// Why polling instead of DOM events: once the window ignores cursor events, the WebView
+/// receives NO mouse movement and cannot tell when the cursor returns to a card. Detection
+/// therefore has to run in the backend.
 ///
-/// Der Takt ist adaptiv (siehe Konstanten oben): 16 ms während der Benutzung, 64 ms
-/// bei stillstehendem Cursor. Ein fester 16-ms-Takt bedeutete 62,5 Timer-Wakeups/s
-/// rund um die Uhr — in CPU-Prozenten wenig, für den Akku aber relevant, weil die
-/// CPU so nie in tiefe C-States kommt.
+/// The cadence is adaptive (see the constants above): 16 ms while in use and 64 ms when
+/// the cursor is still. A fixed 16-ms cadence would mean 62.5 timer wakeups/s around the
+/// clock — little in CPU percentage, but relevant for battery life because the CPU would
+/// never enter deep C-states.
 fn spawn_click_through_watcher(
     app: tauri::AppHandle,
     state: SharedClickThrough,
@@ -879,8 +879,8 @@ fn spawn_click_through_watcher(
         );
         if !hit_test_usable {
             println!(
-                "[click-through] deaktiviert — auf nativem Wayland liefert tao keine \
-                 echte Cursor-Position. Für Klick-durchlässige Lücken eine Xorg-Session nutzen."
+                "[click-through] disabled — on native Wayland, tao does not provide a \
+                 reliable cursor position. Use an Xorg session for click-through gaps."
             );
         }
         // Shares the gate: the pointer read is only trustworthy where the hit test is.
@@ -947,14 +947,14 @@ fn spawn_click_through_watcher(
                 } else {
                     match geometry {
                         Some((cursor, origin, scale)) => {
-                            // Cursor (physische Bildschirm-Pixel) in fensterrelative CSS-Pixel
-                            // umrechnen — dieselbe Einheit, in der das Frontend die Rechtecke meldet.
+                            // Convert the cursor from physical screen pixels to window-relative
+                            // CSS pixels — the same unit used by the frontend's rectangles.
                             let px = (cursor.x - origin.x as f64) / scale;
                             let py = (cursor.y - origin.y as f64) / scale;
                             s.rects.iter().any(|r| r.contains(px, py))
                         }
-                        // Im Fehlerfall lieber interaktiv bleiben, als versehentlich das ganze
-                        // Fenster durchklickbar zu machen.
+                        // On error, stay interactive rather than accidentally making the whole
+                        // window click-through.
                         None => true,
                     }
                 };

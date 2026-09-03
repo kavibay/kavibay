@@ -347,7 +347,22 @@ fn usage_of(payload: &Value, provider: LlmProvider) -> WizardUsage {
 fn prompt_cache_key(system: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(system.as_bytes());
-    format!("kavibay-wizard-{:x}", hasher.finalize())[..30].to_string()
+    format!(
+        "kavibay-wizard-{}",
+        hex_encode(hasher.finalize().as_slice())
+    )[..30]
+        .to_string()
+}
+
+/// Lowercase hex; sha2 0.11's digest no longer implements `LowerHex`.
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0xf) as usize] as char);
+    }
+    out
 }
 
 /// Caller turns, rejecting any role the caller does not own.

@@ -158,7 +158,7 @@ mod win {
                         return;
                     }
                 };
-            println!("[shortcut] Ctrl double tap (cockpit) registriert");
+            println!("[shortcut] Ctrl double tap (cockpit) registered");
 
             let mut message = MSG::default();
             // Blocks; the hook is called from inside here. `.0 > 0` rather than

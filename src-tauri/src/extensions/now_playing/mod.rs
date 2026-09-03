@@ -135,7 +135,7 @@ fn snapshot_windows() -> windows::core::Result<NowPlayingInfo> {
         GlobalSystemMediaTransportControlsSessionPlaybackStatus,
     };
 
-    let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()?.get()?;
+    let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()?.join()?;
     let session = match manager.GetCurrentSession() {
         Ok(session) => session,
         Err(_) => return Ok(NowPlayingInfo::empty()),
@@ -146,7 +146,7 @@ fn snapshot_windows() -> windows::core::Result<NowPlayingInfo> {
         .map(|value| value.to_string())
         .unwrap_or_default();
 
-    let properties = session.TryGetMediaPropertiesAsync()?.get()?;
+    let properties = session.TryGetMediaPropertiesAsync()?.join()?;
     let title = properties
         .Title()
         .map(|value| value.to_string())
@@ -157,7 +157,7 @@ fn snapshot_windows() -> windows::core::Result<NowPlayingInfo> {
         .unwrap_or_default();
     let album_art_data_url = match properties.Thumbnail() {
         Ok(thumbnail) => match thumbnail.OpenReadAsync() {
-            Ok(operation) => match operation.get() {
+            Ok(operation) => match operation.join() {
                 Ok(stream) => read_thumbnail_data_url(stream).ok(),
                 Err(_) => None,
             },
@@ -211,7 +211,7 @@ fn read_thumbnail_data_url(
     };
 
     let reader = DataReader::CreateDataReader(&stream)?;
-    reader.LoadAsync(size as u32)?.get()?;
+    reader.LoadAsync(size as u32)?.join()?;
     let mut bytes = vec![0_u8; size as usize];
     reader.ReadBytes(&mut bytes)?;
     Ok(format!("data:{mime};base64,{}", B64.encode(bytes)))
@@ -225,7 +225,7 @@ fn control_windows(action: Control) -> windows::core::Result<()> {
         GlobalSystemMediaTransportControlsSessionPlaybackStatus,
     };
 
-    let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()?.get()?;
+    let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()?.join()?;
     let session = match manager.GetCurrentSession() {
         Ok(session) => session,
         Err(_) => return Ok(()),
@@ -233,10 +233,10 @@ fn control_windows(action: Control) -> windows::core::Result<()> {
 
     match action {
         Control::Prev => {
-            let _ = session.TrySkipPreviousAsync()?.get()?;
+            let _ = session.TrySkipPreviousAsync()?.join()?;
         }
         Control::Next => {
-            let _ = session.TrySkipNextAsync()?.get()?;
+            let _ = session.TrySkipNextAsync()?.join()?;
         }
         Control::PlayPause => {
             let playing = session
@@ -248,9 +248,9 @@ fn control_windows(action: Control) -> windows::core::Result<()> {
                 })
                 .unwrap_or(false);
             if playing {
-                let _ = session.TryPauseAsync()?.get()?;
+                let _ = session.TryPauseAsync()?.join()?;
             } else {
-                let _ = session.TryPlayAsync()?.get()?;
+                let _ = session.TryPlayAsync()?.join()?;
             }
         }
     }
@@ -266,7 +266,7 @@ fn open_source_windows() -> windows::core::Result<()> {
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
-    let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()?.get()?;
+    let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()?.join()?;
     let session = match manager.GetCurrentSession() {
         Ok(session) => session,
         Err(_) => return Ok(()),
