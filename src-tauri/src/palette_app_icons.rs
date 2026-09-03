@@ -1,4 +1,8 @@
-//! Disk cache for palette app icons under `{app_data}/palette-app-icons/`.
+//! Disk cache for palette app icons under `{data_dir}/cache/palette-app-icons/`.
+//!
+//! In `cache/` rather than beside the settings because every file here is
+//! re-extracted from the executable it belongs to. Deleting the folder costs a
+//! few milliseconds the next time the palette draws that row, nothing else.
 
 use std::collections::HashMap;
 use std::fs;
@@ -8,7 +12,7 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use sha2::{Digest, Sha256};
 use tauri::AppHandle;
 
-use crate::paths::data_dir;
+use crate::paths::cache_dir;
 
 const CACHE_DIR: &str = "palette-app-icons";
 
@@ -33,15 +37,15 @@ fn hex_encode(bytes: &[u8]) -> String {
     out
 }
 
-fn cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(data_dir(app)?.join(CACHE_DIR))
+fn icons_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(cache_dir(app)?.join(CACHE_DIR))
 }
 
-/// Resolve `{app_data}/palette-app-icons/{sha256_hex}.png` for a launch path.
+/// Resolve `{data_dir}/cache/palette-app-icons/{sha256_hex}.png` for a launch path.
 pub fn icon_cache_file(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
     let key = normalize_icon_path_key(path);
     let hash = path_key_hash(&key);
-    Ok(cache_dir(app)?.join(format!("{hash}.png")))
+    Ok(icons_dir(app)?.join(format!("{hash}.png")))
 }
 
 /// Return a PNG data URL when a cached icon file exists on disk.

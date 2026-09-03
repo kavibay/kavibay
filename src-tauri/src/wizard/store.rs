@@ -3,7 +3,7 @@
 //! Not `localStorage`. An edit turn carries the widget's entire file set, so a
 //! handful of conversations blows past the browser quota — and the failure mode
 //! there is a silent write rejection, which loses exactly the history someone
-//! was relying on. One file per conversation under `{appData}/wizard/` has no
+//! was relying on. One file per conversation under `{data_dir}/wizard/` has no
 //! practical ceiling and rewrites only the conversation being touched.
 //!
 //! The payload is opaque here on purpose. Rust owns durability; the frontend
@@ -15,7 +15,9 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+
+use crate::paths::data_dir;
 
 /// Total conversations kept. Oldest are pruned on save.
 const MAX_CONVERSATIONS: usize = 100;
@@ -78,13 +80,12 @@ fn first_request(payload: &Value) -> Option<String> {
     })
 }
 
-/// `{appData}/wizard`
+/// `{data_dir}/wizard`
+///
+/// Through `paths::data_dir`, so a dev instance keeps its drafts in its own
+/// profile instead of writing them into the installed one.
 fn store_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?
-        .join("wizard");
+    let dir = data_dir(app)?.join("wizard");
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     Ok(dir)
 }

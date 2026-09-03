@@ -23,7 +23,7 @@ use crate::settings_store;
 /// Section of `settings.json` these preferences live in.
 const SECTION: &str = "ai";
 
-/// On-disk shape of `{appData}/llm-models.json`.
+/// On-disk shape of the `ai` section of `settings.json`.
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct StoredPrefs {
     #[serde(default)]

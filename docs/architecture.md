@@ -66,7 +66,7 @@ folder, `@sdk`, `vue` and `@tauri-apps/*`.
 ### Embedded authoring MCP
 
 The optional server is part of the existing Tauri process. Settings persists
-its enabled state and port in backend-owned AppData; the lifecycle manager
+its enabled state and port in the backend-owned `settings.json`; the lifecycle manager
 starts and stops one listener bound to `127.0.0.1:<port>/mcp`. There is no
 sidecar executable, STDIO child process, background service or second runtime.
 

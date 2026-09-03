@@ -38,10 +38,15 @@ and executes community-written extension code. The parts worth attacking:
 
 ## Data at rest
 
-Everything Kavibay keeps lives under `{appData}/` — on Windows
-`%APPDATA%\com.aswetlow.kavibay`. The only access control on that directory is the
-one Windows gives every user profile: another account without administrator rights
+Everything Kavibay keeps lives under `~/.kavibay/` — on Windows
+`%USERPROFILE%\.kavibay`. The only access control on that directory is the one
+Windows gives every user profile: another account without administrator rights
 cannot read it, and **anything running as you can read all of it**.
+
+Installs from before that move kept the same files under `%APPDATA%\<app id>`.
+The directory is moved on first start; if the move fails it is left where it is
+and reported in the log, so an old profile is never deleted without a readable
+copy having arrived first.
 
 Setting `KAVIBAY_DATA_DIR` to an absolute path moves that directory, so a
 development build can run against a throwaway profile instead of the real one

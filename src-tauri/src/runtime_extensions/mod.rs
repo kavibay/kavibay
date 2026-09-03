@@ -1,4 +1,4 @@
-//! Runtime extension packages under `{app_data_dir}/extensions`.
+//! Runtime extension packages under `{data_dir}/extensions`.
 //!
 //! Disk scan + fail-closed manifest validation (mirrors FE Task 3 rules).
 //! Custom `kavibay-ext` protocol serves package UI under that root.
@@ -24,7 +24,9 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Runtime};
+
+use crate::paths::data_dir;
 
 use validate::safe_join;
 
@@ -152,20 +154,20 @@ impl PackageOrigin {
 }
 
 /// Resolve one root, creating the directory if missing.
+///
+/// Through `paths::data_dir`, not Tauri directly: asking for `app_data_dir()`
+/// here would ignore `KAVIBAY_DATA_DIR` and drop a dev run packages into the
+/// real profile — the one thing that switch exists to prevent.
 pub(crate) fn root_path<R: tauri::Runtime>(
     app: &AppHandle<R>,
     origin: PackageOrigin,
 ) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join(origin.dir_name());
+    let dir = data_dir(app)?.join(origin.dir_name());
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
 }
 
-/// Resolve `{app_data_dir}/extensions` — the installed root.
+/// Resolve `{data_dir}/extensions` — the installed root.
 ///
 /// Still used for things that belong to *all* packages regardless of origin,
 /// most importantly `installs.json`: a grant belongs to an id, not to the
@@ -1089,7 +1091,7 @@ mod tests {
     }
 }
 
-/// Return `{app_data_dir}/extensions` (creates dir if missing).
+/// Return `{data_dir}/extensions` (creates dir if missing).
 #[tauri::command]
 pub fn runtime_extensions_root(app: AppHandle) -> Result<String, String> {
     let dir = extensions_root_path(&app)?;

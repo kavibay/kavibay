@@ -10,7 +10,7 @@
 //! itself a capability by writing one key. So the grant moves to a file only the
 //! backend writes, and the frontend becomes a view of it.
 //!
-//! Storing it next to the packages (`{app_data_dir}/extensions/installs.json`)
+//! Storing it next to the packages (`{data_dir}/extensions/installs.json`)
 //! also fixes an old papercut: clearing the webview profile silently wiped every
 //! grant.
 
@@ -630,10 +630,7 @@ mod tests {
     #[test]
     fn a_pre_list_grant_survives_normalization() {
         let mut row = record("demo", true, &[]);
-        row.contract_grant = Some(legacy_grant(
-            "kavibay.tado/tado",
-            &["zones", "zoneStates"],
-        ));
+        row.contract_grant = Some(legacy_grant("kavibay.tado/tado", &["zones", "zoneStates"]));
 
         let normalized = normalize(vec![row]);
         let stored = normalized[0]
