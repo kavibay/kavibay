@@ -498,9 +498,10 @@ onUnmounted(() => {
  * inset looks the same on a laptop and on an ultrawide. Reusing that function
  * is why a card here stops where a card there stops.
  *
- * Freehand, not snapped: `DEFAULT_APPEARANCE.widgetLayoutMode` is `"freehand"`,
- * so grid snapping would be a setting this page cannot offer, applied without
- * being asked for.
+ * Freehand, not snapped. The app snaps by default
+ * (`DEFAULT_APPEARANCE.widgetLayoutMode`), but there it is a setting the user
+ * can see and switch off. This page has no settings, so snapping here would be
+ * a behaviour nobody could turn off.
  */
 const cardRef = ref<{ $el: HTMLElement } | null>(null);
 

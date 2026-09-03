@@ -1131,7 +1131,7 @@ kavibay-palette-demo,
   /*
    * Squircle, wie in der App unter Einstellungen → Darstellung → Ecken.
    *
-   * Die App liefert `round` aus (DEFAULT_CORNER_SHAPE) und schreibt die
+   * Die App liefert diese Form selbst aus (DEFAULT_CORNER_SHAPE) und schreibt die
    * gewählte Form zur Laufzeit als `--surface-corner-shape` auf <html>
    * (appearanceLogic.applyCornerShapeToDocument). Genau dieses Token wird hier
    * gesetzt — es ist derselbe Schalter, nicht eine zweite Geometrie: Palette,

@@ -11,8 +11,8 @@ function assert(cond: boolean, msg: string) {
 }
 
 assert(
-  DEFAULT_DEVELOPER_PREFS.developerExtensionsEnabled === false,
-  "default off",
+  DEFAULT_DEVELOPER_PREFS.developerExtensionsEnabled === true,
+  "ships on",
 );
 assert(
   normalizeDeveloperPrefs(null).developerExtensionsEnabled === false,
@@ -34,7 +34,7 @@ assert(
 // The one flag that hands out network access and a credential grant with no
 // consent step, so every path to `true` is pinned.
 
-assert(DEFAULT_DEVELOPER_PREFS.wizardAutoEnable === false, "auto-enable off by default");
+assert(DEFAULT_DEVELOPER_PREFS.wizardAutoEnable === true, "auto-enable ships on");
 assert(normalizeDeveloperPrefs(null).wizardAutoEnable === false, "null → off");
 assert(
   normalizeDeveloperPrefs({ developerExtensionsEnabled: true, wizardAutoEnable: true })

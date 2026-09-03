@@ -7,8 +7,24 @@ export interface ExtensionsPrefs {
 
 export const EXTENSIONS_PREFS_KEY = "kavibay:extensions-v1";
 
+/**
+ * What a profile with no stored record starts from.
+ *
+ * The list is not "extensions we are unsure about" — everything here works. They
+ * are off out of the box because each one is either tied to an account the user
+ * has not connected yet or narrow enough that it belongs in the catalog rather
+ * than on a fresh desk. A record that exists but names no ids still means "all
+ * enabled": only the absence of a record lands here.
+ */
 export const DEFAULT_EXTENSIONS_PREFS: ExtensionsPrefs = {
-  disabledIds: [],
+  disabledIds: [
+    "calendar",
+    "color-picker",
+    "focus-tracker",
+    "github-actions",
+    "kavibay.ai-usage/ai-usage",
+    "tado",
+  ],
 };
 
 /** Normalize persisted prefs; unknown shape → defaults. */
@@ -25,10 +41,10 @@ export function normalizeExtensionsPrefs(raw: unknown): ExtensionsPrefs {
 export function loadExtensionsPrefs(): ExtensionsPrefs {
   try {
     const raw = localStorage.getItem(EXTENSIONS_PREFS_KEY);
-    if (!raw) return { ...DEFAULT_EXTENSIONS_PREFS, disabledIds: [] };
+    if (!raw) return { disabledIds: [...DEFAULT_EXTENSIONS_PREFS.disabledIds] };
     return normalizeExtensionsPrefs(JSON.parse(raw) as unknown);
   } catch {
-    return { ...DEFAULT_EXTENSIONS_PREFS, disabledIds: [] };
+    return { disabledIds: [...DEFAULT_EXTENSIONS_PREFS.disabledIds] };
   }
 }
 

@@ -1,25 +1,34 @@
-/** Persistence for the Developer Extensions gate (default off). */
+/** Persistence for the Developer Extensions gate (on out of the box). */
 
 export interface DeveloperPrefs {
   developerExtensionsEnabled: boolean;
   /**
    * Let the Widget Wizard enable what it just built without the consent step.
    *
-   * Exists for demos and fast iteration, and it is the one setting that hands a
-   * package network access and a credential grant without showing anyone what
-   * it may reach. Kept as its own flag rather than riding on
-   * `developerExtensionsEnabled`, because that one is merely "show me packages"
-   * — wizard-built packages are visible without it (`runtimeExtVisible`), so
-   * reusing it would have turned the consent step off for everyone.
+   * Ships on (see DEFAULT_DEVELOPER_PREFS) for demos and fast iteration, and it
+   * is the one setting that hands a package network access and a credential
+   * grant without showing anyone what it may reach. Kept as its own flag rather
+   * than riding on `developerExtensionsEnabled`, because that one is merely
+   * "show me packages" — wizard-built packages are visible without it
+   * (`runtimeExtVisible`), so reusing it would have turned the consent step off
+   * for everyone.
    */
   wizardAutoEnable: boolean;
 }
 
 export const DEVELOPER_PREFS_KEY = "kavibay:developer-v1";
 
+/**
+ * What a profile with no stored record starts from — the shipped default.
+ *
+ * Deliberately not the same as "a record that says nothing":
+ * `normalizeDeveloperPrefs` still reads every missing or non-boolean field as
+ * off, so a corrupt or hand-truncated record fails closed. Only the absence of
+ * a record at all lands here.
+ */
 export const DEFAULT_DEVELOPER_PREFS: DeveloperPrefs = {
-  developerExtensionsEnabled: false,
-  wizardAutoEnable: false,
+  developerExtensionsEnabled: true,
+  wizardAutoEnable: true,
 };
 
 /** Normalize persisted prefs; unknown shape → defaults. */

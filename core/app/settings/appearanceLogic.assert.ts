@@ -32,30 +32,45 @@ assert(normalizeAppearance({ colorMode: "light" }).colorMode === "light", "prese
 assert(normalizeAppearance({ colorMode: "weird" }).colorMode === "dark", "bad colorMode → dark");
 
 assert(
-  normalizeAppearance({}).surfaceShadowStyle === "default",
-  "missing shadow style → default",
+  normalizeAppearance({}).surfaceShadowStyle === "s2",
+  "missing shadow style → s2",
 );
 assert(
   normalizeAppearance({ surfaceShadowStyle: "s15" }).surfaceShadowStyle === "s15",
   "preserve stripe shadow",
 );
 assert(
-  normalizeAppearance({ surfaceShadowStyle: "nope" }).surfaceShadowStyle === "default",
-  "bad shadow style → default",
+  normalizeAppearance({ surfaceShadowStyle: "nope" }).surfaceShadowStyle === "s2",
+  "bad shadow style → s2",
 );
 
 assert(normalizeWidgetLayoutMode("freehand") === "freehand", "accept freehand");
 assert(normalizeWidgetLayoutMode("grid") === "grid", "accept grid");
-assert(normalizeWidgetLayoutMode("nope") === "freehand", "unknown → freehand");
-assert(normalizeWidgetLayoutMode(undefined) === "freehand", "missing → freehand");
-assert(DEFAULT_APPEARANCE.widgetLayoutMode === "freehand", "default freehand");
+assert(normalizeWidgetLayoutMode("nope") === "grid", "unknown → grid");
+assert(normalizeWidgetLayoutMode(undefined) === "grid", "missing → grid");
+assert(DEFAULT_APPEARANCE.widgetLayoutMode === "grid", "default grid");
+assert(normalizeAppearance({}).widgetLayoutMode === "grid", "empty object → grid");
+// The non-default value is the one worth pinning: it has to survive a load.
 assert(
-  normalizeAppearance({}).widgetLayoutMode === "freehand",
-  "empty object → freehand",
+  normalizeAppearance({ widgetLayoutMode: "freehand" }).widgetLayoutMode === "freehand",
+  "preserve freehand",
 );
 assert(
   normalizeAppearance({ widgetLayoutMode: "grid" }).widgetLayoutMode === "grid",
   "preserve grid",
+);
+
+// --- hide on outside click -------------------------------------------------
+assert(DEFAULT_APPEARANCE.hideOnOutsideClick === true, "default hides on outside click");
+assert(normalizeAppearance({}).hideOnOutsideClick === true, "empty object → hide");
+// Switching it off is a decision, so a stored `false` outranks the default.
+assert(
+  normalizeAppearance({ hideOnOutsideClick: false }).hideOnOutsideClick === false,
+  "an explicit off survives a load",
+);
+assert(
+  normalizeAppearance({ hideOnOutsideClick: "yes" }).hideOnOutsideClick === false,
+  "a non-boolean is not a yes",
 );
 
 // --- open monitor -----------------------------------------------------------------
