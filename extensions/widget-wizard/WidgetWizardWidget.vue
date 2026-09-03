@@ -5943,10 +5943,20 @@ async function enablePackage(
   max-height: 220px;
   overflow-y: auto;
   padding: 4px;
-  border: 1px solid rgba(var(--fg-rgb), 0.16);
+  border: 1px solid rgba(var(--fg-rgb, 255, 255, 255), 0.16);
   border-radius: 10px;
   background: var(--card-bg, rgba(28, 28, 30, 0.98));
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  /*
+   * Teleported onto document.body. The landing page is a light document
+   * (`color: var(--ink)`), so inherit would paint the names nearly black on
+   * this dark panel, and a light color-scheme would give the list a Windows
+   * white scrollbar. The app already has --fg-rgb on html; the fallbacks are
+   * for every host that does not.
+   */
+  color: rgba(var(--fg-rgb, 255, 255, 255), 0.92);
+  color-scheme: dark;
+  scrollbar-color: rgba(var(--fg-rgb, 255, 255, 255), 0.32) transparent;
 }
 
 .wiz-integration-option {
@@ -5968,7 +5978,7 @@ async function enablePackage(
 
 .wiz-integration-option:hover,
 .wiz-integration-option--active {
-  background: rgba(var(--fg-rgb), 0.1);
+  background: rgba(var(--fg-rgb, 255, 255, 255), 0.1);
 }
 
 .wiz-compose-bar {

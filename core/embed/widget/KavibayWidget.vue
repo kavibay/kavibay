@@ -120,6 +120,14 @@ const props = defineProps<{
    * way it already names which row opens it.
    */
   cardTitle?: string;
+  /**
+   * Hide the chrome title. A string because custom-element attributes are
+   * strings; anything but `"false"` counts as on.
+   *
+   * The inbox demo is a list with provider marks — repeating the card's name
+   * above the rows is the same word twice, so the landing page turns this on.
+   */
+  hideTitle?: string;
 }>();
 
 const entry = computed(() => embedWidget(props.definition));
@@ -209,7 +217,10 @@ const asPixels = (value: number | string | undefined): number | undefined => {
 const width = ref(asPixels(props.width) ?? initial.width);
 const height = ref(asPixels(props.height) ?? initial.height);
 const contentScale = ref(1);
-const hideTitle = ref(Boolean(entry.value?.ui.defaultHideTitle));
+const hideTitle = ref(
+  (props.hideTitle !== undefined && props.hideTitle !== "false")
+    || Boolean(entry.value?.ui.defaultHideTitle),
+);
 
 /**
  * Reveal and flash, driven by the demo palette.

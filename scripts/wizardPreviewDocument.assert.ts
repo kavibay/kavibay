@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { parseGeneratedFiles } from "../extensions/widget-wizard/widgetWizardLogic";
 import { validateRuntimeManifest } from "../core/app/runtime/manifestValidate";
 import { DEMO_REPLIES } from "../core/embed/widget/wizardScript";
+import { INBOX_DEMO } from "../core/embed/widget/wizardInboxScript";
 import { buildPreviewDocument } from "../core/embed/widget/wizardPreviewDocument";
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -121,5 +122,18 @@ assert(
   docs.every((each) => each!.includes("+")) && docs[1]!.includes("of 3 L today"),
   "the widget the visitor sees is the water tracker, in both turns",
 );
+
+/**
+ * The Linear/GitHub recording is a contract package on disk and a runtime
+ * document on this page: the embed preview inlines `@kavibay/runtime.js`, and
+ * the rows are fixtures because nothing here answers a provider query.
+ */
+const inboxFiles = parseGeneratedFiles(INBOX_DEMO.replies[0]!).files;
+const inboxDoc = buildPreviewDocument(inboxFiles, runtimeSource);
+assert(inboxDoc !== null, "the inbox package produces a preview document");
+assert(!inboxDoc!.includes('src="@kavibay/runtime.js"'), "the inbox runtime is inlined too");
+assert(inboxDoc!.includes("review requested"), "GitHub review requests reach the preview");
+assert(inboxDoc!.includes("ENG-412"), "Linear issue identifiers reach the preview");
+assert(inboxDoc!.includes(INBOX_DEMO.finalMarker), "the tour's finished marker is in the document");
 
 console.log("scripts/wizardPreviewDocument.assert.ts: ok");

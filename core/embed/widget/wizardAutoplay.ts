@@ -23,7 +23,8 @@
  * path a keystroke does, which ProseMirror understands. Measured against the
  * live component before this file existed.
  */
-import { DEMO_PROMPTS } from "./wizardScript";
+import { isMentionPart, type DemoPromptPart } from "./wizardDemoScript";
+import { currentWizardDemo } from "./wizardDemos";
 import { demoRun } from "../demo/demoRun";
 
 /**
@@ -142,7 +143,7 @@ async function waitForAnswer(
 async function typeAndSend(
   root: ParentNode,
   composer: HTMLElement,
-  prompt: string,
+  parts: DemoPromptPart[],
   alive: () => boolean,
 ): Promise<boolean> {
   /*
@@ -155,20 +156,19 @@ async function typeAndSend(
    * only the document stays where the visitor put it.
    */
   composer.focus({ preventScroll: true });
-  for (const character of prompt) {
+  for (const part of parts) {
     if (!alive()) return false;
-    /*
-     * Re-focus if the caret has moved on.
-     *
-     * `insertText` goes wherever the focus is, and a visitor can now pause the
-     * demo by clicking — which usually means clicking somewhere else. Resuming
-     * without this typed the rest of the sentence into whatever they had
-     * clicked, or into nothing at all.
-     */
-    if (document.activeElement !== composer) composer.focus({ preventScroll: true });
-    // Same input path a keystroke takes; ProseMirror ignores textContent.
-    document.execCommand("insertText", false, character);
-    await wait(TYPE_MIN_MS + Math.random() * TYPE_JITTER_MS);
+    if (isMentionPart(part)) {
+      if (!(await pickMention(composer, part.mention, alive))) return false;
+      continue;
+    }
+    for (const character of part) {
+      if (!alive()) return false;
+      if (document.activeElement !== composer) composer.focus({ preventScroll: true });
+      // Same input path a keystroke takes; ProseMirror ignores textContent.
+      document.execCommand("insertText", false, character);
+      await wait(TYPE_MIN_MS + Math.random() * TYPE_JITTER_MS);
+    }
   }
 
   await wait(BEFORE_SEND_MS);
@@ -181,14 +181,69 @@ async function typeAndSend(
 }
 
 /**
+ * Type `@linear` (or `@github`) and commit the Integrations row.
+ *
+ * The chip is what the visitor asked to see: logo in the composer, then the
+ * same chip in the bubble. Typing the letters and sending would store
+ * `@linear`, and the transcript renderer looks for `@Linear` — different
+ * strings, so the logos would never appear.
+ *
+ * The menu teleports to `document.body` (the Wizard's own Teleport), so it is
+ * not inside the card this loop was handed. Finding it on `document` is the
+ * same place a click would find it.
+ */
+async function pickMention(
+  composer: HTMLElement,
+  label: string,
+  alive: () => boolean,
+): Promise<boolean> {
+  if (document.activeElement !== composer) composer.focus({ preventScroll: true });
+  document.execCommand("insertText", false, "@");
+  await wait(TYPE_MIN_MS + Math.random() * TYPE_JITTER_MS);
+
+  for (const character of label.toLocaleLowerCase()) {
+    if (!alive()) return false;
+    if (document.activeElement !== composer) composer.focus({ preventScroll: true });
+    document.execCommand("insertText", false, character);
+    await wait(TYPE_MIN_MS + Math.random() * TYPE_JITTER_MS);
+  }
+
+  const option = await waitForMentionOption(label, alive);
+  if (!option || !alive()) return false;
+  option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  await wait(BEFORE_SEND_MS);
+  return true;
+}
+
+function mentionOption(label: string): HTMLElement | null {
+  const buttons = document.querySelectorAll<HTMLElement>(".wiz-integration-option");
+  for (const button of buttons) {
+    const name = button.getAttribute("aria-label") ?? "";
+    if (name === label || name.startsWith(`${label},`)) return button;
+  }
+  return null;
+}
+
+async function waitForMentionOption(label: string, alive: () => boolean): Promise<HTMLElement | null> {
+  const deadline = tourRun.now() + MOUNT_TIMEOUT_MS;
+  while (tourRun.now() < deadline) {
+    if (!alive()) return null;
+    const option = mentionOption(label);
+    if (option) return option;
+    await wait(POLL_MS);
+  }
+  return null;
+}
+
+/**
  * `alive` is the visitor's veto: the caller returns false once somebody clicks
  * or types, and every step checks it. A demo that keeps typing over a person's
  * own sentence is worse than no demo.
  *
- * The two turns are the landing page's two: ask for the tracker, then ask for
- * a percentage. Between them the Wizard is entirely on its own — it asks the
- * fixture, parses the reply, writes the draft and renders the preview, and
- * nothing here stage-manages any of it. This only types and presses Send.
+ * The prompts come from the active recording. Between them the Wizard is
+ * entirely on its own — it asks the fixture, parses the reply, writes the
+ * draft and renders the preview, and nothing here stage-manages any of it.
+ * This only types and presses Send.
  */
 export async function playWizardDemo(root: ParentNode, alive: () => boolean): Promise<void> {
   const composer = await waitForComposer(root, alive);
@@ -201,19 +256,16 @@ export async function playWizardDemo(root: ParentNode, alive: () => boolean): Pr
 
   await wait(LEAD_IN_MS);
 
-  for (const [index, prompt] of DEMO_PROMPTS.entries()) {
+  const prompts = currentWizardDemo().prompts;
+  for (const [index, parts] of prompts.entries()) {
     if (!alive()) return;
 
     const before = answerCount(root);
-    if (!(await typeAndSend(root, composer, prompt, alive))) return;
-
-    const isLast = index === DEMO_PROMPTS.length - 1;
-    if (isLast) return;
-
+    if (!(await typeAndSend(root, composer, parts, alive))) return;
     if (!(await waitForAnswer(root, before, alive))) return;
-    // The first version exists. The tour's progress bar has no other way to
-    // know: everything between the two prompts happens inside this loop.
-    tourRun.reachStep(3);
+
+    if (index === 0) tourRun.reachStep(3);
+    if (index === prompts.length - 1) return;
     await wait(BETWEEN_TURNS_MS);
   }
 }
