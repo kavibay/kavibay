@@ -3473,6 +3473,10 @@ kavibay-palette-demo:defined + .palette {
   width: min(720px, calc(100% - 48px));
   transform: translateX(-50%);
   text-align: center;
+  /* Der Desk-Scroll liegt visuell darüber. Ohne das hier fängt das Intro-
+     Rechteck Klicks, die der Palette gelten, und die Schalter darunter
+     bleiben tot, weil .wizplay__scroll die Fläche bedeckt. */
+  pointer-events: none;
 }
 
 .wizplay__line {
@@ -3483,6 +3487,68 @@ kavibay-palette-demo:defined + .palette {
   max-width: 520px;
   margin: 14px auto 0;
   color: rgba(255, 255, 255, 0.72);
+}
+
+/* Schalter für die zwei Wizard-Demos, Glas wie die Palette darunter.
+   Nur die Reihe nimmt Klicks entgegen — der Rest des Intros bleibt durchlässig. */
+.wizplay__cases {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.wizplay__cases-label {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.wizplay__cases-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.wizplay__case {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(12, 14, 22, 0.55);
+  color: rgba(255, 255, 255, 0.88);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.wizplay__case:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.wizplay__case[aria-pressed="true"] {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.42);
+  color: #fff;
+}
+
+.wizplay__case:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
 }
 
 /* Gemeinsame Spalte unter der Bühne. Ohne den Wrapper zentriert jede Zeile
@@ -3695,12 +3761,17 @@ kavibay-palette-demo:defined + .palette {
   inset: 0 0 48px;
   z-index: 3;
   padding: 0 24px;
+  /* Die Schiene bedeckt die ganze Bühne, auch das Intro. Ohne none fängt
+     sie die Demo-Schalter ab; Palette und Karten holen Klicks selbst zurück. */
+  pointer-events: none;
 }
 
 @media (max-width: 1100px) {
   .wizplay__scroll {
     overflow-x: auto;
     overscroll-behavior-x: contain;
+    /* Horizontal scrollen braucht Klicks auf den Container selbst. */
+    pointer-events: auto;
   }
 }
 

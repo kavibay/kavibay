@@ -3,9 +3,9 @@
  *
  *   1. Only the palette is on screen.
  *   2. "new widget" is typed and run — the Wizard's own contributed action.
- *   3. The Wizard opens and plays its two turns.
+ *   3. The Wizard opens and plays the active recording.
  *   4. When the widget exists, the Wizard closes.
- *   5. "water tracker" is typed and run.
+ *   5. The finished widget is typed and run.
  *   6. The widget that was just built appears, and works.
  *
  * WHY THIS IS A DIRECTOR AND NOT THREE SCRIPTS:
@@ -22,9 +22,11 @@
  * The one place it reads foreign DOM is counting the Wizard's answers, which
  * is what "the conversation finished" means and has no other observable.
  */
+import { currentWizardDemo } from "../widget/wizardDemos";
 import { demoDraftFiles, resetWizardFixture } from "../widget/wizardFixture";
-import { DEMO_FINAL_MARKER } from "../widget/wizardScript";
+import { WATER_TOUR_STEPS } from "../widget/wizardScript";
 import { demoRun } from "./demoRun";
+import { finishedDraftFromThisRun } from "./tourLogic";
 
 /**
  * The tour's milestones, and the run that owns them.
@@ -34,13 +36,7 @@ import { demoRun } from "./demoRun";
  * card this director does not own, and the transport the page places
  * (`<kavibay-demo-controls run="tour">`).
  */
-export const TOUR_STEPS = [
-  "Searching",
-  "Wizard open",
-  "First version",
-  "Change applied",
-  "On the desk",
-] as const;
+export const TOUR_STEPS = WATER_TOUR_STEPS;
 
 const tourRun = demoRun("tour", TOUR_STEPS);
 
@@ -61,8 +57,6 @@ const AFTER_TYPE_MS = 450;
 const AFTER_WIZARD_MS = 1400;
 const BEFORE_LAST_TYPE_MS = 700;
 
-/** The draft the Wizard writes; the tour waits for it rather than for a clock. */
-const DRAFT_ID = "water-tracker";
 /**
  * Generous on purpose. This budget exists to end the tour if the Wizard never
  * gets going at all, not to police how long it takes — and how long it takes
@@ -102,6 +96,15 @@ function nearestCard(from: Element | null, selector: string): CardHandle | null 
   return null;
 }
 
+/** Every generated card in this demo, so a case switch can shut the last one. */
+function nearestDrafts(from: Element | null): CardHandle[] {
+  for (let node: Element | null = from; node; node = node.parentElement) {
+    const hits = [...node.querySelectorAll("kavibay-widget[draft]")];
+    if (hits.length > 0) return hits as unknown as CardHandle[];
+  }
+  return [];
+}
+
 async function until(predicate: () => boolean, timeoutMs: number, alive: () => boolean) {
   const deadline = tourRun.now() + timeoutMs;
   while (tourRun.now() < deadline) {
@@ -110,6 +113,11 @@ async function until(predicate: () => boolean, timeoutMs: number, alive: () => b
     await wait(POLL_MS);
   }
   return false;
+}
+
+/** Assistant bubbles inside this card — zero on a fresh mount, even if last run's files remain. */
+function assistantTurns(card: CardHandle): number {
+  return card instanceof Element ? card.querySelectorAll(".wiz-turn.assistant").length : 0;
 }
 
 export interface TourOptions {
@@ -124,8 +132,6 @@ export interface TourOptions {
   paletteEl: Element | null;
   /** Row that opens the Wizard — its contributed action. */
   wizardRow: string;
-  /** Row that opens the finished widget. */
-  resultRow: string;
   /** Visitor veto; every step checks it. */
   alive: () => boolean;
   /**
@@ -168,11 +174,10 @@ let currentRun = 0;
 export async function playTour(options: TourOptions): Promise<void> {
   const wizard = nearestCard(options.paletteEl, 'kavibay-widget[definition="widget-wizard"]');
   if (!wizard) return;
-  const result = nearestCard(options.paletteEl, "kavibay-widget[draft]");
 
   tourRun.markPresent();
   tourRun.onReplay(() => {
-    rewind(options, result ? [wizard, result] : [wizard]);
+    rewind(options, [wizard, ...nearestDrafts(options.paletteEl)]);
     tourRun.begin();
     void run(options, wizard, (currentRun += 1));
   });
@@ -183,6 +188,8 @@ export async function playTour(options: TourOptions): Promise<void> {
 
 async function run(options: TourOptions, wizard: CardHandle, token: number): Promise<void> {
   const { palette } = options;
+  const spec = currentWizardDemo();
+  demoRun("tour", spec.steps);
 
   /**
    * Three ways a run can be over, in one question the steps already ask.
@@ -214,10 +221,19 @@ async function run(options: TourOptions, wizard: CardHandle, token: number): Pro
    * frame a second — any fixed wait here is either too short or insultingly
    * long. But waiting for a draft to merely exist was worse: turn one writes
    * one, so the tour closed the Wizard while it was still answering the
-   * follow-up. `DEMO_FINAL_MARKER` is what turn two puts in the file.
+   * follow-up. `finalMarker` is what the last turn puts in the file.
+   *
+   * The answers have to belong to this mount as well: Replay used to leave
+   * the previous draft in place, and the marker alone then skipped the
+   * conversation.
    */
   const isFinished = () =>
-    demoDraftFiles(DRAFT_ID).some((file) => file.contents.includes(DEMO_FINAL_MARKER));
+    finishedDraftFromThisRun(
+      assistantTurns(wizard),
+      spec.replies.length,
+      demoDraftFiles(spec.draftId),
+      spec.finalMarker,
+    );
   const built = await until(isFinished, DRAFT_TIMEOUT_MS, alive);
   if (!built) return;
 
@@ -228,9 +244,9 @@ async function run(options: TourOptions, wizard: CardHandle, token: number): Pro
   await wait(BEFORE_LAST_TYPE_MS);
   if (!alive()) return;
 
-  await palette.type("water tracker");
+  await palette.type(spec.resultQuery);
   await wait(AFTER_TYPE_MS);
   if (!alive()) return;
-  palette.run(options.resultRow);
+  palette.run(spec.resultRow);
   tourRun.finish();
 }
