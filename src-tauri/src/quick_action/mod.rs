@@ -1,4 +1,4 @@
-//! Selection quick actions — Ctrl+Alt+Q on text selected in any application.
+//! Selection quick actions — Ctrl+Shift+Q on text selected in any application.
 //!
 //! The whole feature is one borrowed clipboard round-trip:
 //!
@@ -41,7 +41,15 @@ use placement::{place_popup, Anchor, Rect};
 
 /// Window label of the popup; also its entry point (`quickaction.html`).
 pub const POPUP_LABEL: &str = "quickaction";
-pub const DEFAULT_SHORTCUT: &str = "Ctrl+Alt+Q";
+/// Ctrl+Shift, never Ctrl+Alt.
+///
+/// AltGr on Windows *is* Ctrl+Alt, and `RegisterHotKey` is handed the same
+/// modifier mask either way — there is no flag at that level saying the right
+/// Alt key was the one pressed. So a global `Ctrl+Alt+<key>` swallows the AltGr
+/// character before the keyboard layout ever produces it. The previous default,
+/// `Ctrl+Alt+Q`, made `@` untypable in every application on a German layout;
+/// `E` would have cost `€`, `7`–`0` the braces and brackets.
+pub const DEFAULT_SHORTCUT: &str = "Ctrl+Shift+Q";
 
 /// Treat a manually edited or stale preference as the safe default rather than
 /// showing one shortcut in Settings while registering another at startup.
@@ -164,7 +172,7 @@ pub fn quick_action_disabled_templates_set(
 
 /// Prevent the currently registered shortcut from firing while Settings is
 /// recording its replacement (especially important when recording itself is
-/// Ctrl+Alt+Q).
+/// Ctrl+Shift+Q).
 #[tauri::command]
 pub fn quick_action_shortcut_capture(
     app: AppHandle,
@@ -309,7 +317,7 @@ struct QuickActionWidgetPayload {
 ///
 /// Building a webview costs a few hundred milliseconds — long enough to feel
 /// like the hotkey did nothing. Creating it at startup and only moving it
-/// afterwards is what makes Ctrl+Alt+Q feel instant.
+/// afterwards is what makes Ctrl+Shift+Q feel instant.
 pub fn create_popup_window(app: &AppHandle) -> tauri::Result<()> {
     tauri::WebviewWindowBuilder::new(
         app,
@@ -349,7 +357,7 @@ fn own_window_handles(_app: &AppHandle) -> Vec<isize> {
     Vec::new()
 }
 
-/// Ctrl+Alt+Q handler.
+/// Ctrl+Shift+Q handler.
 ///
 /// Returns immediately: the capture below sleeps for up to a second waiting for
 /// the modifiers and the clipboard, and the global-shortcut handler is not a

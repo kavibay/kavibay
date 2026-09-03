@@ -1867,7 +1867,7 @@ function onResizeWidgetEvent(event: Event) {
 }
 
 /**
- * The Ctrl+Alt+Q popup is a separate webview, so Rust relays this declared
+ * The Ctrl+Shift+Q popup is a separate webview, so Rust relays this declared
  * widget hand-off here after it has released the borrowed clipboard state.
  */
 async function onQuickActionOpenWidget(payload: {

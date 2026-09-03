@@ -34,12 +34,14 @@ import {
 } from "./aiApi";
 import {
   AI_PROVIDER_TABS,
+  altGrCharacter,
   credentialTypeForProvider,
   enabledSummary,
   modelsForProvider,
   providerHasKey,
   quickModelChoices,
   quickModelSelection,
+  shortcutFromKey,
   withModelEnabled,
   type AiProviderTab,
 } from "./aiPanelLogic";
@@ -56,7 +58,7 @@ const toggling = ref<string | null>(null);
 /** Quick-action model as stored ("" = automatic) and as currently resolved. */
 const quickSelected = ref("");
 const quickResolved = ref("");
-const quickShortcut = ref("Ctrl+Alt+Q");
+const quickShortcut = ref("Ctrl+Shift+Q");
 const savingQuickShortcut = ref(false);
 const recordingQuickShortcut = ref(false);
 const disabledQuickTemplates = ref<string[]>([]);
@@ -205,26 +207,6 @@ async function onToggleQuickTemplate(action: { extensionId: string; actionId: st
   }
 }
 
-function shortcutFromKey(event: KeyboardEvent): string | null {
-  if (["Control", "Alt", "Shift", "Meta"].includes(event.key)) return null;
-  const modifiers = [
-    event.ctrlKey && "Ctrl",
-    event.altKey && "Alt",
-    event.shiftKey && "Shift",
-    event.metaKey && "Super",
-  ].filter(Boolean);
-  if (modifiers.length === 0) return null;
-  // `key` is layout-dependent: on a German keyboard Ctrl+Alt+Q can be "@"
-  // (AltGr). `code` names the physical key and matches Tauri's shortcut parser.
-  const key = event.code
-    .replace(/^Key/, "")
-    .replace(/^Digit/, "")
-    .replace(/^Numpad/, "Num")
-    .replace(" ", "Space");
-  if (!key || key === "Unidentified") return null;
-  return [...modifiers, key].join("+");
-}
-
 /** Capture and persist a native global shortcut as one deliberate keystroke. */
 async function captureQuickShortcut(event: KeyboardEvent) {
   if (!recordingQuickShortcut.value) return;
@@ -233,6 +215,15 @@ async function captureQuickShortcut(event: KeyboardEvent) {
   if (event.key === "Escape") {
     recordingQuickShortcut.value = false;
     await setQuickActionShortcutCapture(false);
+    return;
+  }
+  // Refused here rather than registered and regretted: Ctrl+Alt is AltGr, and
+  // the damage shows up later, in another application, as a character that
+  // stopped working for no visible reason. Recording stays on so the next press
+  // is simply the better shortcut.
+  const blocked = altGrCharacter(event);
+  if (blocked) {
+    error.value = `Ctrl+Alt is AltGr on this keyboard — that combination types "${blocked}", and a global shortcut would take it away in every app. Try Ctrl+Shift instead.`;
     return;
   }
   const shortcut = shortcutFromKey(event);
@@ -313,7 +304,7 @@ onUnmounted(() => {
             {{
               recordingQuickShortcut
                 ? "Press the new shortcut now, or Escape to cancel."
-                : "Ctrl, Alt, Shift, or Super is required."
+                : "Needs Ctrl, Alt, Shift or Super. Ctrl+Alt is AltGr on many layouts and is refused."
             }}
           </p>
 

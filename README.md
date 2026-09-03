@@ -67,7 +67,7 @@ flowchart TB
   first-party Vue extension, or drop in a sandboxed runtime package. See
   [Building widgets](#building-widgets).
 - **Quick actions on selected text** — select text in *any* application, press
-  `Ctrl+Alt+Q`, and a small menu appears next to it: translate, fix the grammar,
+  `Ctrl+Shift+Q`, and a small menu appears next to it: translate, fix the grammar,
   turn notes into an email. In a text field the answer replaces the selection;
   anywhere else — a web page, a PDF, anything Kavibay cannot identify as
   editable — it lands on the clipboard instead of being typed somewhere it does
@@ -153,7 +153,7 @@ rules out the App Store.
 | `Ctrl` `Ctrl` | Show / hide the cockpit — two taps in a row, nothing else pressed in between (Windows only: no OS can register a bare modifier as a hotkey, so this is read from a keyboard hook) |
 | `Ctrl+Space` (hold) | Peek at the widgets — no palette, and they disappear again the moment you let go. Click one while holding and that one stays, until you close it |
 | `Shift+Ctrl+Space` | Show / hide the cockpit on the screen under the mouse — and the way in on macOS and Linux, where the double tap is unavailable |
-| `Ctrl+Alt+Q` | Quick actions on text selected in any app (`↑` `↓` `Enter`, `Escape` closes) |
+| `Ctrl+Shift+Q` | Quick actions on text selected in any app (`↑` `↓` `Enter`, `Escape` closes) |
 | `Escape` | Hide it |
 | `↑` `↓` `Enter` | Move through palette results and run one — on a widget row, `Enter` puts that widget on the desk |
 | `↓` on an empty query | Recently used commands |

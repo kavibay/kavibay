@@ -322,10 +322,10 @@ it can never appear as a dead row.
 Runtime (sandboxed) packages cannot declare actions yet — the postMessage bridge
 has no host-initiated invoke.
 
-## Selection quick actions (Ctrl+Alt+Q)
+## Selection quick actions (Ctrl+Shift+Q)
 
 A **text action** transforms text the user selected in *any* application. Press
-`Ctrl+Alt+Q` with something selected, pick a row from the popup, and the answer
+`Ctrl+Shift+Q` with something selected, pick a row from the popup, and the answer
 replaces the selection.
 
 Same split as palette actions: metadata in the manifest, handler in `index.ts`.

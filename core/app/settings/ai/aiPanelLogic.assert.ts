@@ -5,13 +5,16 @@
 import type { LlmModelOption } from "./aiApi";
 import {
   AI_PROVIDER_TABS,
+  altGrCharacter,
   credentialTypeForProvider,
   enabledSummary,
   modelsForProvider,
   providerHasKey,
   quickModelChoices,
   quickModelSelection,
+  shortcutFromKey,
   withModelEnabled,
+  type ShortcutKey,
 } from "./aiPanelLogic";
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -128,5 +131,67 @@ assert(
   "a model whose key was removed falls back to Automatic",
 );
 assert(quickModelSelection(catalog, "") === "", "Automatic stays Automatic");
+
+// --- shortcut capture ------------------------------------------------------
+//
+// The pressed key is described the way the browser reports it: `key` is what
+// the layout produced, `code` is the key under the finger.
+
+function press(over: Partial<ShortcutKey> & { code: string }): ShortcutKey {
+  return {
+    key: over.key ?? "",
+    code: over.code,
+    ctrlKey: over.ctrlKey ?? false,
+    altKey: over.altKey ?? false,
+    shiftKey: over.shiftKey ?? false,
+    metaKey: over.metaKey ?? false,
+  };
+}
+
+/** German layout: AltGr+Q is the `@` key, and Windows reports AltGr as Ctrl+Alt. */
+const altGrQ = press({ key: "@", code: "KeyQ", ctrlKey: true, altKey: true });
+
+assert(altGrCharacter(altGrQ) === "@", "the character AltGr+Q would cost is named");
+assert(
+  altGrCharacter(press({ key: "{", code: "Digit7", ctrlKey: true, altKey: true })) === "{",
+  "digits carry AltGr characters too",
+);
+assert(
+  altGrCharacter(press({ key: "\\", code: "Minus", ctrlKey: true, altKey: true })) === "\\",
+  "a key this layout places elsewhere counts as AltGr territory",
+);
+// A US keyboard has no AltGr: the same press produces the plain letter, and
+// Ctrl+Alt is a shortcut like any other. Testing beats banning the modifier.
+assert(
+  altGrCharacter(press({ key: "q", code: "KeyQ", ctrlKey: true, altKey: true })) === null,
+  "Ctrl+Alt stays available where it produces nothing",
+);
+assert(
+  altGrCharacter(press({ key: "Q", code: "KeyQ", ctrlKey: true, shiftKey: true })) === null,
+  "Ctrl+Shift is never AltGr",
+);
+assert(
+  altGrCharacter(press({ key: "Dead", code: "Equal", ctrlKey: true, altKey: true })) === null,
+  "a dead key names no character, so it is not refused on a guess",
+);
+
+assert(shortcutFromKey(altGrQ) === "Ctrl+Alt+Q", "the physical key names the shortcut, not `@`");
+assert(
+  shortcutFromKey(press({ key: "Q", code: "KeyQ", ctrlKey: true, shiftKey: true })) ===
+    "Ctrl+Shift+Q",
+  "the shipped default round-trips through capture",
+);
+assert(
+  shortcutFromKey(press({ key: "1", code: "Numpad1", ctrlKey: true })) === "Ctrl+Num1",
+  "numpad keys keep their own names",
+);
+assert(
+  shortcutFromKey(press({ key: "Control", code: "ControlLeft", ctrlKey: true })) === null,
+  "a modifier alone is not a shortcut",
+);
+assert(
+  shortcutFromKey(press({ key: "q", code: "KeyQ" })) === null,
+  "a bare key is not a shortcut",
+);
 
 console.log("aiPanelLogic.assert.ts: ok");
