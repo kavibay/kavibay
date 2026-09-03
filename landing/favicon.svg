@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-14.5 -0.5 150 150">
+  <!-- viewBox is shifted so the mark is centered in the square. -->
+  <defs>
+    <!-- Selected palette row, baked opaque: glass + sheen + 1px lit rim.
+         CSS overlays are translucent; a favicon has to carry its own body. -->
+    <linearGradient id="row" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#616165" />
+      <stop offset="0.012" stop-color="#49494d" />
+      <stop offset="0.62" stop-color="#313135" />
+      <stop offset="1" stop-color="#313135" />
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.13" />
+      <stop offset="0.08" stop-color="#ffffff" stop-opacity="0.05" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.05" />
+    </linearGradient>
+    <clipPath id="mark">
+      <path
+        d="M 16 15 H 105 A 8 8 0 0 1 113 23 L 74.16 70.63 Q 71 74.5 74.16 78.37 L 113 126 A 8 8 0 0 1 105 134 H 16 A 8 8 0 0 1 8 126 V 23 A 8 8 0 0 1 16 15 Z"
+      />
+    </clipPath>
+  </defs>
+  <g clip-path="url(#mark)">
+    <path
+      fill="url(#row)"
+      d="M 16 15 H 105 A 8 8 0 0 1 113 23 L 74.16 70.63 Q 71 74.5 74.16 78.37 L 113 126 A 8 8 0 0 1 105 134 H 16 A 8 8 0 0 1 8 126 V 23 A 8 8 0 0 1 16 15 Z"
+    />
+    <path
+      fill="none"
+      stroke="url(#rim)"
+      stroke-width="2"
+      d="M 16 15 H 105 A 8 8 0 0 1 113 23 L 74.16 70.63 Q 71 74.5 74.16 78.37 L 113 126 A 8 8 0 0 1 105 134 H 16 A 8 8 0 0 1 8 126 V 23 A 8 8 0 0 1 16 15 Z"
+    />
+  </g>
+</svg>
