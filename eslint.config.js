@@ -37,10 +37,8 @@ export default tseslint.config(
       "docs/**",
       // Vite's boilerplate shim — `DefineComponent<{}, {}, any>` is upstream's wording.
       "core/app/vite-env.d.ts",
-      // Static marketing site plus the embed bundle it loads (`landing/embed/`,
-      // built by `npm run build:embed`). Neither is app source; linting them
-      // would fold landing WIP into every embed-package typecheck.
-      "landing/**",
+      // Public site plus the embed bundle it loads live outside this repo
+      // (`../www.kavibay.com/`). They are not app source.
     ],
   },
 

@@ -20,7 +20,6 @@
     "verify:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target/check --all-targets -- -D warnings && cargo test --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target/check --lib",
     "build:guest": "vite build --config vite.guest.config.ts && node scripts/guestHeader.mjs",
     "build:embed": "vite build --config vite.embed.config.ts",
-    "dev:landing": "vite --config landing/vite.config.js --port 5180 --strictPort",
     "build:provider-doc": "tsx scripts/writeProviderSchemaDoc.ts"
   },
   "dependencies": {

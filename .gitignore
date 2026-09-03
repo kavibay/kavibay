@@ -12,13 +12,6 @@ dist
 dist-ssr
 *.local
 
-# Embed custom-element bundle. Built by `npm run build:embed` into a path the
-# landing serves as a static file. Regenerated, not edited.
-landing/embed/
-
-# Written by notify.php on the webserver. Never commit.
-landing/.notify-rate
-
 # Superpowers brainstorm / SDD session artifacts
 .superpowers/
 

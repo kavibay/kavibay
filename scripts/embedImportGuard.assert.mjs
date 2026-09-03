@@ -23,8 +23,11 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const siteRoot = join(repoRoot, "../www.kavibay.com");
 const SOURCE = /\.(ts|mts|tsx|vue|js|mjs)$/;
 const posix = (path) => path.split(sep).join("/");
+const siteRel = (file) => posix(relative(siteRoot, file));
+const isSiteFile = (file) => !posix(relative(siteRoot, file)).startsWith("..");
 
 /**
  * Tauri specifiers the embed build replaces with `core/embed/tauriAbsent.ts`.
@@ -42,7 +45,7 @@ function collect(dir, found = []) {
     if (entry.isDirectory()) {
       if (["node_modules", "dist", "target"].includes(entry.name)) continue;
       // Built output, not source. Walking it would match minified Vue, not our imports.
-      if (posix(relative(repoRoot, full)) === "landing/embed") continue;
+      if (posix(relative(siteRoot, full)) === "embed") continue;
       collect(full, found);
     } else if (SOURCE.test(entry.name)) {
       found.push(full);
@@ -52,7 +55,7 @@ function collect(dir, found = []) {
 }
 
 function skipLandingBuildOutput(file) {
-  return posix(relative(repoRoot, file)).startsWith("landing/embed/");
+  return siteRel(file).startsWith("embed/");
 }
 
 /**
@@ -141,8 +144,8 @@ function isRefused(filePath, fromFile) {
   if (rel === "core/app/extensions/loadExtensions.ts") return "loadExtensions.ts reaches cockpit.ts, and through it the catalog magnet";
   if (rel === "core/app/palette/paletteResults.ts") return "paletteResults.ts expects catalog rows and reaches the registry";
   const from = posix(relative(repoRoot, fromFile));
-  if (rel.startsWith("landing/") && !from.startsWith("landing/")) {
-    return "the embed package must not import from landing/";
+  if (isSiteFile(filePath) && !isSiteFile(fromFile)) {
+    return "the embed package must not import from the public site";
   }
   return null;
 }
@@ -172,7 +175,7 @@ const queue = [];
 for (const file of collect(join(repoRoot, "core/embed"))) {
   queue.push(file);
 }
-for (const file of collect(join(repoRoot, "landing"))) {
+for (const file of collect(siteRoot)) {
   if (skipLandingBuildOutput(file)) continue;
   queue.push(file);
 }
@@ -186,15 +189,15 @@ while (queue.length > 0) {
   const source = readFileSync(file, "utf8");
   // Metadata is a landing/embed invariant. App files the graph walks into
   // (fuzzy.ts today, SandboxedWidgetFrame later) are allowed to be app code.
-  if (rel.startsWith("core/embed/") || rel.startsWith("landing/")) {
-    problems.push(...touchesMetadata(source, rel));
+  if (rel.startsWith("core/embed/") || isSiteFile(file)) {
+    problems.push(...touchesMetadata(source, isSiteFile(file) ? siteRel(file) : rel));
   }
 
   for (const specifier of importsIn(withoutTypeOnlyImports(source))) {
     const resolved = resolveSpecifier(file, specifier);
     if (resolved.kind === "tauri") {
       // Files this package owns may not reach for Tauri at all.
-      if (rel.startsWith("core/embed/") || rel.startsWith("landing/")) {
+      if (rel.startsWith("core/embed/") || isSiteFile(file)) {
         problems.push(
           `${rel}\n    imports "${specifier}"\n    the embed package itself may never reference @tauri-apps/*`,
         );
@@ -229,7 +232,7 @@ while (queue.length > 0) {
  * the IPC hook has either lost an alias or gained a new Tauri import through a
  * path the walk above cannot see.
  */
-const built = join(repoRoot, "landing/embed/kavibay-embed.js");
+const built = join(siteRoot, "embed/kavibay-embed.js");
 if (existsSync(built)) {
   const output = readFileSync(built, "utf8");
   /**
@@ -261,7 +264,7 @@ if (existsSync(built)) {
   if (output.includes("drop a screenshot")) {
     problems.push(
       [
-        "landing/embed/kavibay-embed.js",
+        "www.kavibay.com/embed/kavibay-embed.js",
         "    contains the Widget Wizard's own markup",
         "    it belongs in kavibay-embed-lazyWizard.js; something imports it statically",
       ].join("\n"),
@@ -271,7 +274,7 @@ if (existsSync(built)) {
   if (output.includes("transformCallback")) {
     problems.push(
       [
-        "landing/embed/kavibay-embed.js",
+        "www.kavibay.com/embed/kavibay-embed.js",
         "    contains transformCallback, which only @tauri-apps/api defines",
         "    the built browser bundle carries Tauri IPC; check resolve.alias in vite.embed.config.ts",
       ].join("\n"),

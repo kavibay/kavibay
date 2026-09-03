@@ -34,7 +34,7 @@ Licensing rules that constrain code changes:
   No cross-extension imports, no deep `core/` imports.
 - `core/embed/` may import `core/app/extension-host/`, `core/app/palette/fuzzy.ts`
   and `@sdk`. It must not import `core/app/extensions/*`, `@tauri-apps/*`, or
-  `landing/` — consumers depend on the package, never the reverse. Guard:
+  the public site — consumers depend on the package, never the reverse. Guard:
   `scripts/embedImportGuard.assert.mjs`.
 - Don't touch the moodist sound files or their licensing (Pixabay review is a
   tracked, separate task).
@@ -46,8 +46,7 @@ npm run tauri dev                # run the app (Vite + cargo)
 npm run verify                   # typecheck + eslint + all 111 assert files, in parallel — what CI runs
 npm run verify:rust              # cargo fmt --check + clippy -D warnings + cargo test --lib
 npm run build                    # vue-tsc typecheck + vite build
-npm run build:embed              # custom-element bundle landing/ loads (`core/embed/` → `landing/embed/`)
-npm run dev:landing              # serve landing/ on :5180 (same as `.claude/launch.json`)
+npm run build:embed              # custom-element bundle the site loads (`core/embed/` → `../www.kavibay.com/embed/`)
 npx tsx <path>/<name>.assert.ts  # run one colocated pure-logic test
 ```
 
@@ -194,10 +193,11 @@ smoke for widget changes (palette add, duplicate/dispose if stateful, settings i
 present). Report deviations honestly — a red check with an explanation beats a silent
 skip.
 
-Landing exception: when a task touches **only static files** under `landing/`
-(HTML, CSS, images, `script.js`) and not `core/embed/` or `vite.embed.config.ts`,
-do **not** run `npm run verify`. Validate the relevant static files and diff only
-unless the maintainer explicitly asks for broader checks.
+Landing exception: when a task touches **only static files** under
+`../www.kavibay.com/` (HTML, CSS, images, `script.js`) and not `core/embed/` or
+`vite.embed.config.ts`, do **not** run `npm run verify`. Validate the relevant
+static files and diff only unless the maintainer explicitly asks for broader
+checks.
 
 Anything that touches the embed package (`core/embed/`), its Vite config, or the
 bundle landing loads **does** run typecheck — `npm run verify`. A broken import
