@@ -131,9 +131,10 @@ under `node_modules/@fontsource-variable/<name>/LICENSE`.
 - JetBrains Mono — OFL 1.1 — Copyright 2020 The JetBrains Mono Project Authors —
   https://github.com/JetBrains/JetBrainsMono
 
-The landing page (`landing/`) is static and has no `node_modules`, so it carries
-its own copies of the same three Latin subsets under `landing/fonts/`, each next
-to the matching OFL text (`landing/fonts/<name>-LICENSE.txt`).
+The public site (`../www.kavibay.com/`) is static and has no `node_modules`, so
+it carries its own copies of the same three Latin subsets under
+`../www.kavibay.com/fonts/`, each next to the matching OFL text
+(`../www.kavibay.com/fonts/<name>-LICENSE.txt`).
 
 ## Other assets
 

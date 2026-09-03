@@ -2,12 +2,6 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "landing",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["vite", "--config", "landing/vite.config.js", "--port", "5180", "--strictPort"],
-      "port": 5180
-    },
-    {
       "name": "app",
       "url": "http://localhost:1420",
       "port": 1420

@@ -10,8 +10,8 @@ const root = path.dirname(fileURLToPath(import.meta.url));
  * and later a store page — loads with one `<script type="module">`.
  *
  * A separate config so this never rides along with the app build. The entry is
- * the package, not anything under `landing/`: consumers depend on the package,
- * never the reverse.
+ * the package, not anything under the public site: consumers depend on the
+ * package, never the reverse.
  *
  * Do **not** switch this to `build.lib`. Lib mode force-inlines assets
  * regardless of `assetsInlineLimit`, which is what turned a probe bundle into
@@ -54,11 +54,14 @@ export default defineConfig({
       "@tauri-apps/api/event": path.resolve(root, "core/embed/tauriAbsent.ts"),
       "@tauri-apps/api/window": path.resolve(root, "core/embed/tauriAbsent.ts"),
       "@tauri-apps/api/path": path.resolve(root, "core/embed/tauriAbsent.ts"),
-      "@tauri-apps/plugin-dialog": path.resolve(root, "core/embed/tauriAbsent.ts"),
+      "@tauri-apps/plugin-dialog": path.resolve(
+        root,
+        "core/embed/tauriAbsent.ts",
+      ),
     },
   },
   build: {
-    outDir: path.resolve(root, "landing/embed"),
+    outDir: path.resolve(root, "../kavibay.com/embed"),
     emptyOutDir: true,
     cssCodeSplit: false,
     rollupOptions: {
@@ -73,7 +76,7 @@ export default defineConfig({
          * the entry imports them, and the browser fetches what it needs. Only
          * the entry's name has to be stable, because that is the one the
          * `<script>` tag says. Named files also make it obvious in
-         * `landing/embed/` what a page is paying for.
+         * `www.kavibay.com/embed/` what a page is paying for.
          */
         chunkFileNames: "kavibay-embed-[name].js",
         /**

@@ -45,8 +45,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const EMBED_CSS = join(repoRoot, "landing/embed/kavibay-embed.css");
-const LANDING_CSS = join(repoRoot, "landing/styles.css");
+const siteRoot = join(repoRoot, "../www.kavibay.com");
+const EMBED_CSS = join(siteRoot, "embed/kavibay-embed.css");
+const LANDING_CSS = join(siteRoot, "styles.css");
 
 /**
  * Comments out, without moving anything: replaced by spaces so the line
@@ -140,7 +141,7 @@ for (const { selector, line } of selectorLists(stripComments(readFileSync(LANDIN
     if (classesIn(ancestors).some((name) => !widgetClasses.has(name))) continue;
 
     violations.push(
-      `landing/styles.css:${line}  ${one}\n` +
+      `www.kavibay.com/styles.css:${line}  ${one}\n` +
         `    targets ${targeted.map((name) => `.${name}`).join(", ")}, which the widget bundle also styles.\n` +
         `    Bind it to a landing-only ancestor, or rename it.`,
     );
