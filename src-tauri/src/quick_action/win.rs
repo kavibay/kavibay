@@ -19,7 +19,7 @@ const COPY_TIMEOUT_MS: u64 = 500;
 #[cfg(windows)]
 const COPY_POLL_MS: u64 = 20;
 
-/// How long we wait for the user to let go of Ctrl+Alt+Q before typing.
+/// How long we wait for the user to let go of Ctrl+Shift+Q before typing.
 #[cfg(windows)]
 const MODIFIER_TIMEOUT_MS: u64 = 800;
 #[cfg(windows)]

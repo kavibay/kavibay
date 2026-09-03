@@ -55,7 +55,7 @@ export type ActionArgs = Record<string, string>;
 
 /**
  * One text-in / text-out transform offered on text selected anywhere on the
- * desktop (Ctrl+Alt+Q). Declared in manifest.json, handled in index.ts.
+ * desktop (Ctrl+Shift+Q). Declared in manifest.json, handled in index.ts.
  *
  * Separate from `ExtensionAction` because the two answer different questions:
  * a palette action operates on a widget instance and returns nothing, a text

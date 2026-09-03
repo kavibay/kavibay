@@ -51,7 +51,7 @@ export function setLlmModelEnabled(modelId: string, enabled: boolean): Promise<v
   return invoke<void>("llm_model_set_enabled", { modelId, enabled });
 }
 
-/** Which model selection quick actions (Ctrl+Alt+Q) run on. */
+/** Which model selection quick actions (Ctrl+Shift+Q) run on. */
 export interface QuickActionModel {
   /** The user's choice; "" means "let the app pick". */
   selected: string;

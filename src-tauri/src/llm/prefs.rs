@@ -9,7 +9,7 @@
 //! starts switched on instead of invisible.
 //!
 //! The same file holds the model selection-quick-actions run on. That one has
-//! no widget to hang off — the Ctrl+Alt+Q popup is headless — so it needs a
+//! no widget to hang off — the Ctrl+Shift+Q popup is headless — so it needs a
 //! home, and it belongs next to the switches that decide what it may pick.
 
 use std::collections::BTreeSet;

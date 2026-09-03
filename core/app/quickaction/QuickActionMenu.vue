@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * The Ctrl+Alt+Q menu: pick what to do with the text selected in whatever
+ * The Ctrl+Shift+Q menu: pick what to do with the text selected in whatever
  * application the user was just typing in.
  *
  * Rust captured the selection before this window appeared, and Rust pastes the

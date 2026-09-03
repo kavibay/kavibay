@@ -400,7 +400,7 @@ pub fn run() {
             app.manage(clipboard_state.clone());
             clipboard_widget::spawn_clipboard_watcher(app.handle().clone(), clipboard_state);
 
-            // Quick-action popup: built now, hidden, so the first Ctrl+Alt+Q does
+            // Quick-action popup: built now, hidden, so the first Ctrl+Shift+Q does
             // not pay for a webview start-up.
             app.manage(quick_action::QuickActionState::new());
             if let Err(error) = quick_action::create_popup_window(app.handle()) {

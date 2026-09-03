@@ -81,7 +81,7 @@ pub struct QuickModel {
     pub resolved: String,
 }
 
-/// Which model the Ctrl+Alt+Q popup uses.
+/// Which model the Ctrl+Shift+Q popup uses.
 ///
 /// Two fields rather than two commands because the two readers want different
 /// answers: Settings has to show "Automatic" as a choice, the popup only cares

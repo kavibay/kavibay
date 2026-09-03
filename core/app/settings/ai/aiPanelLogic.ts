@@ -79,7 +79,7 @@ export function providerHasKey(
  *
  * Narrower than the switch list above on purpose. That list exists to show
  * everything, including what is unavailable; this one is a commitment — pick a
- * row here and Ctrl+Alt+Q sends to it, so a model without a key would turn a
+ * row here and Ctrl+Shift+Q sends to it, so a model without a key would turn a
  * setting into a 401 the popup has no room to explain.
  */
 export function quickModelChoices(models: readonly LlmModelOption[]): LlmModelOption[] {
@@ -98,6 +98,76 @@ export function quickModelSelection(
   selected: string,
 ): string {
   return quickModelChoices(models).some((model) => model.id === selected) ? selected : "";
+}
+
+/** What shortcut capture needs from a `KeyboardEvent`. */
+export interface ShortcutKey {
+  /** What the layout produced — `"@"` for AltGr+Q on a German keyboard. */
+  key: string;
+  /** Which physical key — `"KeyQ"` for that same press. */
+  code: string;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+  metaKey: boolean;
+}
+
+/** The character a physical key produces unmodified on a US layout. */
+function plainCharacterFor(code: string): string | null {
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase();
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  return null;
+}
+
+/**
+ * The character this combination would stop producing everywhere, or null.
+ *
+ * AltGr on Windows is Ctrl + Alt, and a globally registered `Ctrl+Alt+<key>`
+ * takes the keypress before the layout turns it into a character — so binding
+ * one costs the user that character in every application, with no error
+ * anywhere to explain it.
+ *
+ * Which combinations that hits depends on the layout, so it is read off the
+ * event rather than guessed from a list: `key` is what this keyboard produced,
+ * `code` is the key that was pressed. They differ exactly when AltGr composed
+ * something (`KeyQ` → `@`). On a US layout they never differ and Ctrl+Alt stays
+ * available, which is the point of testing instead of banning.
+ *
+ * Only names what it can prove. A combination that produces a dead key reports
+ * `Dead` rather than a character and is let through — rare enough that a wrong
+ * refusal would cost more than the miss.
+ */
+export function altGrCharacter(event: ShortcutKey): string | null {
+  if (!event.ctrlKey || !event.altKey || event.metaKey) return null;
+  if (event.key.length !== 1) return null;
+  const plain = plainCharacterFor(event.code);
+  if (plain === null) return event.key;
+  return event.key.toLowerCase() === plain ? null : event.key;
+}
+
+/**
+ * The shortcut string for a captured keypress, or null when it is not one yet.
+ *
+ * Built from `code`, not `key`: the backend parses physical key names, and on a
+ * German keyboard the same press reports `key: "@"` — a shortcut Tauri cannot
+ * parse and nobody could press again on purpose.
+ */
+export function shortcutFromKey(event: ShortcutKey): string | null {
+  if (["Control", "Alt", "Shift", "Meta"].includes(event.key)) return null;
+  const modifiers = [
+    event.ctrlKey && "Ctrl",
+    event.altKey && "Alt",
+    event.shiftKey && "Shift",
+    event.metaKey && "Super",
+  ].filter(Boolean);
+  if (modifiers.length === 0) return null;
+  const key = event.code
+    .replace(/^Key/, "")
+    .replace(/^Digit/, "")
+    .replace(/^Numpad/, "Num")
+    .replace(" ", "Space");
+  if (!key || key === "Unidentified") return null;
+  return [...modifiers, key].join("+");
 }
 
 /** Applies one toggle to a loaded catalog (immutable) so the UI need not refetch. */

@@ -1,5 +1,5 @@
 /**
- * The widget's purposes, offered on text selected anywhere (Ctrl+Alt+Q).
+ * The widget's purposes, offered on text selected anywhere (Ctrl+Shift+Q).
  *
  * Headless: no instance, no card, no per-instance settings — so this uses each
  * purpose's *shipped* system prompt, not a prompt edited inside some widget.
