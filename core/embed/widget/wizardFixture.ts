@@ -1,5 +1,6 @@
 import type { WidgetCapabilityTransport } from "../../app/extension-host/widgetCapabilityTransport";
-import { DEMO_MODELS, DEMO_REPLIES } from "./wizardScript";
+import { DEMO_MODELS } from "./wizardScript";
+import { currentWizardDemo } from "./wizardDemos";
 
 /**
  * The Widget Wizard's capability, answered from a script.
@@ -128,7 +129,8 @@ export const wizardFixture: Pick<
    */
   wizardComplete: async (request) => {
     await delay(THINKING_MS);
-    const text = DEMO_REPLIES[Math.min(turn, DEMO_REPLIES.length - 1)]!;
+    const replies = currentWizardDemo().replies;
+    const text = replies[Math.min(turn, replies.length - 1)]!;
     turn += 1;
     return {
       text,

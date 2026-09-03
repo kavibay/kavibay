@@ -214,6 +214,31 @@
               gets built against your real accounts.
             </p>
 
+            <!-- Same desk, two recordings. The pills pick the story; the
+                 tour types it. Linear and GitHub are named through the
+                 Wizard's Integrations menu so the logos land in the composer. -->
+            <div class="wizplay__cases" role="group" aria-label="Create widget demos">
+              <p class="wizplay__cases-label">Create widget</p>
+              <div class="wizplay__cases-row">
+                <button
+                  class="wizplay__case"
+                  type="button"
+                  data-case="water-tracker"
+                  aria-pressed="true"
+                >
+                  Drink water tracker
+                </button>
+                <button
+                  class="wizplay__case"
+                  type="button"
+                  data-case="linear-github-todos"
+                  aria-pressed="false"
+                >
+                  Linear / GitHub todos
+                </button>
+              </div>
+            </div>
+
             <!-- Nur auf Telefon und Touch sichtbar; der Desk ist dort aus. -->
             <p class="wizplay__small">
               The playground wants a mouse and a wide window. The Wizard card alone is 1060 px, so
@@ -232,8 +257,9 @@
             braucht der Desk nur die Höhe der Karte statt Palette plus Karte
             untereinander.
 
-            Die zweite Karte trägt kein Katalog-Widget: `draft` nennt das
-            Paket, das der Wizard in diesem Tab schreibt, und es läuft im
+            Die anderen Karten tragen kein Katalog-Widget: `draft` nennt das
+            Paket, das der Wizard in diesem Tab schreibt — Water oder Inbox,
+            je nach Schalter darüber — und es läuft im
             sandbox="allow-scripts"-Frame, genau wie das Widget eines Fremden.
           -->
           <div class="wizplay__scroll">
@@ -261,6 +287,17 @@
                 card-title="Water"
                 opens-on="water-tracker"
                 style="left: calc(50% + 240px); top: 470px"
+              ></kavibay-widget>
+
+              <kavibay-widget
+                definition="inbox"
+                draft="inbox"
+                card-title="Inbox"
+                hide-title
+                opens-on="inbox"
+                width="320"
+                height="390"
+                style="left: calc(50% + 210px); top: 390px"
               ></kavibay-widget>
             </div>
           </div>
