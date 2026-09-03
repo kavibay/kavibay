@@ -98,6 +98,13 @@ export interface PaletteWidgetRow {
   notePreview?: string;
   /** First declared extension action, available directly on this instance row. */
   action?: ExtensionAction;
+  /**
+   * The instance lives in the catalog but on another desk, so Enter places it
+   * here instead of focusing it. Everything that reaches into live extension
+   * state (previews, inline views, instance actions) skips these rows — the
+   * widget is not mounted, so there is nothing to read.
+   */
+  offDesk?: boolean;
 }
 
 /** Smart-open intent for a registry type row. */
@@ -358,55 +365,22 @@ export function subtitleForSmart(smart: PaletteTypeSmart): string {
   return "New widget";
 }
 
-/** Short action label for + menu rows (Show / Focus / New). */
-export function actionLabelForSmart(smart: PaletteTypeSmart): string {
-  if (smart === "show") return "Show";
-  if (smart === "focus") return "Focus";
-  return "New";
-}
-
-/** + menu filter chip: all types, types with visible instances, or soft-hidden. */
-export type AddMenuFilter = "all" | "open" | "hidden";
+/** Widget tally bucket: all types, types with visible instances, or soft-hidden. */
+export type WidgetFilterMode = "all" | "open" | "hidden";
 
 /**
- * Whether a registry type belongs in the + menu filter on the active desk.
+ * Whether a registry type belongs in a widget filter bucket on the active desk.
  * Open = ≥1 visible; Hidden = ≥1 soft-hidden; types with both match both filters.
  */
-export function typeMatchesAddFilter(
+export function typeMatchesWidgetFilter(
   typeId: string,
   instances: WidgetInstance[],
-  filter: AddMenuFilter,
+  filter: WidgetFilterMode,
 ): boolean {
   if (filter === "all") return true;
   const ofType = instances.filter((item) => item.typeId === typeId);
   if (filter === "open") return ofType.some((item) => item.hidden !== true);
   return ofType.some((item) => item.hidden === true);
-}
-
-/**
- * Smart action for + menu rows, scoped to the active filter chip.
- * Hidden always targets a soft-hidden instance (Show); Open targets a visible one (Focus).
- * All keeps the global prefer-hidden → prefer-visible → create order.
- */
-export function resolveTypeSmartForFilter(
-  typeId: string,
-  instances: WidgetInstance[],
-  filter: AddMenuFilter,
-): { smart: PaletteTypeSmart; targetInstanceId?: string } {
-  const ofType = instances.filter((item) => item.typeId === typeId);
-  if (filter === "hidden") {
-    const hidden = ofType.find((item) => item.hidden === true);
-    if (hidden) {
-      return { smart: "show", targetInstanceId: hidden.instanceId };
-    }
-  }
-  if (filter === "open") {
-    const visible = ofType.find((item) => item.hidden !== true);
-    if (visible) {
-      return { smart: "focus", targetInstanceId: visible.instanceId };
-    }
-  }
-  return resolveTypeSmart(typeId, instances);
 }
 
 /**
@@ -455,7 +429,7 @@ export function buildTypeRows(
  * button and Widget label already say.
  *
  * Kept separate from `buildTypeRows`: that row is the smart show/focus/create
- * entry the + menu and the MRU list need, where creating would be a lie.
+ * entry the widget overview and the MRU list need, where creating would be a lie.
  */
 export function buildOpenNewRows(
   extensions: PaletteTypeCatalogEntry[],
@@ -491,12 +465,38 @@ export function buildOpenNewRows(
 export function buildWidgetOverviewRows(
   instances: PaletteWidgetRow[],
   types: PaletteTypeRow[],
+  offDesk: PaletteWidgetRow[] = [],
 ): PaletteRow[] {
   return [
     ...instances.filter((row) => !row.hidden),
     ...instances.filter((row) => row.hidden),
+    ...offDesk,
     ...types,
   ];
+}
+
+/**
+ * Rows for catalog instances placed on other desks.
+ *
+ * They are widget rows rather than catalog rows on purpose: the user is not
+ * making a second Clock, they are bringing *this* Clock over. A create row
+ * would lose the instance and its state.
+ */
+export function buildOffDeskWidgetRows(
+  entries: readonly { instanceId: string; typeId: string; title: string; onDesks: string }[],
+): PaletteWidgetRow[] {
+  return entries.map((entry) => ({
+    kind: "widget",
+    id: `widget:${entry.instanceId}`,
+    instanceId: entry.instanceId,
+    typeId: entry.typeId,
+    title: entry.title,
+    subtitle: "Place on this desk",
+    keywords: [entry.typeId, entry.title, entry.onDesks].filter(Boolean),
+    hidden: false,
+    onDesks: entry.onDesks,
+    offDesk: true,
+  }));
 }
 
 /**

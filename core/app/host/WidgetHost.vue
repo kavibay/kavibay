@@ -97,7 +97,6 @@ import { useExtensionsPrefs } from "../settings/useExtensionsPrefs";
 import { useSettingsModal } from "../settings/useSettingsModal";
 import { useExtensionAboutModal } from "../extensions/useExtensionAboutModal";
 import { colorPickerPicking } from "../../../extensions/color-picker/colorPickerSession";
-import { widgetsMenuOpen } from "../palette/widgetsMenuUi";
 import { paletteDropActive, requestInlineWidget } from "../palette/inlineWidgetRequest";
 import { useOnboarding } from "../onboarding/useOnboarding";
 import {
@@ -453,23 +452,8 @@ watch(developerExtensionsEnabled, () => {
   scheduleRegionSync();
 });
 /**
- * Fullscreen dismiss for the Widgets menu only — a menu is expected to swallow the
- * click that closes it.
- *
- * Cockpit dismiss deliberately does NOT use this catcher: it is reported as a
- * viewport-sized interactive rect, which keeps the window opaque to the cursor, so the
- * click never reaches the app underneath (the user had to click twice to open a link).
- * That path runs natively instead — see `outsideClickArmed`.
- *
- * Hidden during color-pick, where a viewport-sized rect blocked eyedropper samples.
- */
-const dismissCatcherVisible = computed(
-  () => !colorPickerPicking.value && widgetsMenuOpen.value,
-);
-
-/**
- * When Rust should report gap clicks as `cockpit:outside-click`. The Widgets menu and
- * Settings own the dismiss while they are up, so stay disarmed under them.
+ * When Rust should report gap clicks as `cockpit:outside-click`. Settings owns
+ * the dismiss while it is up, so stay disarmed under it.
  *
  * A widget grabbed out of a peek arms this on its own: the cockpit is closed by
  * then, but something of the user's is still on screen, and clicking away from it
@@ -480,7 +464,6 @@ const outsideClickArmed = computed(
     hideOnOutsideClick.value &&
     (cockpitOpen.value || hasKeptInstance(instances, peekKept.value)) &&
     !colorPickerPicking.value &&
-    !widgetsMenuOpen.value &&
     !settingsOpen.value,
 );
 
@@ -1400,8 +1383,6 @@ function onPeekHotkey(pressed: boolean, revealedByRust: boolean) {
 function onDismissOutside() {
   // Settings / gallery own the fullscreen layer — don't dismiss the cockpit under them.
   if (settingsOpen.value) return;
-  // Widgets menu closes via CommandPalette's capture listener (and stops this event).
-  if (widgetsMenuOpen.value) return;
   closeCockpit();
 }
 
@@ -2051,8 +2032,8 @@ onUnmounted(() => {
   setOutsideClickDismiss(false);
 });
 
-// Keep native click-through rects aligned when cockpit / catcher / palette visibility change.
-watch([hideOnOutsideClick, dismissCatcherVisible, paletteVisible, mountedInstances], async () => {
+// Keep native click-through rects aligned when cockpit / palette visibility change.
+watch([hideOnOutsideClick, paletteVisible, mountedInstances], async () => {
   await nextTick();
   scheduleRegionSync();
 });
@@ -2627,6 +2608,7 @@ function kavibayInstanceDeskLabels(instanceId: string): string {
 /** Also-on rows with desk labels so duplicate titles stay distinguishable. */
 function kavibayAlsoOnDeskRows(): {
   instanceId: string;
+  typeId: string;
   title: string;
   onDesks: string;
 }[] {
@@ -2641,7 +2623,7 @@ function kavibayAlsoOnDeskRows(): {
     const onDesks = desksWithInstance(raw, entry.instanceId)
       .map(deskName)
       .join(", ");
-    return { instanceId: entry.instanceId, title, onDesks };
+    return { instanceId: entry.instanceId, typeId: entry.typeId, title, onDesks };
   });
 
   // Same title on the same desks → Clock (1), Clock (2), …
@@ -2706,13 +2688,6 @@ provide("kavibayPaletteMovePointerdown", (event: PointerEvent) => {
       v-if="cockpitOpen"
       class="desktop-fill"
       aria-hidden="true"
-    />
-    <div
-      v-if="dismissCatcherVisible"
-      class="dismiss-catcher"
-      data-interactive
-      aria-hidden="true"
-      @pointerdown="onDismissOutside"
     />
     <!-- Stand-in for the native gap click where Rust cannot report it. No
          `data-interactive`: click-through is off wherever this renders, so there

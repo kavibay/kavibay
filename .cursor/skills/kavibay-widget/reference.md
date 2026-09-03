@@ -18,7 +18,7 @@ Add as needed:
 | File | When |
 |------|------|
 | `intro.mp4` | Optional — 640×480 (or any 4:3) muted preview for the Widget Gallery desk widget |
-| `icon.svg` | Catalog icon for Widgets menu + palette type rows (`manifest.icon`) |
+| `icon.svg` | Catalog icon for the palette's Widgets list + type rows (`manifest.icon`) |
 | `<name>Logic.ts` | Pure types, normalize, load/save, helpers (no Vue) |
 | `use<Name>State.ts` / `use<Name>Settings.ts` | Per-instance cache via `createInstanceStore` (debounce only if typing-heavy) |
 | `<Name>Settings.vue` | Gear-popover settings (`settingsComponent`) |
@@ -62,7 +62,7 @@ Notes:
 
 - `id` === folder name
 - `defaultSize: { w, h }` — required; CSS px; host sets instance size on Add. **First guess only** — once a widget of this type has been resized, the host reuses that size for the next one (`core/app/host/typeSizeMemory.ts`)
-- `icon` — package-relative `icon.svg` (or `.png`) for Widgets menu / palette type rows; missing → generic mark
+- `icon` — package-relative `icon.svg` (or `.png`) for the palette's Widgets list / type rows; missing → generic mark
 - Optional `intro.mp4` in the extension folder → Widget Gallery tile (muted video preview)
 - `hugHeight: true` → only `defaultSize.w` on Add; height follows content
 - `defaultHideTitle: true` → card opens without its title bar (menu can restore it)

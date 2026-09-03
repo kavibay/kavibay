@@ -41,7 +41,8 @@ export type InlineWidgetTarget =
  *
  * A hidden instance resolves like any other: rendering it in the panel is not
  * the same as putting its card back on the desk, so inline open deliberately
- * leaves the Hidden flag alone.
+ * leaves the Hidden flag alone. An instance on *another* desk is different: it
+ * is not mounted here at all, so it resolves to null.
  *
  * A catalog row resolves to `scratch` rather than to "create an instance". The
  * layout has no home for an instance that is deliberately on no desk — the host
@@ -55,6 +56,9 @@ export function resolveInlineWidgetTarget(
   if (!row) return null;
 
   if (row.kind === "widget") {
+    // Parked on another desk, so it is not mounted: there is no live widget to
+    // render in the panel. Enter on such a row places it here first.
+    if (row.offDesk) return null;
     return {
       kind: "instance",
       instanceId: row.instanceId,
