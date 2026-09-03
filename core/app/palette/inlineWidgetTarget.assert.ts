@@ -59,6 +59,12 @@ function typeRow(partial: Partial<PaletteTypeRow> = {}): PaletteTypeRow {
   );
 }
 
+// An instance parked on another desk has nothing mounted to render.
+{
+  const target = resolveInlineWidgetTarget(widgetRow({ instanceId: "o", offDesk: true }));
+  assert(target === null, "off-desk instances do not open inline");
+}
+
 // A note-body finding is still the note's instance.
 {
   const target = resolveInlineWidgetTarget(

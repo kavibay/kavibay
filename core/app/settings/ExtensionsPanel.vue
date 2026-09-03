@@ -38,7 +38,7 @@ function onToggle(typeId: string, e: Event) {
     <header class="extensions-head">
       <h2 class="extensions-title">Extensions</h2>
       <p class="extensions-lead">
-        Disable extensions to hide them from search and the Add menu. Open widgets
+        Disable extensions to hide them from search and the Widgets list. Open widgets
         of a disabled extension are closed until you enable it again.
       </p>
     </header>

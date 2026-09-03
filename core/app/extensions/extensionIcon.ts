@@ -1,5 +1,5 @@
 /**
- * Validate manifest.icon paths used for palette / Widgets menu.
+ * Validate manifest.icon paths used for palette / Widgets list.
  * Same traversal rules as package-relative paths; only .svg / .png.
  */
 

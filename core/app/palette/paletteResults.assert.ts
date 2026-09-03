@@ -16,11 +16,10 @@ import {
   buildOpenNewRows,
   groupInstancesWithCreateRow,
   resolveTypeSmart,
-  resolveTypeSmartForFilter,
   subtitleForSmart,
-  actionLabelForSmart,
   attachNotePreviews,
-  typeMatchesAddFilter,
+  typeMatchesWidgetFilter,
+  buildOffDeskWidgetRows,
   mergePaletteCatalog,
 } from "./paletteResults";
 import type { PaletteRow } from "./paletteResults";
@@ -215,6 +214,34 @@ const renamed: WidgetInstance = {
   assert(overview.length === 4, "overview retains every instance and catalog widget");
 }
 
+// --- instances parked on another desk sit between the hidden ones and the catalog ---
+{
+  const instanceRows = buildWidgetRows(
+    [hidden, visible],
+    (instance) => instance.typeId,
+    (instance) => [instance.typeId],
+  );
+  const offDesk = buildOffDeskWidgetRows([
+    { instanceId: "o1", typeId: "clock", title: "Clock", onDesks: "Work" },
+  ]);
+  assert(offDesk[0]?.offDesk === true, "off-desk rows are flagged");
+  assert(offDesk[0]?.subtitle === "Place on this desk", "Enter brings the instance over");
+  assert(
+    offDesk[0]?.keywords.includes("Work") === true,
+    "the desk name is searchable — it is how duplicate titles are told apart",
+  );
+  const overview = buildWidgetOverviewRows(
+    instanceRows,
+    buildOpenNewRows([snake, clock]),
+    offDesk,
+  );
+  assert(
+    overview[2]?.kind === "widget" && overview[2].offDesk === true,
+    "off-desk instances follow the placed ones",
+  );
+  assert(overview[3]?.kind === "type", "the catalog still comes last");
+}
+
 {
   // Full path with the real ranking. The create row is now titled exactly like
   // its instances, so it wins the score tie and the type/widget tie-break —
@@ -351,37 +378,22 @@ assert(
   "filter keeps app rows",
 );
 
-assert(actionLabelForSmart("show") === "Show", "show → Show");
-assert(actionLabelForSmart("focus") === "Focus", "focus → Focus");
-assert(actionLabelForSmart("create") === "New", "create → New");
-
-assert(typeMatchesAddFilter("snake", [], "all") === true, "all includes empty");
-assert(typeMatchesAddFilter("snake", [], "open") === false, "open empty");
-assert(typeMatchesAddFilter("snake", [], "hidden") === false, "hidden empty");
-assert(typeMatchesAddFilter("snake", [visible], "open") === true, "open visible");
-assert(typeMatchesAddFilter("snake", [visible], "hidden") === false, "hidden not visible-only");
-assert(typeMatchesAddFilter("snake", [hidden], "hidden") === true, "hidden filter matches");
-assert(typeMatchesAddFilter("snake", [hidden], "open") === false, "open not hidden-only");
+assert(typeMatchesWidgetFilter("snake", [], "all") === true, "all includes empty");
+assert(typeMatchesWidgetFilter("snake", [], "open") === false, "open empty");
+assert(typeMatchesWidgetFilter("snake", [], "hidden") === false, "hidden empty");
+assert(typeMatchesWidgetFilter("snake", [visible], "open") === true, "open visible");
+assert(typeMatchesWidgetFilter("snake", [visible], "hidden") === false, "hidden not visible-only");
+assert(typeMatchesWidgetFilter("snake", [hidden], "hidden") === true, "hidden filter matches");
+assert(typeMatchesWidgetFilter("snake", [hidden], "open") === false, "open not hidden-only");
 assert(
-  typeMatchesAddFilter("snake", [visible, hidden], "open") === true,
+  typeMatchesWidgetFilter("snake", [visible, hidden], "open") === true,
   "both → open",
 );
 assert(
-  typeMatchesAddFilter("snake", [visible, hidden], "hidden") === true,
+  typeMatchesWidgetFilter("snake", [visible, hidden], "hidden") === true,
   "both → hidden",
 );
 
-// Hidden chip must Show the soft-hidden sibling even when a visible one exists.
-{
-  const r = resolveTypeSmartForFilter("snake", [visible, hidden], "hidden");
-  assert(r.smart === "show", "hidden filter → show");
-  assert(r.targetInstanceId === "h1", "hidden filter targets hidden instance");
-}
-{
-  const r = resolveTypeSmartForFilter("snake", [visible, hidden], "open");
-  assert(r.smart === "focus", "open filter → focus");
-  assert(r.targetInstanceId === "v1", "open filter targets visible");
-}
 
 console.log("paletteResults.assert: ok");
 

@@ -114,7 +114,7 @@ All four sizing fields are per-instance from then on: moving, resizing, zooming 
 
 Runtime packages read the same four fields (`docs/runtime-packages.md`).
 
-Optional `intro.mp4` beside `manifest.json` (`extensions/<id>/intro.mp4`) includes the extension as a tile in the **Widget Gallery** desk widget (`extensions/gallery/`). No video → no gallery tile. The Gallery itself is a normal first-party widget (move / resize / pin); first-open starts the guided tour, while the user opens Gallery through the Widgets menu or the `open-gallery` command. It ships no `intro.mp4` and never appears as a tile in itself. Tile frames use **4:3** (`aspect-ratio: 4 / 3`) to match 640×480 intros.
+Optional `intro.mp4` beside `manifest.json` (`extensions/<id>/intro.mp4`) includes the extension as a tile in the **Widget Gallery** desk widget (`extensions/gallery/`). No video → no gallery tile. The Gallery itself is a normal first-party widget (move / resize / pin); first-open starts the guided tour, while the user opens Gallery through the palette's Widgets list or the `open-gallery` command. It ships no `intro.mp4` and never appears as a tile in itself. Tile frames use **4:3** (`aspect-ratio: 4 / 3`) to match 640×480 intros.
 
 ### Catalog icon
 
@@ -457,7 +457,7 @@ FE-only drop-in loading (P1). Packages with a native sidecar backend are rejecte
 2. Enable **Settings → Behavior → Developer Extensions**.
 3. Open **Settings → Extensions**, scroll to **Runtime packages**, click **Rescan**.
 4. Enable the package when status is `ready` (error rows cannot be enabled).
-5. Add it from the command palette / Add menu like a built-in widget.
+5. Add it from the command palette / Widgets list like a built-in widget.
 
 Disable in the same list unloads it from the palette; package files stay on disk until you delete the folder yourself.
 

@@ -32,6 +32,7 @@ import {
   attachNotePreviews,
   buildOpenNewRows,
   buildTypeRows,
+  buildOffDeskWidgetRows,
   buildWidgetOverviewRows,
   buildWidgetRows,
   groupInstancesWithCreateRow,
@@ -40,11 +41,8 @@ import {
   paletteRowAction,
   resolveActionTarget,
   resolveTypeSmart,
-  resolveTypeSmartForFilter,
-  actionLabelForSmart,
   toCommandRow,
-  typeMatchesAddFilter,
-  type AddMenuFilter,
+  typeMatchesWidgetFilter,
   type PaletteRowAction,
   type PalettePathRow,
   type PaletteRow,
@@ -172,7 +170,6 @@ import {
   DEFAULT_PALETTE_WIDTH,
   RESIZE_EDGES_NO_TOP,
 } from "../host/resizeLogic";
-import { widgetsMenuOpen } from "./widgetsMenuUi";
 import { useOnboarding } from "../onboarding/useOnboarding";
 
 const { allExtensions, enabledExtensions, isEnabled } = useExtensionsPrefs();
@@ -195,8 +192,8 @@ function extensionIconUrl(row: PaletteRow): string | undefined {
 /**
  * Inline icon component for an extension, when it ships one.
  *
- * Keyed by type id rather than by row so the result list and the Widgets menu
- * share it — and looked up from the catalog rather than carried on the row,
+ * Keyed by type id rather than by row so search results and the widget
+ * overview share it — and looked up from the catalog rather than carried on the row,
  * because rows are rebuilt on every keystroke and stay plain data.
  *
  * `getExtension` is the first-party path: action-only extensions are not in
@@ -254,10 +251,7 @@ const onboardingTriggerEl = ref<HTMLButtonElement | null>(null);
 /** Toggle the Continue / Restart / Quit menu on the status control. */
 function toggleOnboardingMenu() {
   onboardingMenuOpen.value = !onboardingMenuOpen.value;
-  if (onboardingMenuOpen.value) {
-    closeAddMenu();
-    paletteMenuOpen.value = false;
-  }
+  if (onboardingMenuOpen.value) paletteMenuOpen.value = false;
 }
 
 /** Close the onboarding status dropdown. */
@@ -299,7 +293,6 @@ function afterPaletteAction() {
 /** Hide the palette surface without dismissing the widgets behind it. */
 function hidePaletteFromChrome() {
   paletteMenuOpen.value = false;
-  closeAddMenu();
   closeOnboardingMenu();
   closeRowMenu(false);
   inlineMenuOpen.value = false;
@@ -317,23 +310,6 @@ const listOverlay = reactive({
   thumbY: 0,
 });
 let listOverlayRo: ResizeObserver | undefined;
-const addMenuOpen = ref(false);
-/** All / Open / Hidden chip for the + widget manager (resets when menu closes). */
-const addMenuFilter = ref<AddMenuFilter>("all");
-/** Filter text for the + add-widget menu (separate from palette search). */
-const addMenuQuery = ref("");
-const addMenuInputEl = ref<HTMLInputElement | null>(null);
-/** Widgets menu panel (outside-click dismiss excludes this + the trigger). */
-const addMenuEl = ref<HTMLElement | null>(null);
-const addMenuTriggerEl = ref<HTMLButtonElement | null>(null);
-/** When true, Widgets menu opens below the button (not enough room above). */
-const addMenuBelow = ref(false);
-/** Keyboard selection index into type rows, then “on other desks” rows. */
-const addMenuSelectedIndex = ref(0);
-/** Scroll container for the Widgets menu list. */
-const addMenuScrollEl = ref<HTMLElement | null>(null);
-/** Re-measure flip when the open menu’s height changes (filter/search). */
-let addMenuPlacementRo: ResizeObserver | undefined;
 const paletteMenuOpen = ref(false);
 const paletteMenuEl = ref<HTMLElement | null>(null);
 const paletteMenuTriggerEl = ref<HTMLElement | null>(null);
@@ -451,7 +427,7 @@ const kavibayRenameDesk = inject<(deskId: string, name: string) => void>("kaviba
 const kavibayDeleteDesk = inject<(deskId: string) => void>("kavibayDeleteDesk");
 const kavibayCenterPalette = inject<() => void>("kavibayCenterPalette");
 const kavibayAlsoOnDeskRows = inject<
-  () => { instanceId: string; title: string; onDesks: string }[]
+  () => { instanceId: string; typeId: string; title: string; onDesks: string }[]
 >("kavibayAlsoOnDeskRows");
 const kavibayPlaceOnActiveDesk = inject<(instanceId: string) => void>("kavibayPlaceOnActiveDesk");
 
@@ -466,50 +442,16 @@ const deskCtxMenu = ref<{ deskId: string; x: number; y: number; confirming?: boo
   null,
 );
 
-/**
- * + menu type rows: filter chip × search × smart Open/Focus/New (like search bar).
- */
-const addMenuTypeRows = computed(() => {
-  const instances = widgetInstances ?? [];
-  const q = addMenuQuery.value.trim().toLowerCase();
-  const filter = addMenuFilter.value;
-  return widgetCatalog.value
-    .filter((def) => typeMatchesAddFilter(def.id, instances, filter))
-    .filter((def) => {
-      if (!q) return true;
-      if (def.title.toLowerCase().includes(q)) return true;
-      if (def.id.toLowerCase().includes(q)) return true;
-      if (def.keywords?.some((k) => k.toLowerCase().includes(q))) return true;
-      return false;
-    })
-    .map((def) => {
-      // Hidden chip must Show a soft-hidden instance even if a visible sibling exists.
-      const { smart, targetInstanceId } = resolveTypeSmartForFilter(
-        def.id,
-        instances,
-        filter,
-      );
-      return {
-        typeId: def.id,
-        title: def.title,
-        smart,
-        targetInstanceId,
-        actionLabel: actionLabelForSmart(smart),
-        iconUrl: def.iconUrl,
-      };
-    });
-});
-
-/** Counts for All / Open / Hidden chips (enabled types; ignores search text). */
-const addMenuFilterCounts = computed(() => {
+/** Open / hidden tallies for the Widgets button tooltip (enabled types). */
+const widgetTypeCounts = computed(() => {
   const instances = widgetInstances ?? [];
   let all = 0;
   let open = 0;
   let hidden = 0;
   for (const def of widgetCatalog.value) {
     all += 1;
-    if (typeMatchesAddFilter(def.id, instances, "open")) open += 1;
-    if (typeMatchesAddFilter(def.id, instances, "hidden")) hidden += 1;
+    if (typeMatchesWidgetFilter(def.id, instances, "open")) open += 1;
+    if (typeMatchesWidgetFilter(def.id, instances, "hidden")) hidden += 1;
   }
   return { all, open, hidden };
 });
@@ -517,179 +459,30 @@ const addMenuFilterCounts = computed(() => {
 /** Hover tooltip: "3 open, 2 hidden" — omit any count that is 0. */
 const widgetsButtonTitle = computed(() => {
   const parts: string[] = [];
-  const { open, hidden } = addMenuFilterCounts.value;
+  const { open, hidden } = widgetTypeCounts.value;
   if (open > 0) parts.push(`${open} open`);
   if (hidden > 0) parts.push(`${hidden} hidden`);
   return parts.length > 0 ? parts.join(", ") : "Widgets";
 });
 
 /**
- * Catalog instances on other desks, labeled with desk names.
- * Empty search: show a short preview; typing reveals the full filtered set.
+ * Catalog instances parked on other desks, as rows of the widget overview.
+ *
+ * Only while the overview is open: the host walks every desk to label these,
+ * and outside the overview an Enter that quietly re-lays-out the current desk
+ * is not what a search hit should do.
  */
-const ALSO_ON_PREVIEW = 5;
-const alsoOnDeskRows = computed(() => {
-  const rows = kavibayAlsoOnDeskRows?.() ?? [];
-  const q = addMenuQuery.value.trim().toLowerCase();
-  const filtered = !q
-    ? rows
-    : rows.filter((row) => {
-        if (row.title.toLowerCase().includes(q)) return true;
-        if (row.onDesks.toLowerCase().includes(q)) return true;
-        return false;
-      });
-  if (!q && filtered.length > ALSO_ON_PREVIEW) {
-    return {
-      rows: filtered.slice(0, ALSO_ON_PREVIEW),
-      hiddenCount: filtered.length - ALSO_ON_PREVIEW,
-      total: filtered.length,
-    };
-  }
-  return { rows: filtered, hiddenCount: 0, total: filtered.length };
-});
-
-/** Navigable row count: type rows first, then also-on-desk rows. */
-const addMenuNavCount = computed(
-  () => addMenuTypeRows.value.length + alsoOnDeskRows.value.rows.length,
+const offDeskWidgetRows = computed<PaletteWidgetRow[]>(() =>
+  widgetsOpen.value ? buildOffDeskWidgetRows(kavibayAlsoOnDeskRows?.() ?? []) : [],
 );
 
-/** Place an existing catalog instance onto the active desk. */
-function onAlsoOnDesk(instanceId: string) {
-  if (kavibayPlaceOnActiveDesk) {
-    kavibayPlaceOnActiveDesk(instanceId);
-    afterPaletteAction();
-  }
-  closeAddMenu();
+/** Bring a catalog instance from another desk onto this one. */
+function placeOffDeskRow(row: PaletteWidgetRow) {
+  if (!kavibayPlaceOnActiveDesk) return;
+  kavibayPlaceOnActiveDesk(row.instanceId);
+  closeWidgetOverview();
+  afterPaletteAction();
 }
-
-/** Reset and close the + widget manager. */
-function closeAddMenu() {
-  addMenuOpen.value = false;
-  widgetsMenuOpen.value = false;
-  addMenuQuery.value = "";
-  addMenuFilter.value = "all";
-  addMenuBelow.value = false;
-  addMenuSelectedIndex.value = 0;
-  addMenuPlacementRo?.disconnect();
-  addMenuPlacementRo = undefined;
-  previewWidget?.(null);
-}
-
-/** Keep desk preview in sync with the keyboard-selected Widgets-menu row. */
-function syncAddMenuPreviewFromSelection() {
-  const i = addMenuSelectedIndex.value;
-  const types = addMenuTypeRows.value;
-  if (i >= 0 && i < types.length) {
-    onAddMenuRowEnter(types[i]!);
-    return;
-  }
-  previewWidget?.(null);
-}
-
-/** Scroll the selected Widgets-menu row into view inside the menu scroller. */
-async function scrollAddMenuSelectedIntoView() {
-  await nextTick();
-  addMenuScrollEl.value
-    ?.querySelector(`[data-add-index="${addMenuSelectedIndex.value}"]`)
-    ?.scrollIntoView({ block: "nearest" });
-}
-
-/** Move keyboard selection in the Widgets menu (wraps). */
-function moveAddMenuSelection(delta: number) {
-  const count = addMenuNavCount.value;
-  if (count === 0) return;
-  addMenuSelectedIndex.value =
-    (addMenuSelectedIndex.value + delta + count) % count;
-  syncAddMenuPreviewFromSelection();
-  void scrollAddMenuSelectedIntoView();
-}
-
-/** Activate the keyboard-selected Widgets-menu row (Enter). */
-function runAddMenuSelection() {
-  const i = addMenuSelectedIndex.value;
-  const types = addMenuTypeRows.value;
-  if (i >= 0 && i < types.length) {
-    void onAddMenuType(types[i]!);
-    return;
-  }
-  const also = alsoOnDeskRows.value.rows[i - types.length];
-  if (also) onAlsoOnDesk(also.instanceId);
-}
-
-/** Arrow / Enter while the Widgets search field is focused. */
-function onAddMenuKeydown(event: KeyboardEvent) {
-  switch (event.key) {
-    case "ArrowDown":
-      event.preventDefault();
-      event.stopPropagation();
-      moveAddMenuSelection(1);
-      break;
-    case "ArrowUp":
-      event.preventDefault();
-      event.stopPropagation();
-      moveAddMenuSelection(-1);
-      break;
-    case "Enter":
-      event.preventDefault();
-      event.stopPropagation();
-      runAddMenuSelection();
-      break;
-  }
-}
-
-/**
- * Prefer above the Widgets button; flip below when the menu would clip the top.
- * Gap matches CSS `calc(100% + 6px)`.
- */
-function syncAddMenuPlacement() {
-  const trigger = addMenuTriggerEl.value;
-  const menu = addMenuEl.value;
-  if (!trigger || !menu || !addMenuOpen.value) return;
-  const gap = 6;
-  const t = trigger.getBoundingClientRect();
-  const need = menu.getBoundingClientRect().height;
-  const spaceAbove = t.top - gap;
-  addMenuBelow.value = need > spaceAbove;
-}
-
-/**
- * Scale the matching open widget while a Widgets-menu row is hovered
- * (same preview as palette search selection).
- */
-function onAddMenuRowEnter(row: {
-  smart: PaletteTypeRow["smart"];
-  targetInstanceId?: string;
-}) {
-  if (row.smart === "focus" && row.targetInstanceId) {
-    previewWidget?.(row.targetInstanceId);
-    return;
-  }
-  previewWidget?.(null);
-}
-
-/** Hover updates keyboard selection so ↑/↓ continue from the pointer row. */
-function onAddMenuTypeHover(
-  index: number,
-  row: {
-    smart: PaletteTypeRow["smart"];
-    targetInstanceId?: string;
-  },
-) {
-  addMenuSelectedIndex.value = index;
-  onAddMenuRowEnter(row);
-}
-
-/** Leaving a row restores preview from the keyboard selection (not a hard clear). */
-function onAddMenuRowLeave() {
-  syncAddMenuPreviewFromSelection();
-}
-
-// Reset selection when the visible Widgets list changes (search / filter).
-watch([addMenuQuery, addMenuFilter, addMenuNavCount], () => {
-  if (!addMenuOpen.value) return;
-  addMenuSelectedIndex.value = 0;
-  syncAddMenuPreviewFromSelection();
-});
 
 /** True when delete is allowed (more than one desk). */
 const canDeleteDesk = computed(() => (kavibayDesks?.value.length ?? 0) > 1);
@@ -780,7 +573,7 @@ function previewTargetId(row: PaletteRow | undefined): string | null {
   if (row.kind === "type" && row.smart === "focus" && row.targetInstanceId) {
     return row.targetInstanceId;
   }
-  if (row.kind === "widget" && !row.hidden) {
+  if (row.kind === "widget" && !row.hidden && !row.offDesk) {
     return row.instanceId;
   }
   return null;
@@ -936,11 +729,19 @@ const resultState = computed(() => {
   );
   const typeRows = buildOpenNewRows(catalog);
   const widgetRowsWithNotes = attachNotePreviews(widgetRows, searchTextFor);
+  const offDeskRows = offDeskWidgetRows.value;
   if (widgetsOpen.value) {
     if (query.value.trim().length === 0) {
-      return { rows: buildWidgetOverviewRows(widgetRowsWithNotes, typeRows), hasOtherResults: false };
+      return {
+        rows: buildWidgetOverviewRows(widgetRowsWithNotes, typeRows, offDeskRows),
+        hasOtherResults: false,
+      };
     }
   }
+  // Off-desk rows rank with the rest inside the overview and nowhere else.
+  const searchableWidgetRows = widgetsOpen.value
+    ? [...widgetRowsWithNotes, ...offDeskRows]
+    : widgetRowsWithNotes;
   const visibleApps = installedAppsIndex.value.filter(
     (app) => !isAppHidden(hiddenAppKeys.value, app.name, app.path),
   );
@@ -955,7 +756,7 @@ const resultState = computed(() => {
   const filtered = filterPaletteRows(
     query.value,
     commands,
-    widgetRowsWithNotes,
+    searchableWidgetRows,
     typeRows,
     appRows,
     folderRows,
@@ -975,7 +776,7 @@ const resultState = computed(() => {
       : withPaths;
   if (query.value.trim().length > 0 && (widgetsOpen.value || recentOpen.value)) {
     const scopedRows = widgetsOpen.value
-      ? [...widgetRowsWithNotes, ...typeRows]
+      ? [...searchableWidgetRows, ...typeRows]
       : resolveRecentRows(recentRuns.value);
     const scopedIds = new Set(scopedRows.map((row) => row.id));
     return {
@@ -995,11 +796,17 @@ const widgetOverviewSectionTitles = computed(() => {
 
   const titles = new Map<number, string>();
   const rows = results.value;
-  const firstOpen = rows.findIndex((row) => row.kind === "widget" && !row.hidden);
-  const firstHidden = rows.findIndex((row) => row.kind === "widget" && row.hidden);
+  const firstOpen = rows.findIndex(
+    (row) => row.kind === "widget" && !row.hidden && !row.offDesk,
+  );
+  const firstHidden = rows.findIndex(
+    (row) => row.kind === "widget" && row.hidden && !row.offDesk,
+  );
+  const firstOffDesk = rows.findIndex((row) => row.kind === "widget" && row.offDesk === true);
   const firstType = rows.findIndex((row) => row.kind === "type");
   if (firstOpen !== -1) titles.set(firstOpen, "Opened widgets");
   if (firstHidden !== -1) titles.set(firstHidden, "Hidden widgets");
+  if (firstOffDesk !== -1) titles.set(firstOffDesk, "On other desks");
   if (firstType !== -1) titles.set(firstType, "All widgets");
   return titles;
 });
@@ -1015,7 +822,7 @@ const widgetOverviewSectionTitles = computed(() => {
 const inlineViews = computed(() => {
   const out = new Map<string, ExtensionInlineView>();
   for (const row of results.value) {
-    if (row.kind !== "widget") continue;
+    if (row.kind !== "widget" || row.offDesk) continue;
     const view = getExtension(row.typeId)?.inlineView?.(row.instanceId);
     // An extension may return null, or nothing worth a column.
     if (view && (view.value || view.label)) out.set(row.instanceId, view);
@@ -1033,7 +840,7 @@ const inlineViews = computed(() => {
 const instanceActions = computed(() => {
   const out = new Map<string, ExtensionInstanceAction[]>();
   for (const row of results.value) {
-    if (row.kind !== "widget") continue;
+    if (row.kind !== "widget" || row.offDesk) continue;
     const actions = getExtension(row.typeId)?.instanceActions?.(row.instanceId);
     if (actions?.length) out.set(row.instanceId, actions);
   }
@@ -1049,7 +856,7 @@ const instanceActions = computed(() => {
  */
 const rowActions = computed<ExtensionInstanceAction[]>(() => {
   const row = results.value[selectedIndex.value] as PaletteRow | undefined;
-  if (!row || row.kind !== "widget") return [];
+  if (!row || row.kind !== "widget" || row.offDesk) return [];
   return instanceActions.value.get(row.instanceId) ?? [];
 });
 
@@ -2281,6 +2088,12 @@ async function runResultAt(index: number) {
   // A concrete instance is already on a desk, so Enter should bring that card
   // forward instead of creating a second view of it inside the palette.
   if (row.kind === "widget") {
+    // Parked on another desk: Enter brings it over rather than focusing a card
+    // that is not on screen.
+    if (row.offDesk) {
+      placeOffDeskRow(row);
+      return;
+    }
     await focusWidgetRow(row);
     return;
   }
@@ -2524,7 +2337,6 @@ async function runAction(action: PaletteRowAction, args: ActionArgs) {
 function prepareSettingsOpen() {
   query.value = "";
   selectedIndex.value = 0;
-  closeAddMenu();
   paletteMenuOpen.value = false;
   afterPaletteAction();
 }
@@ -2543,7 +2355,6 @@ function openSettingsSection(section: Parameters<typeof showSettingsSection>[0])
 async function openGallery() {
   query.value = "";
   selectedIndex.value = 0;
-  closeAddMenu();
   const instances = widgetInstances ?? [];
   const { smart, targetInstanceId } = resolveTypeSmart("gallery", instances);
   // Gallery mount notifies onboarding step 2 via the host.
@@ -2573,7 +2384,6 @@ async function onExitApp() {
 /** Toggle the palette context menu (Settings / Exit). */
 function togglePaletteMenu() {
   paletteMenuOpen.value = !paletteMenuOpen.value;
-  if (paletteMenuOpen.value) closeAddMenu();
 }
 
 /** Return keyboard focus to the search input from the host's Ctrl+Tab loop. */
@@ -2645,14 +2455,14 @@ function onKeydown(event: KeyboardEvent) {
         hideTypeTarget(row);
         return;
       }
-      if (row.kind === "widget" && !row.hidden && !row.snippet) {
+      if (row.kind === "widget" && !row.hidden && !row.snippet && !row.offDesk) {
         event.preventDefault();
         event.stopPropagation();
         void toggleWidgetRow(row);
         return;
       }
     }
-    if (key === "r" && row.kind === "widget" && !row.snippet) {
+    if (key === "r" && row.kind === "widget" && !row.snippet && !row.offDesk) {
       event.preventDefault();
       event.stopPropagation();
       removeWidgetRow(row);
@@ -2959,28 +2769,28 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
-/** Toggle the + widget manager in the status bar. */
-function toggleAddMenu() {
-  if (addMenuOpen.value) {
-    closeAddMenu();
+/**
+ * Status-bar Widgets button: the same inventory that ArrowLeft opens on an
+ * empty query. One surface, so the button and the keystroke cannot drift apart.
+ */
+function toggleWidgetsOverview() {
+  if (widgetsOpen.value) {
+    closeWidgetOverview();
     return;
   }
-  addMenuOpen.value = true;
-  widgetsMenuOpen.value = true;
-  addMenuQuery.value = "";
-  addMenuFilter.value = "all";
-  addMenuBelow.value = false;
-  addMenuSelectedIndex.value = 0;
-  void nextTick(() => {
-    addMenuInputEl.value?.focus();
-    syncAddMenuPlacement();
-    syncAddMenuPreviewFromSelection();
-    addMenuPlacementRo?.disconnect();
-    if (addMenuEl.value) {
-      addMenuPlacementRo = new ResizeObserver(() => syncAddMenuPlacement());
-      addMenuPlacementRo.observe(addMenuEl.value);
-    }
-  });
+  // Whatever else owns the panel gives it up first — a folder listing, chips
+  // or an inline widget would otherwise stay on screen under a "Widgets" title.
+  if (inlineWidgetOpen.value) closeInlineWidget();
+  exitArgMode(false);
+  exitActionChipMode();
+  exitFolderScope(false);
+  closeRowMenu(false);
+  recentOpen.value = false;
+  query.value = "";
+  widgetsOpen.value = true;
+  selectedIndex.value = 0;
+  inputEl.value?.focus();
+  void scrollSelectedIntoView();
 }
 
 /**
@@ -2989,7 +2799,6 @@ function toggleAddMenu() {
  * wizard instance; create one only when this is the first use.
  */
 async function openWidgetWizard() {
-  closeAddMenu();
   const current = resolveActionTarget("widget-wizard", widgetInstances ?? []);
   if (current.instanceId) {
     await focusWidget?.(current.instanceId);
@@ -2997,27 +2806,6 @@ async function openWidgetWizard() {
     return;
   }
   if (await openNewType("widget-wizard")) afterPaletteAction();
-}
-
-/** Smart Open / Focus / New from the + menu (same as search type rows). */
-async function onAddMenuType(row: {
-  typeId: string;
-  title: string;
-  smart: PaletteTypeRow["smart"];
-  targetInstanceId?: string;
-}) {
-  await runTypeRow({
-    kind: "type",
-    id: `type:${row.typeId}`,
-    typeId: row.typeId,
-    title: row.title,
-    subtitle: "",
-    keywords: [],
-    smart: row.smart,
-    canHide: false,
-    ...(row.targetInstanceId ? { targetInstanceId: row.targetInstanceId } : {}),
-  });
-  closeAddMenu();
 }
 
 /** Switch desk on single click (debounced so double-click can rename). */
@@ -3134,7 +2922,7 @@ function onPaletteMovePointerDown(event: PointerEvent) {
   paletteMovePointerdown?.(event);
 }
 
-/** Close add menu / palette menu / desk context when pointer lands outside. */
+/** Close palette menu / row menu / desk context when pointer lands outside. */
 function onDocumentPointerDown(event: PointerEvent) {
   const target = event.target as Node;
   const targetElement = target instanceof Element ? target : null;
@@ -3147,19 +2935,6 @@ function onDocumentPointerDown(event: PointerEvent) {
     }
   }
 
-  // Widgets menu: only the panel + Widgets button count as inside (not desk tabs).
-  if (addMenuOpen.value) {
-    const inMenu = Boolean(addMenuEl.value?.contains(target));
-    const inTrigger = Boolean(addMenuTriggerEl.value?.contains(target));
-    if (!inMenu && !inTrigger) {
-      closeAddMenu();
-      // Gap hit: swallow so the host dismiss-catcher does not also close the cockpit.
-      if (targetElement?.closest(".dismiss-catcher")) {
-        event.stopPropagation();
-        return;
-      }
-    }
-  }
   if (
     paletteMenuOpen.value &&
     paletteMenuEl.value &&
@@ -3190,12 +2965,6 @@ function onDocumentKeydown(event: KeyboardEvent) {
     event.preventDefault();
     event.stopImmediatePropagation();
     inlineMenuOpen.value = false;
-    return;
-  }
-  if (addMenuOpen.value) {
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    closeAddMenu();
     return;
   }
   if (paletteMenuOpen.value) {
@@ -3238,13 +3007,12 @@ function onDocumentShiftTab(event: KeyboardEvent) {
   inputEl.value?.focus();
 }
 
-/** Only listen while the add menu needs outside dismiss. */
+/** Only listen while a palette overlay needs outside dismiss. */
 let docListening = false;
 
-/** Attach/detach document listeners when the add menu opens/closes. */
+/** Attach/detach document listeners when an overlay opens/closes. */
 function syncDocListeners() {
   const need =
-    addMenuOpen.value ||
     paletteMenuOpen.value ||
     onboardingMenuOpen.value ||
     deskCtxMenu.value !== null ||
@@ -3262,7 +3030,6 @@ function syncDocListeners() {
 
 watch(
   [
-    addMenuOpen,
     paletteMenuOpen,
     onboardingMenuOpen,
     deskCtxMenu,
@@ -3309,7 +3076,6 @@ onMounted(async () => {
       homePath.value = null;
     });
   unlistenShow = await listen("palette:show", () => {
-    closeAddMenu();
     paletteMenuOpen.value = false;
     onboardingMenuOpen.value = false;
     deskCtxMenu.value = null;
@@ -3325,8 +3091,6 @@ onUnmounted(() => {
   window.removeEventListener("resize", syncViewportListHeight);
   listOverlayRo?.disconnect();
   listOverlayRo = undefined;
-  addMenuPlacementRo?.disconnect();
-  addMenuPlacementRo = undefined;
   if (deskTabClickTimer) {
     clearTimeout(deskTabClickTimer);
     deskTabClickTimer = null;
@@ -3621,16 +3385,14 @@ onUnmounted(() => {
       <div class="palette-statusbar-left">
         <div v-if="addWidget" class="palette-widgets-group">
           <button
-            ref="addMenuTriggerEl"
             type="button"
             class="palette-bar-btn palette-bar-btn--widgets"
             data-onboarding-target="widgets-button"
             v-tip:below="widgetsButtonTitle"
-            aria-label="Open widget manager"
-            aria-haspopup="menu"
-            :aria-expanded="addMenuOpen"
+            aria-label="Browse widgets"
+            :aria-pressed="widgetsOpen"
             @pointerdown.stop
-            @click.stop="toggleAddMenu"
+            @click.stop="toggleWidgetsOverview"
           >
           <svg class="palette-bar-btn-icon" viewBox="0 0 24 24" aria-hidden="true">
             <rect
@@ -3684,168 +3446,6 @@ onUnmounted(() => {
           >
             +
           </button>
-        </div>
-        <div
-          v-if="addWidget && addMenuOpen"
-          ref="addMenuEl"
-          class="palette-add-menu"
-          :class="{ 'palette-add-menu--below': addMenuBelow }"
-          data-interactive
-          role="menu"
-          @pointerdown.stop
-        >
-          <input
-            ref="addMenuInputEl"
-            v-model="addMenuQuery"
-            class="palette-add-search"
-            type="text"
-            placeholder="Search widgets…"
-            autocomplete="off"
-            spellcheck="false"
-            aria-label="Search widgets"
-            @keydown="onAddMenuKeydown"
-            @keydown.escape.stop="toggleAddMenu"
-          />
-          <div class="palette-add-filters" role="tablist" aria-label="Widget filter">
-            <button
-              type="button"
-              role="tab"
-              class="palette-add-filter"
-              :class="{ 'palette-add-filter--active': addMenuFilter === 'all' }"
-              :aria-selected="addMenuFilter === 'all'"
-              v-tip="'All widgets'"
-              @click="addMenuFilter = 'all'"
-            >
-              All
-              <span class="palette-add-filter-count">{{ addMenuFilterCounts.all }}</span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="palette-add-filter"
-              :class="{ 'palette-add-filter--active': addMenuFilter === 'open' }"
-              :aria-selected="addMenuFilter === 'open'"
-              v-tip="'Open widgets'"
-              @click="addMenuFilter = 'open'"
-            >
-              Open
-              <span class="palette-add-filter-count">{{ addMenuFilterCounts.open }}</span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="palette-add-filter"
-              :class="{ 'palette-add-filter--active': addMenuFilter === 'hidden' }"
-              :aria-selected="addMenuFilter === 'hidden'"
-              v-tip="'Hidden widgets'"
-              @click="addMenuFilter = 'hidden'"
-            >
-              Hidden
-              <span class="palette-add-filter-count">{{ addMenuFilterCounts.hidden }}</span>
-            </button>
-            <button
-              type="button"
-              class="palette-add-gallery"
-              v-tip="'Widget Gallery'"
-              @click="openGallery"
-            >
-              Gallery
-            </button>
-          </div>
-          <div ref="addMenuScrollEl" class="palette-add-scroll">
-            <p
-              v-if="addMenuTypeRows.length === 0 && alsoOnDeskRows.total === 0"
-              class="palette-add-empty"
-            >
-              No matches
-            </p>
-            <button
-              v-for="(row, index) in addMenuTypeRows"
-              :key="row.typeId"
-              type="button"
-              role="menuitem"
-              class="palette-add-item palette-add-item--row"
-              :class="{ 'palette-add-item--selected': index === addMenuSelectedIndex }"
-              :data-add-index="index"
-              :data-icon-motion="index === addMenuSelectedIndex ? 'on' : null"
-              @pointerenter="onAddMenuTypeHover(index, row)"
-              @pointerleave="onAddMenuRowLeave"
-              @click="onAddMenuType(row)"
-            >
-              <span class="palette-add-item-lead">
-                <!-- Same precedence as the result list: component, then masked
-                     icon.svg, then the generic widget mark. -->
-                <component
-                  :is="extensionIconComponent(row.typeId)"
-                  v-if="extensionIconComponent(row.typeId)"
-                  class="palette-ext-icon-svg"
-                  :size="16"
-                  animated
-                />
-                <span
-                  v-else
-                  class="palette-ext-icon"
-                  :class="{ 'palette-ext-icon--fallback': !row.iconUrl }"
-                  :style="
-                    row.iconUrl
-                      ? { '--ext-icon': `url(${JSON.stringify(row.iconUrl)})` }
-                      : undefined
-                  "
-                  aria-hidden="true"
-                >
-                  <svg v-if="!row.iconUrl" viewBox="0 0 20 20" width="14" height="14">
-                    <rect
-                      x="3"
-                      y="3"
-                      width="14"
-                      height="14"
-                      rx="3.5"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.6"
-                    />
-                    <path
-                      d="M7 8h6M7 12h4"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.6"
-                      stroke-linecap="round"
-                    />
-                  </svg>
-                </span>
-                <span class="palette-add-item-title">{{ row.title }}</span>
-              </span>
-              <span class="palette-add-item-action">{{ row.actionLabel }}</span>
-            </button>
-            <template v-if="alsoOnDeskRows.total > 0">
-              <div class="palette-add-sep" role="separator" />
-              <p class="palette-add-heading">On other desks</p>
-              <button
-                v-for="(row, alsoIndex) in alsoOnDeskRows.rows"
-                :key="row.instanceId"
-                type="button"
-                role="menuitem"
-                class="palette-add-item palette-add-item--stack"
-                :class="{
-                  'palette-add-item--selected':
-                    addMenuTypeRows.length + alsoIndex === addMenuSelectedIndex,
-                }"
-                :data-add-index="addMenuTypeRows.length + alsoIndex"
-                @pointerenter="
-                  addMenuSelectedIndex = addMenuTypeRows.length + alsoIndex
-                "
-                @click="onAlsoOnDesk(row.instanceId)"
-              >
-                <span class="palette-add-item-title">{{ row.title }}</span>
-                <span v-if="row.onDesks" class="palette-add-item-sub">{{
-                  row.onDesks
-                }}</span>
-              </button>
-              <p v-if="alsoOnDeskRows.hiddenCount > 0" class="palette-add-more">
-                +{{ alsoOnDeskRows.hiddenCount }} more — type to filter
-              </p>
-            </template>
-          </div>
         </div>
       </div>
       <div v-if="kavibayDesks" ref="deskTabsEl" class="palette-statusbar-center">
@@ -5690,7 +5290,7 @@ onUnmounted(() => {
 
 .palette-statusbar {
   position: relative;
-  /* Above .palette-results so the Widgets menu can overlay the search list. */
+  /* Above .palette-results so status-bar popovers overlay the search list. */
   z-index: 6;
   display: flex;
   align-items: center;
@@ -6037,205 +5637,10 @@ onUnmounted(() => {
 }
 
 .palette-bar-btn:hover,
-.palette-bar-btn[aria-expanded="true"] {
+.palette-bar-btn[aria-expanded="true"],
+.palette-bar-btn[aria-pressed="true"] {
   color: var(--text);
   background: var(--fill);
-}
-
-.palette-add-menu {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 6px);
-  z-index: 20;
-  width: min(280px, 70vw);
-  padding: 6px;
-  border-radius: 12px;
-  background: rgba(var(--surface-bg-rgb), 0.95);
-  border: 1px solid rgba(var(--fg-rgb), 0.12);
-  box-shadow: 0 12px 32px rgba(var(--shadow-rgb), calc(0.45 * var(--surface-shadow, 1) * var(--shadow-scale, 1)));
-  backdrop-filter: var(--surface-backdrop-filter, blur(16px));
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-/* Not enough room above the palette — open under the Widgets button. */
-.palette-add-menu--below {
-  top: calc(100% + 6px);
-  bottom: auto;
-}
-
-.palette-add-search {
-  width: 100%;
-  box-sizing: border-box;
-  margin: 0;
-  padding: 8px 10px;
-  border: 1px solid rgba(var(--fg-rgb), 0.12);
-  border-radius: 8px;
-  background: rgba(var(--fg-rgb), 0.06);
-  color: rgba(var(--fg-rgb), 0.95);
-  font-size: 13px;
-  outline: none;
-}
-
-.palette-add-search:focus {
-  border-color: rgba(var(--fg-rgb), 0.28);
-}
-
-.palette-add-filters {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 8px;
-  background: rgba(var(--fg-rgb), 0.06);
-}
-
-.palette-add-filter {
-  flex: 1;
-  padding: 5px 6px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: rgba(var(--fg-rgb), 0.5);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.palette-add-filter-count {
-  margin-left: 4px;
-  font-weight: 500;
-  opacity: 0.65;
-  font-variant-numeric: tabular-nums;
-}
-
-.palette-add-filter:hover {
-  color: rgba(var(--fg-rgb), 0.8);
-}
-
-.palette-add-filter--active {
-  background: rgba(var(--fg-rgb), 0.12);
-  color: rgba(var(--fg-rgb), 0.92);
-}
-
-.palette-add-gallery {
-  flex-shrink: 0;
-  margin-left: 4px;
-  padding: 5px 8px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: rgba(var(--fg-rgb), 0.55);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.palette-add-gallery:hover {
-  background: rgba(var(--fg-rgb), 0.1);
-  color: rgba(var(--fg-rgb), 0.92);
-}
-
-.palette-add-scroll {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: min(50vh, 280px);
-  overflow-y: auto;
-}
-
-.palette-add-empty,
-.palette-add-more {
-  margin: 4px 10px;
-  font-size: 12px;
-  color: rgba(var(--fg-rgb), 0.45);
-}
-
-.palette-add-item {
-  display: block;
-  width: 100%;
-  padding: 8px 10px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: rgba(var(--fg-rgb), 0.9);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.palette-add-item--row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.palette-add-item-lead {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.palette-add-item-lead .palette-ext-icon {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  color: rgba(var(--fg-rgb), 0.72);
-}
-
-.palette-add-item-lead .palette-ext-icon--fallback {
-  width: 18px;
-  height: 18px;
-  background: rgba(var(--fg-rgb), 0.08);
-  border-radius: 5px;
-}
-
-.palette-add-item--stack {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-}
-
-.palette-add-item-title {
-  color: rgba(var(--fg-rgb), 0.92);
-}
-
-.palette-add-item-action {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: rgba(var(--fg-rgb), 0.45);
-}
-
-.palette-add-item-sub {
-  font-size: 11px;
-  color: rgba(var(--fg-rgb), 0.45);
-}
-
-.palette-add-item:hover,
-.palette-add-item--selected {
-  background: rgba(var(--fg-rgb), 0.08);
-}
-
-.palette-add-item--selected {
-  background: rgba(var(--fg-rgb), 0.12);
-}
-
-.palette-add-sep {
-  height: 1px;
-  margin: 4px 6px;
-  background: rgba(var(--fg-rgb), 0.1);
-}
-
-.palette-add-heading {
-  margin: 2px 10px 4px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: rgba(var(--fg-rgb), 0.45);
 }
 
 .palette-calc {

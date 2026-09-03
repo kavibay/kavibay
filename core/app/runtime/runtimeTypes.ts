@@ -62,7 +62,7 @@ export interface HostExtensionRef {
   refreshInterval?: number;
   /** From install record when origin is runtime. */
   grantedPermissions?: string[];
-  /** Resolved icon URL for palette / Widgets menu (missing → generic mark). */
+  /** Resolved icon URL for palette / Widgets list (missing → generic mark). */
   iconUrl?: string;
 }
 
