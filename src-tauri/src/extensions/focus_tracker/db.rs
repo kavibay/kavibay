@@ -28,7 +28,7 @@ pub struct FocusDb {
 }
 
 impl FocusDb {
-    /// Opens `{app_data_dir}/focus_tracker.db`, migrates, prunes once, wraps in Arc.
+    /// Opens `{data_dir}/focus_tracker.db`, migrates, prunes once, wraps in Arc.
     pub fn open(app: &AppHandle) -> Result<Arc<Self>, String> {
         let conn = connect_db(app)?;
         let cutoff_ms = now_ms().saturating_sub(RETENTION_MS);

@@ -51,6 +51,11 @@ npm run dev:landing              # serve landing/ on :5180 (same as `.claude/lau
 npx tsx <path>/<name>.assert.ts  # run one colocated pure-logic test
 ```
 
+The data directory is `~/.kavibay` (`%USERPROFILE%\.kavibay` on Windows), and
+`src-tauri/src/paths.rs` is the only place allowed to resolve it — asking Tauri
+for `app_data_dir()` anywhere else silently opts that module out of the override
+below. Regenerable files go in `~/.kavibay/cache/` via `paths::cache_dir`.
+
 `KAVIBAY_DATA_DIR=<absolute path> npm run tauri dev` points the whole data
 directory somewhere else — settings, the localStorage mirror, credentials, the
 widget caches — so a dev run cannot migrate or corrupt the real profile. The path

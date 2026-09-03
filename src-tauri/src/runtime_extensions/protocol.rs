@@ -58,7 +58,7 @@ pub fn register_kavibay_ext_protocol<R: Runtime>(builder: tauri::Builder<R>) -> 
     })
 }
 
-/// Serve a file from `{app_data_dir}/extensions/<extId>/…` for a protocol request.
+/// Serve a file from `{data_dir}/extensions/<extId>/…` for a protocol request.
 fn handle_kavibay_ext_request<R: Runtime>(
     app: &AppHandle<R>,
     request: &Request<Vec<u8>>,
