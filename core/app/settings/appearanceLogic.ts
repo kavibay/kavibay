@@ -80,13 +80,17 @@ export interface ShadowStyleOption {
 
 export const APPEARANCE_STORAGE_KEY = "kavibay:appearance-v1";
 
-/** Default matches existing rgba(28,28,32,0.72) glass panels. */
-export const DEFAULT_SURFACE_OPACITY = 0.72;
+/** Near-solid glass: the desktop still tints a panel, text never competes with it. */
+export const DEFAULT_SURFACE_OPACITY = 0.95;
 export const MIN_SURFACE_OPACITY = 0.15;
 export const MAX_SURFACE_OPACITY = 1;
 
-/** Default matches existing backdrop-filter: blur(16px). */
-export const DEFAULT_SURFACE_BLUR = 16;
+/**
+ * Off by default. At 0.95 opacity there is almost nothing left to blur, and a
+ * live backdrop filter over the whole desktop is the most expensive effect the
+ * overlay can ask a GPU for.
+ */
+export const DEFAULT_SURFACE_BLUR = 0;
 export const MIN_SURFACE_BLUR = 0;
 export const MAX_SURFACE_BLUR = 24;
 
@@ -95,14 +99,14 @@ export const DEFAULT_SURFACE_SHADOW = 1;
 export const MIN_SURFACE_SHADOW = 0;
 export const MAX_SURFACE_SHADOW = 1;
 
-/** Default unifies former widget (14) / palette (16) radii. */
-export const DEFAULT_SURFACE_RADIUS = 16;
+/** Paired with the squircle default; a shallow radius reads as a plain rectangle. */
+export const DEFAULT_SURFACE_RADIUS = 32;
 export const MIN_SURFACE_RADIUS = 0;
 export const MAX_SURFACE_RADIUS = 32;
 
 export const DEFAULT_COLOR_MODE: ColorMode = "dark";
 
-export const DEFAULT_CORNER_SHAPE: CornerShape = "round";
+export const DEFAULT_CORNER_SHAPE: CornerShape = "squircle";
 
 export const DEFAULT_DESKTOP_FILL_MODE: DesktopFillMode = "transparent";
 export const DEFAULT_DESKTOP_FILL_COLOR = "#000000";
@@ -110,12 +114,13 @@ export const DEFAULT_DESKTOP_FILL_OPACITY = 0.35;
 export const MIN_DESKTOP_FILL_OPACITY = 0.05;
 export const MAX_DESKTOP_FILL_OPACITY = 0.95;
 
-export const DEFAULT_SHADOW_STYLE: ShadowStyleId = "default";
+export const DEFAULT_SHADOW_STYLE: ShadowStyleId = "s2";
 
 /** Default matches historic behavior (cover monitor under the mouse). */
 export const DEFAULT_OPEN_MONITOR: OpenMonitor = "cursor";
 
-export const DEFAULT_WIDGET_LAYOUT_MODE: WidgetLayoutMode = "freehand";
+/** Snapped by default: a desk of hand-placed cards drifts a few pixels out of line. */
+export const DEFAULT_WIDGET_LAYOUT_MODE: WidgetLayoutMode = "grid";
 
 /**
  * Alpha channel that multiplies with --surface-shadow strength (the user's
@@ -293,9 +298,9 @@ export const WIDGET_LAYOUT_MODE_OPTIONS: {
 ];
 
 export const DEFAULT_APPEARANCE: AppearanceState = {
-  fontId: "jakarta",
+  fontId: "manrope",
   colorMode: DEFAULT_COLOR_MODE,
-  hideOnOutsideClick: false,
+  hideOnOutsideClick: true,
   openMonitor: DEFAULT_OPEN_MONITOR,
   widgetLayoutMode: DEFAULT_WIDGET_LAYOUT_MODE,
   surfaceOpacity: DEFAULT_SURFACE_OPACITY,
@@ -469,12 +474,14 @@ export function normalizeOpenMonitor(raw: unknown): OpenMonitor {
   return "cursor";
 }
 
-/** Normalize layout mode; unknown / missing → freehand. */
+/** Normalize layout mode; unknown / missing → the shipped default. */
 export function normalizeWidgetLayoutMode(raw: unknown): WidgetLayoutMode {
-  return raw === "grid" ? "grid" : "freehand";
+  if (raw === "freehand") return "freehand";
+  if (raw === "grid") return "grid";
+  return DEFAULT_WIDGET_LAYOUT_MODE;
 }
 
-/** Normalize raw persisted appearance; unknown font → jakarta. */
+/** Normalize raw persisted appearance; unknown font → manrope. */
 export function normalizeAppearance(raw: unknown): AppearanceState {
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const fontId =
@@ -484,7 +491,11 @@ export function normalizeAppearance(raw: unknown): AppearanceState {
   return {
     fontId,
     colorMode: normalizeColorMode(o.colorMode),
-    hideOnOutsideClick: o.hideOnOutsideClick === true,
+    // Missing means "older save", not "off" — same rule as every field below.
+    hideOnOutsideClick:
+      o.hideOnOutsideClick === undefined
+        ? DEFAULT_APPEARANCE.hideOnOutsideClick
+        : o.hideOnOutsideClick === true,
     openMonitor:
       o.openMonitor === undefined
         ? DEFAULT_OPEN_MONITOR
