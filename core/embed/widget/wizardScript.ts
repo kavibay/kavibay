@@ -28,6 +28,8 @@
  * writes paragraphs and lets the client wrap them.
  */
 
+import type { WizardDemoScript } from "./wizardDemoScript";
+
 /**
  * Two models, both marked configured, so the picker has something to show and
  * the Wizard does not open on a "connect an account first" state that this
@@ -260,3 +262,26 @@ export const DEMO_REPLIES = [
  * and closed the Wizard mid-conversation.
  */
 export const DEMO_FINAL_MARKER = "SHOW_PERCENT = true";
+
+export const WATER_TOUR_STEPS = [
+  "Searching",
+  "Wizard open",
+  "First version",
+  "Change applied",
+  "On the desk",
+] as const;
+
+/**
+ * The water-tracker story, in the shape the director and the autoplay loop
+ * both read. `DEMO_PROMPTS` stays the string list the existing asserts walk.
+ */
+export const WATER_DEMO: WizardDemoScript = {
+  id: "water-tracker",
+  draftId: "water-tracker",
+  resultRow: "water-tracker",
+  resultQuery: "water tracker",
+  steps: WATER_TOUR_STEPS,
+  prompts: DEMO_PROMPTS.map((prompt) => [prompt]),
+  replies: DEMO_REPLIES,
+  finalMarker: DEMO_FINAL_MARKER,
+};

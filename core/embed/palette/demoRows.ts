@@ -211,4 +211,14 @@ export const DEMO_ROWS: DemoRow[] = [
      */
     keywords: ["water tracker", "water", "tracker", "hydration", "drink"],
   },
+  {
+    id: "inbox",
+    kind: "widget",
+    title: "Inbox",
+    /**
+     * The Linear/GitHub demo types this as one word. Keep the accounts in
+     * the keywords so a visitor who searches for either still finds it.
+     */
+    keywords: ["inbox", "tasks", "linear", "github", "reviews", "prs"],
+  },
 ];

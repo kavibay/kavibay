@@ -51,6 +51,7 @@ assert(moveSelection(0, 0, 0) === 0, "an empty list clamps to 0");
 for (const [phrase, rowId] of [
   ["new widget", "new-widget"],
   ["water tracker", "water-tracker"],
+  ["inbox", "inbox"],
 ] as const) {
   const hits = rankRows(phrase);
   assert(

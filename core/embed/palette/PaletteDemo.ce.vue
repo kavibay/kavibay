@@ -17,6 +17,7 @@ import { useDragOffset } from "../widget/useDragOffset";
 import { runEmbedAction } from "../widget/embedActions";
 import { playTour } from "../demo/tour";
 import { playLauncherDemo } from "../demo/launcherScript";
+import { demoCase, isDemoCaseId, setDemoCase } from "../demo/demoCase";
 import { demoRun, type DemoRun } from "../demo/demoRun";
 /*
  * The folder browse is the app's, not a lookalike: `folderScope.ts` owns the
@@ -750,7 +751,6 @@ function startDemo() {
       palette: { type: typeQueryText, run: runRow, clear: clearQuery },
       paletteEl: host ?? hostEl.value,
       wizardRow: "new-widget",
-      resultRow: "water-tracker",
       alive: () => !userTookOver.value,
       // Only this component owns the veto, so only it can lift one for a replay.
       clearVeto: () => {
@@ -762,6 +762,55 @@ function startDemo() {
 
   if (!autotypeEnabled.value) return;
   typeQuery(walkResults);
+}
+
+/**
+ * The two case buttons live in the landing page, outside this element.
+ *
+ * They pick which recording the tour plays. A click here is not a visitor
+ * taking over — it is the same offer Replay makes, aimed at a different
+ * story — so it must not set the veto. Walking up from this host finds the
+ * buttons in the same section, and nowhere else: the launcher further down
+ * has none.
+ */
+let caseButtons: HTMLButtonElement[] = [];
+
+function nearestCaseButtons(from: Element | null): HTMLButtonElement[] {
+  for (let node: Element | null = from; node; node = node.parentElement) {
+    const found = [...node.querySelectorAll<HTMLButtonElement>(".wizplay__case")];
+    if (found.length > 0) return found;
+  }
+  return [];
+}
+
+function paintCaseButtons(): void {
+  const current = demoCase();
+  for (const button of caseButtons) {
+    button.setAttribute("aria-pressed", button.dataset.case === current ? "true" : "false");
+  }
+}
+
+function onCaseClick(event: Event): void {
+  const button = event.currentTarget;
+  if (!(button instanceof HTMLButtonElement)) return;
+  if (!isDemoCaseId(button.dataset.case)) return;
+  event.preventDefault();
+  setDemoCase(button.dataset.case);
+  paintCaseButtons();
+  userTookOver.value = false;
+  const run = demoRunHere.value;
+  if (run?.present.value) run.replay();
+}
+
+function bindCaseButtons(from: Element | null): void {
+  caseButtons = nearestCaseButtons(from);
+  paintCaseButtons();
+  for (const button of caseButtons) button.addEventListener("click", onCaseClick);
+}
+
+function unbindCaseButtons(): void {
+  for (const button of caseButtons) button.removeEventListener("click", onCaseClick);
+  caseButtons = [];
 }
 
 onMounted(() => {
@@ -794,11 +843,13 @@ onMounted(() => {
     { threshold: 0.4 },
   );
   observer.observe(lightHost);
+  bindCaseButtons(lightHost);
 });
 
 onUnmounted(() => {
   clearTimers();
   observer?.disconnect();
+  unbindCaseButtons();
   host?.removeEventListener("pointerdown", raise, { capture: true });
   host?.removeEventListener("focusin", raise);
 });
