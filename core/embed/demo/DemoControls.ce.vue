@@ -98,10 +98,9 @@ const caption = () => {
 
     <div class="controls-body">
       <!--
-        Der feste Teil links sagt, was das hier ist, der wechselnde rechts, wo
-        es steht. Ohne den festen Teil sah die Pille aus wie Bedienelemente des
-        Produkts — sie liegt auf demselben Wallpaper wie die Karten, und
-        "DONE" mit einem Fortschrittsbalken kann alles Mögliche meinen.
+        The fixed part on the left says what this is; the changing part on the right says
+        where it is. Without the fixed part, the pill looked like product controls: it sits
+        on the same wallpaper as the cards, and "DONE" with a progress bar could mean anything.
       -->
       <p class="controls-head">
         <span class="controls-title">Demo playback</span>

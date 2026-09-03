@@ -1642,7 +1642,7 @@ function showAllSearchResults() {
   inputEl.value?.focus();
 }
 
-// Jede Query-Änderung setzt die Auswahl auf den ersten (besten) Treffer zurück.
+// Every query change resets the selection to the first (best) result.
 watch(query, (next) => {
   selectedIndex.value = 0;
   showHiddenApps.value = false;
@@ -1929,7 +1929,7 @@ function syncListOverlay() {
 function moveSelection(delta: number) {
   const count = results.value.length;
   if (count === 0) return;
-  // Modulo mit +count sorgt für Wrap-around auch bei negativem delta (ArrowUp am Anfang).
+  // Adding count makes modulo wrap around for negative deltas (ArrowUp at the start).
   selectedIndex.value = (selectedIndex.value + delta + count) % count;
   void scrollSelectedIntoView();
 }

@@ -1,8 +1,8 @@
-//! Alle Tauri-Commands, die vom Frontend per `invoke()` aufgerufen werden.
+//! All Tauri commands called by the frontend through `invoke()`.
 //!
-//! Wichtig für den Widget-Contract (siehe PLAN.md §3): dies ist die EINZIGE Stelle,
-//! an der "echte" Daten (System, später externe APIs) beschafft werden. Das Frontend
-//! (Widgets) weiß nichts davon, wie diese Daten entstehen — es bekommt nur JSON.
+//! Important for the widget contract (see PLAN.md §3): this is the ONLY place where
+//! "real" data (system data and later external APIs) is acquired. The frontend
+//! (widgets) does not know how that data is produced; it only receives JSON.
 
 use std::{
     collections::HashMap,
@@ -14,10 +14,10 @@ use tauri::{AppHandle, State};
 
 // --- Click-through-State --------------------------------------------------------------
 //
-// Das Frontend meldet die Rechtecke aller interaktiven Elemente (Widget-Karten + Palette)
-// in CSS-Pixeln. Der Poll-Thread in lib.rs vergleicht sie mit der Cursor-Position und
-// schaltet das Fenster außerhalb klick-durchlässig. `paused` erzwingt während eines Drags
-// den interaktiven Zustand.
+// The frontend reports the rectangles of all interactive elements (widget cards + palette)
+// in CSS pixels. The polling thread in lib.rs compares them with the cursor position and
+// makes the window click-through outside them. `paused` keeps the window interactive during
+// a drag.
 
 #[derive(Deserialize, Clone, Copy)]
 pub struct RectPx {
@@ -254,9 +254,9 @@ fn parse_volume_level(args: &HashMap<String, String>) -> Result<f32, String> {
     Ok(value)
 }
 
-/// Wird von der Command-Palette bei `Enter` aufgerufen. Commands mit Parametern
-/// bekommen sie als validierte String-Map — Rust prüft sie trotzdem selbst nach,
-/// weil das Frontend nicht die einzige Verteidigungslinie sein darf.
+/// Called by the command palette on `Enter`. Commands with parameters receive them as a
+/// validated string map; Rust still validates them again because the frontend must not be
+/// the only line of defense.
 #[tauri::command]
 pub fn execute_action(action_id: String, args: HashMap<String, String>) -> Result<(), String> {
     match action_id.as_str() {
@@ -266,12 +266,12 @@ pub fn execute_action(action_id: String, args: HashMap<String, String>) -> Resul
         }
         "toggle-mute" => toggle_master_mute(),
         "lock-screen" => lock_workstation(),
-        // Noch nicht implementierte Palette-Stubs bleiben folgenlos, aber sichtbar.
+        // Unimplemented palette stubs remain harmless but visible.
         "open-browser" | "sleep" | "empty-clipboard" => {
             println!("[action] {action_id} (not implemented)");
             Ok(())
         }
-        // Ein Tippfehler in einer Command-Row darf nicht still erfolgreich sein.
+        // A typo in a command row must not silently succeed.
         other => Err(format!("unknown action: {other}")),
     }
 }

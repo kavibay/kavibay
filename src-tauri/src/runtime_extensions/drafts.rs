@@ -374,7 +374,18 @@ fn content_revision(files: &[(String, Vec<u8>)]) -> String {
         hasher.update((contents.len() as u64).to_le_bytes());
         hasher.update(contents);
     }
-    format!("{:x}", hasher.finalize())
+    hex_encode(hasher.finalize().as_slice())
+}
+
+/// Lowercase hex; sha2 0.11's digest no longer implements `LowerHex`.
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0xf) as usize] as char);
+    }
+    out
 }
 
 fn revision_for_dir(dir: &Path) -> Result<String, String> {

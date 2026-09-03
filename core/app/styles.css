@@ -1,19 +1,17 @@
-/* Selbst gehostete Schriften statt <link> auf fonts.googleapis.com. Zwei Gründe:
-   der externe Stylesheet blockierte das erste Rendern, und die CSP in
-   tauri.conf.json erlaubt weder googleapis (style-src) noch gstatic (font-src) —
-   im gepackten Build wären die Schriften also stumm auf system-ui zurückgefallen.
-   Die @font-face-Regeln kosten hier nichts: der Browser lädt eine .woff2 erst,
-   wenn die Familie tatsächlich gesetzt ist (siehe FONT_OPTIONS in
-   settings/appearanceLogic.ts). Variable Schnitte, daher eine Datei pro Familie
-   statt drei Gewichte. */
+/* Self-hosted fonts instead of a <link> to fonts.googleapis.com. Two reasons:
+   the external stylesheet blocked the first render, and the CSP in tauri.conf.json
+   allows neither googleapis (style-src) nor gstatic (font-src). In the packaged build,
+   the fonts would silently fall back to system-ui. The @font-face rules cost nothing:
+   the browser loads a .woff2 only when the family is actually used (see FONT_OPTIONS in
+   settings/appearanceLogic.ts). Variable fonts mean one file per family instead of three
+   weights. */
 @import "@fontsource-variable/plus-jakarta-sans";
 @import "@fontsource-variable/manrope";
 @import "@fontsource-variable/jetbrains-mono";
 
-/* Globale Styles für das transparente Vollbild-Overlay-Fenster.
-   html/body/#app MÜSSEN transparent sein — sonst zeichnet WebView2 einen weißen/
-   milchigen Hintergrund und die Fenstertransparenz aus tauri.conf.json geht optisch
-   verloren (siehe PLAN.md §7). */
+/* Global styles for the transparent full-screen overlay window.
+   html/body/#app MUST be transparent; otherwise WebView2 draws a white/milky background
+   and the window transparency configured in tauri.conf.json is lost visually (see PLAN.md §7). */
 
 /*
  * Two knobs decide how a mode feels, and both are mode-scoped rather than

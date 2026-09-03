@@ -144,7 +144,7 @@ const { rescan: rescanRuntimeExtensions, developerExtensionsEnabled } =
   useRuntimeExtensions();
 const onboarding = useOnboarding();
 
-// Alle Positionen sind Mittelpunkte. Widget-Offsets bleiben relativ zur Palette.
+// All positions are centers. Widget offsets remain relative to the palette.
 /** Authoritative layout-v4 document; palette + instances mirror the active desk. */
 const layoutDoc = reactive<SavedLayoutV4>(loadLayout(extensionRegistry));
 const palettePos = reactive<WidgetPosition>({ x: 0, y: 0 });
@@ -2714,7 +2714,7 @@ provide("kavibayPaletteMovePointerdown", (event: PointerEvent) => {
       <slot name="center" />
     </div>
 
-    <!-- Widgets: relativ zur Palette positioniert, einzeln verschiebbar. -->
+    <!-- Widgets are positioned relative to the palette and can be moved individually. -->
     <div
       v-for="instance in mountedInstances"
       :key="instance.instanceId"
@@ -2773,8 +2773,8 @@ provide("kavibayPaletteMovePointerdown", (event: PointerEvent) => {
 </template>
 
 <style scoped>
-/* Fängt selbst keine Zeiger-Events — nur Karten, Palette und Griff tun das. So werden
-   Klicks in die Lücken im Webview nicht abgefangen (OS-Durchreichen macht Rust). */
+/* Does not catch pointer events itself — only cards, the palette, and the handle do. This
+   keeps clicks in WebView gaps from being intercepted (Rust passes them through to the OS). */
 .widget-host {
   position: fixed;
   inset: 0;
