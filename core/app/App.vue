@@ -11,17 +11,17 @@ import { useSettingsModal } from "./settings/useSettingsModal";
 import { useRegionSync } from "./system/clickThrough";
 import FloatingTipHost from "./system/FloatingTipHost.vue";
 import CommandHost from "./extension-host/ui/CommandHost.vue";
-import { colorPickerPicking } from "../../extensions/color-picker/colorPickerSession";
+import { hostDismissHeld } from "@sdk";
 
 useRegionSync();
 
 const { open: settingsOpen, show: showSettings } = useSettingsModal();
 let unlistenSettingsShow: UnlistenFn | undefined;
 
-/** Hide window on Esc only when Settings / color-pick are not handling it. */
+/** Hide window on Esc unless Settings or a widget is holding the gesture. */
 function onKeydown(event: KeyboardEvent) {
   if (event.key !== "Escape") return;
-  if (settingsOpen.value || colorPickerPicking.value) return;
+  if (settingsOpen.value || hostDismissHeld.value) return;
   void getCurrentWindow().hide();
 }
 

@@ -2,6 +2,7 @@
 import { computed, inject } from "vue";
 import type { ConfigField } from "@sdk/contract/sdk";
 import { extensionHost, instanceConfig, updateInstanceConfig } from "../cockpit";
+import { loadConfigOptions } from "../configOptions";
 import ConfigForm from "./ConfigForm.vue";
 
 /**
@@ -30,16 +31,7 @@ const values = computed(() => instanceConfig(boundInstanceId));
  */
 const missing = computed<string[]>(() => []);
 
-async function loadOptions(field: ConfigField) {
-  if (!field.source) return [];
-  const rows = await extensionHost.query<{ id: string | number; name?: string }[]>(
-    field.source.provider,
-    field.source.query,
-    {},
-    null,
-  );
-  return rows.map((row) => ({ value: row.id, label: row.name ?? String(row.id) }));
-}
+const loadOptions = (field: ConfigField) => loadConfigOptions(extensionHost, field);
 
 /**
  * Writes to the shared reactive config, which the mounted widget is watching —

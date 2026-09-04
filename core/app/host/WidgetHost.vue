@@ -96,7 +96,7 @@ import { useAppearance } from "../settings/useAppearance";
 import { useExtensionsPrefs } from "../settings/useExtensionsPrefs";
 import { useSettingsModal } from "../settings/useSettingsModal";
 import { useExtensionAboutModal } from "../extensions/useExtensionAboutModal";
-import { colorPickerPicking } from "../../../extensions/color-picker/colorPickerSession";
+import { hostDismissHeld } from "@sdk";
 import { paletteDropActive, requestInlineWidget } from "../palette/inlineWidgetRequest";
 import { useOnboarding } from "../onboarding/useOnboarding";
 import {
@@ -463,7 +463,7 @@ const outsideClickArmed = computed(
   () =>
     hideOnOutsideClick.value &&
     (cockpitOpen.value || hasKeptInstance(instances, peekKept.value)) &&
-    !colorPickerPicking.value &&
+    !hostDismissHeld.value &&
     !settingsOpen.value,
 );
 
@@ -1010,7 +1010,7 @@ function onPointerUp(event: PointerEvent) {
   }
   if (movedWidgetId) {
     const moved = instances.find((item) => item.instanceId === movedWidgetId);
-    if (moved && moved.typeId !== "gallery") onboarding.notifyWidgetMoved();
+    if (moved) onboarding.notifyWidgetMoved(moved.typeId);
   }
 }
 
@@ -1094,11 +1094,9 @@ function onHide(instanceId: string) {
   persist();
   scheduleRegionSync();
   focusPaletteIfNoCardsLeft();
-  if (instance.typeId !== "gallery") {
-    const def = defFor(instance.typeId);
-    const displayName = instance.title?.trim() || def?.title || instance.typeId;
-    onboarding.notifyWidgetHidden(displayName);
-  }
+  const def = defFor(instance.typeId);
+  const displayName = instance.title?.trim() || def?.title || instance.typeId;
+  onboarding.notifyWidgetHidden(instance.typeId, displayName);
 }
 
 /** Click into the palette makes it the active surface again (above all cards). */
@@ -1157,7 +1155,7 @@ function onTogglePin(instanceId: string) {
   if (instance.pinned) {
     delete instance.pinned;
     persist();
-    if (instance.typeId !== "gallery") onboarding.notifyPinToggled();
+    onboarding.notifyPinToggled(instance.typeId);
     // Unpin in pinned-only mode: keep the card up until the user dismisses.
     if (!cockpitOpen.value) {
       void openCockpit();
@@ -1169,7 +1167,7 @@ function onTogglePin(instanceId: string) {
 
   instance.pinned = true;
   persist();
-  if (instance.typeId !== "gallery") onboarding.notifyPinToggled();
+  onboarding.notifyPinToggled(instance.typeId);
   scheduleRegionSync();
 }
 
@@ -1440,10 +1438,8 @@ function onRevealWidget(instanceId: string) {
   if (wasHidden && instance.pinned) {
     runExtensionHook(getExtension(instance.typeId), "onResume", instance.instanceId);
   }
-  if (wasHidden && instance.typeId !== "gallery") {
-    onboarding.notifyWidgetRestored();
-  }
-  if (instance.typeId === "gallery") onboarding.notifyGalleryVisible();
+  if (wasHidden) onboarding.notifyWidgetRestored(instance.typeId);
+  onboarding.notifyWidgetVisible(instance.typeId);
   scheduleRegionSync();
 }
 
@@ -2090,7 +2086,7 @@ function kavibayRemoveWidget(instanceId: string, mode: "desk" | "everywhere") {
   persist();
   scheduleRegionSync();
   focusPaletteIfNoCardsLeft();
-  if (typeId && typeId !== "gallery") onboarding.notifyWidgetRemoved();
+  onboarding.notifyWidgetRemoved(typeId);
 }
 
 /**
@@ -2199,7 +2195,7 @@ function onResizeInstanceEnd() {
   scheduleRegionSync();
   if (resizedId) {
     const resized = instances.find((item) => item.instanceId === resizedId);
-    if (resized && resized.typeId !== "gallery") onboarding.notifyWidgetResized();
+    if (resized) onboarding.notifyWidgetResized(resized.typeId);
     // Remember at gesture end, not per frame — the size someone settled on.
     if (resized && typeof resized.width === "number") {
       rememberTypeSize(resized.typeId, {
@@ -2442,7 +2438,6 @@ function onAddType(
   runExtensionHook(getExtension(typeId), "onCreate", created.instanceId);
   persist();
   onboarding.notifyWidgetAdded(typeId);
-  if (typeId === "gallery") onboarding.notifyGalleryVisible();
   scheduleRegionSync();
   return created.instanceId;
 }

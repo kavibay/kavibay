@@ -74,7 +74,19 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
       {
         id: "extensions",
         label: "Extensions",
-        keywords: ["widgets", "packages", "enable", "disable", "runtime", "install"],
+        keywords: [
+          "widgets",
+          "packages",
+          "enable",
+          "disable",
+          "runtime",
+          "install",
+          // Where an integration is now set up, so the words people bring for one
+          // land on the list that can actually find it by name.
+          "integrations",
+          "connect",
+          "account",
+        ],
       },
     ],
   },
@@ -90,11 +102,6 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
         id: "credentials",
         label: "Credentials",
         keywords: ["api key", "token", "secret", "password", "sign in", "connect"],
-      },
-      {
-        id: "tado",
-        label: "Tado",
-        keywords: ["heating", "thermostat", "temperature", "rooms", "climate"],
       },
       {
         id: "mcp",

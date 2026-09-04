@@ -18,7 +18,6 @@ import {
   SearchIcon,
   ServerIcon,
   SparklesIcon,
-  ThermometerIcon,
 } from "@sdk/icons";
 import ResizeEdges from "../host/ResizeEdges.vue";
 import { RESIZE_EDGES_NO_TOP } from "../host/resizeLogic";
@@ -33,7 +32,6 @@ import CredentialsPanel from "./credentials/CredentialsPanel.vue";
 import ExtensionsPanel from "./ExtensionsPanel.vue";
 import FilesFoldersPanel from "./FilesFoldersPanel.vue";
 import McpServerPanel from "./McpServerPanel.vue";
-import TadoPanel from "./TadoPanel.vue";
 import {
   filterSettingsNav,
   flattenNavGroups,
@@ -64,7 +62,6 @@ const sectionIcons: Record<SettingsSectionId, Component> = {
   extensions: BlocksIcon,
   ai: SparklesIcon,
   credentials: KeyRoundIcon,
-  tado: ThermometerIcon,
   mcp: ServerIcon,
 };
 
@@ -333,7 +330,6 @@ onUnmounted(() => {
             <ExtensionsPanel v-else-if="activeSection === 'extensions'" />
             <AiPanel v-else-if="activeSection === 'ai'" />
             <CredentialsPanel v-else-if="activeSection === 'credentials'" />
-            <TadoPanel v-else-if="activeSection === 'tado'" />
             <McpServerPanel v-else-if="activeSection === 'mcp'" />
           </div>
         </section>

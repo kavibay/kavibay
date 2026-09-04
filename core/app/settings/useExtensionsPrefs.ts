@@ -4,12 +4,18 @@ import {
   type RegisteredExtension,
 } from "../extensions/registry";
 import {
+  defaultDisabledIds,
   isExtensionIdEnabled,
   loadExtensionsPrefs,
   saveExtensionsPrefs,
 } from "./extensionsPrefsLogic";
 
-const initial = loadExtensionsPrefs();
+/**
+ * Safe at module scope: `loadExtensions` builds its catalog in its own module
+ * body from an eager glob, so it is already populated by the time this import
+ * resolves. Nothing in that graph imports this file back.
+ */
+const initial = loadExtensionsPrefs(defaultDisabledIds(listExtensions()));
 /** Disabled extension ids (reactive source of truth for host + palette). */
 const disabledIds: Ref<string[]> = ref([...initial.disabledIds]);
 

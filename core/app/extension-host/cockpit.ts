@@ -486,6 +486,7 @@ function toRegistered(definitionId: string): RegisteredExtension | undefined {
     keywords: [...(metadata.keywords ?? [])],
     categories: [...(metadata.categories ?? [])],
     isWidget: true,
+    ...(metadata.enabledByDefault === false ? { enabledByDefault: false } : {}),
     iconComponent: bundled?.icon,
     menuComponent: bundled?.menu,
     position: metadata.position ? { ...metadata.position } : { x: 0, y: 0 },
@@ -714,4 +715,67 @@ export function extensionHostWidgets(): RegisteredExtension[] {
     .filter((entry): entry is RegisteredExtension => entry !== undefined);
 
   return [...widgets, ...standaloneActions, ...commands];
+}
+
+// --- catalog entry → contract detail ---------------------------------------
+
+/**
+ * What Settings → Extensions can show about one catalog row beyond its
+ * manifest: the accounts it needs, the commands it contributes, and the
+ * configuration a bulk add could fill.
+ *
+ * The join lives here because this file already owns the only place where a
+ * catalog id and a definition id are the same thing (`replaces`, in
+ * `toRegistered`). Settings asking `registry` directly would need that mapping
+ * a second time, and a second copy of it is how the two drift.
+ *
+ * Absent for every classic extension, which is correct rather than a gap: a
+ * folder-and-manifest widget contributes no provider and no command, so there
+ * is nothing for the detail pane to add.
+ */
+export interface CatalogExtensionDetail {
+  definitionId: WidgetDefinitionId;
+  /** Providers the widget declares in `requires`, described for display. */
+  providers: ProviderSchema[];
+  configuration?: Record<string, ConfigField>;
+  commands: { id: string; title: string }[];
+}
+
+/** Catalog id → definition id, following `replaces` where a widget sets one. */
+function definitionIdForCatalogId(catalogId: string): WidgetDefinitionId | undefined {
+  for (const definitionId of Object.keys(widgetViews) as WidgetDefinitionId[]) {
+    const bundled = BUNDLED[definitionId];
+    if ((bundled?.replaces ?? definitionId) === catalogId) return definitionId;
+  }
+  return undefined;
+}
+
+export function catalogExtensionDetail(catalogId: string): CatalogExtensionDetail | undefined {
+  const definitionId = definitionIdForCatalogId(catalogId);
+  if (!definitionId) return undefined;
+  const found = registry.widget(definitionId);
+  if (!found) return undefined;
+  const { widget, ext } = found;
+
+  const providers: ProviderSchema[] = (widget.requires?.providers ?? [])
+    .map((providerId) => {
+      const entry = registry.providers.get(providerId);
+      return entry ? describeProvider(providerId, entry.def) : undefined;
+    })
+    .filter((schema): schema is ProviderSchema => schema !== undefined);
+
+  // Same visibility rule as the palette: a command whose provider is not
+  // connected is not offered here either, so the two surfaces cannot disagree
+  // about what is runnable.
+  const visible = visibleCommandIds();
+  const commands = [...ext.commands.entries()]
+    .filter(([commandId]) => visible.has(commandId))
+    .map(([commandId, command]) => ({ id: commandId, title: command.title }));
+
+  return {
+    definitionId,
+    providers,
+    ...(widget.configuration ? { configuration: widget.configuration } : {}),
+    commands,
+  };
 }

@@ -7,8 +7,7 @@ export type SettingsSectionId =
   | "extensions"
   | "ai"
   | "credentials"
-  | "mcp"
-  | "tado";
+  | "mcp";
 
 const open: Ref<boolean> = ref(false);
 const section: Ref<SettingsSectionId> = ref("appearance");

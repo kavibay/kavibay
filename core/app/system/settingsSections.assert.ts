@@ -74,7 +74,7 @@ assert(!isSettingsKey("__proto__"), "prototype keys are not settings keys");
 const snapshot: Record<string, string> = {
   [APPEARANCE_STORAGE_KEY]: '{"fontId":"jakarta","surfaceBlur":18}',
   [DEVELOPER_PREFS_KEY]: '{"developerExtensionsEnabled":false,"wizardAutoEnable":false}',
-  [EXTENSIONS_PREFS_KEY]: '{"disabledIds":["kavibay.tado"]}',
+  [EXTENSIONS_PREFS_KEY]: '{"disabledIds":["example.extension"]}',
   [FOLDER_PREFS_KEY]: '{"custom":[],"disabledBuiltins":["downloads"]}',
   "kavibay:layout-v4": '{"widgets":[]}',
 };
@@ -84,7 +84,7 @@ equal(
   {
     appearance: { fontId: "jakarta", surfaceBlur: 18 },
     developer: { developerExtensionsEnabled: false, wizardAutoEnable: false },
-    extensions: { disabledIds: ["kavibay.tado"] },
+    extensions: { disabledIds: ["example.extension"] },
     folders: { custom: [], disabledBuiltins: ["downloads"] },
   },
   "settings decode into nested objects; state keys are not carried along",

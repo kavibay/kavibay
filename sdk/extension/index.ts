@@ -24,6 +24,7 @@ export type {
 export { createInstanceStore } from "./createInstanceStore";
 export type { InstanceStoreOptions } from "./createInstanceStore";
 export { instanceStorageKey } from "./instanceStorageKey";
+export { holdHostDismiss, hostDismissHeld, hostDismissHolders } from "./hostDismiss";
 export { lazyView, warmLazyViews } from "./lazyView";
 export { useWidgetData } from "./useWidgetData";
 export type { WidgetDataDef } from "./useWidgetData";

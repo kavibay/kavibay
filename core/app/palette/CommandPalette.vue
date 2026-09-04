@@ -143,6 +143,7 @@ import {
   useRuntimeExtensions,
 } from "../runtime/useRuntimeExtensions";
 import type { WidgetInstance } from "../host/types";
+import { GALLERY_WIDGET_ID, WIDGET_WIZARD_ID } from "../host/builtinWidgetIds";
 import type {
   ActionArgs,
   ActionParam,
@@ -2356,17 +2357,17 @@ async function openGallery() {
   query.value = "";
   selectedIndex.value = 0;
   const instances = widgetInstances ?? [];
-  const { smart, targetInstanceId } = resolveTypeSmart("gallery", instances);
+  const { smart, targetInstanceId } = resolveTypeSmart(GALLERY_WIDGET_ID, instances);
   // Gallery mount notifies onboarding step 2 via the host.
   afterPaletteAction();
   await runTypeRow(
     {
       kind: "type",
-      id: "type:gallery",
+      id: `type:${GALLERY_WIDGET_ID}`,
       title: "Widget Gallery",
       subtitle: "",
       keywords: [],
-      typeId: "gallery",
+      typeId: GALLERY_WIDGET_ID,
       smart,
       targetInstanceId,
       canHide: smart === "focus",
@@ -2799,13 +2800,13 @@ function toggleWidgetsOverview() {
  * wizard instance; create one only when this is the first use.
  */
 async function openWidgetWizard() {
-  const current = resolveActionTarget("widget-wizard", widgetInstances ?? []);
+  const current = resolveActionTarget(WIDGET_WIZARD_ID, widgetInstances ?? []);
   if (current.instanceId) {
     await focusWidget?.(current.instanceId);
     afterPaletteAction();
     return;
   }
-  if (await openNewType("widget-wizard")) afterPaletteAction();
+  if (await openNewType(WIDGET_WIZARD_ID)) afterPaletteAction();
 }
 
 /** Switch desk on single click (debounced so double-click can rename). */

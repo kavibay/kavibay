@@ -6,6 +6,8 @@
  *                     that one rule covers both "no core internals" and
  *                     "no cross-extension imports".
  *   sdk/              is MIT and self-contained: no relative import may leave it.
+ *   core/app/         must not reach into extensions/ at all — the plugin system
+ *                     only works while the dependency runs one way.
  *
  * Written as a guard script rather than an ESLint rule because the real rule is an
  * allowlist, and `no-restricted-imports` can only express denylists of globs.
@@ -68,6 +70,32 @@ function importsIn(source) {
   return specifiers;
 }
 
+/**
+ * Files under `core/app/` that still name an extension, pinned so the list can
+ * only shrink.
+ *
+ * The rule this enforces is the one that makes the plugin system a plugin
+ * system: extensions build on core, core knows only `RegisteredExtension`. It
+ * was unchecked until now, and three habits had formed underneath it — a
+ * settings panel per vendor, a default-off roster of ids, and these imports.
+ *
+ * `core/embed/` is deliberately outside the check: the embeddable bundle exists
+ * to ship a hand-picked set of widgets, so naming them is its whole job.
+ */
+const ALLOWED_APP_EXTENSION_IMPORTS = [
+  // The palette shows a live result while you type an expression. Doing this
+  // without the import needs a contribution type for palette results, which
+  // CLAUDE.md puts out of scope for v1 — so it is debt, recorded rather than
+  // hidden.
+  "core/app/palette/CommandPalette.vue",
+  // The Phase 3 dev board mounts a real extension on purpose; it is the harness
+  // for the gate states and ships in no build.
+  "core/app/extension-host-dev/DevBoard.vue",
+  // Asserts two *real* providers against one host, which is the thing under
+  // test — a fixture pair would assert the fixtures.
+  "core/app/extension-host/two-providers.assert.ts",
+];
+
 const posix = (path) => path.split(sep).join("/");
 const problems = [];
 
@@ -102,6 +130,30 @@ for (const entry of readdirSync(join(repoRoot, "extensions"), { withFileTypes: t
 }
 
 check("sdk", "sdk/ is MIT and must stay self-contained: never import core/ or extensions/. Move the helper into sdk/ instead.");
+
+/**
+ * The reverse direction, which the two checks above cannot see: they ask what a
+ * folder reaches out to, and this asks what reaches *in*.
+ */
+for (const file of collect(join(repoRoot, "core", "app"))) {
+  const fileRelative = posix(relative(repoRoot, file));
+  if (ALLOWED_APP_EXTENSION_IMPORTS.includes(fileRelative)) continue;
+
+  for (const specifier of importsIn(readFileSync(file, "utf8"))) {
+    if (!specifier.startsWith(".")) continue;
+    const target = posix(relative(repoRoot, resolve(dirname(file), specifier)));
+    if (!target.startsWith("extensions/")) continue;
+
+    problems.push(
+      `${fileRelative}
+    imports "${specifier}" → ${target}
+    ` +
+        "core/app/ must not name an extension. Read it off RegisteredExtension, " +
+        "let the extension declare the fact in its manifest, or put the shared " +
+        "primitive in sdk/ so both sides depend on it instead of on each other.",
+    );
+  }
+}
 
 if (problems.length > 0) {
   throw new Error(`importBoundaries: ${problems.length} violation(s):\n\n  ${problems.join("\n\n  ")}\n`);

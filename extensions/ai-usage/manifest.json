@@ -8,6 +8,7 @@
   "engines": { "kavibay": "^0.1" },
   "widgets": {
     "ai-usage": {
+      "enabledByDefault": false,
       "keywords": ["ai", "usage", "codex", "claude", "limits"],
       "categories": ["system"],
       "ui": {
