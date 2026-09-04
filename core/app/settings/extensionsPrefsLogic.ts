@@ -8,24 +8,30 @@ export interface ExtensionsPrefs {
 export const EXTENSIONS_PREFS_KEY = "kavibay:extensions-v1";
 
 /**
- * What a profile with no stored record starts from.
+ * What a profile with no stored record starts from, read off the catalog.
  *
- * The list is not "extensions we are unsure about" — everything here works. They
- * are off out of the box because each one is either tied to an account the user
- * has not connected yet or narrow enough that it belongs in the catalog rather
- * than on a fresh desk. A record that exists but names no ids still means "all
- * enabled": only the absence of a record lands here.
+ * This was a literal list of six ids in this file, and the argument for it was
+ * that it is only six. What that cost: `github-actions` sat in it naming an
+ * extension that no longer exists, and nothing in the app could have told
+ * anyone — a disabled-id that matches nothing is indistinguishable from one
+ * that matches something the user turned off. Deriving it means an extension
+ * that is deleted, renamed, or newly shipped default-off is right by
+ * construction, and core stops holding a roster of what happens to be bundled.
+ *
+ * The list is not "extensions we are unsure about" — everything shipped works.
+ * They are off out of the box because each is either tied to an account nobody
+ * has connected yet or narrow enough to belong in the catalog rather than on a
+ * fresh desk. That reason is a fact about the extension, so it is stated in the
+ * extension's manifest.
+ *
+ * A record that exists but names no ids still means "all enabled": only the
+ * absence of a record consults this.
  */
-export const DEFAULT_EXTENSIONS_PREFS: ExtensionsPrefs = {
-  disabledIds: [
-    "calendar",
-    "color-picker",
-    "focus-tracker",
-    "github-actions",
-    "kavibay.ai-usage/ai-usage",
-    "tado",
-  ],
-};
+export function defaultDisabledIds(
+  extensions: readonly { id: string; enabledByDefault?: boolean }[],
+): string[] {
+  return extensions.filter((ext) => ext.enabledByDefault === false).map((ext) => ext.id);
+}
 
 /** Normalize persisted prefs; unknown shape → defaults. */
 export function normalizeExtensionsPrefs(raw: unknown): ExtensionsPrefs {
@@ -37,14 +43,19 @@ export function normalizeExtensionsPrefs(raw: unknown): ExtensionsPrefs {
   return { disabledIds: [...new Set(ids)] };
 }
 
-/** Load extension prefs from localStorage. */
-export function loadExtensionsPrefs(): ExtensionsPrefs {
+/**
+ * Load extension prefs from localStorage, falling back to `defaults`.
+ *
+ * The defaults are passed in rather than imported so this file stays free of
+ * the catalog: it runs under `tsx`, where `import.meta.glob` does not exist.
+ */
+export function loadExtensionsPrefs(defaults: readonly string[]): ExtensionsPrefs {
   try {
     const raw = localStorage.getItem(EXTENSIONS_PREFS_KEY);
-    if (!raw) return { disabledIds: [...DEFAULT_EXTENSIONS_PREFS.disabledIds] };
+    if (!raw) return { disabledIds: [...defaults] };
     return normalizeExtensionsPrefs(JSON.parse(raw) as unknown);
   } catch {
-    return { disabledIds: [...DEFAULT_EXTENSIONS_PREFS.disabledIds] };
+    return { disabledIds: [...defaults] };
   }
 }
 

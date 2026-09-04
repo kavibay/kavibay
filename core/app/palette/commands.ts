@@ -60,12 +60,6 @@ export const commands: Command[] = [
     subtitle: "Settings",
     keywords: ["settings", "api", "keys", "tokens", "integrations"],
   },
-  {
-    id: "open-settings-tado",
-    title: "Tado",
-    subtitle: "Settings",
-    keywords: ["settings", "heating", "thermostat"],
-  },
   // Deliberately not `open-settings-*`: the dispatcher treats that prefix as
   // "open this Settings section", so an id shaped like the others would be
   // routed into the modal with `file` as a section name.

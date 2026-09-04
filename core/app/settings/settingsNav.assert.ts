@@ -38,11 +38,11 @@ assert(
   "labels match fuzzily",
 );
 assert(
-  ids(filterSettingsNav(SETTINGS_NAV_GROUPS, "thermostat")) === "tado",
+  ids(filterSettingsNav(SETTINGS_NAV_GROUPS, "port")) === "mcp",
   "a keyword finds a section its label does not name",
 );
 assert(
-  labels(filterSettingsNav(SETTINGS_NAV_GROUPS, "thermostat")) === "Integrations",
+  labels(filterSettingsNav(SETTINGS_NAV_GROUPS, "port")) === "Integrations",
   "a group with no surviving item drops out with its heading",
 );
 assert(
@@ -50,7 +50,7 @@ assert(
   "a query nothing matches leaves an empty nav",
 );
 assert(
-  !matchesNavEntry({ id: "tado", label: "Tado", keywords: ["heating"] }, "x"),
+  !matchesNavEntry({ id: "mcp", label: "MCP Server", keywords: ["port"] }, "x"),
   "a single stray letter is not a match",
 );
 assert(
@@ -71,8 +71,7 @@ assert(
   "the last entry stays put going down",
 );
 assert(
-  stepNavSelection(filterSettingsNav(SETTINGS_NAV_GROUPS, "thermostat"), "appearance", 1)?.id ===
-    "tado",
+  stepNavSelection(filterSettingsNav(SETTINGS_NAV_GROUPS, "port"), "appearance", 1)?.id === "mcp",
   "a selection outside the results falls to the first result",
 );
 assert(stepNavSelection([], "appearance", 1) === null, "an empty nav has nowhere to step");

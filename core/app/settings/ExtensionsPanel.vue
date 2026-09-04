@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 import KavibaySelect from "@sdk/KavibaySelect.vue";
 import { useExtensionsPrefs } from "./useExtensionsPrefs";
+import ExtensionDetail from "./ExtensionDetail.vue";
 import RuntimeExtensionsPanel from "./RuntimeExtensionsPanel.vue";
 import {
   ALL_CATEGORIES,
@@ -13,8 +14,20 @@ const { allExtensions, isEnabled, setEnabled } = useExtensionsPrefs();
 const query = ref("");
 const selectedCategory = ref(ALL_CATEGORIES);
 
+/**
+ * The row the pane is opened on, if any. An id rather than the object so the
+ * detail keeps following the catalog when it reloads underneath — and so the
+ * filters behind it survive a trip into a row and back.
+ */
+const openedId = ref<string | null>(null);
+
 const extensions = computed(() => allExtensions());
 const categories = computed(() => extensionCategories(extensions.value));
+
+/** Null whenever nothing is open, or the open row is no longer in the catalog. */
+const opened = computed(
+  () => extensions.value.find((ext) => ext.id === openedId.value) ?? null,
+);
 
 /** Catalog filtered by a text query and one manifest category. */
 const rows = computed(() =>
@@ -34,7 +47,16 @@ function onToggle(typeId: string, e: Event) {
 </script>
 
 <template>
-  <div class="extensions">
+  <div v-if="opened" class="extensions">
+    <ExtensionDetail
+      :extension="opened"
+      :enabled="isEnabled(opened.id)"
+      @back="openedId = null"
+      @update:enabled="setEnabled(opened.id, $event)"
+    />
+  </div>
+
+  <div v-else class="extensions">
     <header class="extensions-head">
       <h2 class="extensions-title">Extensions</h2>
       <p class="extensions-lead">
@@ -72,23 +94,25 @@ function onToggle(typeId: string, e: Event) {
           :class="{ 'extensions-row--off': !isEnabled(ext.id) }"
           role="listitem"
         >
-          <component
-            :is="ext.iconComponent"
-            v-if="ext.iconComponent"
-            class="extensions-icon"
-            :size="18"
-          />
-          <span
-            v-else-if="ext.iconUrl"
-            class="extensions-icon-mask"
-            :style="{ '--ext-icon': `url(${JSON.stringify(ext.iconUrl)})` }"
-            aria-hidden="true"
-          />
-          <span class="extensions-row-text">
-            <span class="extensions-row-title">{{ ext.title }}</span>
-            <span class="extensions-row-hint">{{ ext.description }}</span>
-            <span class="extensions-row-meta">By {{ ext.author }} · v{{ ext.version }}</span>
-          </span>
+          <button type="button" class="extensions-row-open" @click="openedId = ext.id">
+            <component
+              :is="ext.iconComponent"
+              v-if="ext.iconComponent"
+              class="extensions-icon"
+              :size="18"
+            />
+            <span
+              v-else-if="ext.iconUrl"
+              class="extensions-icon-mask"
+              :style="{ '--ext-icon': `url(${JSON.stringify(ext.iconUrl)})` }"
+              aria-hidden="true"
+            />
+            <span class="extensions-row-text">
+              <span class="extensions-row-title">{{ ext.title }}</span>
+              <span class="extensions-row-hint">{{ ext.description }}</span>
+              <span class="extensions-row-meta">By {{ ext.author }} · v{{ ext.version }}</span>
+            </span>
+          </button>
           <label class="switch" v-tip="isEnabled(ext.id) ? 'Enabled' : 'Disabled'">
             <input
               type="checkbox"
@@ -191,6 +215,29 @@ function onToggle(typeId: string, e: Event) {
   padding: 12px 14px;
   border-radius: 14px;
   background: rgba(var(--fg-rgb), 0.04);
+}
+
+/* The row opens; the switch does not. Two controls, so the toggle keeps
+   working without also navigating away from the list it lives in. */
+.extensions-row-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.extensions-row-open:focus-visible {
+  outline: 2px solid rgba(var(--fg-rgb), 0.55);
+  outline-offset: 4px;
+  border-radius: 8px;
 }
 
 .extensions-row:hover {

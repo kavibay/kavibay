@@ -131,6 +131,15 @@ for (const folder of folders) {
           seenReplaces.set(entry.replaces, `extensions/${folder}`);
         }
       }
+      /**
+       * The catalog's fresh-profile default. Checked here because the value is
+       * read once at first boot and never again: a `"false"` string would be
+       * truthy, ship an extension enabled that was meant to be off, and leave
+       * no trace once the profile has a stored record.
+       */
+      if (entry.enabledByDefault !== undefined && typeof entry.enabledByDefault !== "boolean") {
+        at(`manifest.widgets["${name}"].enabledByDefault must be a boolean (omit it for the "on" default)`);
+      }
       const ui = entry.ui ?? {};
       const pair = (value, keys) =>
         value === undefined ||

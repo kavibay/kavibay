@@ -6,6 +6,7 @@ import CockpitWidgetSettings from "../extension-host/ui/CockpitWidgetSettings.vu
 import { extensionHost, packageDefinitionId } from "../extension-host/cockpit";
 import type { HostExtensionRef } from "../runtime/runtimeTypes";
 import type { WidgetInstance, WidgetProps } from "./types";
+import { isGalleryWidget } from "./builtinWidgetIds";
 import { useWidgetData } from "@sdk/useWidgetData";
 import WidgetCard from "./WidgetCard.vue";
 
@@ -119,7 +120,7 @@ const hugHeight = computed(() => props.def.hugHeight === true);
     :full-drag="Boolean(def.fullDrag)"
     :opaque="Boolean(def.opaque)"
     :multi-desk-remove="Boolean(multiDeskRemove)"
-    :coach-targets="instance.typeId !== 'gallery'"
+    :coach-targets="!isGalleryWidget(instance.typeId)"
     data-interactive
     @rename="$emit('rename', $event)"
     @update:hide-title="$emit('update:hideTitle', $event)"

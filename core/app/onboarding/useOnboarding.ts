@@ -1,5 +1,6 @@
 import { computed, type ComputedRef } from "vue";
 import { kavibayCockpitOpen } from "../host/cockpitSession";
+import { isGalleryWidget } from "../host/builtinWidgetIds";
 import {
   advanceStep,
   defaultActiveState,
@@ -36,6 +37,19 @@ function advanceIfStep(step: OnboardingStep) {
 /**
  * App-wide guided onboarding state and event hooks.
  * Callers pass palette/gallery/widget events in; no DOM here.
+ *
+ * EVERY WIDGET EVENT CARRIES ITS TYPE ID, AND THE FILTERING HAPPENS HERE.
+ *
+ * The tour teaches by having the user act on a widget they added *from* the
+ * gallery, so the gallery's own move/resize/pin/hide/remove events must not
+ * advance it. That used to be `if (typeId !== "gallery")` at nine call sites in
+ * the host — the same rule restated once per event, with the widget's name
+ * spelled into a file that has no other business knowing it, and nothing
+ * connecting the nine to each other. A caller that forgot the guard would have
+ * advanced the tour on the wrong action, silently.
+ *
+ * The host now reports what happened and to which type; which of those count is
+ * this module's judgement, made once.
  */
 export function useOnboarding() {
   const activeStep: ComputedRef<OnboardingStep | null> = computed(() => {
@@ -93,32 +107,47 @@ export function useOnboarding() {
     advanceIfStep(3);
   }
 
-  /** Step 4: user added a non-gallery widget from the gallery. */
+  /**
+   * A widget was added: step 3 when it is the gallery itself appearing, step 4
+   * for anything the user then added from it.
+   */
   function notifyWidgetAdded(typeId: string) {
-    if (typeId === "gallery") return;
+    if (isGalleryWidget(typeId)) {
+      notifyGalleryVisible();
+      return;
+    }
     advanceIfStep(4);
   }
 
-  /** Step 5: user dragged a non-gallery widget. */
-  function notifyWidgetMoved() {
+  /** A widget became visible again; only the gallery's own return is a step. */
+  function notifyWidgetVisible(typeId: string) {
+    if (isGalleryWidget(typeId)) notifyGalleryVisible();
+  }
+
+  /** Step 5: user dragged a widget. */
+  function notifyWidgetMoved(typeId: string) {
+    if (isGalleryWidget(typeId)) return;
     advanceIfStep(5);
   }
 
-  /** Step 6: user resized a non-gallery widget. */
-  function notifyWidgetResized() {
+  /** Step 6: user resized a widget. */
+  function notifyWidgetResized(typeId: string) {
+    if (isGalleryWidget(typeId)) return;
     advanceIfStep(6);
   }
 
-  /** Step 7: user toggled pin on a non-gallery widget. */
-  function notifyPinToggled() {
+  /** Step 7: user toggled pin on a widget. */
+  function notifyPinToggled(typeId: string) {
+    if (isGalleryWidget(typeId)) return;
     advanceIfStep(7);
   }
 
   /**
-   * Step 8: user hid a non-gallery widget (data kept).
+   * Step 8: user hid a widget (data kept).
    * `displayName` is remembered for the restore-step copy.
    */
-  function notifyWidgetHidden(displayName: string) {
+  function notifyWidgetHidden(typeId: string, displayName: string) {
+    if (isGalleryWidget(typeId)) return;
     const s = onboardingState.value;
     if (s?.status === "active" && s.step === 8) {
       const trimmed = displayName.trim();
@@ -128,13 +157,15 @@ export function useOnboarding() {
     }
   }
 
-  /** Step 9: user revealed a soft-hidden non-gallery widget. */
-  function notifyWidgetRestored() {
+  /** Step 9: user revealed a soft-hidden widget. */
+  function notifyWidgetRestored(typeId: string) {
+    if (isGalleryWidget(typeId)) return;
     advanceIfStep(9);
   }
 
-  /** Step 10: user removed a non-gallery widget (data deleted). */
-  function notifyWidgetRemoved() {
+  /** Step 10: user removed a widget (data deleted). */
+  function notifyWidgetRemoved(typeId: string | undefined) {
+    if (!typeId || isGalleryWidget(typeId)) return;
     advanceIfStep(10);
   }
 
@@ -204,6 +235,7 @@ export function useOnboarding() {
     notifyPaletteQuery,
     notifyGalleryVisible,
     notifyWidgetAdded,
+    notifyWidgetVisible,
     notifyWidgetMoved,
     notifyWidgetResized,
     notifyPinToggled,

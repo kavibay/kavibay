@@ -6,6 +6,7 @@ import {
   type ColorPickerSample,
   type WidgetContext,
 } from "@sdk/contract/sdk";
+import { holdHostDismiss } from "@sdk";
 import {
   DEFAULT_RGB,
   formatHslCss,
@@ -14,7 +15,6 @@ import {
   rgbToHsl,
   type Rgb,
 } from "../colorPickerLogic";
-import { colorPickerPicking } from "../colorPickerSession";
 
 export interface ColorPickerModel {
   fixed: Ref<Rgb>;
@@ -57,9 +57,20 @@ export const colorPickerWidget = defineWidget({
       const hslCss = computed(() => formatHslCss(rgbToHsl(display.value)));
       const swatchStyle = computed(() => ({ background: hex.value }));
 
+      /**
+       * Escape has to cancel the pick and a click anywhere *is* the pick, so the
+       * host's own Escape-hides-window and click-outside-dismisses stand down
+       * for as long as this instance is picking. Held per instance: a second
+       * picker on screen keeps its own claim.
+       */
+      let releaseHostDismiss: (() => void) | undefined;
       const setPicking = (active: boolean) => {
         picking.value = active;
-        colorPickerPicking.value = active;
+        if (active) releaseHostDismiss ??= holdHostDismiss("color-picker");
+        else {
+          releaseHostDismiss?.();
+          releaseHostDismiss = undefined;
+        }
       };
 
       const stopListening = () => {
@@ -128,7 +139,8 @@ export const colorPickerWidget = defineWidget({
         session++;
         stopListening();
         if (picking.value) void ctx.colorPicker?.stop();
-        colorPickerPicking.value = false;
+        releaseHostDismiss?.();
+        releaseHostDismiss = undefined;
         if (copiedTimer) clearTimeout(copiedTimer);
       });
 

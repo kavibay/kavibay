@@ -7,7 +7,10 @@
   "engines": { "kavibay": "^0.1" },
   "widgets": {
     "tile": {
-      "replaces": "tado"
+      "enabledByDefault": false,
+      "replaces": "tado",
+      "keywords": ["tado", "heating", "thermostat", "temperature", "climate", "room", "heizung"],
+      "categories": ["information"]
     }
   }
 }

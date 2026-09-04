@@ -371,6 +371,21 @@ export interface RegisteredExtension {
   categories: string[];
   /** Whether this extension owns a widget card and belongs in widget catalogs. */
   isWidget: boolean;
+  /**
+   * Off on a fresh profile. Absent means on, which is what nearly every
+   * extension wants and therefore what a manifest should not have to say.
+   *
+   * This is not "we are unsure about it" — everything shipped works. It marks
+   * the ones tied to an account nobody has connected yet, or narrow enough to
+   * belong in the catalog rather than on a first-run desk. It lives here
+   * because the alternative was a list of ids in core, and that list had
+   * already drifted: it still named `github-actions`, an extension that no
+   * longer exists, and nothing could have noticed.
+   *
+   * Only the *default* — once a profile has a stored record, that record wins
+   * and this is never consulted again.
+   */
+  enabledByDefault?: boolean;
   /** Manifest-relative icon path (e.g. icon.svg). */
   icon?: string;
   /** Inline icon component from the module; wins over `iconUrl` when present. */

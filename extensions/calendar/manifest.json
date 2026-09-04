@@ -8,6 +8,7 @@
   "engines": { "kavibay": "^0.1" },
   "widgets": {
     "calendar": {
+      "enabledByDefault": false,
       "replaces": "calendar",
       "keywords": ["calendar", "google", "events", "agenda", "termine"],
       "categories": ["information"],

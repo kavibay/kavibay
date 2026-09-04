@@ -33,6 +33,8 @@ import { isSafeExtensionIconPath } from "../extensions/extensionIcon";
 export interface ContractCatalogMetadata {
   keywords?: string[];
   categories?: string[];
+  /** Off on a fresh profile; absent means on. See `RegisteredExtension`. */
+  enabledByDefault?: boolean;
   position?: { x: number; y: number };
   defaultSize?: { w: number; h: number };
   allowDuplicate?: boolean;
@@ -159,6 +161,9 @@ function toCatalogMetadata(entry: Record<string, unknown>): ContractCatalogMetad
   return {
     keywords: asStrings(entry.keywords),
     categories: asStrings(entry.categories),
+    // A catalog fact, not a geometry one, so it sits beside keywords rather
+    // than under `ui`.
+    enabledByDefault: asBool(entry.enabledByDefault),
     position: asPoint(ui.defaultOffset),
     defaultSize: asSize(ui.defaultSize),
     allowDuplicate: asBool(ui.allowDuplicate),

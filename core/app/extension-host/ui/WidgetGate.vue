@@ -5,6 +5,7 @@ import type { Host } from "../runtime";
 import type { JsonBridge } from "../bridge";
 import { useWidgetRuntime } from "../useWidgetRuntime";
 import { widgetViews } from "../widgetViews";
+import { loadConfigOptions } from "../configOptions";
 import BrokenWidget from "./BrokenWidget.vue";
 import ConnectPrompt from "./ConnectPrompt.vue";
 import ConfigForm from "./ConfigForm.vue";
@@ -58,21 +59,8 @@ const providerName = computed(() => {
 
 const view = computed(() => widgetViews[props.instance.definitionId]);
 
-/**
- * Provider-backed `select` options. `allowed = null` marks this as a
- * runtime-initiated read: the widget never asked for it and its own permission
- * list must not gate the settings form the runtime is drawing.
- */
-async function loadOptions(field: ConfigField) {
-  if (!field.source) return [];
-  const rows = await props.host.query<{ id: string | number; name?: string }[]>(
-    field.source.provider,
-    field.source.query,
-    {},
-    null,
-  );
-  return rows.map((r) => ({ value: r.id, label: r.name ?? String(r.id) }));
-}
+/** Provider-backed `select` options, resolved against this gate's own host. */
+const loadOptions = (field: ConfigField) => loadConfigOptions(props.host, field);
 
 function save(values: Record<string, unknown>) {
   Object.assign(props.instance.configuration as object, values);

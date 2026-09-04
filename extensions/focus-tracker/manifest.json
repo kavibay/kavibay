@@ -8,6 +8,7 @@
   "engines": { "kavibay": "^0.1" },
   "widgets": {
     "focus-tracker": {
+      "enabledByDefault": false,
       "replaces": "focus-tracker",
       "keywords": ["focus", "tracker", "time", "habits", "productivity", "usage"],
       "categories": ["productivity"],
