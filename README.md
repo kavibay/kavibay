@@ -2,7 +2,7 @@
 
 # Kavibay
 
-**A launcher and a desk of floating widgets, living on top of your wallpaper.**
+**An open-source app launcher and widget workspace, always one keystroke away. Build your own widgets with AI.**
 
 [Website](https://kavibay.com/) ·
 [Docs](docs/README.md) ·
