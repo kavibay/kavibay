@@ -637,9 +637,9 @@ fn wide_to_string(buf: &[u16]) -> String {
 #[cfg(windows)]
 fn rgba_to_png_data_url(width: u32, height: u32, mut pixels: Vec<u8>) -> Result<String, String> {
     // Older/legacy icons without alpha: treat non-black pixels as opaque.
-    let fully_transparent = pixels.chunks_exact(4).all(|p| p[3] == 0);
+    let fully_transparent = pixels.as_chunks::<4>().0.iter().all(|p| p[3] == 0);
     if fully_transparent {
-        for chunk in pixels.chunks_exact_mut(4) {
+        for chunk in pixels.as_chunks_mut::<4>().0 {
             if chunk[0] != 0 || chunk[1] != 0 || chunk[2] != 0 {
                 chunk[3] = 255;
             }
@@ -741,7 +741,7 @@ pub(crate) fn hicon_to_png_data_url(
         }
 
         // BGRA → RGBA
-        for chunk in pixels.chunks_exact_mut(4) {
+        for chunk in pixels.as_chunks_mut::<4>().0 {
             chunk.swap(0, 2);
         }
 
@@ -822,7 +822,7 @@ fn hbitmap_to_png_data_url(hbmp: windows::Win32::Graphics::Gdi::HBITMAP) -> Resu
             return Err("GetDIBits failed".into());
         }
 
-        for chunk in pixels.chunks_exact_mut(4) {
+        for chunk in pixels.as_chunks_mut::<4>().0 {
             chunk.swap(0, 2);
         }
 
