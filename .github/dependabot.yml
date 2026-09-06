@@ -7,6 +7,13 @@ updates:
     directory: /
     schedule: { interval: weekly }
     open-pull-requests-limit: 3
+    # typescript 7 removed baseUrl and dropped the lib/tsc entry point, which
+    # vue-tsc resolves and typescript-eslint still caps below 6.1. A major bump
+    # here is a migration, not a dependency update, so it must not arrive as one.
+    # Drop this once both declare TypeScript 7.
+    ignore:
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
     commit-message: { prefix: chore, include: scope }
     groups:
       npm:
