@@ -144,7 +144,7 @@ export function duplicateOnePurposeData(key: string, value: unknown): unknown {
 
 export const onePurposeLlmWidget = defineWidget<Record<string, never>>({
   name: "one-purpose-llm",
-  displayName: "Single Purpose LLM",
+  displayName: "Single Purpose AI",
   description: "Run a focused writing task with a provider-neutral LLM.",
   defaultSize: { w: 5.3, h: 4.7 },
   minSize: { w: 2.2, h: 2.9 },

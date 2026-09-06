@@ -128,7 +128,7 @@ host owns the beep, focus, and reveal. Snake may use the HTTPS-only
 `ctx.openExternal.open()` surface, and Snippets may use
 `ctx.clipboard.writeText()`; neither exposes an arbitrary host command. Polling,
 scheduling, and teardown remain the widget's `setup()`/`onScopeDispose`
-responsibility. Single Purpose LLM may additionally use `ctx.llm.models()`,
+responsibility. Single Purpose AI may additionally use `ctx.llm.models()`,
 `ctx.llm.stream()` and `ctx.llm.cancel()`; the host keeps the model catalog,
 provider selection and credentials behind that fixed streaming surface. The
 Widget Wizard uses `ctx.wizard` for its fixed authoring, conversation, draft,

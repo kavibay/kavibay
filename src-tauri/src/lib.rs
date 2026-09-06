@@ -422,29 +422,12 @@ pub fn run() {
             } else {
                 None
             }));
-            let quick_shortcut_text = quick_action::configured_shortcut(app.handle());
-            let quick_shortcut: tauri_plugin_global_shortcut::Shortcut =
-                quick_shortcut_text.parse().unwrap_or_else(|_| {
-                    quick_action::DEFAULT_SHORTCUT
-                        .parse()
-                        .expect("default shortcut")
-                });
             // Quick actions on selected text, anywhere. A failure here must not
             // take the app down with it: another program may already own the
-            // combination, and everything else still works without it.
-            let registered_quick_shortcut = match app.global_shortcut().register(quick_shortcut) {
-                Ok(()) => {
-                    println!("[shortcut] {quick_shortcut_text} (quick actions) registered");
-                    Some(quick_shortcut)
-                }
-                Err(error) => {
-                    eprintln!("[shortcut] {quick_shortcut_text} (quick actions) unavailable: {error}");
-                    None
-                }
-            };
-            app.manage(quick_action::QuickActionShortcut::new(
-                registered_quick_shortcut,
-            ));
+            // combination, and everything else still works without it. Owns its
+            // own managed state, because a lost registration is retried in the
+            // background and the state has to follow.
+            quick_action::register_shortcut(app.handle());
             app.manage(quick_action::QuickActionShortcutCapture::default());
 
             // Shared click-through state: written by commands and read by the polling thread.

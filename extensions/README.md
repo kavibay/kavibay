@@ -46,7 +46,7 @@ as a starting point.
 | Focus Tracker | `focus-tracker` | Day/week/month focus time per app or window title, with habit limits. | L | Tracks the foreground window; habit rules live in settings |
 | Moodist | `moodist` | Mix looping ambient sounds for focused work. | S | Vendored sounds — see [`moodist/LICENSES.md`](moodist/LICENSES.md) |
 | Notes | `notes` | Sticky notes with rich text. | M | tiptap editor, context menu |
-| Single Purpose LLM | `one-purpose-llm` | Pick a purpose (translate, fix grammar), tweak its prompt, run it. | L | Needs an **Anthropic**, **OpenAI** or **Cloudflare Workers AI** credential; streams |
+| Single Purpose AI | `one-purpose-llm` | Pick a purpose (translate, fix grammar), tweak its prompt, run it. | L | Needs an **Anthropic**, **OpenAI** or **Cloudflare Workers AI** credential; streams |
 | Pomodoro | `pomodoro` | Focus timer with work and break sessions. | M | Keeps ticking while the desk is hidden (no `onSuspend`) |
 | Snippets | `snippets` | Fill `{placeholder}` templates and copy the result. | S | Palette action; widget edits the shared library |
 | Stopwatch | `stopwatch` | Count-up stopwatch. | S | |
@@ -107,9 +107,9 @@ learns *whether* it is connected.
 
 | Credential type | Used by | Obtained via |
 |-----------------|---------|--------------|
-| `anthropicApi` | Single Purpose LLM, Widget Wizard | API key, entered in settings |
-| `openaiApi` | Single Purpose LLM, Widget Wizard | API key, entered in settings |
-| `cloudflareWorkersAi` | Single Purpose LLM | Account ID + API token, entered in settings |
+| `anthropicApi` | Single Purpose AI, Widget Wizard | API key, entered in settings |
+| `openaiApi` | Single Purpose AI, Widget Wizard | API key, entered in settings |
+| `cloudflareWorkersAi` | Single Purpose AI | Account ID + API token, entered in settings |
 | `googleCalendarOAuth2` | Calendar | OAuth flow from the widget's auth panel |
 | `githubPat` | GitHub Actions | Personal access token, entered in settings |
 | `tadoOAuth2` | Tado | Device-code OAuth flow |
