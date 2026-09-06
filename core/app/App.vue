@@ -6,6 +6,7 @@ import CommandPalette from "./palette/CommandPalette.vue";
 import WidgetHost from "./host/WidgetHost.vue";
 import ExtensionAboutModal from "./extensions/ExtensionAboutModal.vue";
 import OnboardingCoach from "./onboarding/OnboardingCoach.vue";
+import OnboardingSetup from "./onboarding/OnboardingSetup.vue";
 import SettingsModal from "./settings/SettingsModal.vue";
 import { useSettingsModal } from "./settings/useSettingsModal";
 import { useRegionSync } from "./system/clickThrough";
@@ -48,6 +49,7 @@ onUnmounted(() => {
         <SettingsModal />
         <ExtensionAboutModal />
         <OnboardingCoach />
+        <OnboardingSetup />
       </template>
     </WidgetHost>
   </div>

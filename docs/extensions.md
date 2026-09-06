@@ -80,7 +80,32 @@ Every first-party extension declares `ui.defaultSize: { w, h }` in `manifest.jso
 | `defaultHideTitle` | `false` | `true` opens without the title bar — the context menu still brings it back |
 | `defaultScale` | `1` | Content zoom, the same factor **Ctrl + mousewheel** writes. Clamped to `0.5`…`3`; out-of-range values clamp rather than fail the load |
 
-One more field is not per-instance, because it is not a starting state:
+Two more fields are not per-instance, because they are not starting states.
+
+`starter` sits beside `keywords` rather than under `ui` — it says which desk a
+widget belongs on, not where on it:
+
+| Field | Default | Effect |
+|-------|---------|--------|
+| `starter` | absent | A number places this widget on the desk the **very first** time Kavibay is opened, lowest first. Absent means no. |
+
+It exists so core does not have to hold a list of extension ids — the same
+reason `enabledByDefault` is a manifest field. An empty desk on a first run
+hides the entire product behind "go and find something", so two or three cards
+are already there; `core/app/host/starterDesk.ts` sorts the claims and caps how
+many land.
+
+**A claim is a request, not a grant.** A widget that would open behind a gate is
+dropped from the first desk however low its number: one that names a provider
+opens as a connect prompt, and one with a `required` configuration field opens
+as a form. Both are chores wearing a card, and the first thing somebody sees
+must not be a chore. `weather` is the cautionary case — no provider, an obvious
+first card, and a required Location field. Nothing failed; the first run just
+greeted new users with an empty form. So do not reach for `starter` unless your
+widget shows something the moment it mounts, and know that adding a required
+field later removes it from the first desk silently and on purpose.
+
+And the last one:
 
 | Field | Default | Effect |
 |-------|---------|--------|

@@ -8,11 +8,12 @@
   "engines": { "kavibay": "^0.1" },
   "widgets": {
     "clock": {
+      "starter": 1,
       "replaces": "clock",
       "keywords": ["clock", "time", "uhr"],
       "categories": ["productivity"],
       "ui": {
-        "defaultOffset": { "x": 480, "y": -70 },
+        "defaultOffset": { "x": 866, "y": 0 },
         "defaultSize": { "w": 200, "h": 120 }
       }
     }

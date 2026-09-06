@@ -6,6 +6,7 @@ import {
   type OpenMonitor,
   type WidgetLayoutMode,
 } from "./appearanceLogic";
+import { useAutostart } from "../onboarding/useAutostart";
 import { useOnboarding } from "../onboarding/useOnboarding";
 import { useAppearance } from "./useAppearance";
 import { useDeveloperPrefs } from "./useDeveloperPrefs";
@@ -27,8 +28,26 @@ const {
   setWizardAutoEnable,
 } = useDeveloperPrefs();
 
+const {
+  enabled: autostartEnabled,
+  supported: autostartSupported,
+  error: autostartError,
+  setEnabled: setAutostartEnabled,
+} = useAutostart();
+
 const { replay, continueTour } = useOnboarding();
 const { hide: hideSettings } = useSettingsModal();
+
+/**
+ * Create or remove the autostart entry.
+ *
+ * Unlike its neighbours this does not persist a value — the registry entry (or
+ * the `.desktop` file) *is* the value, and the switch follows what the host
+ * reports rather than what was clicked. See `useAutostart`.
+ */
+function onAutostart(e: Event) {
+  void setAutostartEnabled((e.target as HTMLInputElement).checked);
+}
 
 /** Toggle hide-on-outside-click and persist. */
 function onHideOutside(e: Event) {
@@ -70,6 +89,25 @@ function onReplayOnboarding() {
       <h2 class="behavior-title">Behavior</h2>
       <p class="behavior-lead">How the cockpit reacts to interaction.</p>
     </header>
+
+    <section v-if="autostartSupported" class="behavior-block">
+      <h3 class="behavior-block-title">Startup</h3>
+      <label class="toggle">
+        <span class="toggle-copy">
+          <span class="toggle-title">Start Kavibay when I log in</span>
+          <span class="toggle-hint">
+            Waits in the tray, out of the way, until you tap Ctrl twice
+          </span>
+        </span>
+        <span class="switch">
+          <input type="checkbox" :checked="autostartEnabled" @change="onAutostart" />
+          <span class="switch-ui" />
+        </span>
+      </label>
+      <p v-if="autostartError" class="behavior-warn">
+        Could not change the startup entry: {{ autostartError }}
+      </p>
+    </section>
 
     <section class="behavior-block">
       <h3 class="behavior-block-title">Cockpit</h3>
@@ -520,6 +558,13 @@ function onReplayOnboarding() {
 
 .displays--activeWindow .display:nth-child(2) .display-window {
   display: block;
+}
+
+.behavior-warn {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(240, 170, 90, 0.95);
 }
 
 .behavior-action {

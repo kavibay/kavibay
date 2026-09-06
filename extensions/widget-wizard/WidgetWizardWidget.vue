@@ -131,6 +131,8 @@ import {
   moveProject,
   dropProject,
   splitProviderMentions,
+  wizardPlatforms,
+  wizardHasAnyKey,
   type MentionSegment,
 } from "./widgetWizardLogic";
 
@@ -1708,6 +1710,23 @@ async function applyFile() {
 const activeModel = computed(() =>
   models.value.find((model) => model.id === session.value.model),
 );
+
+/**
+ * The platforms this build can author on, and whether any of them is connected.
+ *
+ * Asked before the conversation invites anybody to describe anything. Inviting
+ * first and mentioning the missing key in a caption above the transcript put
+ * the requirement where it reads as a footnote — somebody typed a widget
+ * description, pressed send, and only then found out that the whole thing needs
+ * an account somewhere else.
+ */
+const platforms = computed(() => wizardPlatforms(models.value));
+const hasAnyKey = computed(() => wizardHasAnyKey(models.value));
+
+/** Open Settings on the credential card for one platform. */
+function openPlatformSettings(platform: { credentialType: string }): void {
+  wizard.openSettings("credentials", platform.credentialType);
+}
 
 /**
  * The effort levels this model takes, or none.
@@ -4143,7 +4162,11 @@ async function enablePackage(
         Draft validation: {{ describeDraftError(session.draftError) }}
       </p>
 
-      <p v-if="activeModel && !activeModel.configured" class="wiz-setup">
+      <!--
+        Still shown when *some* platform has a key but the picked model's does
+        not — the gate below only covers having no key at all.
+      -->
+      <p v-if="hasAnyKey && activeModel && !activeModel.configured" class="wiz-setup">
         No API key for {{ activeModel.label }} yet.
         <button type="button" class="wiz-link" @click="wizard.openSettings('credentials')">
           Open Settings
@@ -4337,7 +4360,35 @@ async function enablePackage(
         class="wiz-transcript"
         :class="{ 'wiz-transcript--empty': !session.bubbles.length }"
       >
-        <p v-if="!session.bubbles.length" class="wiz-hint">
+        <!--
+          Two empty states, and which one shows is the point: an unconfigured
+          Wizard cannot do the thing the other one invites. Naming the platforms
+          here rather than in Settings means the requirement and the way to
+          satisfy it arrive together.
+        -->
+        <div v-if="!session.bubbles.length && !hasAnyKey" class="wiz-keygate">
+          <p class="wiz-keygate-title">The Wizard writes widgets with an AI model</p>
+          <p class="wiz-keygate-lead">
+            That runs on your own account, so it needs an API key from one of
+            these. Pick a platform to add its key — you only do this once.
+          </p>
+          <ul class="wiz-keygate-list">
+            <li v-for="platform in platforms" :key="platform.id">
+              <button type="button" class="wiz-keygate-option" @click="openPlatformSettings(platform)">
+                <span class="wiz-keygate-name">
+                  {{ platform.label }}
+                  <span v-if="platform.recommended" class="wiz-keygate-tag">recommended</span>
+                </span>
+                <span class="wiz-keygate-sub">
+                  {{ platform.modelCount }}
+                  {{ platform.modelCount === 1 ? "model" : "models" }}
+                  <template v-if="platform.configured"> · key added</template>
+                </span>
+              </button>
+            </li>
+          </ul>
+        </div>
+        <p v-else-if="!session.bubbles.length" class="wiz-hint">
           Describe a widget — for example: “a tracker for how much water I drink today”.
         </p>
         <!--
@@ -5598,6 +5649,81 @@ async function enablePackage(
    */
   user-select: text;
   cursor: text;
+}
+
+/* The requirement, not a caption on it: this replaces the invitation rather
+   than sitting above it, so it gets the width and the weight of one. */
+.wiz-keygate {
+  max-width: 420px;
+  margin: auto;
+  padding: 4px;
+}
+
+.wiz-keygate-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(var(--fg-rgb), 0.95);
+}
+
+.wiz-keygate-lead {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(var(--fg-rgb), 0.55);
+}
+
+.wiz-keygate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wiz-keygate-option {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 13px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: rgba(var(--fg-rgb), 0.05);
+  color: rgba(var(--fg-rgb), 0.92);
+  cursor: pointer;
+  text-align: left;
+}
+
+.wiz-keygate-option:hover,
+.wiz-keygate-option:focus-visible {
+  background: rgba(var(--fg-rgb), 0.1);
+  outline: none;
+}
+
+.wiz-keygate-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wiz-keygate-tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.12);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: rgba(var(--fg-rgb), 0.6);
+}
+
+.wiz-keygate-sub {
+  font-size: 11px;
+  color: rgba(var(--fg-rgb), 0.45);
 }
 
 .wiz-hint {

@@ -43,19 +43,31 @@ export const onboardingState: Ref<OnboardingState | null> = ref(
 /** Becomes true once AppData has won over the WebView cache. */
 export const onboardingHydrated = ref(!hasTauri());
 
-/** Migrate an existing WebView value once; later starts read the durable copy. */
+/**
+ * Migrate an existing WebView value once; later starts read the durable copy.
+ *
+ * `onboarding.json` predates the general durable mirror and predates the step
+ * renumbering, and those two facts fight each other: the file holds a step
+ * number written under an older numbering, and writing it into today's key
+ * unchanged is exactly what moving the key to v3 was meant to prevent. A stored
+ * `active` step from back then would resume on whichever lesson now happens to
+ * carry that number — silently, and only for someone mid-tour across an update.
+ *
+ * So only the part that survives renumbering is taken: whether the tour is
+ * done. A half-finished older run is recorded as finished rather than resumed
+ * on the wrong lesson, which is the lesser of the two wrongs — the alternative
+ * is teaching somebody `resize` while the arrow points at the pin button.
+ */
 export const onboardingReady: Promise<void> = hasTauri()
   ? invoke<string | null>("onboarding_preferences_load")
       .then((raw) => {
         if (raw) {
           const loaded = parseOnboardingState(raw);
           if (loaded) {
-            onboardingState.value = loaded;
-            try {
-              localStorage.setItem(ONBOARDING_STORAGE_KEY, raw);
-            } catch {
-              // The AppData value remains authoritative.
-            }
+            const migrated: OnboardingState =
+              loaded.status === "completed" ? loaded : { status: "completed", step: loaded.step };
+            onboardingState.value = migrated;
+            writeState(migrated);
           }
         } else if (onboardingState.value) {
           writeState(onboardingState.value);
