@@ -432,7 +432,6 @@ const kavibayAlsoOnDeskRows = inject<
 >("kavibayAlsoOnDeskRows");
 const kavibayPlaceOnActiveDesk = inject<(instanceId: string) => void>("kavibayPlaceOnActiveDesk");
 
-const deskTabsEl = ref<HTMLElement | null>(null);
 const deskCtxEl = ref<HTMLElement | null>(null);
 const resultsPanelEl = ref<HTMLElement | null>(null);
 const listShellEl = ref<HTMLElement | null>(null);
@@ -3449,7 +3448,7 @@ onUnmounted(() => {
           </button>
         </div>
       </div>
-      <div v-if="kavibayDesks" ref="deskTabsEl" class="palette-statusbar-center">
+      <div v-if="kavibayDesks" class="palette-statusbar-center">
         <div class="palette-desk-tab-group">
           <button
             v-for="desk in kavibayDesks"

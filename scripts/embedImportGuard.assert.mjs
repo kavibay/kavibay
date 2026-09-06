@@ -143,7 +143,6 @@ function isRefused(filePath, fromFile) {
    */
   if (rel === "core/app/extensions/loadExtensions.ts") return "loadExtensions.ts reaches cockpit.ts, and through it the catalog magnet";
   if (rel === "core/app/palette/paletteResults.ts") return "paletteResults.ts expects catalog rows and reaches the registry";
-  const from = posix(relative(repoRoot, fromFile));
   if (isSiteFile(filePath) && !isSiteFile(fromFile)) {
     return "the embed package must not import from the public site";
   }
