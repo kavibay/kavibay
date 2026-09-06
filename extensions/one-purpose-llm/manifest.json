@@ -2,7 +2,7 @@
   "format": "contract",
   "name": "one-purpose-llm",
   "version": "1.0.0",
-  "displayName": "Single Purpose LLM",
+  "displayName": "Single Purpose AI",
   "description": "Pick a purpose, adjust its prompt and run it on a configured LLM.",
   "author": "kavibay",
   "engines": { "kavibay": "^0.1" },

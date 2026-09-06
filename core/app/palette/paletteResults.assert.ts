@@ -550,7 +550,7 @@ console.log("paletteResults.assert.ts: merge ok");
 
   const widgetRow = buildWidgetRows(
     [({ instanceId: "hidden-llm", typeId: "one-purpose-llm", hidden: true } as WidgetInstance)],
-    () => "Single Purpose LLM",
+    () => "Single Purpose AI",
     () => ["llm"],
     () => "",
     () => ({

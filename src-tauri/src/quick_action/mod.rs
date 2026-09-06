@@ -23,7 +23,7 @@ mod editability;
 mod placement;
 mod win;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{
     collections::{BTreeSet, HashMap},
     sync::Mutex,
@@ -61,6 +61,63 @@ pub fn configured_shortcut(app: &AppHandle) -> String {
     }
 }
 
+/// How often to re-attempt a lost shortcut registration.
+///
+/// No attempt limit: a deadline only moves the moment the feature goes quietly
+/// dead. The competing program may be a launcher the user closes an hour later,
+/// and one `RegisterHotKey` every few seconds costs nothing while we wait.
+const REGISTER_RETRY_DELAY: Duration = Duration::from_secs(3);
+
+/// Claim the quick-action shortcut, retrying in the background if it is taken.
+///
+/// One attempt is not enough, and the usual loser of that race is a restart:
+/// the process being replaced still owns the combination for a moment after
+/// the new one starts, `RegisterHotKey` fails, and quick actions are then dead
+/// for the whole session — silently, because the only trace is a line on
+/// stderr while Settings goes on showing the shortcut as if it worked. The
+/// handler in `lib.rs` is never reached, so nothing happens in any
+/// application, at any time, and only another restart that happens to win the
+/// race brings the feature back.
+pub fn register_shortcut(app: &AppHandle) {
+    let text = configured_shortcut(app);
+    let shortcut: Shortcut = text.parse().unwrap_or_else(|_| {
+        DEFAULT_SHORTCUT
+            .parse()
+            .expect("the default shortcut must parse")
+    });
+
+    if app.global_shortcut().register(shortcut).is_ok() {
+        println!("[shortcut] {text} (quick actions) registered");
+        app.manage(QuickActionShortcut::new(Some(shortcut)));
+        return;
+    }
+
+    // Managed as unregistered right away: the handler must not treat the
+    // combination as ours until we actually hold it.
+    app.manage(QuickActionShortcut::new(None));
+    eprintln!("[shortcut] {text} (quick actions) is taken — retrying in the background");
+
+    let app = app.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(REGISTER_RETRY_DELAY);
+        let Some(state) = app.try_state::<QuickActionShortcut>() else {
+            return;
+        };
+        // Settings registered a replacement while we were waiting. That choice
+        // is the user's and outranks this one — claiming the old combination
+        // now would silently overwrite it.
+        if !state.is_unset() {
+            return;
+        }
+        if app.global_shortcut().register(shortcut).is_err() {
+            continue;
+        }
+        state.replace(shortcut);
+        println!("[shortcut] {text} (quick actions) registered on retry");
+        return;
+    });
+}
+
 /// Longest selection we act on. Quick actions rewrite a sentence or a
 /// paragraph; a whole document is a job for the widget, where the user can see
 /// what is being sent and what came back.
@@ -78,8 +135,26 @@ const REFOCUS_SETTLE_MS: u64 = 80;
 /// the key arrives, so restoring immediately pastes the wrong thing.
 const PASTE_SETTLE_MS: u64 = 300;
 
+/// How long a quick action may stay pending before a fresh hotkey press is
+/// allowed to replace it.
+///
+/// The popup normally clears the pending itself — apply, open widget, or
+/// cancel. This bound covers the one case where it never answers at all: the
+/// `quickaction:open` event reached a webview that had not registered its
+/// listener yet, which is a real race right after start-up because the popup
+/// mounts asynchronously (see `core/app/quickaction/main.ts`). Without it that
+/// single press left a pending behind and `is_busy` then swallowed *every*
+/// later press silently, for the rest of the process' life.
+///
+/// Generous on purpose: while the menu is open the pending is legitimate, and
+/// a model that streams for a minute must not have its answer stolen by a
+/// mis-key.
+const PENDING_MAX_AGE: Duration = Duration::from_secs(90);
+
 /// One quick action in flight, from hotkey to paste.
 struct Pending {
+    /// When the hotkey fired, so an abandoned pending cannot block forever.
+    started: Instant,
     /// Captured selection, retained when the user opens the full widget.
     text: String,
     /// The window the selection came from, and the one we paste back into.
@@ -135,6 +210,12 @@ impl QuickActionShortcut {
             .lock()
             .map(|current| current.as_ref() == Some(shortcut))
             .unwrap_or(false)
+    }
+
+    /// True while no combination is registered — the retry loop's cue that it
+    /// is still the one responsible for claiming one.
+    fn is_unset(&self) -> bool {
+        self.0.lock().map(|slot| slot.is_none()).unwrap_or(false)
     }
 
     fn replace(&self, shortcut: Shortcut) {
@@ -264,8 +345,26 @@ impl QuickActionState {
         Self::default()
     }
 
+    /// True while a quick action the popup can still answer is in flight.
+    ///
+    /// A pending older than `PENDING_MAX_AGE` is treated as abandoned: the
+    /// popup never took it, and refusing new presses on its behalf disables
+    /// the feature entirely.
     fn is_busy(&self) -> bool {
-        self.0.lock().map(|slot| slot.is_some()).unwrap_or(false)
+        self.0
+            .lock()
+            .map(|slot| match slot.as_ref() {
+                Some(pending) if pending.started.elapsed() < PENDING_MAX_AGE => true,
+                Some(_) => {
+                    eprintln!(
+                        "[quick_action] dropping a pending the popup never answered; \
+                         the popup window most likely missed `quickaction:open`"
+                    );
+                    false
+                }
+                None => false,
+            })
+            .unwrap_or(false)
     }
 
     fn set(&self, pending: Pending) {
@@ -438,6 +537,7 @@ fn capture_selection(app: &AppHandle) {
     let can_replace = target_kind.can_replace();
 
     state.set(Pending {
+        started: Instant::now(),
         text: text.clone(),
         target,
         saved_clipboard,
@@ -634,5 +734,45 @@ fn finish(app: &AppHandle, restore: Option<String>, keep_current: bool) {
 fn hide_popup(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(POPUP_LABEL) {
         let _ = window.hide();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pending(started: Instant) -> Pending {
+        Pending {
+            started,
+            text: "hallo".into(),
+            target: 1,
+            saved_clipboard: None,
+            anchor: Anchor {
+                x: 0,
+                y: 0,
+                height: 0,
+            },
+            can_replace: true,
+        }
+    }
+
+    /// A second press while the menu is open must still be refused.
+    #[test]
+    fn a_fresh_pending_blocks_a_second_press() {
+        let state = QuickActionState::new();
+        state.set(pending(Instant::now()));
+        assert!(state.is_busy());
+    }
+
+    /// The popup missed `quickaction:open` and will never clear this pending.
+    /// Refusing new presses on its behalf disabled the hotkey until restart.
+    #[test]
+    fn a_pending_the_popup_never_answered_stops_blocking() {
+        let state = QuickActionState::new();
+        let abandoned = Instant::now()
+            .checked_sub(PENDING_MAX_AGE + Duration::from_secs(1))
+            .expect("test clock is past the epoch");
+        state.set(pending(abandoned));
+        assert!(!state.is_busy());
     }
 }
