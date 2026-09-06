@@ -80,8 +80,12 @@ fast, and the Vue side hot-reloads.
 
 Nothing appears on screen — that is correct. The window starts invisible. Tap
 `Ctrl` twice, or double-click the tray icon. On the very first start it opens by
-itself and a short tour points at the pieces; `Settings → Behavior → Replay tour`
-brings it back.
+itself and asks two setup questions — start at login, and which screen to cover.
+Answer them and the desk arrives with a clock and a to-do list already on it,
+then a short tour teaches the double tap, the launcher and the widget desk.
+It ends there and offers the six card gestures rather than insisting on them.
+`Settings → Behavior → Replay tour` brings it back, and the startup switch stays
+in `Settings → Behavior`.
 
 > `npm run dev` on its own starts only Vite on <http://localhost:1420>. The UI
 > renders in a browser, but every `invoke` fails — use it for pure CSS work, not
@@ -117,7 +121,7 @@ what each one does, its tier, and what it needs — is in
 
 | Category | Widgets |
 |---|---|
-| **Productivity** | Alarm · Clipboard · Clock · Focus Tracker · Moodist · Notes · Single Purpose LLM · Pomodoro · Snippets · Stopwatch · Time Tracker · Timer · Todo |
+| **Productivity** | Alarm · Clipboard · Clock · Focus Tracker · Moodist · Notes · Single Purpose AI · Pomodoro · Snippets · Stopwatch · Time Tracker · Timer · Todo |
 | **Information** | Calendar · GitHub Actions · Stocks · Tado · Weather |
 | **Tools** | Calculator · Color Picker · Emoji Picker · Widget Gallery · Redacted · Snake · Widget Wizard |
 | **System** | AI Usage · Launcher Buttons · System Info |

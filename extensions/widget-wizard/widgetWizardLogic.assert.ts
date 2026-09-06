@@ -93,6 +93,8 @@ import {
   type WizardDraftSnapshot,
   type WizardDraftPresence,
   splitProviderMentions,
+  wizardPlatforms,
+  wizardHasAnyKey,
 } from "./widgetWizardLogic";
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -2487,6 +2489,93 @@ assert(
       { kind: "text", text: " please" },
     ],
     "the longer label wins when both would match at the same @",
+  );
+}
+
+
+// --- platform picker for an unconfigured Wizard ---------------------------
+//
+// The empty conversation used to invite somebody to "describe a widget" and
+// mention the missing key in a caption above it — a form that cannot be
+// submitted, with the reason in the small print. It now names the platforms up
+// front, so these have to come out of the catalog correctly.
+{
+  const model = (over: Partial<WizardModelOption> & { id: string }): WizardModelOption => ({
+    label: over.id,
+    note: "",
+    provider: "anthropic",
+    credentialType: "anthropicApi",
+    configured: false,
+    ...over,
+  });
+
+  const catalog: WizardModelOption[] = [
+    model({ id: "cf-1", provider: "cloudflare", credentialType: "cloudflareWorkersAi" }),
+    model({ id: "oa-1", provider: "openai", credentialType: "openaiApi" }),
+    model({ id: "an-1" }),
+    model({ id: "an-2" }),
+  ];
+
+  const platforms = wizardPlatforms(catalog);
+  assertEq(
+    platforms.map((p) => p.id),
+    ["anthropic", "openai", "cloudflare"],
+    "recommended platforms come first, catalog order inside each half",
+  );
+  assertEq(
+    platforms.map((p) => p.recommended),
+    [true, true, false],
+    "anthropic and openai are the recommended pair",
+  );
+  assertEq(
+    platforms.map((p) => p.label),
+    ["Anthropic", "OpenAI", "Cloudflare Workers AI"],
+    "each platform is named the way the vendor names itself",
+  );
+  assertEq(
+    platforms.map((p) => p.modelCount),
+    [2, 1, 1],
+    "a platform counts every authoring model it serves",
+  );
+  assertEq(
+    platforms.map((p) => p.credentialType),
+    ["anthropicApi", "openaiApi", "cloudflareWorkersAi"],
+    "the credential type is carried through so a click can open the right card",
+  );
+
+  // One configured model is enough to mark its platform connected — and must
+  // not mark the others.
+  const partly = wizardPlatforms([
+    model({ id: "an-1", configured: false }),
+    model({ id: "an-2", configured: true }),
+    model({ id: "oa-1", provider: "openai", credentialType: "openaiApi" }),
+  ]);
+  assertEq(
+    partly.map((p) => [p.id, p.configured]),
+    [
+      ["anthropic", true],
+      ["openai", false],
+    ],
+    "configured is per platform, not per model",
+  );
+
+  // A platform the label map has never heard of is listed under its id rather
+  // than dropped: a fourth provider in the catalog must not disappear silently.
+  const unknown = wizardPlatforms([
+    model({ id: "x-1", provider: "someVendor", credentialType: "someVendorApi" }),
+  ]);
+  assertEq(
+    unknown.map((p) => [p.id, p.label, p.recommended]),
+    [["someVendor", "someVendor", false]],
+    "an unmapped platform still appears",
+  );
+
+  assert(wizardPlatforms([]).length === 0, "no models, no platforms");
+  assert(wizardHasAnyKey([]) === false, "an empty catalog has no key");
+  assert(wizardHasAnyKey(catalog) === false, "nothing configured means no key");
+  assert(
+    wizardHasAnyKey([...catalog, model({ id: "an-3", configured: true })]),
+    "one configured model is a key",
   );
 }
 

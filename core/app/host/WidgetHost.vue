@@ -99,6 +99,16 @@ import { useExtensionAboutModal } from "../extensions/useExtensionAboutModal";
 import { hostDismissHeld } from "@sdk";
 import { paletteDropActive, requestInlineWidget } from "../palette/inlineWidgetRequest";
 import { useOnboarding } from "../onboarding/useOnboarding";
+import { setupState, startSetupIfNeeded } from "../onboarding/setupSession";
+import { isSetupVisible } from "../onboarding/setupLogic";
+import { isGalleryWidget } from "./builtinWidgetIds";
+import { starterDeskIds } from "./starterDesk";
+import {
+  galleryPickOffset,
+  galleryTourPlacement,
+  type GalleryTourPlacement,
+} from "./galleryTourPlacement";
+import { ONBOARDING_GALLERY_STEP } from "../onboarding/onboardingLogic";
 import {
   DEFAULT_PALETTE_WIDTH,
   DEFAULT_WIDGET_MIN_HEIGHT,
@@ -116,6 +126,7 @@ import {
 } from "./gridSnap";
 import {
   findClearSpawnOffset,
+  SPAWN_GAP,
   type SpawnRect,
 } from "./spawnPlacement";
 import { nextWidgetFocusId } from "./widgetFocusCycle";
@@ -132,7 +143,7 @@ import {
 } from "./widgetCloseKeys";
 import WidgetInstanceView from "./WidgetInstanceView.vue";
 import DemoHotkeyOverlay from "./DemoHotkeyOverlay.vue";
-import { kavibayCockpitOpen } from "./cockpitSession";
+import { kavibayCockpitOpen, type CockpitTrigger } from "./cockpitSession";
 import { startBrowserZoomGuard } from "./browserZoomGuard";
 
 const extensionRegistry = listExtensions().filter((extension) => extension.isWidget);
@@ -1298,6 +1309,12 @@ function closeCockpit(options: { keepPeeked?: boolean } = {}) {
  * clearing cockpitOpen).
  */
 function onPaletteHotkey(revealedByRust = false) {
+  // The setup card owns the screen until it is answered, and `paletteHidden` is
+  // true *on purpose* while it is up — so every branch below would read that as
+  // "the palette is away, bring it back" and put a search field behind the one
+  // thing the user is being asked to read. Rust may still have revealed the
+  // window on the way in; leaving it visible with the card on it is correct.
+  if (isSetupVisible(setupState.value)) return;
   // A toggle during a peek keeps what the peek put on screen: the session
   // stops being a peek, so releasing the peek key no longer takes it away.
   if (peeking.value) {
@@ -1923,10 +1940,17 @@ onMounted(async () => {
   unlistenPaletteShow = await listen("palette:show", () => {
     void openCockpit(true);
   });
-  unlistenPaletteHotkey = await listen<{ revealed?: boolean }>("palette:hotkey", (event) => {
-    lastRustHotkeyAt = Date.now();
-    onPaletteHotkey(event.payload?.revealed === true);
-  });
+  unlistenPaletteHotkey = await listen<{ revealed?: boolean; trigger?: CockpitTrigger }>(
+    "palette:hotkey",
+    (event) => {
+      lastRustHotkeyAt = Date.now();
+      const revealed = event.payload?.revealed === true;
+      onPaletteHotkey(revealed);
+      // The tour's hotkey step is passed here and nowhere else: this is the only
+      // path on which Rust reports *which* gesture brought a hidden window back.
+      onboarding.notifyCockpitRevealed(event.payload?.trigger ?? "app", revealed);
+    },
+  );
   // Hold-to-peek fires twice per hold — once on the way down, once on the way up.
   unlistenCockpitPeek = await listen<{ active?: boolean; revealed?: boolean }>(
     "cockpit:peek",
@@ -1961,10 +1985,30 @@ onMounted(async () => {
   });
   // Installer "Start Kavibay" / first ever launch: search + guided tour.
   // Later launches stay hidden until a Ctrl double tap or tray Open.
-  if (consumeFirstOpen()) {
-    onPaletteHotkey(true);
-    // Guided tour replaces the former auto-spawned Gallery.
-    onboarding.startIfNeeded(true);
+  const firstOpen = consumeFirstOpen();
+  if (firstOpen) startSetupIfNeeded(true);
+  // An unanswered setup card brings the window up, and it does so on *every*
+  // start rather than only the first.
+  //
+  // `consumeFirstOpen` fires once and is spent, so a user who closed Kavibay
+  // mid-card came back to a card that existed, rendered, and sat behind a
+  // hidden window — waiting for the double tap that the card itself is there to
+  // teach. The one screen nobody can be expected to get past on their own was
+  // the one screen that required knowing how.
+  //
+  // The card comes *alone*, too: showing it over a search field and a desk of
+  // cards put five overlapping panels in front of someone who had never seen
+  // the app. So the window opens with no palette behind it, and the rest of the
+  // first run is the reward for answering: desk, palette, tour, in that order.
+  if (isSetupVisible(setupState.value)) {
+    void openCockpit(false, false);
+    const stopWatchingSetup = watch(setupState, (next) => {
+      if (next?.status !== "done") return;
+      stopWatchingSetup();
+      void revealFirstRun({ afterSetup: true });
+    });
+  } else if (firstOpen) {
+    void revealFirstRun();
   }
   warmDeskViewsWhenIdle();
 });
@@ -2387,7 +2431,16 @@ function clearSpawnOffsetFor(
  */
 function onAddType(
   typeId: string,
-  opts?: { screen?: { x: number; y: number }; forceNew?: boolean },
+  opts?: {
+    screen?: { x: number; y: number };
+    forceNew?: boolean;
+    /**
+     * What asked for this card. The gallery is the only caller that says, and
+     * it says because it covers the band above the palette — a card opening
+     * there would land behind the panel that spawned it.
+     */
+    origin?: "gallery";
+  },
 ): string | undefined {
   if (!isEnabled(typeId)) return undefined;
   if (!opts?.forceNew) {
@@ -2403,18 +2456,36 @@ function onAddType(
   if (!def) return undefined;
   // Whatever the last card of this type was resized to beats the manifest.
   const size = initialSizeForExtension(def, rememberedSizeFor(typeId));
-  const spawnSize = gridSnapSpawnSize({
+  const preferredSize = {
     w: size.width ?? def.defaultSize?.w ?? 280,
     h: size.height ?? def.defaultSize?.h ?? 180,
-  });
+  };
   const atScreen = opts?.screen;
+  // The tour's gallery step is the one spawn that is composed rather than
+  // fitted: palette-width, directly above it, so the two read as one surface.
+  // Null means it would not fit and this falls through to the ordinary path.
+  const tourPlaced = atScreen ? null : galleryTourSpawn(typeId, preferredSize.h);
+  const spawnSize = tourPlaced?.size ?? gridSnapSpawnSize(preferredSize);
+  // A pick from the gallery starts on the free side of the palette instead of
+  // at its own manifest offset, then goes through the same de-overlap as
+  // everything else — so the second and third pick stack outward from there.
+  const pickOffset =
+    !atScreen && opts?.origin === "gallery"
+      ? galleryPickOffset({
+          paletteWidth: paletteSpawnObstacle().w,
+          widgetWidth: spawnSize.w,
+          gap: SPAWN_GAP,
+        })
+      : null;
   // Manifest offsets fan out; pull nearer, clear overlaps, snap to 15px grid.
-  const preferred = atScreen
-    ? { x: atScreen.x - palettePos.x, y: atScreen.y - palettePos.y }
-    : spawnOffsetNearPalette(def.position);
-  const baseOffset = atScreen
-    ? preferred
-    : clearSpawnOffsetFor(preferred, spawnSize);
+  const preferred =
+    pickOffset ??
+    (atScreen
+      ? { x: atScreen.x - palettePos.x, y: atScreen.y - palettePos.y }
+      : spawnOffsetNearPalette(def.position));
+  const baseOffset =
+    tourPlaced?.offset ??
+    (atScreen ? preferred : clearSpawnOffsetFor(preferred, spawnSize));
   const created = createInstance(typeId, baseOffset, {
     hideTitle: Boolean(def.defaultHideTitle),
     width: spawnSize.w,
@@ -2440,6 +2511,98 @@ function onAddType(
   onboarding.notifyWidgetAdded(typeId);
   scheduleRegionSync();
   return created.instanceId;
+}
+
+/**
+ * The gallery's composed placement, but only while the tour is teaching it.
+ *
+ * Guarded on the active step rather than on "is this the gallery", because
+ * every other way of opening it — the palette command, the Widgets button, a
+ * later visit during the extras — is somebody reaching for a tool on a desk
+ * they have arranged, and moving their card would be rude. During the lesson
+ * there is no arranged desk to disturb.
+ */
+function galleryTourSpawn(
+  typeId: string,
+  preferredHeight: number,
+): GalleryTourPlacement | null {
+  if (!isGalleryWidget(typeId)) return null;
+  if (onboarding.activeStep.value !== ONBOARDING_GALLERY_STEP) return null;
+  const palette = paletteSpawnObstacle();
+  return galleryTourPlacement({
+    paletteWidth: palette.w,
+    paletteHeight: palette.h,
+    paletteCentreY: palettePos.y,
+    preferredHeight,
+    viewportHeight: window.innerHeight,
+    margin: viewportEdgeMargin({ width: window.innerWidth, height: window.innerHeight }),
+    gap: SPAWN_GAP,
+  });
+}
+
+/**
+ * Everything the first run shows once the setup card has been answered.
+ *
+ * Order matters and is not arbitrary: the palette has to be placed before the
+ * widgets, because spawn offsets are measured from it, and the tour has to
+ * start after them, or its "add a widget" step would count the starters as the
+ * user's own doing. (`startIfNeeded` is idempotent, so the card no longer
+ * calls it — one owner for the sequence beats two that have to agree.)
+ */
+async function revealFirstRun(opts: { afterSetup?: boolean } = {}) {
+  onPaletteHotkey(true);
+  await waitForPaletteBox();
+  placeStarterDesk();
+  // Guided tour replaces the former auto-spawned Gallery. Coming out of the
+  // setup card it starts past the welcome step, which that card delivered —
+  // and both calls no-op if the card already declined the tour.
+  if (opts.afterSetup) {
+    onboarding.startAfterSetup();
+    return;
+  }
+  onboarding.startIfNeeded(true);
+}
+
+/**
+ * Wait until the palette has a box worth measuring.
+ *
+ * Starters are placed *around* the palette, and `onPaletteHotkey` only flips it
+ * from `display: none` to visible — Vue paints it a frame or two later. Measure
+ * before that and `paletteSpawnObstacle()` reports 1x1, which blocks nothing
+ * and drops the first card straight across the search field. That was visible
+ * on the very first screen a new user sees, and invisible to every test that
+ * checked only *which* widgets were placed.
+ *
+ * Capped rather than open-ended: a few frames is generous, and a placement
+ * slightly off beats a first run that never finishes revealing itself.
+ */
+async function waitForPaletteBox(): Promise<void> {
+  for (let i = 0; i < 6; i += 1) {
+    await nextTick();
+    if ((paletteAnchorEl.value?.getBoundingClientRect().height ?? 0) > 1) return;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
+}
+
+/**
+ * Put the manifest-declared starter widgets on a brand-new desk.
+ *
+ * Which widgets those are is not a decision this file gets to make — see
+ * `starterDesk.ts` for why the manifests own it. All the host does is ask the
+ * registry, respect the user's own enable prefs, and add the cards.
+ */
+function placeStarterDesk() {
+  const ids = starterDeskIds(
+    extensionRegistry.map((extension) => ({
+      id: extension.id,
+      starter: extension.starter,
+      enabled: isEnabled(extension.id),
+      isWidget: extension.isWidget,
+    })),
+  );
+  for (const typeId of ids) {
+    onAddType(typeId);
+  }
 }
 
 /** Switch active desk: flush current state, rebind palette, clear stale focus. */

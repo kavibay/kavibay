@@ -3033,6 +3033,94 @@ export function effortLabel(level: string): string {
   return level.charAt(0).toUpperCase() + level.slice(1);
 }
 
+/**
+ * Display names for the platforms that serve authoring models.
+ *
+ * A short map rather than a field on the model, because the catalog's `vendor`
+ * is an identifier (`"openai"`), not a name anybody writes down. Core has the
+ * same three strings in `AI_PROVIDER_TABS`, and an extension may not import
+ * core — so the duplication is deliberate and bounded: a platform missing from
+ * here still shows up, under its own id, instead of vanishing from the list.
+ */
+const PLATFORM_LABELS: Readonly<Record<string, string>> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  cloudflare: "Cloudflare Workers AI",
+};
+
+/**
+ * The platforms suggested first.
+ *
+ * Not a judgement on the vendors: these two serve the frontier models the
+ * authoring prompt was written against, and a widget generated on a small
+ * Workers AI model needs more turns to arrive somewhere. Somebody who already
+ * has a Cloudflare account should still find it in the list, which is why it is
+ * listed at all rather than hidden behind Settings.
+ */
+const RECOMMENDED_PLATFORMS: readonly string[] = ["anthropic", "openai"];
+
+/** One platform the Wizard can author on. */
+export interface WizardPlatform {
+  id: string;
+  label: string;
+  /** What `openSettings("credentials", …)` needs to land on the right card. */
+  credentialType: string;
+  /** True once any of its models has a key. */
+  configured: boolean;
+  recommended: boolean;
+  /** How many authoring models it serves, for the "3 models" subtitle. */
+  modelCount: number;
+}
+
+/**
+ * The platforms behind a model list, recommended ones first.
+ *
+ * *Which* platforms is derived from the catalog, so the Wizard offers exactly
+ * what this build can run. The order of the recommended pair is not: it follows
+ * `RECOMMENDED_PLATFORMS`, matching the tab order in Settings. Core makes the
+ * same choice for the same reason (`AI_PROVIDER_TABS`) — the catalog is sorted
+ * by model strength, so deriving the order from it means the list reshuffles
+ * whenever a model is added, and this list is the one somebody reads while
+ * deciding where to get a key. Unrecommended platforms keep catalog order,
+ * having no fixed order to belong to.
+ */
+export function wizardPlatforms(models: readonly WizardModelOption[]): WizardPlatform[] {
+  const byId = new Map<string, WizardPlatform>();
+  for (const model of models) {
+    const existing = byId.get(model.provider);
+    if (existing) {
+      existing.configured ||= model.configured;
+      existing.modelCount += 1;
+      continue;
+    }
+    byId.set(model.provider, {
+      id: model.provider,
+      label: PLATFORM_LABELS[model.provider] ?? model.provider,
+      credentialType: model.credentialType,
+      configured: model.configured,
+      recommended: RECOMMENDED_PLATFORMS.includes(model.provider),
+      modelCount: 1,
+    });
+  }
+  const platforms = [...byId.values()];
+  const recommended = RECOMMENDED_PLATFORMS.map((id) =>
+    platforms.find((platform) => platform.id === id),
+  ).filter((platform): platform is WizardPlatform => platform !== undefined);
+  return [...recommended, ...platforms.filter((platform) => !platform.recommended)];
+}
+
+/**
+ * Whether the Wizard can author at all yet.
+ *
+ * The question the empty conversation has to answer before it invites somebody
+ * to describe a widget. It used to invite first and mention the missing key in
+ * a line above the transcript, which is a caption on a form that cannot be
+ * submitted.
+ */
+export function wizardHasAnyKey(models: readonly WizardModelOption[]): boolean {
+  return models.some((model) => model.configured);
+}
+
 export function sortWizardModels(models: WizardModelOption[]): WizardModelOption[] {
   const usable = models.filter((model) => model.configured);
   const rest = models.filter((model) => !model.configured);

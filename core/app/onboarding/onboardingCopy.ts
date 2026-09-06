@@ -1,3 +1,4 @@
+import type { RevealGesture } from "../host/revealGesture";
 import type { OnboardingStep } from "./onboardingLogic";
 
 /** One body fragment; `typed` marks the command the user should type. */
@@ -8,7 +9,14 @@ export type OnboardingCopy = {
   segments: OnboardingBodySegment[];
 };
 
-const COPY: Record<OnboardingStep, OnboardingCopy> = {
+/**
+ * Fixed copy, by step.
+ *
+ * Two steps are absent on purpose: the hotkey step, whose text depends on which
+ * keystroke the host reports (`onboardingHotkeyCopy`), and the core card, which
+ * is a branch rather than a lesson (`onboardingCoreDoneCopy`).
+ */
+const COPY: Record<Exclude<OnboardingStep, 2 | 6>, OnboardingCopy> = {
   1: {
     title: "Hey — welcome to Kavibay",
     segments: [
@@ -17,7 +25,7 @@ const COPY: Record<OnboardingStep, OnboardingCopy> = {
       },
     ],
   },
-  2: {
+  3: {
     title: "Launch anything, fast",
     segments: [
       { text: "Your apps live right here. Try typing " },
@@ -25,7 +33,7 @@ const COPY: Record<OnboardingStep, OnboardingCopy> = {
       { text: " — Kavibay finds it on your system." },
     ],
   },
-  3: {
+  4: {
     title: "Explore widgets",
     segments: [
       { text: "This is where the fun stuff lives. Type " },
@@ -33,7 +41,7 @@ const COPY: Record<OnboardingStep, OnboardingCopy> = {
       { text: " (or hit Widgets) and take a peek." },
     ],
   },
-  4: {
+  5: {
     title: "Make it yours",
     segments: [
       {
@@ -41,7 +49,7 @@ const COPY: Record<OnboardingStep, OnboardingCopy> = {
       },
     ],
   },
-  5: {
+  7: {
     title: "Put things where they belong",
     segments: [
       {
@@ -49,7 +57,7 @@ const COPY: Record<OnboardingStep, OnboardingCopy> = {
       },
     ],
   },
-  6: {
+  8: {
     title: "Give it room to breathe",
     segments: [
       {
@@ -57,7 +65,7 @@ const COPY: Record<OnboardingStep, OnboardingCopy> = {
       },
     ],
   },
-  7: {
+  9: {
     title: "Keep your favorites close",
     segments: [
       {
@@ -65,7 +73,7 @@ const COPY: Record<OnboardingStep, OnboardingCopy> = {
       },
     ],
   },
-  8: {
+  10: {
     title: "Clear the clutter",
     segments: [
       {
@@ -73,7 +81,7 @@ const COPY: Record<OnboardingStep, OnboardingCopy> = {
       },
     ],
   },
-  9: {
+  11: {
     title: "Bring it back",
     segments: [
       {
@@ -81,7 +89,7 @@ const COPY: Record<OnboardingStep, OnboardingCopy> = {
       },
     ],
   },
-  10: {
+  12: {
     title: "Start fresh when you need to",
     segments: [
       {
@@ -89,25 +97,168 @@ const COPY: Record<OnboardingStep, OnboardingCopy> = {
       },
     ],
   },
-  11: {
-    title: "You’re all set",
+  13: {
+    title: "Now you know the lot",
     segments: [
       {
-        text: "That’s the vibe. Tap Ctrl twice to show or hide Kavibay anytime, or hold Ctrl+Space for a peek at your widgets. Want a refresher later? Settings → Behavior → Replay tour.",
+        text: "Your desk, your rules. Everything here is in Settings → Behavior if you want it again.",
       },
     ],
   },
 };
 
 /**
+ * The card that ends the core tour.
+ *
+ * Deliberately an ending first and an offer second. The user has reached
+ * Kavibay with the keyboard, launched something and put a widget on the desk —
+ * that is the whole product working, and saying so is more useful than treating
+ * it as the fifth of eleven things. The six lessons behind it are real but they
+ * are housekeeping, and housekeeping is worth learning when you have something
+ * to keep house for.
+ */
+export function onboardingCoreDoneCopy(): OnboardingCopy {
+  return {
+    title: "That is the whole idea",
+    segments: [
+      {
+        text: "You can reach Kavibay from anywhere, launch anything, and put widgets on your desk. Go and use it — or take one more minute and learn to arrange, pin and clear the cards.",
+      },
+    ],
+  };
+}
+
+/**
+ * The hotkey step's instruction for whichever keystroke this machine has.
+ *
+ * Kept beside the copy record rather than in it because the step is the one
+ * whose text depends on the host: `revealGesture` decides, and a `COPY[2]`
+ * entry would have to be one of the three answers pretending to be all of them.
+ */
+export function onboardingHotkeyCopy(gesture: RevealGesture | null): OnboardingCopy {
+  if (gesture === "cursorHotkey") {
+    return {
+      title: "First, the way back in",
+      segments: [
+        { text: "Press " },
+        { text: "Shift+Ctrl+Space", typed: true },
+        {
+          text: " — everything disappears, this card included. Press it again and it is all back. That is how you reach Kavibay from anywhere.",
+        },
+      ],
+    };
+  }
+  if (gesture === null) {
+    return {
+      title: "First, the way back in",
+      segments: [
+        {
+          text: "No keyboard shortcut is free on this machine, so the tray is your way in: double-click the Kavibay icon down by the clock and the desk comes back. Worth knowing before anything else.",
+        },
+      ],
+    };
+  }
+  // The one step whose instructions have to survive the screen going blank: the
+  // gesture hides everything, this card included, so the promise that it all
+  // comes back has to be read *before* it happens. Somebody who taps twice
+  // expecting a menu and gets an empty desktop thinks they closed the app.
+  return {
+    title: "First, the only key that matters",
+    segments: [
+      { text: "Tap " },
+      { text: "Ctrl", typed: true },
+      { text: " twice — everything disappears, this card included. Tap " },
+      { text: "Ctrl", typed: true },
+      { text: " twice again and it is all back. That is how you reach Kavibay from anywhere." },
+    ],
+  };
+}
+
+/**
+ * The one line the welcome card cannot leave out.
+ *
+ * A statement, not the instruction `onboardingHotkeyCopy` gives: the card is
+ * not the place to practise the gesture — performing it there would hide the
+ * card before its autostart answer has been committed — but it is the only
+ * place everybody passes through. Somebody who takes `Skip the tour` never
+ * reaches the lesson, and without this they have just been handed an app they
+ * cannot find again.
+ *
+ * Same three branches as the lesson, and for the same reason: naming a key this
+ * machine cannot deliver is worse than naming none.
+ */
+export function onboardingRevealHintCopy(gesture: RevealGesture | null): OnboardingCopy {
+  if (gesture === "cursorHotkey") {
+    return {
+      title: "The one thing to remember",
+      segments: [
+        { text: "Press " },
+        { text: "Shift+Ctrl+Space", typed: true },
+        {
+          text: " any time, in any app — that brings Kavibay up. Press it again and everything is out of the way.",
+        },
+      ],
+    };
+  }
+  if (gesture === null) {
+    return {
+      title: "The one thing to remember",
+      segments: [
+        {
+          text: "No keyboard shortcut was free on this machine, so the tray is your way in: double-click the Kavibay icon down by the clock and the desk comes back.",
+        },
+      ],
+    };
+  }
+  return {
+    title: "The one thing to remember",
+    segments: [
+      { text: "Tap " },
+      { text: "Ctrl", typed: true },
+      {
+        text: " twice, any time, in any app — that brings Kavibay up. Tap it twice again and everything is out of the way.",
+      },
+    ],
+  };
+}
+
+/**
+ * What the hotkey step says once its keystroke has been given up on.
+ *
+ * Reached when the tour brought the window back by itself: the user pressed to
+ * hide Kavibay — which the webview handles on its own and always works — and
+ * then nothing came back, because the shortcut never arrived. On Windows that
+ * is the `WH_KEYBOARD_LL` hook going uncalled behind an elevated window, an RDP
+ * session or some game overlays; elsewhere it is a global accelerator that
+ * another program is holding. Either way the copy does not repeat the gesture,
+ * it names the ways in that do not depend on it.
+ */
+export function onboardingHotkeyFallbackCopy(gesture: RevealGesture | null): OnboardingCopy {
+  const cause =
+    gesture === "ctrlDoubleTap"
+      ? "The double tap needs to see your keyboard, and something on this machine is keeping it from me — an elevated window or a remote session will do that. "
+      : "That shortcut did not reach me; another program is most likely holding it. ";
+  return {
+    title: "That one did not reach me",
+    segments: [
+      { text: `${cause}Two ways in that always work: double-click the Kavibay icon in the tray, or hold ` },
+      { text: "Ctrl+Space", typed: true },
+      { text: " for a peek at your widgets." },
+    ],
+  };
+}
+
+/**
  * Bubble copy for the active step.
- * Pass `hiddenWidgetName` on step 9 so the restore hint names the widget just hidden.
+ * Pass `hiddenWidgetName` on the restore step so the hint names the widget just hidden.
  */
 export function onboardingCopyForStep(
   step: OnboardingStep,
-  opts?: { hiddenWidgetName?: string | null },
+  opts?: { hiddenWidgetName?: string | null; revealGesture?: RevealGesture | null },
 ): OnboardingCopy {
-  if (step === 9) {
+  if (step === 2) return onboardingHotkeyCopy(opts?.revealGesture ?? null);
+  if (step === 6) return onboardingCoreDoneCopy();
+  if (step === 11) {
     const name = opts?.hiddenWidgetName?.trim();
     if (name) {
       return {

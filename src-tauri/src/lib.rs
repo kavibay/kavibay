@@ -2,6 +2,7 @@
 // main.rs remains a pure entry point (see PLAN.md §1).
 
 mod appearance_prefs;
+mod autostart;
 mod commands;
 mod credentials;
 mod ctrl_double_tap;
@@ -47,11 +48,61 @@ use commands::{
     SharedClickThrough, SharedOpenMonitor, WATCH_HIDDEN_TICK_MS, WATCH_TICK_MS,
 };
 
+/// What asked for a cockpit toggle.
+///
+/// One value rather than the free-form demo label this used to be, because two
+/// consumers now need it: the presentation overlay, which shows the keystroke,
+/// and the guided tour, whose second step is passed by bringing the window back
+/// *with this gesture* and by nothing else. A label plus a separate flag would
+/// be two things that have to agree, and eventually would not.
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum CockpitTrigger {
+    /// Double tap on Ctrl — the gesture the tour teaches.
+    CtrlDoubleTap,
+    /// Shift+Ctrl+Space, which always opens on the screen under the mouse.
+    CursorHotkey,
+    /// Tray icon, palette command, first open — anything with no keystroke of
+    /// its own to show or to teach.
+    App,
+}
+
+impl CockpitTrigger {
+    /// Keystroke for the presentation overlay; None when there is none to show.
+    fn demo_label(self) -> Option<&'static str> {
+        match self {
+            Self::CtrlDoubleTap => Some("CTRL+CTRL"),
+            Self::CursorHotkey => Some("CTRL+SHIFT+SPACE"),
+            Self::App => None,
+        }
+    }
+}
+
+/// The keystroke that can bring a hidden cockpit back on *this* machine.
+///
+/// Not a constant, because two things it depends on are only known at start-up.
+/// The Ctrl double tap needs a `WH_KEYBOARD_LL` hook and therefore Windows; on
+/// every other platform the fallback is Shift+Ctrl+Space, which is an ordinary
+/// accelerator — and which another program may already own, in which case there
+/// is no keystroke at all and the tray icon is the only way in.
+///
+/// The guided tour asks for this before it teaches the gesture. Teaching a key
+/// this machine cannot deliver is worse than teaching none: the user hides
+/// Kavibay on the first instruction and then cannot get it back.
+struct RevealGesture(Option<CockpitTrigger>);
+
+/// Which keystroke reveals the cockpit here, or null when none does.
+#[tauri::command]
+fn cockpit_reveal_gesture(gesture: tauri::State<'_, RevealGesture>) -> Option<CockpitTrigger> {
+    gesture.0
+}
+
 /// Payload for `palette:hotkey` — `revealed` means Rust just showed a hidden window.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PaletteHotkeyPayload {
     revealed: bool,
+    trigger: CockpitTrigger,
 }
 
 /// Presentation aid controlled from the command palette, off by default.
@@ -101,7 +152,7 @@ fn show_demo_hotkey(app: &tauri::AppHandle, label: &str) {
 /// in because this function cannot know it: the same open happens on a double
 /// tap, on Shift+Ctrl+Space, and on a second launch with `--toggle`, where no key
 /// was pressed at all.
-fn toggle_cockpit(app: &tauri::AppHandle, force_cursor: bool, demo_label: Option<&str>) {
+fn toggle_cockpit(app: &tauri::AppHandle, force_cursor: bool, trigger: CockpitTrigger) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
@@ -130,8 +181,8 @@ fn toggle_cockpit(app: &tauri::AppHandle, force_cursor: bool, demo_label: Option
     }
 
     // Single frontend entry: open cockpit or close (pinned may remain).
-    let _ = window.emit("palette:hotkey", PaletteHotkeyPayload { revealed });
-    if let Some(label) = demo_label {
+    let _ = window.emit("palette:hotkey", PaletteHotkeyPayload { revealed, trigger });
+    if let Some(label) = trigger.demo_label() {
         show_demo_hotkey(app, label);
     }
 }
@@ -228,14 +279,14 @@ pub fn run() {
             if argv_asks_for_toggle(&argv) {
                 // Same entry as the double tap, including the Settings "Open on"
                 // preference. No key was pressed, so nothing to show in demo mode.
-                toggle_cockpit(app, false, None);
+                toggle_cockpit(app, false, CockpitTrigger::App);
                 return;
             }
             // A plain second launch means "I want the app" — show it, never hide it.
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_ignore_cursor_events(false);
                 if !window.is_visible().unwrap_or(false) {
-                    toggle_cockpit(app, false, None);
+                    toggle_cockpit(app, false, CockpitTrigger::App);
                 } else {
                     let _ = window.set_focus();
                 }
@@ -281,7 +332,7 @@ pub fn run() {
                     // What is left is Shift+Ctrl+Space, which always covers the
                     // pointer display. The Settings “Open on” preference belongs to
                     // the Ctrl double tap instead.
-                    toggle_cockpit(app, true, Some("CTRL+SHIFT+SPACE"));
+                    toggle_cockpit(app, true, CockpitTrigger::CursorHotkey);
                 })
                 .build(),
         )
@@ -361,6 +412,16 @@ pub fn run() {
                     "[shortcut] Cockpit remains available via Ctrl double tap, the tray icon, or `kavibay --toggle`"
                 );
             }
+            // Recorded rather than recomputed: whether Shift+Ctrl+Space is ours
+            // is only knowable from the registration above, and the tour has to
+            // ask the same question later.
+            app.manage(RevealGesture(if cfg!(windows) {
+                Some(CockpitTrigger::CtrlDoubleTap)
+            } else if cursor_toggle {
+                Some(CockpitTrigger::CursorHotkey)
+            } else {
+                None
+            }));
             let quick_shortcut_text = quick_action::configured_shortcut(app.handle());
             let quick_shortcut: tauri_plugin_global_shortcut::Shortcut =
                 quick_shortcut_text.parse().unwrap_or_else(|_| {
@@ -507,8 +568,12 @@ pub fn run() {
             commands::needs_dom_gap_catcher,
             commands::set_open_monitor,
             commands::app_exit,
+            cockpit_reveal_gesture,
             appearance_prefs::onboarding_preferences_load,
             appearance_prefs::onboarding_preferences_save,
+            autostart::autostart_supported,
+            autostart::autostart_enabled,
+            autostart::autostart_set,
             settings_store::settings_load,
             settings_store::settings_save_sections,
             settings_store::settings_file_path,
@@ -1123,10 +1188,45 @@ impl MouseButtons {
 
 #[cfg(test)]
 mod tests {
-    use super::argv_asks_for_toggle;
+    use super::{argv_asks_for_toggle, CockpitTrigger};
 
     fn argv(args: &[&str]) -> Vec<String> {
         args.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// The frontend matches these strings to decide whether the tour's hotkey
+    /// step was passed (`core/app/host/cockpitSession.ts`). Nothing in Rust
+    /// fails to compile if the spelling changes — the step just becomes
+    /// impossible to complete, silently, on the one screen a new user cannot
+    /// get past.
+    #[test]
+    fn a_trigger_keeps_the_spelling_the_frontend_matches() {
+        assert_eq!(
+            serde_json::to_string(&CockpitTrigger::CtrlDoubleTap).unwrap(),
+            "\"ctrlDoubleTap\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CockpitTrigger::CursorHotkey).unwrap(),
+            "\"cursorHotkey\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CockpitTrigger::App).unwrap(),
+            "\"app\""
+        );
+    }
+
+    /// Only the two gestures have a keystroke to put on screen.
+    #[test]
+    fn only_keystrokes_get_a_demo_label() {
+        assert_eq!(
+            CockpitTrigger::CtrlDoubleTap.demo_label(),
+            Some("CTRL+CTRL")
+        );
+        assert_eq!(
+            CockpitTrigger::CursorHotkey.demo_label(),
+            Some("CTRL+SHIFT+SPACE")
+        );
+        assert_eq!(CockpitTrigger::App.demo_label(), None);
     }
 
     #[test]

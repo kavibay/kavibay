@@ -20,6 +20,7 @@ import { createCommandUi } from "./commandUi";
 import { tauriProviderTransport } from "./tauriProviderTransport";
 import { tauriWidgetCapabilityTransport } from "./tauriWidgetCapabilityTransport";
 import { bundledExtensions, type BundledExtension, type BundledWidget } from "./bundledExtensions";
+import { startsGated } from "../host/starterDesk";
 import { widgetViews } from "./widgetViews";
 import CockpitWidget from "./ui/CockpitWidget.vue";
 import CockpitWidgetSettings from "./ui/CockpitWidgetSettings.vue";
@@ -487,6 +488,11 @@ function toRegistered(definitionId: string): RegisteredExtension | undefined {
     categories: [...(metadata.categories ?? [])],
     isWidget: true,
     ...(metadata.enabledByDefault === false ? { enabledByDefault: false } : {}),
+    // A starter is a request, not a grant: it survives only if the widget can
+    // actually show something on a fresh profile. See `startsGated`.
+    ...(typeof metadata.starter === "number" && !startsGated(widget)
+      ? { starter: metadata.starter }
+      : {}),
     iconComponent: bundled?.icon,
     menuComponent: bundled?.menu,
     position: metadata.position ? { ...metadata.position } : { x: 0, y: 0 },
