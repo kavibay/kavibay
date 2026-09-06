@@ -51,11 +51,5 @@
     "typescript-eslint": "^8.68.0",
     "vite": "^8.2.2",
     "vue-tsc": "^3.3.11"
-  },
-  "//overrides": "typescript-eslint 8.x still declares peer typescript <6.1.0, so npm ci refuses this repo's typescript 7 outright. The pairing works in practice - typecheck and eslint both run clean on 7 - the peer range simply has not been widened upstream yet, and 8.69.0 has not either. Remove this the moment typescript-eslint declares TypeScript 7.",
-  "overrides": {
-    "typescript-eslint": {
-      "typescript": "$typescript"
-    }
   }
 }
