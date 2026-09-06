@@ -5,7 +5,6 @@
     "module": "ESNext",
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
-    "baseUrl": ".",
 
     /* Bundler mode */
     "moduleResolution": "bundler",
@@ -22,8 +21,8 @@
     "noFallthroughCasesInSwitch": true,
 
     "paths": {
-      "@sdk": ["sdk/extension/index.ts"],
-      "@sdk/*": ["sdk/extension/*"]
+      "@sdk": ["./sdk/extension/index.ts"],
+      "@sdk/*": ["./sdk/extension/*"]
     }
   },
   "include": [
