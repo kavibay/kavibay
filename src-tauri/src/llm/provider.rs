@@ -230,7 +230,9 @@ fn image_content(text: &str, images: &[ChatImage], provider: LlmProvider) -> Res
 
 fn decoded_len(data: &str) -> usize {
     let padding = data.bytes().rev().take_while(|byte| *byte == b'=').count();
-    data.len().saturating_mul(3) / 4 - padding
+    // Saturating: "==" is more padding than data, and a plain subtraction
+    // panicked the stream task, which then never reported an error.
+    (data.len().saturating_mul(3) / 4).saturating_sub(padding)
 }
 
 #[cfg(test)]
@@ -294,6 +296,19 @@ mod tests {
         assert_eq!(cloudflare["messages"].as_array().unwrap().len(), 2);
         // Workers AI reads the model from the URL.
         assert!(cloudflare.get("model").is_none());
+    }
+
+    #[test]
+    fn padding_only_image_data_does_not_panic() {
+        let message = ChatMessage {
+            role: "user".into(),
+            content: "?".into(),
+            images: vec![ChatImage {
+                media_type: "image/png".into(),
+                data: "==".into(),
+            }],
+        };
+        assert!(LlmProvider::Openai.body("gpt-4o-mini", &[message]).is_ok());
     }
 
     #[test]
