@@ -35,7 +35,9 @@ export async function selectConnection(owner: string, typeId: string, credential
 export function copyConnections(source: string, target: string): Promise<void> {
   const pending = invoke<void>("connections_copy", { source: widgetConnectionOwner(source), target: widgetConnectionOwner(target) });
   pendingCopies.set(target, pending);
-  void pending.then(() => pendingCopies.delete(target)).catch(() => {});
+  // `finally`, not `then`: a failed copy left its rejection in the map, and
+  // every later `awaitConnectionCopy` for that card threw it again.
+  void pending.finally(() => pendingCopies.delete(target)).catch(() => {});
   return pending;
 }
 
