@@ -48,22 +48,7 @@ pub fn selection(
     if owner.is_empty() {
         return Err("connection owner is required".into());
     }
-    // The INSERT selects only when exactly one candidate exists, and never
-    // overwrites a previous choice, including a deleted connection.
-    conn.execute(
-        "INSERT OR IGNORE INTO connection_bindings(owner, type_id, credential_id)
-         SELECT ?1, ?2, MIN(id) FROM credentials WHERE type_id = ?2 HAVING COUNT(*) = 1",
-        params![owner, type_id],
-    )
-    .map_err(|e| e.to_string())?;
-    let mut id: Option<String> = conn
-        .query_row(
-            "SELECT credential_id FROM connection_bindings WHERE owner = ?1 AND type_id = ?2",
-            params![owner, type_id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(|e| e.to_string())?;
+    let mut id = bound(conn, owner, type_id)?;
     // No row of its own: follow the app-wide default.
     //
     // Read, never written. A consumer that has never chosen tracks the default
@@ -77,14 +62,22 @@ pub fn selection(
     // and a tombstone is still a row -- so it leaves `id` as `Some` and never
     // reaches this branch. Only the total absence of a choice does.
     if id.is_none() && owner != HOST_OWNER {
-        id = conn
-            .query_row(
-                "SELECT credential_id FROM connection_bindings WHERE owner = ?1 AND type_id = ?2",
-                params![HOST_OWNER, type_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?;
+        id = bound(conn, HOST_OWNER, type_id)?;
+    }
+    if id.is_none() {
+        // The default picks itself when exactly one account exists, and never
+        // overwrites a choice, a deleted one included. Only the default: a
+        // widget that got a row of its own here was the freeze described above,
+        // and it happened to every widget displayed while there was one account.
+        // Checked before writing, so a read with a default in place writes
+        // nothing.
+        conn.execute(
+            "INSERT OR IGNORE INTO connection_bindings(owner, type_id, credential_id)
+             SELECT ?1, ?2, MIN(id) FROM credentials WHERE type_id = ?2 HAVING COUNT(*) = 1",
+            params![HOST_OWNER, type_id],
+        )
+        .map_err(|e| e.to_string())?;
+        id = bound(conn, HOST_OWNER, type_id)?;
     }
     let record = id
         .as_deref()
@@ -110,6 +103,35 @@ pub fn selection(
             .is_some_and(|r| r.type_id == type_id && r.state == db::CredentialState::Connected),
         revision,
     })
+}
+
+fn bound(conn: &Connection, owner: &str, type_id: &str) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT credential_id FROM connection_bindings WHERE owner = ?1 AND type_id = ?2",
+        params![owner, type_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| e.to_string())
+}
+
+/// A new account takes over a default whose account was deleted.
+///
+/// The default is kept as a tombstone on delete, like every choice: moving it
+/// to whichever account is left would turn a work widget personal the moment
+/// its account went. Adding one afterwards is different — deleting an expired
+/// key and saving its replacement is the one way to swap a key, and leaving
+/// the default dead meant Settings → AI reported "not configured" next to a
+/// working key.
+pub fn adopt_orphaned_default(conn: &Connection, type_id: &str, id: &str) -> Result<(), String> {
+    conn.execute(
+        "UPDATE connection_bindings SET credential_id = ?3
+         WHERE owner = ?1 AND type_id = ?2
+           AND credential_id NOT IN (SELECT id FROM credentials)",
+        params![HOST_OWNER, type_id, id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub fn select(conn: &Connection, owner: &str, type_id: &str, id: &str) -> Result<(), String> {
@@ -265,8 +287,10 @@ mod tests {
         assert_eq!(
             selection(&conn, "widget:2", "githubPat")
                 .unwrap()
-                .credential_id,
-            None
+                .credential_id
+                .as_deref(),
+            Some("a"),
+            "a widget with no choice follows the default, which picked the sole account"
         );
         select(&conn, "widget:2", "githubPat", "b").unwrap();
         db::delete(&conn, "a").unwrap();
@@ -352,6 +376,83 @@ mod tests {
         let dead = selection(&conn, "widget:picky", "githubPat").unwrap();
         assert_eq!(dead.credential_id.as_deref(), Some("b"));
         assert!(!dead.available);
+    }
+
+    fn rows_of(conn: &Connection, owner: &str) -> i64 {
+        conn.query_row(
+            "SELECT COUNT(*) FROM connection_bindings WHERE owner = ?1",
+            [owner],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    /// Displaying a widget while there was one account used to give it a row
+    /// of its own, so it kept that account after the default moved on.
+    #[test]
+    fn a_widget_seen_with_one_account_still_follows_a_moved_default() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::migrate(&conn).unwrap();
+        add(&conn, "a", "githubPat");
+        let first = selection(&conn, "widget:1", "githubPat").unwrap();
+        assert_eq!(first.credential_id.as_deref(), Some("a"));
+        assert_eq!(
+            rows_of(&conn, "widget:1"),
+            0,
+            "reading chose nothing for the widget"
+        );
+
+        add(&conn, "b", "githubPat");
+        select(&conn, HOST_OWNER, "githubPat", "b").unwrap();
+        assert_eq!(
+            selection(&conn, "widget:1", "githubPat")
+                .unwrap()
+                .credential_id
+                .as_deref(),
+            Some("b"),
+            "it follows the default the user moved"
+        );
+    }
+
+    /// Deleting the default's account leaves a tombstone, as for every choice;
+    /// saving a replacement afterwards takes it over.
+    #[test]
+    fn a_new_account_takes_over_a_deleted_default() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::migrate(&conn).unwrap();
+        add(&conn, "work", "githubPat");
+        selection(&conn, HOST_OWNER, "githubPat").unwrap();
+        add(&conn, "personal", "githubPat");
+        db::delete(&conn, "work").unwrap();
+
+        let left = selection(&conn, "widget:1", "githubPat").unwrap();
+        assert_eq!(
+            left.credential_id.as_deref(),
+            Some("work"),
+            "the account left over is not quietly made the default"
+        );
+        assert!(!left.available);
+
+        add(&conn, "replacement", "githubPat");
+        adopt_orphaned_default(&conn, "githubPat", "replacement").unwrap();
+        assert_eq!(
+            selection(&conn, "widget:1", "githubPat")
+                .unwrap()
+                .credential_id
+                .as_deref(),
+            Some("replacement")
+        );
+
+        add(&conn, "another", "githubPat");
+        adopt_orphaned_default(&conn, "githubPat", "another").unwrap();
+        assert_eq!(
+            selection(&conn, HOST_OWNER, "githubPat")
+                .unwrap()
+                .credential_id
+                .as_deref(),
+            Some("replacement"),
+            "a live default is never replaced by a new account"
+        );
     }
 
     #[test]

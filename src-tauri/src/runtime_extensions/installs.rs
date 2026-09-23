@@ -323,8 +323,12 @@ fn connections_for_types(
             crate::credentials::bindings::HOST_OWNER,
             type_id,
         )?;
+        // Not a default whose account was deleted: granting a tombstone left
+        // the package "disconnected" with no account the person could fix.
         if let Some(id) = binding.credential_id {
-            ids.push(id);
+            if crate::credentials::db::load(conn, &id)?.is_some() {
+                ids.push(id);
+            }
         }
     }
     Ok(ids)
