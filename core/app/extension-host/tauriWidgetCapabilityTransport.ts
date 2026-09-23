@@ -103,6 +103,8 @@ export const tauriWidgetCapabilityTransport: WidgetCapabilityTransport = {
     await navigator.clipboard.writeText(text);
   },
   clipboardList: () => invoke("clipboard_list"),
+  clipboardOnChange: (listener) =>
+    listen<unknown>("clipboard:updated", (event) => listener(event.payload)),
   clipboardRestore: (id: string) => invoke("clipboard_restore", { id }),
   clipboardSetRevealed: (id: string, revealed: boolean) =>
     invoke("clipboard_set_revealed", { id, revealed }),

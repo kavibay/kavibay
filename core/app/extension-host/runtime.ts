@@ -485,6 +485,8 @@ export class Host {
       ctx.clipboard = {
         writeText: (text) => this.widgetTransport!.clipboardWriteText(text),
         list: <T>() => this.widgetTransport!.clipboardList() as Promise<T>,
+        onChange: <T>(listener: (entries: T) => void) =>
+          this.widgetTransport!.clipboardOnChange(listener as (entries: unknown) => void),
         restore: (id) => this.widgetTransport!.clipboardRestore(id),
         setRevealed: (id, revealed) => this.widgetTransport!.clipboardSetRevealed(id, revealed),
         delete: (id) => this.widgetTransport!.clipboardDelete(id),

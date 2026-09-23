@@ -40,6 +40,7 @@ export interface WidgetCapabilityTransport {
   openExternalVouched(url: string): Promise<void>;
   clipboardWriteText(text: string): Promise<void>;
   clipboardList(): Promise<unknown>;
+  clipboardOnChange(listener: (entries: unknown) => void): Promise<() => void>;
   clipboardRestore(id: string): Promise<void>;
   clipboardSetRevealed(id: string, revealed: boolean): Promise<void>;
   clipboardDelete(id: string): Promise<void>;
