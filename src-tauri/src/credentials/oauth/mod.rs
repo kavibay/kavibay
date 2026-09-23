@@ -16,6 +16,7 @@ pub mod auth_code;
 pub mod device_code;
 
 use std::collections::HashMap;
+use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex};
 
 use reqwest::Client;
@@ -78,6 +79,9 @@ pub(crate) struct Inner {
     /// background (expired code, denied approval), so the reason has to live
     /// somewhere the UI can poll for.
     last_error: Option<String>,
+    /// Held across a refresh's network round-trip, which the std mutex above
+    /// must never be. See `refresh_gated`.
+    refresh_gate: Arc<tauri::async_runtime::Mutex<()>>,
 }
 
 /// Shared OAuth state: one reusable HTTP client plus per-credential
@@ -468,38 +472,99 @@ pub async fn ensure_fresh(
     // generation together, so the refresh decision and the generation the save
     // is verified against are consistent. The lock is released before any
     // network I/O — it is never held across an `.await`.
-    let (secret, credential_generation) = {
+    let stored = || {
         let inner = slot.lock().unwrap();
         let conn = db::open_db(app)?;
         let secret = db::load_secret(&conn, &record.id)?.unwrap_or_default();
-        (secret, inner.credential_generation)
+        let expired = access_expired(
+            secret.oauth.as_ref().ok_or("Not connected")?.expires_at,
+            now_secs(),
+        );
+        Ok::<_, String>((secret, inner.credential_generation, expired))
     };
 
-    let tokens = secret.oauth.clone().ok_or("Not connected")?;
-    if !access_expired(tokens.expires_at, now_secs()) {
+    let (secret, _, expired) = stored()?;
+    if !expired {
         return Ok(secret);
     }
 
-    refresh(app, record, type_def, secret, credential_generation).await
+    let gate = Arc::clone(&slot.lock().unwrap().refresh_gate);
+    refresh_gated(
+        &gate,
+        || {
+            // Read again: whoever held the gate may have refreshed already.
+            let (secret, credential_generation, expired) = stored()?;
+            Ok(if expired {
+                ControlFlow::Continue((secret, credential_generation))
+            } else {
+                ControlFlow::Break(secret)
+            })
+        },
+        |(secret, credential_generation)| {
+            refresh(app, record, type_def, secret, credential_generation)
+        },
+    )
+    .await
 }
 
 /// Refreshes regardless of local expiry — used after a provider 401, where an
 /// otherwise unexpired token may have been revoked server-side.
 pub async fn force_refresh(app: &AppHandle, credential_id: &str) -> Result<String, String> {
     let slot = slot(app, credential_id);
-    let (record, secret, credential_generation) = {
+    let (gate, seen) = {
         let inner = slot.lock().unwrap();
-        let conn = db::open_db(app)?;
-        let record = db::load(&conn, credential_id)?.ok_or("Not connected")?;
-        let secret = db::load_secret(&conn, credential_id)?.unwrap_or_default();
-        (record, secret, inner.credential_generation)
+        (Arc::clone(&inner.refresh_gate), inner.credential_generation)
     };
-    let type_def = registry::require(&record.type_id)?;
-    let refreshed = refresh(app, &record, type_def, secret, credential_generation).await?;
+    let refreshed = refresh_gated(
+        &gate,
+        || {
+            let (record, secret, credential_generation) = {
+                let inner = slot.lock().unwrap();
+                let conn = db::open_db(app)?;
+                let record = db::load(&conn, credential_id)?.ok_or("Not connected")?;
+                let secret = db::load_secret(&conn, credential_id)?.unwrap_or_default();
+                (record, secret, inner.credential_generation)
+            };
+            // Replaced while this caller waited, by a refresh answering the
+            // same 401 or by a new login: those tokens are the answer here too.
+            Ok(if credential_generation == seen {
+                ControlFlow::Continue((record, secret, credential_generation))
+            } else {
+                ControlFlow::Break(secret)
+            })
+        },
+        |(record, secret, credential_generation)| async move {
+            let type_def = registry::require(&record.type_id)?;
+            refresh(app, &record, type_def, secret, credential_generation).await
+        },
+    )
+    .await?;
     refreshed
         .oauth
         .map(|tokens| tokens.access_token)
         .ok_or_else(|| "refresh produced no access token".to_string())
+}
+
+/// One refresh grant for however many callers found the token stale at once.
+///
+/// `recheck` runs once the gate is held. `Break` means a refresh that finished
+/// while this caller waited already answers it; only `Continue` sends a grant.
+/// Without the gate, two widgets waking up on an expired token each spent the
+/// same refresh token. A provider that rotates them (tado°) takes the second
+/// use as a replayed token and may revoke the whole grant.
+async fn refresh_gated<T, R, Fut>(
+    gate: &tauri::async_runtime::Mutex<()>,
+    recheck: impl FnOnce() -> Result<ControlFlow<T, R>, String>,
+    refresh: impl FnOnce(R) -> Fut,
+) -> Result<T, String>
+where
+    Fut: std::future::Future<Output = Result<T, String>>,
+{
+    let _refreshing = gate.lock().await;
+    match recheck()? {
+        ControlFlow::Break(current) => Ok(current),
+        ControlFlow::Continue(stale) => refresh(stale).await,
+    }
 }
 
 /// Performs the refresh-token grant and persists the replacement tokens.
@@ -1000,6 +1065,64 @@ mod tests {
         ] {
             assert!(!refresh_rejected(transient), "{transient} is not a refusal");
         }
+    }
+
+    /// Five callers that all found the token expired send one refresh grant;
+    /// the ones that waited read what it stored.
+    #[test]
+    fn concurrent_stale_callers_share_one_refresh() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::time::Duration;
+
+        let gate = Arc::new(tauri::async_runtime::Mutex::new(()));
+        // 0 stands for the expired token, 1 for the refreshed one.
+        let stored = Arc::new(Mutex::new(0u32));
+        let grants = Arc::new(AtomicUsize::new(0));
+
+        let answers = tauri::async_runtime::block_on(async {
+            let callers: Vec<_> = (0..5)
+                .map(|_| {
+                    let (gate, stored, grants) =
+                        (Arc::clone(&gate), Arc::clone(&stored), Arc::clone(&grants));
+                    tauri::async_runtime::spawn(async move {
+                        refresh_gated(
+                            &gate,
+                            || {
+                                let version = *stored.lock().unwrap();
+                                Ok(if version == 0 {
+                                    ControlFlow::Continue(())
+                                } else {
+                                    ControlFlow::Break(version)
+                                })
+                            },
+                            |()| async {
+                                grants.fetch_add(1, Ordering::SeqCst);
+                                // Long enough for every other caller to queue on the gate.
+                                tokio::time::sleep(Duration::from_millis(50)).await;
+                                *stored.lock().unwrap() = 1;
+                                Ok(1)
+                            },
+                        )
+                        .await
+                    })
+                })
+                .collect();
+            let mut answers = Vec::new();
+            for caller in callers {
+                answers.push(caller.await.unwrap());
+            }
+            answers
+        });
+
+        assert_eq!(
+            grants.load(Ordering::SeqCst),
+            1,
+            "one grant, not one per caller"
+        );
+        assert!(
+            answers.iter().all(|answer| answer == &Ok(1)),
+            "every caller gets the refreshed token: {answers:?}"
+        );
     }
 
     #[test]
