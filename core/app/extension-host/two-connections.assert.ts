@@ -2,6 +2,7 @@ import {
   defineExtension,
   defineProvider,
   defineWidget,
+  type ExtensionSource,
   type ProviderHostContext,
   type WidgetContext,
 } from "@sdk/contract/sdk";
@@ -92,11 +93,18 @@ function makeTransport() {
   const revisions = new Map<string, number>();
   const available = new Set<string>(Object.keys(WORKSPACES));
   const fetched: string[] = [];
+  /** The package ids the host asked Rust to check a grant for. */
+  const grantChecks: string[] = [];
 
   const transport: ProviderTransport = {
-    async fetch(_providerId, _url, _method, _body, credentialId) {
-      fetched.push(credentialId ?? "none");
-      const workspace = WORKSPACES[credentialId ?? ""];
+    async fetch(_providerId, _url, _method, _body, connection) {
+      const credentialId = connection?.credentialId ?? "none";
+      fetched.push(credentialId);
+      // As the host does: the account must be the one bound to the owner asking.
+      if (!connection?.owner || bindings.get(connection.owner) !== credentialId) {
+        return { status: 409, body: "connection_changed" };
+      }
+      const workspace = WORKSPACES[credentialId];
       if (!workspace) return { status: 401, body: "no such connection" };
       return {
         status: 200,
@@ -110,7 +118,8 @@ function makeTransport() {
       const id = bindings.get(owner ?? "");
       return Boolean(id && available.has(id));
     },
-    async connection(_providerId, owner): Promise<ProviderConnection | null> {
+    async connection(_providerId, owner, packageId): Promise<ProviderConnection | null> {
+      if (packageId) grantChecks.push(packageId);
       const credentialId = bindings.get(owner) ?? null;
       return {
         credentialId,
@@ -123,6 +132,7 @@ function makeTransport() {
   return {
     transport,
     fetched,
+    grantChecks,
     bind: (instanceId: string, credentialId: string) =>
       bindings.set(`widget:${instanceId}`, credentialId),
     /** The user deleted the saved key, or its token expired. */
@@ -150,7 +160,7 @@ const fetcher: Fetcher = async () => {
   throw new Error("the provider path must not reach the local fetcher");
 };
 
-function boot() {
+function boot(demoSource: ExtensionSource = { kind: "bundled" }) {
   const reg = new ExtensionRegistry();
   reg.load(
     defineExtension({
@@ -171,7 +181,7 @@ function boot() {
       dependencies: { "kavibay.tracker": { version: "*" } },
       contributes: { widgets: [myIssues] },
     }) as never,
-    { kind: "bundled" },
+    demoSource,
   );
   const failed = reg.link();
   assert(failed.length === 0, `the tracker widget must link: ${JSON.stringify(reg.errors)}`);
@@ -179,10 +189,10 @@ function boot() {
   return { reg, fake, host: new Host(reg, fetcher, makeUi({}).ui, fake.transport) };
 }
 
-function instance(id: string) {
+function instance(id: string, definitionId = "kavibay.demo/my-issues") {
   return {
     id,
-    definitionId: "kavibay.demo/my-issues",
+    definitionId,
     configuration: {},
     position: { x: 0, y: 0 },
     size: { w: 3, h: 3 },
@@ -191,8 +201,8 @@ function instance(id: string) {
 }
 
 /** Reads through the widget's own handle, the way the gate mounts it. */
-async function issuesOf(host: Host, id: string): Promise<Issue[]> {
-  const ctx = host.buildWidgetContext(instance(id));
+async function issuesOf(host: Host, id: string, definitionId?: string): Promise<Issue[]> {
+  const ctx = host.buildWidgetContext(instance(id, definitionId));
   return (await ctx.providers![PROVIDER]!.query<Issue[]>("assignedIssues", {})) ?? [];
 }
 
@@ -305,6 +315,27 @@ async function issuesOf(host: Host, id: string): Promise<Issue[]> {
   fake.reKey("cred-work");
   await issuesOf(host, "w");
   assert(fake.fetched.length === 2, `a re-keyed connection refetches: ${fake.fetched.join()}`);
+}
+
+/**
+ * Only bundled code skips the grant. The host checks a grant only for a
+ * package id it is sent, so the tier that decides whether one is sent has to
+ * fail closed: a signed catalog package is `reviewed`, not bundled, and used
+ * to spend the account without being asked.
+ */
+{
+  const bundled = boot();
+  bundled.fake.bind("w", "cred-work");
+  await issuesOf(bundled.host, "w");
+  assert(bundled.fake.grantChecks.length === 0, "bundled code holds no grant and is not asked for one");
+
+  const reviewed = boot({ kind: "catalog", entry: "acme/demo", signature: "signed" });
+  reviewed.fake.bind("w", "cred-work");
+  await issuesOf(reviewed.host, "w", "acme.demo/my-issues");
+  assert(
+    reviewed.fake.grantChecks.join() === "demo",
+    `a reviewed package is checked against its grant: ${reviewed.fake.grantChecks.join()}`,
+  );
 }
 
 console.log("two-connections.assert.ts: ok");

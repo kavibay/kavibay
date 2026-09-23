@@ -394,6 +394,7 @@ async fn send(
 /// `provider_id` is checked against the provider table; an unknown provider is
 /// refused rather than treated as unauthenticated, so a typo cannot silently
 /// downgrade a request to anonymous.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn extension_provider_fetch(
     app: AppHandle,
@@ -401,38 +402,42 @@ pub async fn extension_provider_fetch(
     url: String,
     method: String,
     body: Option<Value>,
+    owner: Option<String>,
     credential_id: Option<String>,
     package_id: Option<String>,
 ) -> Result<ProviderFetchResult, String> {
     let provider = find(&provider_id).ok_or("unknown_provider")?;
     provider_http_method(&method)?;
-    if let (Some(package_id), Some(credential_id)) = (&package_id, &credential_id) {
-        let package_id = base_package_id(package_id);
-        if !crate::runtime_extensions::installs::has_credential_grant(
-            &app,
-            package_id,
-            credential_id,
-        ) {
-            return Err("credential_not_granted".into());
-        }
-    }
 
     // Resolve before checking: the url may still contain placeholders, and what
     // matters is that the *final* url passes every check (finding 13).
     let credential = match provider.credential_type {
         None => None,
-        Some(type_id) => Some(
-            resolve_for_connection(
-                &app,
+        Some(type_id) => {
+            let binding = crate::credentials::bindings::selection(
+                &crate::credentials::db::open_db(&app)?,
+                owner.as_deref().ok_or("connection_required")?,
                 type_id,
-                credential_id.as_deref().ok_or("connection_required")?,
+            )?;
+            let credential_id = bound_connection(&binding, credential_id.as_deref())?;
+            if let Some(package_id) = &package_id {
+                if !crate::runtime_extensions::installs::has_credential_grant(
+                    &app,
+                    base_package_id(package_id),
+                    &credential_id,
+                ) {
+                    return Err("credential_not_granted".into());
+                }
+            }
+            Some(
+                resolve_for_connection(&app, type_id, &credential_id)
+                    .await
+                    .map_err(|error| match error {
+                        ResolveError::NotConfigured => "disconnected".to_string(),
+                        other => other.to_string(),
+                    })?,
             )
-            .await
-            .map_err(|error| match error {
-                ResolveError::NotConfigured => "disconnected".to_string(),
-                other => other.to_string(),
-            })?,
-        ),
+        }
     };
 
     let url = substitute_metadata(&url, credential.as_ref().map(|c| &c.record.metadata))?;
@@ -594,6 +599,27 @@ fn base_package_id(package_id: &str) -> &str {
     package_id
         .strip_prefix(crate::runtime_extensions::http::DRAFT_PREFIX)
         .unwrap_or(package_id)
+}
+
+/// The account a provider request may use: the one bound to its owner.
+///
+/// The webview also names the account it expects, because its cache is keyed
+/// by it — but the account comes from the binding, not from the wire
+/// (CLAUDE.md invariant 4); the wire only has to agree. Taking the wire's id
+/// let a caller that sent no package id spend any saved account, not just
+/// the one its owner is bound to. A mismatch is either an
+/// owner that switched accounts after the host read its connection, where
+/// answering would file one account's rows under the other's key, or an id
+/// that was never this owner's.
+fn bound_connection(
+    binding: &crate::credentials::bindings::ConnectionBinding,
+    requested: Option<&str>,
+) -> Result<String, String> {
+    let bound = binding.credential_id.as_deref().ok_or("disconnected")?;
+    if requested != Some(bound) {
+        return Err("connection_changed".into());
+    }
+    Ok(bound.to_string())
 }
 
 /// Hands one provider-vouched url to the OS browser.
@@ -925,6 +951,37 @@ mod tests {
         assert!(
             listed(capability.hosts, provider.exact_hosts()[0]),
             "and the reverse direction"
+        );
+    }
+
+    /// A request spends the account bound to its owner and no other, whatever
+    /// id the webview puts next to it.
+    #[test]
+    fn a_request_can_only_spend_its_owners_account() {
+        let binding = |id: Option<&str>| crate::credentials::bindings::ConnectionBinding {
+            type_id: "linearApi".into(),
+            credential_id: id.map(str::to_string),
+            available: true,
+            revision: 1,
+        };
+        assert_eq!(
+            bound_connection(&binding(Some("work")), Some("work")),
+            Ok("work".to_string())
+        );
+        assert_eq!(
+            bound_connection(&binding(Some("work")), Some("personal")),
+            Err("connection_changed".to_string()),
+            "another saved account is refused, not used",
+        );
+        assert_eq!(
+            bound_connection(&binding(Some("work")), None),
+            Err("connection_changed".to_string()),
+            "naming no account does not mean \"any\"",
+        );
+        assert_eq!(
+            bound_connection(&binding(None), Some("work")),
+            Err("disconnected".to_string()),
+            "an owner with no account chosen gets none",
         );
     }
 

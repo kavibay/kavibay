@@ -1,6 +1,8 @@
 import type { ExtensionId, ProviderId } from "@sdk/contract/sdk";
 
 export interface ProviderConnection {
+  /** Whose binding this is; the host spends that owner's account, not `credentialId`. */
+  owner?: string;
   packageId?: string;
   credentialId: string | null;
   available: boolean;
@@ -26,8 +28,7 @@ export interface ProviderTransport {
     url: string,
     method: "GET" | "POST" | "PUT",
     body?: unknown,
-    credentialId?: string,
-    packageId?: string,
+    connection?: ProviderConnection | null,
   ): Promise<{ status: number; body: unknown }>;
 
   /**
