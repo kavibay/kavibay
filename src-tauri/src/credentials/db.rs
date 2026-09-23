@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -99,11 +100,33 @@ pub fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(data_dir(app)?.join("credentials.db"))
 }
 
-/// Opens the credential database and applies its idempotent schema migration.
+/// Opens the credential database, migrating its schema on the first open.
 pub fn open_db(app: &AppHandle) -> Result<Connection, String> {
     let conn = Connection::open(db_path(app)?).map_err(|e| e.to_string())?;
-    migrate(&conn)?;
+    prepare(&conn)?;
     Ok(conn)
+}
+
+/// Set once this process has migrated the schema.
+///
+/// Every credential read opens the database — four times for one runtime
+/// endpoint call — and each open re-ran eight DDL statements. Two first opens
+/// racing both migrate, which is harmless: every statement is idempotent.
+// ponytail: one flag for the one credentials.db a process opens; key it by
+// path if a second database ever appears, and a file deleted under the running
+// app stays unmigrated until restart.
+static MIGRATED: AtomicBool = AtomicBool::new(false);
+
+fn prepare(conn: &Connection) -> Result<(), String> {
+    if MIGRATED.load(Ordering::Acquire) {
+        // Per connection, unlike the schema: SQLite does not persist it.
+        return conn
+            .execute_batch("PRAGMA foreign_keys = ON;")
+            .map_err(|e| e.to_string());
+    }
+    migrate(conn)?;
+    MIGRATED.store(true, Ordering::Release);
+    Ok(())
 }
 
 /// Creates the credential tables when initializing a database.
@@ -305,6 +328,30 @@ pub fn delete(conn: &Connection, id: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The one test that goes through `prepare`, which flips a process-wide flag.
+    #[test]
+    fn the_schema_is_migrated_once_and_foreign_keys_on_every_connection() {
+        prepare(&Connection::open_in_memory().unwrap()).unwrap();
+
+        let later = Connection::open_in_memory().unwrap();
+        prepare(&later).unwrap();
+        let foreign_keys: i64 = later
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            foreign_keys, 1,
+            "every connection still enforces foreign keys"
+        );
+        let tables: i64 = later
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 0, "a later open runs no DDL");
+    }
 
     fn test_conn() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
