@@ -1257,3 +1257,70 @@ mod tests {
         )));
     }
 }
+
+/// The ACL as the running app enforces it: `generate_context!` compiles in the
+/// capabilities and the permissions `build.rs` generates, so this asks the
+/// same authority an `invoke` does.
+#[cfg(test)]
+mod acl_tests {
+    use tauri::ipc::Origin;
+
+    fn registered_commands() -> Vec<&'static str> {
+        let source = include_str!("lib.rs");
+        let start = source.find("generate_handler![").unwrap() + "generate_handler![".len();
+        let end = start + source[start..].find(']').unwrap();
+        source[start..end]
+            .split(',')
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(|path| path.rsplit("::").next().unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn each_window_reaches_exactly_its_commands() {
+        let mut context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+        let acl = context.runtime_authority_mut();
+        let allowed = |window: &str, command: &str| {
+            acl.resolve_access(command, window, window, &Origin::Local)
+                .is_some()
+        };
+
+        let commands = registered_commands();
+        assert!(commands.len() > 100, "parsed {} commands", commands.len());
+        for command in &commands {
+            assert!(
+                allowed("main", command),
+                "the main window must reach {command}"
+            );
+        }
+
+        for command in ["quick_action_apply", "llm_chat_stream", "web_storage_load"] {
+            assert!(allowed("quickaction", command), "the popup needs {command}");
+        }
+        for command in [
+            "credentials_delete",
+            "credentials_save",
+            "launch_path",
+            "image_widget_clear",
+            "runtime_extensions_installs_set",
+            "web_storage_save",
+        ] {
+            assert!(
+                !allowed("quickaction", command),
+                "the popup must not reach {command}"
+            );
+        }
+
+        // A package frame is served from its own origin: it reaches nothing,
+        // whichever window it sits in.
+        let frame = Origin::Remote {
+            url: "http://kavibay-ext.localhost/pkg/index.html"
+                .parse()
+                .unwrap(),
+        };
+        assert!(acl
+            .resolve_access("credentials_list", "main", "main", &frame)
+            .is_none());
+    }
+}
