@@ -504,9 +504,9 @@ pub async fn force_refresh(app: &AppHandle, credential_id: &str) -> Result<Strin
 
 /// Performs the refresh-token grant and persists the replacement tokens.
 ///
-/// On failure the stored tokens are left in place and the credential is marked
-/// `needsReauth`, so the UI keeps showing which account is affected while
-/// prompting to reconnect.
+/// On failure the stored tokens are left in place. Only a rejection of the
+/// grant marks the credential `needsReauth` (see `refresh_rejected`); any other
+/// failure is returned as is, so the next read tries again.
 async fn refresh(
     app: &AppHandle,
     record: &CredentialRecord,
@@ -539,27 +539,18 @@ async fn refresh(
     if let Some((id, secret)) = client_auth.basic {
         request = request.basic_auth(id, Some(secret));
     }
-    let response = match request.send().await {
-        Ok(response) => response,
-        Err(error) => {
-            mark_needs_reauth(app, record, credential_generation);
-            return Err(error.to_string());
-        }
-    };
+    let response = request.send().await.map_err(|error| error.to_string())?;
 
-    if !response.status().is_success() {
+    let status = response.status();
+    if !status.is_success() {
         let detail = response.text().await.unwrap_or_default();
-        mark_needs_reauth(app, record, credential_generation);
+        if refresh_rejected(status) {
+            mark_needs_reauth(app, record, credential_generation);
+        }
         return Err(format!("token refresh failed: {}", detail.trim()));
     }
 
-    let parsed: TokenResponse = match response.json().await {
-        Ok(parsed) => parsed,
-        Err(error) => {
-            mark_needs_reauth(app, record, credential_generation);
-            return Err(error.to_string());
-        }
-    };
+    let parsed: TokenResponse = response.json().await.map_err(|error| error.to_string())?;
 
     let refreshed_tokens = tokens_from_response(parsed, Some(&tokens.refresh_token), now_secs())?;
     let mut refreshed = secret;
@@ -585,6 +576,19 @@ async fn refresh(
         None => return Err("credentials changed during token refresh".to_string()),
     }
     Ok(refreshed)
+}
+
+/// Whether the token endpoint refused the grant itself.
+///
+/// Only a 4xx says that (`invalid_grant`, a revoked client). No network after a
+/// wake from sleep, a 5xx, a rate limit or a captive portal answering with HTML
+/// says nothing about the refresh token. Marking the account on those forced a
+/// browser login that was never needed: `resolve` refuses a `needsReauth`
+/// credential outright, so nothing retried once the network was back.
+fn refresh_rejected(status: reqwest::StatusCode) -> bool {
+    status.is_client_error()
+        && status != reqwest::StatusCode::REQUEST_TIMEOUT
+        && status != reqwest::StatusCode::TOO_MANY_REQUESTS
 }
 
 /// Marks the credential as needing reconnection after a failed refresh — but
@@ -972,6 +976,30 @@ mod tests {
             marked = true;
         }
         assert!(marked, "a current refresh failure must mark reauth");
+    }
+
+    /// Only the token endpoint refusing the grant asks for a new login; a
+    /// server or network hiccup must leave the account connected.
+    #[test]
+    fn only_a_refused_grant_asks_for_a_new_login() {
+        use reqwest::StatusCode;
+        for refused in [
+            StatusCode::BAD_REQUEST,
+            StatusCode::UNAUTHORIZED,
+            StatusCode::FORBIDDEN,
+        ] {
+            assert!(refresh_rejected(refused), "{refused} refuses the grant");
+        }
+        for transient in [
+            StatusCode::REQUEST_TIMEOUT,
+            StatusCode::TOO_MANY_REQUESTS,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::BAD_GATEWAY,
+            StatusCode::SERVICE_UNAVAILABLE,
+            StatusCode::FOUND,
+        ] {
+            assert!(!refresh_rejected(transient), "{transient} is not a refusal");
+        }
     }
 
     #[test]
