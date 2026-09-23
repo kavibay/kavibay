@@ -258,31 +258,24 @@ pub async fn fetch_url_icon(url: String) -> Result<String, String> {
     fetch_url_icon_impl(url.trim()).await
 }
 
-/// Prefer fast favicon endpoints; only scrape HTML if those fail.
+/// The site's own icons, best first; `/favicon.ico` when its HTML names none.
+///
+/// Only the site is asked. Google's and DuckDuckGo's favicon services used to
+/// go first, which told both of them the host of every button — an intranet
+/// one included.
 async fn fetch_url_icon_impl(url: &str) -> Result<String, String> {
     let page_url = Url::parse(url).map_err(|e| format!("Ungültige URL: {e}"))?;
     if page_url.scheme() != "http" && page_url.scheme() != "https" {
         return Err("Nur http(s) URLs werden unterstützt".into());
     }
 
-    let client = reqwest::Client::builder()
-        .user_agent("KavibayAppLauncher/1.0")
-        .timeout(std::time::Duration::from_secs(6))
-        .redirect(reqwest::redirect::Policy::limited(5))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    // 1) Host favicon services — one small request, no HTML download.
-    if let Some(host) = page_url.host_str() {
-        let google = format!("https://www.google.com/s2/favicons?domain={host}&sz=128");
-        if let Ok(href) = Url::parse(&google) {
-            if let Ok(data_url) = download_as_png_data_url(&client, &href).await {
-                return Ok(data_url);
-            }
-        }
-        let ddg = format!("https://icons.duckduckgo.com/ip3/{host}.ico");
-        if let Ok(href) = Url::parse(&ddg) {
-            if let Ok(data_url) = download_as_png_data_url(&client, &href).await {
+    // 1) <link rel=icon|apple-touch-icon> from a size-capped HTML fetch —
+    //    usually a 180px touch icon, far sharper than a favicon.ico.
+    if let Ok(html) = fetch_html_head(&page_url).await {
+        let mut candidates = collect_icon_candidates(&html, &page_url);
+        candidates.sort_by(|a, b| b.pixels.cmp(&a.pixels).then(b.priority.cmp(&a.priority)));
+        for cand in &candidates {
+            if let Ok(data_url) = download_as_png_data_url(&cand.href).await {
                 return Ok(data_url);
             }
         }
@@ -290,22 +283,7 @@ async fn fetch_url_icon_impl(url: &str) -> Result<String, String> {
 
     // 2) Classic /favicon.ico on the site origin.
     if let Ok(favicon) = page_url.join("/favicon.ico") {
-        if let Ok(data_url) = download_as_png_data_url(&client, &favicon).await {
-            return Ok(data_url);
-        }
-    }
-
-    // 3) Last resort: parse <link rel=icon> from a size-capped HTML fetch.
-    let html = match fetch_html_head(&client, &page_url).await {
-        Ok(h) => h,
-        Err(_) => return Err("Kein Icon gefunden".into()),
-    };
-
-    let mut candidates = collect_icon_candidates(&html, &page_url);
-    candidates.sort_by(|a, b| b.pixels.cmp(&a.pixels).then(b.priority.cmp(&a.priority)));
-
-    for cand in &candidates {
-        if let Ok(data_url) = download_as_png_data_url(&client, &cand.href).await {
+        if let Ok(data_url) = download_as_png_data_url(&favicon).await {
             return Ok(data_url);
         }
     }
@@ -313,12 +291,55 @@ async fn fetch_url_icon_impl(url: &str) -> Result<String, String> {
     Err("Kein Icon gefunden".into())
 }
 
+const ICON_FETCH_REDIRECTS: usize = 5;
+
+/// One GET with every hop dialled at an address `net_guard` allowed.
+///
+/// The page url is the user's, but its redirects and the icon links in its
+/// HTML are the site's: without this, a page could send the host process to
+/// 169.254.169.254 or anything else this machine can reach. `UserSupplied`
+/// keeps the router and the intranet reachable — people add those as buttons
+/// on purpose — and refuses link-local.
+async fn vetted_get(url: &Url) -> Result<reqwest::Response, String> {
+    let mut url = url.clone();
+    for _ in 0..=ICON_FETCH_REDIRECTS {
+        if url.scheme() != "http" && url.scheme() != "https" {
+            return Err("Nur http(s) URLs werden unterstützt".into());
+        }
+        let address = crate::runtime_extensions::http::vetted_address_with(
+            &url,
+            crate::runtime_extensions::net_guard::AddressPolicy::UserSupplied,
+        )
+        .await?;
+        let host = url.host_str().ok_or("Ungültige URL")?.to_string();
+        let response = reqwest::Client::builder()
+            .user_agent("KavibayAppLauncher/1.0")
+            .timeout(std::time::Duration::from_secs(6))
+            .redirect(reqwest::redirect::Policy::none())
+            .resolve(&host, address)
+            .build()
+            .map_err(|e| e.to_string())?
+            .get(url.clone())
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        if !response.status().is_redirection() {
+            return Ok(response);
+        }
+        let location = response
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|value| value.to_str().ok())
+            .ok_or("Weiterleitung ohne Ziel")?;
+        url = url.join(location).map_err(|e| e.to_string())?;
+    }
+    Err("Zu viele Weiterleitungen".into())
+}
+
 /// Download only the start of the document (icons live in <head>).
-async fn fetch_html_head(client: &reqwest::Client, page_url: &Url) -> Result<String, String> {
+async fn fetch_html_head(page_url: &Url) -> Result<String, String> {
     const MAX_BYTES: usize = 64 * 1024;
-    let mut response = client
-        .get(page_url.clone())
-        .send()
+    let mut response = vetted_get(page_url)
         .await
         .map_err(|e| format!("Seite nicht erreichbar: {e}"))?
         .error_for_status()
@@ -442,12 +463,9 @@ fn parse_max_size(sizes: Option<&str>) -> Option<u32> {
 }
 
 /// Download an image URL and encode a (optionally downscaled) PNG data URL.
-async fn download_as_png_data_url(client: &reqwest::Client, href: &Url) -> Result<String, String> {
-    let bytes = client
-        .get(href.clone())
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
+async fn download_as_png_data_url(href: &Url) -> Result<String, String> {
+    let bytes = vetted_get(href)
+        .await?
         .error_for_status()
         .map_err(|e| e.to_string())?
         .bytes()
@@ -1116,4 +1134,52 @@ fn extract_app_icon_windows(path: &str) -> Result<String, String> {
 
     // Last resort — may still show the overlay for unresolved .lnk files.
     extract_icon_shgetfileinfo(path, size)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::vetted_get;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use url::Url;
+
+    /// Serves one canned response on loopback and returns its url.
+    async fn one_response(reply: &'static str) -> Url {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tauri::async_runtime::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 1024];
+            let _ = socket.read(&mut request).await;
+            socket.write_all(reply.as_bytes()).await.unwrap();
+        });
+        Url::parse(&format!("http://{address}/")).unwrap()
+    }
+
+    #[test]
+    fn a_page_cannot_send_the_icon_fetch_to_link_local() {
+        tauri::async_runtime::block_on(async {
+            let metadata = Url::parse("http://169.254.169.254/latest/meta-data").unwrap();
+            assert_eq!(vetted_get(&metadata).await.unwrap_err(), "blocked_address");
+
+            let page = one_response(
+                "HTTP/1.1 302 Found\r\nLocation: http://169.254.169.254/latest/meta-data\r\n\
+                 Content-Length: 0\r\nConnection: close\r\n\r\n",
+            )
+            .await;
+            assert_eq!(
+                vetted_get(&page).await.unwrap_err(),
+                "blocked_address",
+                "a redirect is vetted like the url itself"
+            );
+
+            let router =
+                one_response("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                    .await;
+            assert_eq!(
+                vetted_get(&router).await.unwrap().status(),
+                200,
+                "the user's own network stays reachable"
+            );
+        });
+    }
 }
