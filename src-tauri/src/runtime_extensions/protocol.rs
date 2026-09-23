@@ -322,7 +322,9 @@ fn validate_ext_id(ext_id: &str) -> Result<(), String> {
     if ext_id == "." || ext_id == ".." {
         return Err("ext_id_invalid".into());
     }
-    if ext_id.contains('/') || ext_id.contains('\\') {
+    // `:` too: on Windows `root.join("C:")` is the drive's working directory,
+    // not a folder under the root.
+    if ext_id.contains(['/', '\\', ':']) {
         return Err("ext_id_invalid".into());
     }
     if ext_id.contains('\0') {
@@ -647,6 +649,7 @@ mod tests {
     fn parse_rejects_bad_ext_id() {
         assert!(validate_ext_id("..").is_err());
         assert!(validate_ext_id("a/b").is_err());
+        assert!(validate_ext_id("C:").is_err());
     }
 
     #[test]
