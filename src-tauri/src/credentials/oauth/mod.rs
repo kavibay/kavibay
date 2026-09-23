@@ -94,10 +94,19 @@ pub struct OAuthState {
     slots: Mutex<HashMap<String, Arc<Mutex<Inner>>>>,
 }
 
+/// Per request. `Client::new()` has none, and a refresh holds the credential's
+/// refresh gate for its whole round-trip — on a network that hangs rather
+/// than fails, every caller queued behind it would hang with it.
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
 impl OAuthState {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .timeout(REQUEST_TIMEOUT)
+                .build()
+                // What `Client::new()` does on the same failure.
+                .expect("TLS backend cannot be initialized"),
             slots: Mutex::new(HashMap::new()),
         }
     }
