@@ -358,10 +358,97 @@ fn foreground_source_app() -> Option<ClipboardSourceApp> {
     None
 }
 
-fn read_clipboard() -> ClipSnapshot {
-    let _clipboard_io = CLIPBOARD_IO
+/// True when whoever wrote the clipboard asked history tools to stay out.
+///
+/// Password managers (1Password, Bitwarden, KeePass) mark a copied secret with
+/// these registered formats, and the Windows clipboard history honours them.
+/// Ignoring them put every copied password into `index.json` in plaintext.
+#[cfg(windows)]
+fn excluded_from_history() -> bool {
+    use windows::core::w;
+    use windows::Win32::Foundation::HGLOBAL;
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+        RegisterClipboardFormatW,
+    };
+    use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
+
+    // SAFETY: plain Win32 calls. The handle from GetClipboardData is only read
+    // while the clipboard is open, through GlobalLock, after checking its size.
+    unsafe {
+        // Presence alone means "skip".
+        for marker in [
+            w!("ExcludeClipboardContentFromMonitorProcessing"),
+            w!("Clipboard Viewer Ignore"),
+        ] {
+            let format = RegisterClipboardFormatW(marker);
+            if format != 0 && IsClipboardFormatAvailable(format).is_ok() {
+                return true;
+            }
+        }
+
+        // A DWORD: 0 excludes, anything else is an explicit opt-in.
+        let history = RegisterClipboardFormatW(w!("CanIncludeInClipboardHistory"));
+        if history == 0 || IsClipboardFormatAvailable(history).is_err() {
+            return false;
+        }
+        if OpenClipboard(None).is_err() {
+            // The writer set the flag; when it cannot be read, skip rather than guess.
+            return true;
+        }
+        let allowed = GetClipboardData(history).ok().and_then(|handle| {
+            let memory = HGLOBAL(handle.0);
+            if GlobalSize(memory) < std::mem::size_of::<u32>() {
+                return None;
+            }
+            let value = GlobalLock(memory) as *const u32;
+            if value.is_null() {
+                return None;
+            }
+            let allowed = value.read_unaligned() != 0;
+            let _ = GlobalUnlock(memory);
+            Some(allowed)
+        });
+        let _ = CloseClipboard();
+        !allowed.unwrap_or(false)
+    }
+}
+
+#[cfg(not(windows))]
+fn excluded_from_history() -> bool {
+    false
+}
+
+fn lock_clipboard_io() -> std::sync::MutexGuard<'static, ()> {
+    CLIPBOARD_IO
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn read_clipboard() -> ClipSnapshot {
+    let _clipboard_io = lock_clipboard_io();
+    read_clipboard_locked()
+}
+
+/// The watcher's read: only what a history may keep.
+///
+/// Not folded into `read_clipboard` — quick actions read the clipboard to put
+/// the user's own content back afterwards, and a copied password must survive
+/// that even though it never enters the history.
+fn read_clipboard_for_history() -> ClipSnapshot {
+    let _clipboard_io = lock_clipboard_io();
+    let snap = read_clipboard_locked();
+    // After the read, not before: a writer holds the clipboard open for its
+    // whole write, so once our read got in, every marker belonging to what we
+    // read is there. Checked first, a poll woken by the writer's
+    // EmptyClipboard could see the text without its marker yet.
+    if excluded_from_history() {
+        return ClipSnapshot::Empty;
+    }
+    snap
+}
+
+fn read_clipboard_locked() -> ClipSnapshot {
     let mut cb = match Clipboard::new() {
         Ok(c) => c,
         Err(_) => return ClipSnapshot::Empty,
@@ -768,7 +855,13 @@ pub fn spawn_clipboard_watcher(app: AppHandle, state: ClipboardState) {
             // started, so it has no trustworthy current foreground source.
             let source_app = observed_once.then(foreground_source_app).flatten();
             observed_once = true;
-            let snap = read_clipboard();
+            let snap = read_clipboard_for_history();
+            // Replaced after the read: the exclusion check may describe other
+            // content than `snap`. The next poll sees the new number and reads
+            // again.
+            if matches!((clipboard_sequence(), last_seq), (Some(now), Some(read)) if now != read) {
+                continue;
+            }
             ingest_snapshot(&app, &state, snap, source_app);
         }
     });
@@ -928,6 +1021,45 @@ pub fn clipboard_clear(app: AppHandle, state: State<'_, ClipboardState>) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Writes the way a password manager does (arboard's exclusions are the
+    /// same registered formats 1Password, Bitwarden and KeePass set) and checks
+    /// the watcher's read comes back empty — and that plain text still counts.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "replaces the real system clipboard; run with --ignored"]
+    fn password_manager_copies_never_reach_the_history() {
+        use arboard::SetExtWindows;
+        let mut clipboard = Clipboard::new().unwrap();
+        let before = clipboard.get_text().ok();
+
+        clipboard
+            .set()
+            .exclude_from_history()
+            .text("hunter2")
+            .unwrap();
+        assert!(matches!(read_clipboard_for_history(), ClipSnapshot::Empty));
+        assert!(
+            matches!(read_clipboard(), ClipSnapshot::Text(ref text) if text == "hunter2"),
+            "quick actions still see it, to put it back"
+        );
+
+        clipboard
+            .set()
+            .exclude_from_monitoring()
+            .text("hunter3")
+            .unwrap();
+        assert!(matches!(read_clipboard_for_history(), ClipSnapshot::Empty));
+
+        clipboard.set_text("plain").unwrap();
+        assert!(
+            matches!(read_clipboard_for_history(), ClipSnapshot::Text(ref text) if text == "plain")
+        );
+
+        if let Some(before) = before {
+            let _ = clipboard.set_text(before);
+        }
+    }
 
     fn text_entry(id: &str, hash: &str, created_at: u64) -> ClipboardEntry {
         ClipboardEntry {
