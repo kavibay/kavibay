@@ -157,7 +157,7 @@ export class Host {
     return {
       // forProvider, not forPolicy: the allowlist decision belongs to whoever
       // attaches the credential, and that is no longer this process.
-      http: this.http.forProvider(id, Array.isArray(def.hosts) ? def.hosts : [], connection?.credentialId ?? undefined, connection?.packageId),
+      http: this.http.forProvider(id, Array.isArray(def.hosts) ? def.hosts : [], connection),
       credentials: {
         isConnected: async () =>
           connection ? connection.available : this.transport ? this.transport.isConnected(id) : this.vault.has(id),
@@ -177,9 +177,17 @@ export class Host {
 
   private async requestConnection(id: ProviderId, caller: Caller): Promise<ProviderConnection | null> {
     if (!this.transport?.connection) { this.assertReady(id); return null; }
-    const packageId = caller && (caller.trust === "generated" || caller.trust === "untrusted")
+    /**
+     * Everything but bundled code answers to a grant. Listed the other way
+     * round — naming the tiers that need one — a tier nobody thought of (a
+     * signed catalog package is `reviewed`, and nothing bundled) spent the
+     * account without one, because the host only checks a grant for a package
+     * id it is given.
+     */
+    const packageId = caller && caller.trust !== "core"
       ? this.registry.extensions.get(caller.extensionId)!.manifest.name : undefined;
-    const connection = await this.transport.connection(id, connectionOwner(caller), packageId);
+    const owner = connectionOwner(caller);
+    const connection = await this.transport.connection(id, owner, packageId);
     if (connection && !connection.credentialId) {
       fail({ kind: "disconnected", message: `${id}: no account chosen yet` });
     }
@@ -195,8 +203,9 @@ export class Host {
         message: `${id}: this account needs reconnecting, or this widget has not been allowed to use it`,
       });
     }
-    if (connection && packageId) return { ...connection, packageId };
-    return connection;
+    // The owner travels with every fetch: the host spends the account bound to
+    // it and only checks that `credentialId` agrees.
+    return connection && { ...connection, owner, ...(packageId ? { packageId } : {}) };
   }
 
   private connectionKey(connection: ProviderConnection | null): (string | number)[] {
