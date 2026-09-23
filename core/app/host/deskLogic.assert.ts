@@ -12,11 +12,14 @@ import {
   migrateV3ToV4,
   normalizeLayoutV4,
   placeOnDesk,
+  renameDesk,
   purgeRedundantHiddenInstances,
   removeFromDesk,
   removeEverywhere,
   restoreRemovedInstance,
   setActiveDesk,
+  instancesForDesk,
+  normalizePlacement,
 } from "./deskLogic";
 import type { SavedLayoutV3, SavedLayoutV4 } from "./types";
 
@@ -71,6 +74,11 @@ function assertThrows(fn: () => void, msg: string) {
 
   layout = setActiveDesk(layout, added.deskId);
   assert(layout.activeDeskId === "2", "active after switch");
+
+  layout = renameDesk(layout, "1", "Home");
+  assert(layout.desks[0]!.name === "Home", "rename changes the label");
+  assert(layout.desks[0]!.id === "1", "rename keeps the id");
+  assert(layout.desks[1]!.name === "Desk 2", "rename leaves other desks alone");
 }
 
 // 3. placeOnDesk same instance on desk 2 → desksWithInstance length 2
@@ -257,6 +265,40 @@ function assertThrows(fn: () => void, msg: string) {
   assert(layout.catalog.some((c) => c.instanceId === "n1" && c.title === "Idea"), "catalog back");
   const p = layout.desks[0]?.placements.find((row) => row.instanceId === "n1");
   assert(p?.width === 320 && p.pinned === true, "placement size/pinned restored");
+}
+
+{
+  const kept = normalizePlacement({
+    instanceId: "a",
+    offset: { x: 1, y: 2 },
+    hidden: true,
+    hiddenAt: 42.6,
+  });
+  assert(kept.hidden === true && kept.hiddenAt === 43, "normalize keeps rounded hiddenAt");
+
+  const visible = normalizePlacement({
+    instanceId: "b",
+    offset: { x: 0, y: 0 },
+    hiddenAt: 9,
+  });
+  assert(visible.hidden === undefined && visible.hiddenAt === undefined, "visible drops hiddenAt");
+
+  const layout: SavedLayoutV4 = {
+    activeDeskId: "1",
+    desks: [
+      {
+        id: "1",
+        name: "Desk 1",
+        palette: { x: 0, y: 0 },
+        placements: [
+          { instanceId: "a", offset: { x: 0, y: 0 }, hidden: true, hiddenAt: 100 },
+        ],
+      },
+    ],
+    catalog: [{ instanceId: "a", typeId: "notes" }],
+  };
+  const live = instancesForDesk(normalizeLayoutV4(layout), "1");
+  assert(live[0]?.hidden === true && live[0].hiddenAt === 100, "reload keeps hide recency");
 }
 
 console.log("deskLogic.assert.ts: ok");

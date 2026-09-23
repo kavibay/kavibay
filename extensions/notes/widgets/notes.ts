@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { onScopeDispose, ref, type Ref } from "vue";
+import { onScopeDispose, ref, shallowReactive, type Ref } from "vue";
 import {
   defineWidget,
   type WidgetActionContext,
@@ -21,7 +21,8 @@ export interface NotesModel {
   flush(): Promise<void>;
 }
 
-const liveStates = new Map<string, Ref<NotesWidgetState>>();
+// Palette computations must also notice the first mount and replacement on remount.
+const liveStates = shallowReactive(new Map<string, Ref<NotesWidgetState>>());
 const menuActions = new Map<string, { toggleToolbar(): void }>();
 
 /** Search text is supplied by the extension, so the host stays type-agnostic. */

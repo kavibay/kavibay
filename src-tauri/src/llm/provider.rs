@@ -8,9 +8,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatImage {
+    pub media_type: String,
+    pub data: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
+    #[serde(default)]
+    pub images: Vec<ChatImage>,
 }
 
 /// One completed item decoded from a provider's event stream.
@@ -60,20 +69,27 @@ impl LlmProvider {
     }
 
     /// Streaming request body in the provider's own message shape.
-    pub fn body(self, model: &str, messages: &[ChatMessage]) -> Value {
+    pub fn body(self, model: &str, messages: &[ChatMessage]) -> Result<Value, String> {
         match self {
             // Anthropic takes `system` as a top-level field, not a message.
             LlmProvider::Anthropic => {
+                if messages
+                    .iter()
+                    .any(|message| message.role == "system" && !message.images.is_empty())
+                {
+                    return Err("system_images_not_supported".into());
+                }
                 let system = messages
                     .iter()
                     .filter(|message| message.role == "system")
                     .map(|message| message.content.as_str())
                     .collect::<Vec<_>>()
                     .join("\n\n");
-                let turns: Vec<&ChatMessage> = messages
+                let turns: Vec<Value> = messages
                     .iter()
                     .filter(|message| message.role != "system")
-                    .collect();
+                    .map(|message| message_value(message, self))
+                    .collect::<Result<_, _>>()?;
 
                 let mut body = json!({
                     "model": model,
@@ -88,18 +104,24 @@ impl LlmProvider {
                     body["thinking"] = json!({ "type": "disabled" });
                     body["output_config"] = json!({ "effort": "low" });
                 }
-                body
+                Ok(body)
             }
-            LlmProvider::Openai => json!({
+            LlmProvider::Openai => Ok(json!({
                 "model": model,
                 "stream": true,
-                "messages": messages,
-            }),
+                "messages": messages
+                    .iter()
+                    .map(|message| message_value(message, self))
+                    .collect::<Result<Vec<_>, _>>()?,
+            })),
             // Workers AI takes the model in the URL, not the body.
-            LlmProvider::Cloudflare => json!({
+            LlmProvider::Cloudflare => Ok(json!({
                 "stream": true,
-                "messages": messages,
-            }),
+                "messages": messages
+                    .iter()
+                    .map(|message| message_value(message, self))
+                    .collect::<Result<Vec<_>, _>>()?,
+            })),
         }
     }
 
@@ -149,6 +171,68 @@ impl LlmProvider {
     }
 }
 
+const IMAGE_TYPES: &[&str] = &["image/png", "image/jpeg", "image/webp", "image/gif"];
+const MAX_IMAGE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_IMAGES_PER_MESSAGE: usize = 6;
+
+fn message_value(message: &ChatMessage, provider: LlmProvider) -> Result<Value, String> {
+    if message.images.is_empty() {
+        return Ok(json!({ "role": message.role, "content": message.content }));
+    }
+    if provider == LlmProvider::Cloudflare {
+        return Err("images_not_supported".into());
+    }
+    Ok(json!({
+        "role": message.role,
+        "content": image_content(&message.content, &message.images, provider)?,
+    }))
+}
+
+fn image_content(text: &str, images: &[ChatImage], provider: LlmProvider) -> Result<Value, String> {
+    if images.len() > MAX_IMAGES_PER_MESSAGE {
+        return Err("too_many_images".into());
+    }
+    let mut blocks = Vec::with_capacity(images.len() + 1);
+    for image in images {
+        if !IMAGE_TYPES.contains(&image.media_type.as_str()) {
+            return Err(format!("unsupported_image_type:{}", image.media_type));
+        }
+        if image.data.is_empty() {
+            return Err("empty_image".into());
+        }
+        if image.data.contains("base64,") {
+            return Err("image_data_has_prefix".into());
+        }
+        if decoded_len(&image.data) > MAX_IMAGE_BYTES {
+            return Err("image_too_large".into());
+        }
+        blocks.push(match provider {
+            LlmProvider::Anthropic => json!({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": image.media_type,
+                    "data": image.data,
+                },
+            }),
+            LlmProvider::Openai => json!({
+                "type": "image_url",
+                "image_url": {
+                    "url": format!("data:{};base64,{}", image.media_type, image.data),
+                },
+            }),
+            LlmProvider::Cloudflare => unreachable!(),
+        });
+    }
+    blocks.push(json!({ "type": "text", "text": text }));
+    Ok(Value::Array(blocks))
+}
+
+fn decoded_len(data: &str) -> usize {
+    let padding = data.bytes().rev().take_while(|byte| *byte == b'=').count();
+    data.len().saturating_mul(3) / 4 - padding
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,10 +242,12 @@ mod tests {
             ChatMessage {
                 role: "system".into(),
                 content: "Translate.".into(),
+                images: Vec::new(),
             },
             ChatMessage {
                 role: "user".into(),
                 content: "Hallo".into(),
+                images: Vec::new(),
             },
         ]
     }
@@ -169,7 +255,9 @@ mod tests {
     /// Anthropic rejects a `system` role inside `messages`.
     #[test]
     fn anthropic_lifts_system_out_of_the_message_list() {
-        let body = LlmProvider::Anthropic.body("claude-haiku-4-5", &messages());
+        let body = LlmProvider::Anthropic
+            .body("claude-haiku-4-5", &messages())
+            .unwrap();
         assert_eq!(body["system"], "Translate.");
         assert_eq!(body["messages"].as_array().unwrap().len(), 1);
         assert_eq!(body["messages"][0]["role"], "user");
@@ -179,26 +267,61 @@ mod tests {
     /// Thinking/effort only for the models that accept them.
     #[test]
     fn anthropic_tunes_only_the_models_that_support_it() {
-        let haiku = LlmProvider::Anthropic.body("claude-haiku-4-5", &messages());
+        let haiku = LlmProvider::Anthropic
+            .body("claude-haiku-4-5", &messages())
+            .unwrap();
         assert!(haiku.get("thinking").is_none());
         assert!(haiku.get("output_config").is_none());
 
-        let sonnet = LlmProvider::Anthropic.body("claude-sonnet-5", &messages());
+        let sonnet = LlmProvider::Anthropic
+            .body("claude-sonnet-5", &messages())
+            .unwrap();
         assert_eq!(sonnet["thinking"]["type"], "disabled");
         assert_eq!(sonnet["output_config"]["effort"], "low");
     }
 
     #[test]
     fn openai_and_cloudflare_keep_the_plain_message_list() {
-        let openai = LlmProvider::Openai.body("gpt-4o-mini", &messages());
+        let openai = LlmProvider::Openai
+            .body("gpt-4o-mini", &messages())
+            .unwrap();
         assert_eq!(openai["messages"].as_array().unwrap().len(), 2);
         assert_eq!(openai["model"], "gpt-4o-mini");
 
-        let cloudflare =
-            LlmProvider::Cloudflare.body("@cf/meta/llama-3.2-1b-instruct", &messages());
+        let cloudflare = LlmProvider::Cloudflare
+            .body("@cf/meta/llama-3.2-1b-instruct", &messages())
+            .unwrap();
         assert_eq!(cloudflare["messages"].as_array().unwrap().len(), 2);
         // Workers AI reads the model from the URL.
         assert!(cloudflare.get("model").is_none());
+    }
+
+    #[test]
+    fn image_messages_use_each_provider_shape() {
+        let messages = vec![ChatMessage {
+            role: "user".into(),
+            content: "What is this?".into(),
+            images: vec![ChatImage {
+                media_type: "image/png".into(),
+                data: "QUJD".into(),
+            }],
+        }];
+        let anthropic = LlmProvider::Anthropic
+            .body("claude-haiku-4-5", &messages)
+            .unwrap();
+        assert_eq!(
+            anthropic["messages"][0]["content"][0]["source"]["media_type"],
+            "image/png"
+        );
+        let openai = LlmProvider::Openai.body("gpt-4o-mini", &messages).unwrap();
+        assert_eq!(
+            openai["messages"][0]["content"][0]["image_url"]["url"],
+            "data:image/png;base64,QUJD"
+        );
+        assert_eq!(
+            LlmProvider::Cloudflare.body("@cf/meta/llama-3.2-1b-instruct", &messages),
+            Err("images_not_supported".into())
+        );
     }
 
     #[test]

@@ -38,6 +38,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:modelValue": [id: string];
   "update:effort": [level: string];
+  "add-key": [provider: string];
 }>();
 
 interface MenuOption {
@@ -69,7 +70,7 @@ const sections = computed<MenuSection[]>(() => {
         value: model.id,
         label: model.label,
         note: model.note || undefined,
-        warn: model.configured ? undefined : "no key",
+        warn: model.configured ? undefined : "Add key",
       })),
     },
   ];
@@ -123,8 +124,12 @@ watch(open, async (isOpen) => {
   listEl.value?.focus();
 });
 
-function toggle() {
+function toggle(event?: Event) {
   if (props.disabled) return;
+  // The Add-key chip sits inside this button; its own handler opens Settings.
+  if (event?.target instanceof HTMLElement && event.target.closest(".picker-warn--action")) {
+    return;
+  }
   open.value = !open.value;
 }
 
@@ -154,6 +159,16 @@ async function back() {
 function choose(value: string) {
   if (openSection.value === "effort") emit("update:effort", value);
   else emit("update:modelValue", value);
+  open.value = false;
+}
+
+/** Open Settings for this model's provider instead of selecting it. */
+function addKey(modelId: string, event: Event) {
+  event.preventDefault();
+  event.stopPropagation();
+  const model = props.models.find((entry) => entry.id === modelId);
+  if (!model) return;
+  emit("add-key", model.provider);
   open.value = false;
 }
 
@@ -203,11 +218,15 @@ watch(open, (isOpen) => {
       :disabled="disabled"
       :aria-expanded="open"
       aria-haspopup="menu"
-      @click="toggle"
+      @click="toggle($event)"
     >
       <span class="picker-label">{{ triggerModel }}</span>
       <span v-if="triggerEffort" class="picker-effort">{{ triggerEffort }}</span>
-      <span v-if="selectedModel && !selectedModel.configured" class="picker-warn">no key</span>
+      <span
+        v-if="selectedModel && !selectedModel.configured"
+        class="picker-warn picker-warn--action"
+        @click.stop="addKey(selectedModel.id, $event)"
+      >Add key</span>
       <WizardChevron />
     </button>
 
@@ -267,7 +286,11 @@ watch(open, (isOpen) => {
         >
           <span class="picker-item-head">
             <span class="picker-item-name">{{ option.label }}</span>
-            <span v-if="option.warn" class="picker-warn">{{ option.warn }}</span>
+            <span
+              v-if="option.warn"
+              class="picker-warn picker-warn--action"
+              @click.stop="addKey(option.value, $event)"
+            >{{ option.warn }}</span>
             <span v-if="option.value === current.selected" class="picker-check" aria-hidden="true">
               ✓
             </span>
@@ -327,6 +350,10 @@ watch(open, (isOpen) => {
   background: rgba(220, 160, 90, 0.2);
   color: rgba(235, 190, 130, 0.95);
   white-space: nowrap;
+}
+
+.picker-warn--action {
+  cursor: pointer;
 }
 
 .picker-list {

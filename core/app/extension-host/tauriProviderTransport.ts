@@ -16,9 +16,11 @@ import type { ProviderTransport } from "./providerTransport";
 export const tauriProviderTransport: ProviderTransport = {
   // The body key is omitted rather than sent as null: `Option<Value>` on the
   // Rust side reads an explicit null as `Some(Null)`, not `None`.
-  fetch: (providerId: ProviderId, url: string, method: "GET" | "POST" | "PUT", body?: unknown) =>
+  fetch: (providerId: ProviderId, url: string, method: "GET" | "POST" | "PUT", body?: unknown, credentialId?: string, packageId?: string) =>
     invoke<{ status: number; body: unknown }>("extension_provider_fetch", {
       providerId,
+      credentialId,
+      packageId,
       url,
       method,
       ...(body === undefined ? {} : { body }),
@@ -32,6 +34,7 @@ export const tauriProviderTransport: ProviderTransport = {
       ...(body === undefined ? {} : { body }),
     }),
 
-  isConnected: (providerId: ProviderId) =>
-    invoke<boolean>("extension_provider_is_connected", { providerId }),
+  isConnected: (providerId: ProviderId, owner = "host:default") =>
+    invoke<boolean>("extension_provider_is_connected", { providerId, owner }),
+  connection: (providerId, owner, packageId) => invoke("extension_provider_connection", { providerId, owner, packageId }),
 };

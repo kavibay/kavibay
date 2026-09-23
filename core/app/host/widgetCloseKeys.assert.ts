@@ -27,6 +27,10 @@ function keyEvent(over: Partial<WidgetCloseKeyEvent>): WidgetCloseKeyEvent {
 // --- which chords count ----------------------------------------------------------
 assert(matchWidgetCloseKey(keyEvent({ ctrlKey: true })) === "hide", "Ctrl+H hides");
 assert(
+  matchWidgetCloseKey(keyEvent({ key: "w", ctrlKey: true })) === "hide",
+  "Ctrl+W closes (soft-hides)",
+);
+assert(
   matchWidgetCloseKey(keyEvent({ key: "r", ctrlKey: true })) === "remove",
   "Ctrl+R removes",
 );
@@ -72,7 +76,7 @@ assert(
 );
 assert(target({ frontInstanceId: "c" }) === "c", "otherwise the last clicked card");
 
-// With the palette active its own Ctrl+H / Ctrl+R own the chord.
+// With the palette active its own Ctrl+W / Ctrl+H / Ctrl+R own the chord.
 assert(
   target({ frontInstanceId: "c", paletteFront: true }) === null,
   "palette in front yields no widget target",

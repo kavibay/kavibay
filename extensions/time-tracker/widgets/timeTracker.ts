@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { onScopeDispose, ref, watch, type Ref } from "vue";
+import { onScopeDispose, ref, shallowReactive, watch, type Ref } from "vue";
 import { defineWidget, type WidgetContext } from "@sdk/contract/sdk";
 import {
   type TimeTrackerSettings,
@@ -46,7 +46,8 @@ export interface TimeTrackerModel {
   flush(): Promise<void>;
 }
 
-const liveStates = new Map<string, Ref<TimeTrackerState>>();
+// Palette computations must also notice the first mount and replacement on remount.
+const liveStates = shallowReactive(new Map<string, Ref<TimeTrackerState>>());
 
 export function normalizeTimeTrackerConfig(raw: unknown): TimeTrackerConfig {
   return normalizeState({ settings: raw }).settings;

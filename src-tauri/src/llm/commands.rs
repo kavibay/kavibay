@@ -1,9 +1,10 @@
 //! Tauri commands for provider-neutral LLM chat streaming.
 //!
-//! Keys come from the shared credential layer (`credentials::resolve_for_type`,
-//! one type per provider) — never from the frontend.
+//! Keys come from the shared credential layer (`credentials::resolve_for_owner`,
+//! the connection the caller is bound to) — never from the frontend.
 
-use crate::credentials::{resolve_for_type, ResolveError};
+use crate::credentials::resolve::resolve_for_owner;
+use crate::credentials::ResolveError;
 use crate::llm::api::stream_chat;
 use crate::llm::catalog::{self, LlmModelOption};
 use crate::llm::prefs;
@@ -43,8 +44,14 @@ fn emit_chat_error(
 /// The same catalog the Wizard reads, unfiltered: a widget that only rewrites
 /// text can use the small open-weight models the Wizard cannot.
 #[tauri::command]
-pub fn llm_models(app: AppHandle) -> Result<Vec<LlmModelOption>, String> {
-    catalog::options(&app, |_| true)
+pub fn llm_models(
+    app: AppHandle,
+    instance_id: Option<String>,
+) -> Result<Vec<LlmModelOption>, String> {
+    let owner = instance_id
+        .map(|id| format!("widget:{id}"))
+        .unwrap_or_else(|| crate::credentials::bindings::HOST_OWNER.into());
+    catalog::options_for_owner(&app, &owner, |_| true)
 }
 
 /// The whole catalog for Settings → AI, switched-off models included.
@@ -124,6 +131,7 @@ pub fn llm_quick_model_set(app: AppHandle, model_id: String) -> Result<(), Strin
 #[tauri::command]
 pub fn llm_chat_stream(
     app: AppHandle,
+    owner: String,
     instance_id: String,
     request_id: String,
     model: String,
@@ -152,7 +160,9 @@ pub fn llm_chat_stream(
 
     let app_for_task = app.clone();
     tauri::async_runtime::spawn(async move {
-        let credential = match resolve_for_type(&app_for_task, provider.credential_type()).await {
+        let credential = match resolve_for_owner(&app_for_task, provider.credential_type(), &owner)
+            .await
+        {
             Ok(credential) => credential,
             Err(ResolveError::NotConfigured) => {
                 let _ = emit_chat_error(

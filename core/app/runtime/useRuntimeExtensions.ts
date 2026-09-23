@@ -2,7 +2,8 @@
  * FE registry for AppData runtime packages: scan, enable, HostExtensionRef map.
  */
 
-import { computed, ref, type Ref } from "vue";
+import { computed, h, ref, type Ref } from "vue";
+import RuntimeConnectionSettings from "./RuntimeConnectionSettings.vue";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { RegisteredExtension } from "@sdk/types";
 import { getExtension } from "../extensions/registry";
@@ -99,10 +100,15 @@ export function scannedToHostRef(
     title: row.name,
     description: row.description ?? "",
     origin: "runtime",
+    settingsComponent: { setup: () => () => h(RuntimeConnectionSettings, { packageId: row.id }) },
     runtimeEntryUrl: runtimeEntryUrlFor(row.id, row.uiEntry),
     // Carried, not inferred. The frame that embeds this package is chosen from
     // it, and the two frames speak different protocols.
     packageFormat: row.format,
+    // Carried for the same reason as the format: which root a package came from
+    // is decided by the scan, and a second opinion formed anywhere else is how
+    // a card ends up offering to edit a package the Wizard never made.
+    packageOrigin: row.origin,
     // Carried through from the manifest. Without it the host falls back to its
     // own default, and a package's declared size never applied at all.
     ...(row.defaultSize ? { defaultSize: { ...row.defaultSize } } : {}),
@@ -264,15 +270,6 @@ export function useRuntimeExtensions() {
     contractGrant?: ContractGrant,
   ): Promise<boolean> {
     const row = scanned.value.find((s) => s.id === id);
-    // Credential types the confirm step listed. The backend filters these
-    // against the declaration on disk, so this cannot widen the grant.
-    const credentialTypes = Array.from(
-      new Set(
-        (row?.apiEndpoints ?? [])
-          .map((endpoint) => endpoint.credential)
-          .filter((type): type is string => typeof type === "string" && type.length > 0),
-      ),
-    );
     if (on) {
       const status = row?.status === "ready" ? "ready" : "error";
       if (
@@ -291,7 +288,6 @@ export function useRuntimeExtensions() {
         id,
         enabled: on,
         manifestPermissions: row?.permissions ?? [],
-        credentialTypes,
         contractGrant: contractGrant ?? null,
       },
     );

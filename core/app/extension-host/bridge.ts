@@ -259,7 +259,7 @@ export class BridgeConnection {
           this.subs.delete(req.subscriptionId);
           return ok(null);
         case "provider.status":
-          return ok(this.host.providerStatus(this.provider(req.provider)));
+          return ok(this.host.providerStatus(this.provider(req.provider), this.instance.id));
         case "data.get":
           return ok(await this.scope().get(req.key));
         case "data.set":
@@ -274,7 +274,17 @@ export class BridgeConnection {
            * the budget, so this adds no decision of its own.
            */
           return ok(
-            await this.host.callEndpoint(this.packageId(), req.endpoint, req.args ?? {}),
+            await this.host.callEndpoint(this.packageId(), req.endpoint, req.args ?? {}, this.instance.id),
+          );
+        case "openExternal":
+          /**
+           * The definition id is bound from the connection, exactly as the
+           * extension id is for `endpoint.call` — the frame supplies the url
+           * and nothing else. Which providers it declared, and therefore which
+           * hosts they vouch for, is the host's fact about this widget.
+           */
+          return ok(
+            await this.host.openExternalVouched(this.instance.definitionId, req.url),
           );
         case "http.get":
           return ok(await this.http().get(req.url, req.params as any));
@@ -351,7 +361,7 @@ export class BridgeConnection {
 
   private caller() {
     const found = this.definition();
-    return { extensionId: found.ext.id, trust: found.ext.trust };
+    return { extensionId: found.ext.id, trust: found.ext.trust, instanceId: this.instance.id };
   }
 
   private scope() {
@@ -393,6 +403,7 @@ function targetOf(req: WidgetRequest): string {
     case "data.set":
     case "data.delete":
       return req.key;
+    case "openExternal":
     case "http.get":
     case "http.post":
       return req.url;

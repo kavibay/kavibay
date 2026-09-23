@@ -595,6 +595,106 @@ export function sandboxContext<T>(
     },
     endpoint: ((endpoint: string, args?: Record<string, unknown>) =>
       call({ type: "endpoint.call", endpoint, args: args ?? {} })) as WidgetContext<T>["endpoint"],
+    openExternal: {
+      open: (url: string) => call<void>({ type: "openExternal", url }),
+    },
     providers,
+  };
+}
+
+// === LINKS ==================================================================
+
+/**
+ * Absolute https url a click or `window.open` should hand to the host, or
+ * `null` to leave it alone.
+ *
+ * The check is the scheme, not the host. Which hosts this widget may open is
+ * a fact about its declared providers, and only the host has that list — a
+ * guest that filtered here would be restating a decision it cannot make.
+ * Hash, `javascript:`, http and relative paths have no business on that
+ * path, so they stop here rather than becoming a refused round-trip.
+ */
+export function httpsUrlToOpen(href: string): string | null {
+  const trimmed = href.trim();
+  if (!trimmed || trimmed.startsWith("#") || /^javascript:/i.test(trimmed)) return null;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "https:") return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The event target of a click, walked to an element that can answer `closest`.
+ *
+ * A click on the words inside `<a>In Linear öffnen</a>` lands on a text node,
+ * which has no `closest`. The parent element does.
+ */
+function elementFromEventTarget(target: unknown): {
+  closest(selector: string): { getAttribute(name: string): string | null } | null;
+} | null {
+  if (!target || typeof target !== "object") return null;
+  const node = target as {
+    closest?: unknown;
+    parentElement?: unknown;
+  };
+  if (typeof node.closest === "function") {
+    return node as { closest(selector: string): { getAttribute(name: string): string | null } | null };
+  }
+  const parent = node.parentElement;
+  if (parent && typeof parent === "object" && typeof (parent as { closest?: unknown }).closest === "function") {
+    return parent as { closest(selector: string): { getAttribute(name: string): string | null } | null };
+  }
+  return null;
+}
+
+/** The document-shaped object `installLinkOpening` actually needs. */
+export interface LinkOpeningTarget {
+  addEventListener(type: string, listener: (event: any) => void, capture?: boolean): void;
+  open?: (url?: string | URL, target?: string, features?: string) => unknown;
+}
+
+/**
+ * Turns the two ways a package writes "open this url" into `openExternal`.
+ *
+ * The frame cannot navigate (`sandbox="allow-scripts"` only) and cannot pop
+ * up (`window.open` returns null). A generated widget still writes an
+ * `<a href>` or calls `window.open`, because that is what a link is — and
+ * both then look clickable and do nothing. Intercepting here is the same
+ * kind of host settlement as `forceTransparentCanvas`: the model will keep
+ * writing the obvious thing, so the runtime has to make the obvious thing
+ * work.
+ *
+ * Capture + stop so a widget that *also* bound a click handler does not
+ * open the same url twice. The host still re-checks the host against the
+ * widget's providers; this only delivers the click.
+ */
+export function installLinkOpening(
+  target: LinkOpeningTarget,
+  open: (url: string) => Promise<void>,
+): void {
+  target.addEventListener(
+    "click",
+    (event) => {
+      const element = elementFromEventTarget(event.target);
+      const anchor = element?.closest("a[href]");
+      const href = anchor?.getAttribute("href");
+      if (typeof href !== "string") return;
+      const url = httpsUrlToOpen(href);
+      if (!url) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void open(url);
+    },
+    true,
+  );
+  target.open = (url) => {
+    if (typeof url === "string") {
+      const https = httpsUrlToOpen(url);
+      if (https) void open(https);
+    }
+    return null;
   };
 }

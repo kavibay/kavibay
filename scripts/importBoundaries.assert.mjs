@@ -9,8 +9,8 @@
  *   core/app/         must not reach into extensions/ at all — the plugin system
  *                     only works while the dependency runs one way.
  *
- * Written as a guard script rather than an ESLint rule because the real rule is an
- * allowlist, and `no-restricted-imports` can only express denylists of globs.
+ * Written as a guard script rather than a generic lint rule because the real rule
+ * is an allowlist, while restricted-import rules express denylists of globs.
  *
  * Run: node scripts/importBoundaries.assert.mjs
  */

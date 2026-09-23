@@ -286,7 +286,7 @@ a pomodoro deliberately ignores it and keeps ticking.
 
 **Hide and delete are reachable from either surface.** `Ctrl+Tab` cycles focus
 through the open cards (`widgetFocusCycle.ts`), `Ctrl+Alt+S` jumps back into the
-palette search from wherever focus sits, and `Ctrl+H` / `Ctrl+R` act on
+palette search from wherever focus sits, and `Ctrl+W` / `Ctrl+H` / `Ctrl+R` act on
 the palette's selected row while you are typing there, and on the card you are
 working in otherwise. `Ctrl+S` pins that same card and `Ctrl+D`
 duplicates it (skipped for types with `allowDuplicate: false`). `widgetCloseKeys.ts`
@@ -295,6 +295,12 @@ the DOM focus, then the card the host handed keyboard focus to, then the last
 one clicked; `widgetChordTarget()` in `WidgetHost.vue` is the one caller every
 card chord goes through. The host listeners run in the capture phase so a widget
 that owns plain keys (Snake, Notes) cannot swallow the chord first.
+`SettingsModal` handles `Ctrl+W` (and `Escape`) itself while Settings is open.
+Holding `Ctrl` for 750ms on the palette or active card reveals the Pin/Hide and
+desk chord hints; releasing it removes them again.
+`Ctrl+Alt+Arrow` moves the active widget or palette by one `GRID_GAP` step, with
+the palette preserving the widgets' absolute screen positions just like a plain
+palette drag.
 
 ### Sizing
 
@@ -391,7 +397,7 @@ sequenceDiagram
     Set->>Store: user enters token / completes OAuth
     W->>P: ctx.provider.query("repoStatus", { owner, repo })
     P->>Mod: request for the reviewed provider id
-    Mod->>Reg: resolve_for_type(app, GITHUB_PAT)
+    Mod->>Reg: resolve_for_owner(app, GITHUB_PAT, "widget:<instanceId>")
     Reg->>Store: read + refresh if expired
     Store-->>Mod: credential
     Mod->>API: request with the declared auth applied
@@ -404,6 +410,17 @@ Adding an integration is one entry in `src-tauri/src/credentials/registry.rs`
 (fields, auth kind, how the secret is injected, optional connection test) plus
 `"credentials": [{ "type": …, "required": true }]` in the manifest. No
 per-integration settings panel, no per-integration table.
+
+A type may hold several **connections** — Linear issues one API key per
+workspace, so "connected to Linear" is a fact about one widget instance, not
+about Linear. `credentials/bindings.rs` stores which connection each consumer
+picked, keyed by `(owner, typeId)`; `resolve_for_owner` reads that binding and
+`resolve_for_connection` takes an explicit id plus a type check. There is no
+resolution by type alone, so a deleted connection surfaces as "choose one"
+rather than quietly resolving to whichever account is left. Cache identity on
+the JS side carries the connection id and its revision, which is what lets two
+widgets on one desk show two workspaces and still share one request when they
+are on the same account (`core/app/extension-host/two-connections.assert.ts`).
 
 ## Security invariants
 

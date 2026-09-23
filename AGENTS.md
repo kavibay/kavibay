@@ -43,7 +43,7 @@ Licensing rules that constrain code changes:
 
 ```bash
 npm run tauri dev                # run the app (Vite + cargo)
-npm run verify                   # typecheck + eslint + all 111 assert files, in parallel — what CI runs
+npm run verify                   # incremental typecheck + oxlint + all asserts, in parallel — what CI runs
 npm run verify:rust              # cargo fmt --check + clippy -D warnings + cargo test --lib
 npm run build                    # vue-tsc typecheck + vite build
 npm run build:embed              # custom-element bundle the site loads (`core/embed/` → `../www.kavibay.com/embed/`)
@@ -120,6 +120,14 @@ rationale: `docs/superpowers/plans/2026-08-08-ci-cd-open-source.md`.
   themselves (`docs/extensions.md` → Credentials). Settings → AI is *not* a second
   credential panel: it renders the same schema-driven `CredentialEditor` per
   provider tab and adds only the model on/off switches.
+- Connections: a credential *type* is an auth schema, a *connection* is one saved
+  account using it, and a platform may have several (Linear issues one API key
+  per workspace). Which connection a consumer uses is host-owned state keyed by
+  `(owner, typeId)` in `credentials/bindings.rs` — `widget:<instanceId>` for a
+  widget, `host:default` for the palette, quick AI and the Wizard. Nothing
+  resolves by type alone, and a deleted connection never falls back to another
+  account. The picker is one component (`ConnectionSelect.vue`), rendered by the
+  host in widget settings and on the connect prompt; no widget builds its own.
 - LLM models: one editable catalog (`src-tauri/src/llm/models.json`), loaded and
   validated by `llm/catalog.rs`, plus the user's on/off choices (`llm/prefs.rs`,
   `{appData}/llm-models.json`). The prefs live in Rust
@@ -154,8 +162,12 @@ rationale: `docs/superpowers/plans/2026-08-08-ci-cd-open-source.md`.
 5. Secrets only via `src-tauri/src/security/secrets.rs` (DPAPI; Keychain backend
    pending). Never plaintext at rest, never in localStorage, never returned to the
    frontend. Integration credentials go through `src-tauri/src/credentials/`
-   (type registry + one encrypted store + `resolve_for_type`) — no per-integration
-   credential tables, commands, or settings panels. Runtime packages get none.
+   (type registry + one encrypted store + `resolve_for_owner` / `resolve_for_connection`)
+   — no per-integration credential tables, commands, or settings panels. A runtime
+   package never receives a secret either: its declared requests are authenticated
+   in Rust, and only against the exact connection the user granted it. A grant is
+   per connection, not per type — allowing the work workspace does not allow a
+   personal one added afterwards.
 6. Main-window CSP (`src-tauri/tauri.conf.json`): no new entries without maintainer
    review. Prefer a Rust command for network data; FE direct fetch only for keyless
    public APIs.

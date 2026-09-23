@@ -1,5 +1,12 @@
 import type { ExtensionId, ProviderId } from "@sdk/contract/sdk";
 
+export interface ProviderConnection {
+  packageId?: string;
+  credentialId: string | null;
+  available: boolean;
+  revision: number;
+}
+
 /**
  * The seam between the extension host and the process that actually owns
  * credentials and the network.
@@ -19,6 +26,8 @@ export interface ProviderTransport {
     url: string,
     method: "GET" | "POST" | "PUT",
     body?: unknown,
+    credentialId?: string,
+    packageId?: string,
   ): Promise<{ status: number; body: unknown }>;
 
   /**
@@ -34,5 +43,6 @@ export interface ProviderTransport {
   ): Promise<{ status: number; body: unknown }>;
 
   /** Backs `ProviderHostContext.credentials.isConnected()`. */
-  isConnected(providerId: ProviderId): Promise<boolean>;
+  isConnected(providerId: ProviderId, owner?: string): Promise<boolean>;
+  connection?(providerId: ProviderId, owner: string, packageId?: string): Promise<ProviderConnection | null>;
 }

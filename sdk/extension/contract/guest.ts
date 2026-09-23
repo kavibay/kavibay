@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 import type { ProviderError, WidgetContext, WidgetInstance } from "./sdk";
 import {
-  SandboxGuestPort, applyTheme, failedMessage, faultMessage, installFaultReporting, mountedMessage,
-  readInit, readThemeMessage, readyMessage,
+  SandboxGuestPort, applyTheme, failedMessage, faultMessage, installFaultReporting, installLinkOpening,
+  mountedMessage, readInit, readThemeMessage, readyMessage, type LinkOpeningTarget,
 } from "./sandbox-guest";
 
 /**
@@ -201,7 +201,17 @@ async function startIfReady() {
   }
 
   try {
-    const model = await registered.setup(port.context(instance, declaredProviders) as never);
+    const ctx = port.context(instance, declaredProviders) as never;
+    /**
+     * After ctx exists, before render. An `<a href>` the package writes is
+     * otherwise a dead control: the frame cannot navigate, and a link that
+     * looks clickable and isn't is the silent failure the prompt used to
+     * warn about. The host still decides which hosts this widget may open.
+     */
+    installLinkOpening(window as unknown as LinkOpeningTarget, (url) =>
+      (ctx as { openExternal: { open: (url: string) => Promise<void> } }).openExternal.open(url),
+    );
+    const model = await registered.setup(ctx);
     registered.render(model, root);
     // The host holds a skeleton until this arrives.
     window.parent.postMessage(mountedMessage(), "*");

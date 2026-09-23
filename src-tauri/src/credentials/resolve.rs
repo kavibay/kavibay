@@ -1,7 +1,7 @@
 //! The single entry point integrations use to obtain credentials.
 //!
 //! API modules never open a credential database, never decrypt, and never see
-//! a refresh token: they call [`resolve_for_type`] (or [`resolve`] with an
+//! a refresh token: they call [`resolve_for_owner`] (or [`resolve`] with an
 //! explicit id) and either read a field or hand the resulting bundle to
 //! [`ResolvedCredential::apply`], which injects the secret exactly as the type
 //! definition declares.
@@ -102,13 +102,6 @@ impl ResolvedCredential {
                 Ok(request)
             }
             Injection::Header { name, value } => Ok(request.header(name, self.render(value)?)),
-            Injection::Query { params } => {
-                let mut pairs: Vec<(&str, String)> = Vec::with_capacity(params.len());
-                for (name, template) in params.iter() {
-                    pairs.push((*name, self.render(template)?));
-                }
-                Ok(request.query(&pairs))
-            }
         }
     }
 
@@ -141,25 +134,18 @@ impl ResolvedCredential {
     }
 }
 
-/// A field's value: stored first, then the type's declared environment
-/// override (the per-integration developer/CI escape hatch that existed before
-/// this layer, e.g. `KAVIBAY_GOOGLE_CALENDAR_CLIENT_ID`).
-pub fn field_value(type_def: &CredentialTypeDef, secret: &SecretData, key: &str) -> Option<String> {
-    if let Some(value) = secret.field(key) {
-        return Some(value.to_string());
-    }
-    let env = type_def.field(key)?.env?;
-    std::env::var(env)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+/// A field of this connection. There is no environment fallback: a value from
+/// the process env would otherwise silently fill a gap in whichever account the
+/// consumer happens to have selected.
+pub fn field_value(secret: &SecretData, key: &str) -> Option<String> {
+    secret.field(key).map(str::to_string)
 }
 
 /// True when every required field of the type has a value.
 pub fn has_required_fields(type_def: &CredentialTypeDef, secret: &SecretData) -> bool {
     type_def
         .required_field_keys()
-        .all(|key| field_value(type_def, secret, key).is_some())
+        .all(|key| field_value(secret, key).is_some())
 }
 
 /// Resolves the credential bound to `credential_id`.
@@ -168,9 +154,6 @@ pub async fn resolve(
     credential_id: &str,
 ) -> Result<ResolvedCredential, ResolveError> {
     let conn = db::open_db(app)?;
-    // A widget may poll before Settings was ever opened, so the one-time import
-    // of the pre-abstraction stores has to be reachable from this path too.
-    super::import::run_pending_imports(app, &conn);
     let record = db::load(&conn, credential_id)?.ok_or(ResolveError::NotConfigured)?;
     let type_def = registry::require(&record.type_id)?;
     let mut secret = db::load_secret(&conn, credential_id)?.unwrap_or_default();
@@ -202,24 +185,33 @@ pub async fn resolve(
     })
 }
 
-/// Resolves the credential of a given type. While the UI is single-credential
-/// per type this is what integrations call.
-pub async fn resolve_for_type(
+pub async fn resolve_for_owner(
     app: &AppHandle,
     type_id: &str,
+    owner: &str,
 ) -> Result<ResolvedCredential, ResolveError> {
-    let conn = db::open_db(app)?;
-    super::import::run_pending_imports(app, &conn);
-    let record = db::find_by_type(&conn, type_id)?.ok_or(ResolveError::NotConfigured)?;
-    drop(conn);
-    resolve(app, &record.id).await
+    let binding = super::bindings::selection(&db::open_db(app)?, owner, type_id)?;
+    let id = binding.credential_id.ok_or(ResolveError::NotConfigured)?;
+    resolve_for_connection(app, type_id, &id).await
+}
+
+pub async fn resolve_for_connection(
+    app: &AppHandle,
+    type_id: &str,
+    id: &str,
+) -> Result<ResolvedCredential, ResolveError> {
+    let record = db::load(&db::open_db(app)?, id)?.ok_or(ResolveError::NotConfigured)?;
+    if record.type_id != type_id {
+        return Err(ResolveError::Failed("connection type mismatch".into()));
+    }
+    resolve(app, id).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::credentials::db::{CredentialRecord, CredentialState};
-    use crate::credentials::registry::{CLOUDFLARE_WORKERS_AI, GITHUB_PAT, NOTION_API, TRELLO_API};
+    use crate::credentials::registry::{CLOUDFLARE_WORKERS_AI, GITHUB_PAT, NOTION_API};
 
     fn secret_with(pairs: &[(&str, &str)]) -> SecretData {
         let mut data = SecretData::default();
@@ -257,41 +249,6 @@ mod tests {
             cloudflare,
             &secret_with(&[("accountId", "acc"), ("apiToken", "tok")])
         ));
-    }
-
-    /// Trello's broker must append `key` and `token` without dropping filters
-    /// the provider already put on the URL.
-    #[test]
-    fn trello_query_injection_appends_without_replacing() {
-        let cred = ResolvedCredential {
-            type_def: registry::require(TRELLO_API).unwrap(),
-            record: dummy_record(TRELLO_API),
-            secret: secret_with(&[("apiKey", "k"), ("token", "t")]),
-        };
-        let built = cred
-            .apply(
-                reqwest::Client::new().get("https://api.trello.com/1/boards/1/cards?filter=open"),
-            )
-            .unwrap()
-            .build()
-            .unwrap();
-        let url = built.url();
-        let pairs: Vec<(String, String)> = url
-            .query_pairs()
-            .map(|(k, v)| (k.into_owned(), v.into_owned()))
-            .collect();
-        assert!(
-            pairs.iter().any(|(k, v)| k == "filter" && v == "open"),
-            "existing query params survive: {pairs:?}"
-        );
-        assert!(
-            pairs.iter().any(|(k, v)| k == "key" && v == "k"),
-            "apiKey is sent as key: {pairs:?}"
-        );
-        assert!(
-            pairs.iter().any(|(k, v)| k == "token" && v == "t"),
-            "token is sent as token: {pairs:?}"
-        );
     }
 
     /// Notion's version header is attached with the token, not only on Test.

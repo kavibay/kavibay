@@ -106,7 +106,7 @@ await createEvent.execute(
   host,
 );
 assert(posts.length === 1, "create event uses one POST");
-assert((posts[0]?.body as { summary: string }).summary === "Team sync", "event title is trimmed");
+assert((posts[0]!.body as { summary: string }).summary === "Team sync", "event title is trimmed");
 assert((await createEvent.invalidates?.({ calendarId: "primary@example.com", title: "x", start: "s", end: "e" }))?.[0]?.key?.[0] === "primary@example.com", "create invalidates one calendar's events");
 
 let rejected = false;

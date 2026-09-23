@@ -408,7 +408,12 @@ export function normalizeInstance(i: WidgetInstance): WidgetInstance {
   };
   if (typeof i.title === "string") next.title = i.title;
   if (typeof i.hideTitle === "boolean") next.hideTitle = i.hideTitle;
-  if (i.hidden === true) next.hidden = true;
+  if (i.hidden === true) {
+    next.hidden = true;
+    if (typeof i.hiddenAt === "number" && Number.isFinite(i.hiddenAt)) {
+      next.hiddenAt = Math.round(i.hiddenAt);
+    }
+  }
   if (i.pinned === true) next.pinned = true;
   if (typeof i.width === "number" && Number.isFinite(i.width)) {
     next.width = Math.round(i.width);

@@ -256,6 +256,103 @@ fn requested_contract_providers(app: &AppHandle, ext_id: &str) -> Option<Vec<Str
     )
 }
 
+#[tauri::command]
+pub fn connections_package_types(app: AppHandle, id: String) -> Vec<String> {
+    package_connection_types(&app, &id)
+}
+
+fn package_connection_types(app: &AppHandle, id: &str) -> Vec<String> {
+    let mut types = super::declared_credential_types(app, id);
+    for provider in requested_contract_providers(app, id).unwrap_or_default() {
+        if let Some(type_id) = crate::extension_providers::find(&provider)
+            .and_then(|provider| provider.credential_type)
+        {
+            types.push(type_id.into());
+        }
+    }
+    types.sort();
+    types.dedup();
+    types
+}
+
+/// Credential types one consent actually covers.
+///
+/// Not the same as `package_connection_types`, which is everything the package
+/// *asks* for: a contract package's providers count only once the person has
+/// approved them, so a widget requesting Linear and GitHub but approved for
+/// Linear alone does not walk away holding a GitHub grant.
+fn consented_credential_types(
+    app: &AppHandle,
+    id: &str,
+    grant: Option<&ContractGrant>,
+) -> Vec<String> {
+    // Endpoint credentials come from the declaration on disk, which is what the
+    // consent hash is taken over.
+    let mut types = super::declared_credential_types(app, id);
+    let requested = requested_contract_providers(app, id).unwrap_or_default();
+    for provider in grant.map(|grant| grant.approved.as_slice()).unwrap_or(&[]) {
+        if !requested.contains(provider) {
+            continue;
+        }
+        if let Some(type_id) =
+            crate::extension_providers::find(provider).and_then(|found| found.credential_type)
+        {
+            types.push(type_id.into());
+        }
+    }
+    types.sort();
+    types.dedup();
+    types
+}
+
+/// The connections a set of credential types resolves to right now.
+///
+/// A grant names one account, never a type: a package allowed to read the work
+/// workspace must not reach a personal one the user adds afterwards. The
+/// account here is the one the app itself is bound to; a widget instance that
+/// later picks a *different* one asks for that separately, through
+/// `connections_grant_package`.
+fn connections_for_types(
+    conn: &rusqlite::Connection,
+    types: &[String],
+) -> Result<Vec<String>, String> {
+    let mut ids = Vec::new();
+    for type_id in types {
+        let binding = crate::credentials::bindings::selection(
+            conn,
+            crate::credentials::bindings::HOST_OWNER,
+            type_id,
+        )?;
+        if let Some(id) = binding.credential_id {
+            ids.push(id);
+        }
+    }
+    Ok(ids)
+}
+
+#[tauri::command]
+pub fn connections_grant_package(
+    app: AppHandle,
+    id: String,
+    credential_id: String,
+) -> Result<(), String> {
+    let connection =
+        crate::credentials::db::load(&crate::credentials::db::open_db(&app)?, &credential_id)?
+            .ok_or("connection not found")?;
+    if !package_connection_types(&app, &id).contains(&connection.type_id) {
+        return Err("package does not declare this credential type".into());
+    }
+    let mut records = load(&app)?;
+    let record = records
+        .iter_mut()
+        .find(|record| record.id == id && record.enabled)
+        .ok_or("package is not enabled")?;
+    if !record.granted_credentials.contains(&credential_id) {
+        record.granted_credentials.push(credential_id);
+    }
+    save(&app, &records)
+}
+
 fn save(app: &AppHandle, records: &[InstallRecord]) -> Result<(), String> {
     // Keep whatever settings the file already holds — saving records must not
     // silently reset the budget.
@@ -350,7 +447,7 @@ pub fn has_permission(app: &AppHandle, ext_id: &str, permission: &str) -> bool {
         .any(|granted| granted == permission)
 }
 
-/// Credential types `ext_id` was granted, if it is enabled.
+/// Connection ids `ext_id` was granted, if it is enabled.
 pub fn granted_credentials(app: &AppHandle, ext_id: &str) -> Vec<String> {
     load(app)
         .unwrap_or_default()
@@ -360,41 +457,44 @@ pub fn granted_credentials(app: &AppHandle, ext_id: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// True when `ext_id` may use `credential_type`.
-pub fn has_credential_grant(app: &AppHandle, ext_id: &str, credential_type: &str) -> bool {
+/// True when `ext_id` may use this exact connection.
+///
+/// One connection, not its type: a package granted the work Linear workspace
+/// must not reach a personal one the user added afterwards.
+pub fn has_credential_grant(app: &AppHandle, ext_id: &str, credential_id: &str) -> bool {
     granted_credentials(app, ext_id)
         .iter()
-        .any(|granted| granted == credential_type)
+        .any(|granted| granted == credential_id)
 }
 
-/// Packages currently holding a grant for `credential_type` (for the revoke UI
+/// Packages currently holding a grant for one connection (for the revoke UI
 /// in Settings → Credentials).
 #[tauri::command(rename_all = "camelCase")]
 pub fn runtime_extensions_credential_users(
     app: AppHandle,
-    credential_type: String,
+    credential_id: String,
 ) -> Result<Vec<String>, String> {
     Ok(load(&app)?
         .into_iter()
-        .filter(|record| record.enabled && record.granted_credentials.contains(&credential_type))
+        .filter(|record| record.enabled && record.granted_credentials.contains(&credential_id))
         .map(|record| record.id)
         .collect())
 }
 
-/// Withdraws one credential type from one package, leaving it otherwise
-/// enabled. Its endpoints that use the credential start failing immediately.
+/// Withdraws one connection from one package, leaving it otherwise enabled.
+/// Its endpoints that use the credential start failing immediately.
 #[tauri::command(rename_all = "camelCase")]
 pub fn runtime_extensions_revoke_credential(
     app: AppHandle,
     id: String,
-    credential_type: String,
+    credential_id: String,
 ) -> Result<Vec<InstallRecord>, String> {
     let mut records = load(&app)?;
     for record in records.iter_mut() {
         if record.id == id {
             record
                 .granted_credentials
-                .retain(|granted| *granted != credential_type);
+                .retain(|granted| *granted != credential_id);
         }
     }
     let records = normalize(records);
@@ -448,10 +548,6 @@ pub fn runtime_extensions_installs_set(
     id: String,
     enabled: bool,
     manifest_permissions: Vec<String>,
-    // `credential_types` are the types the confirm step listed; they are
-    // filtered against the declaration on disk below, so the frontend cannot
-    // widen the grant.
-    mut credential_types: Vec<String>,
     contract_grant: Option<ContractGrant>,
 ) -> Result<Vec<InstallRecord>, String> {
     let id = id.trim().to_string();
@@ -471,12 +567,33 @@ pub fn runtime_extensions_installs_set(
             .and_then(|record| record.api_hash.clone())
     };
     let granted_credentials = if enabled {
-        // Only what the package's own declaration actually references.
-        let declared = super::declared_credential_types(&app, &id);
-        credential_types.retain(|requested| declared.contains(requested));
-        credential_types.sort();
-        credential_types.dedup();
-        credential_types
+        // What the consent covers, resolved to the accounts it is about. Both
+        // halves are recomputed here rather than taken from the caller: the
+        // declaration is read off disk and the provider list off the grant, so
+        // a frontend cannot widen either.
+        let declared = package_connection_types(&app, &id);
+        let conn = crate::credentials::db::open_db(&app)?;
+        let consented = consented_credential_types(&app, &id, contract_grant.as_ref());
+        let mut granted = connections_for_types(&conn, &consented)?;
+        // Re-enabling keeps an earlier concrete grant, but never widens it to a
+        // whole type — a connection added since is not part of this consent.
+        if let Some(previous) = records.iter().find(|record| record.id == id) {
+            granted.extend(
+                previous
+                    .granted_credentials
+                    .iter()
+                    .filter(|id| {
+                        crate::credentials::db::load(&conn, id)
+                            .ok()
+                            .flatten()
+                            .is_some_and(|connection| declared.contains(&connection.type_id))
+                    })
+                    .cloned(),
+            );
+        }
+        granted.sort();
+        granted.dedup();
+        granted
     } else {
         records
             .iter()
@@ -573,6 +690,68 @@ pub fn runtime_extensions_installs_import(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A saved account of `type_id`, the way the credentials panel writes one.
+    fn add_connection(conn: &rusqlite::Connection, id: &str, type_id: &str) {
+        crate::credentials::db::upsert_record(
+            conn,
+            &crate::credentials::db::CredentialRecord {
+                id: id.into(),
+                type_id: type_id.into(),
+                name: id.into(),
+                account_label: None,
+                state: crate::credentials::db::CredentialState::Connected,
+                metadata: Default::default(),
+                created_at: 0,
+                updated_at: 0,
+            },
+        )
+        .unwrap();
+    }
+
+    /// A grant stores an account id, never a credential type.
+    ///
+    /// The regression this pins was silent and total: the consent step passes
+    /// the *types* a declaration references, the store moved to account ids,
+    /// and the translation between them was missing — so every grant filtered
+    /// itself down to nothing and no runtime or contract package could use a
+    /// credential at all. It failed closed, which is why nothing broke loudly;
+    /// widgets simply reported themselves disconnected forever.
+    #[test]
+    fn a_consent_grants_the_account_a_type_resolves_to() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::credentials::db::migrate(&conn).unwrap();
+        let types = vec!["githubPat".to_string()];
+
+        assert!(
+            connections_for_types(&conn, &types).unwrap().is_empty(),
+            "with no account saved there is nothing to grant",
+        );
+
+        add_connection(&conn, "cred-work", "githubPat");
+        let granted = connections_for_types(&conn, &types).unwrap();
+        assert_eq!(
+            granted,
+            vec!["cred-work".to_string()],
+            "a sole account binds itself, so enabling grants it",
+        );
+        assert!(
+            !granted.contains(&"githubPat".to_string()),
+            "the grant is the account, not the type it was requested by",
+        );
+
+        // A second account leaves the app-wide choice open, and an unmade
+        // choice grants nothing rather than picking for the user.
+        add_connection(&conn, "cred-personal", "githubPat");
+        let conn2 = rusqlite::Connection::open_in_memory().unwrap();
+        crate::credentials::db::migrate(&conn2).unwrap();
+        add_connection(&conn2, "cred-a", "githubPat");
+        add_connection(&conn2, "cred-b", "githubPat");
+        assert!(
+            connections_for_types(&conn2, &types).unwrap().is_empty(),
+            "two accounts and no default: the consent covers neither",
+        );
+    }
 
     fn record(id: &str, enabled: bool, granted: &[&str]) -> InstallRecord {
         InstallRecord {
@@ -797,9 +976,9 @@ mod tests {
     #[test]
     fn credential_grants_survive_normalization_independently() {
         let mut record = record("a", true, &["network.declared"]);
-        record.granted_credentials = vec!["githubPat".into()];
+        record.granted_credentials = vec!["cred-gh-work".into()];
         let normalized = normalize(vec![record]);
-        assert_eq!(normalized[0].granted_credentials, vec!["githubPat"]);
+        assert_eq!(normalized[0].granted_credentials, vec!["cred-gh-work"]);
         assert!(normalized[0].enabled);
 
         let mut revoked = normalized[0].clone();

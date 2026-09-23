@@ -28,8 +28,10 @@ const quickActionLlm: LlmCapability = {
   models: <T>() => tauriWidgetCapabilityTransport.llmModels() as Promise<T>,
   quickModel: <T>() => tauriWidgetCapabilityTransport.llmQuickModel() as Promise<T>,
   stream: (request, onEvent) =>
-    tauriWidgetCapabilityTransport.llmStream(QUICK_ACTION_INSTANCE_ID, request, onEvent),
+    tauriWidgetCapabilityTransport.llmStream(QUICK_ACTION_INSTANCE_ID, request, onEvent, "host:default"),
   cancel: (requestId) => tauriWidgetCapabilityTransport.llmCancel(requestId),
+  // The quick-action popup is a second window; Settings lives in the main one.
+  openSettings: () => {},
 };
 
 const manifestModules = import.meta.glob("/extensions/*/manifest.json", {
