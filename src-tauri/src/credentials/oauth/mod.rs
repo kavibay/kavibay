@@ -304,7 +304,7 @@ pub(crate) fn client_credentials(
     match client {
         ClientSource::BuiltIn { client_id } => Ok((client_id.to_string(), None)),
         ClientSource::Fields { id_key, secret_key } => {
-            let client_id = field_value(type_def, secret, id_key).ok_or_else(|| {
+            let client_id = field_value(secret, id_key).ok_or_else(|| {
                 format!(
                     "{} is not configured yet — enter the client details and save",
                     type_def.display_name
@@ -312,7 +312,7 @@ pub(crate) fn client_credentials(
             })?;
             let client_secret = match secret_key {
                 None => None,
-                Some(key) => Some(field_value(type_def, secret, key).ok_or_else(|| {
+                Some(key) => Some(field_value(secret, key).ok_or_else(|| {
                     format!("{} is missing its client secret", type_def.display_name)
                 })?),
             };

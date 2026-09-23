@@ -9,7 +9,8 @@ import {
   filterCredentialTypes,
   resolveSelectedTypeId,
   rowStatusLabel,
-  summaryForType,
+  summariesForType,
+  typeTone,
   applyCredentialFocus,
   typeMatchesQuery,
   typeMatchesStatus,
@@ -65,19 +66,38 @@ const credentials: CredentialSummary[] = [
   summary({ id: "c-tado", typeId: "tadoOAuth2", state: "needsReauth", pending: true }),
 ];
 
-assert(summaryForType(credentials, "githubPat")?.id === "c-gh", "lookup by type");
-assert(summaryForType(credentials, "openaiApi") === null, "missing type is null");
+assert(summariesForType(credentials, "githubPat").map((e) => e.id).join() === "c-gh", "lookup by type");
+assert(summariesForType(credentials, "openaiApi").length === 0, "missing type is empty");
 
-assert(rowStatusLabel(null) === "Not set up", "empty row");
-assert(rowStatusLabel(summaryForType(credentials, "githubPat")) === "Set up", "connected, no account");
+assert(rowStatusLabel([]) === "Not set up", "empty row");
+assert(rowStatusLabel(summariesForType(credentials, "githubPat")) === "Set up", "connected, no account");
 assert(
-  rowStatusLabel({
-    ...credentials[0],
-    accountLabel: "alex@example.com",
-  }) === "alex@example.com",
+  rowStatusLabel([{ ...credentials[0], accountLabel: "alex@example.com" }]) === "alex@example.com",
   "account label is the row status when connected",
 );
-assert(rowStatusLabel(summaryForType(credentials, "tadoOAuth2")) === "Waiting…", "pending outranks reauth");
+assert(rowStatusLabel(summariesForType(credentials, "tadoOAuth2")) === "Waiting…", "pending outranks reauth");
+
+/**
+ * One API key per workspace is the whole reason connections exist: a row that
+ * showed only the first one would say "Set up" for a type whose second account
+ * has expired.
+ */
+{
+  const work = summary({ id: "c-lin-work", typeId: "linearApi", state: "connected", accountLabel: "Work" });
+  const personal = summary({ id: "c-lin-home", typeId: "linearApi", state: "connected", accountLabel: "Personal" });
+  const expired = summary({ id: "c-lin-old", typeId: "linearApi", state: "needsReauth" });
+
+  assert(rowStatusLabel([work, personal]) === "2 connections", "count replaces the account label");
+  assert(
+    rowStatusLabel([work, personal, expired]) === "3 connections · 1 need attention",
+    `an expired sibling is visible on the row, got ${rowStatusLabel([work, personal, expired])}`,
+  );
+  assert(typeTone([work, personal]) === "ok", "all connected is ready");
+  assert(typeTone([work, expired]) === "warn", "one expired account outranks a working one");
+  assert(typeTone([]) === "idle", "no connections is not set up");
+  assert(typeMatchesStatus([work, expired], "attention"), "the filter finds the type with the expired account");
+  assert(!typeMatchesStatus([work, expired], "ready"), "and does not also call it ready");
+}
 
 assert(typeMatchesQuery(types[0], ""), "empty query matches");
 assert(typeMatchesQuery(types[0], "git"), "name match");
@@ -86,15 +106,15 @@ assert(typeMatchesQuery(types[1], "messages"), "description match");
 assert(typeMatchesQuery(types[0], "githubPat"), "id match");
 assert(!typeMatchesQuery(types[0], "openai"), "unrelated query misses");
 
-const gh = summaryForType(credentials, "githubPat");
-const tado = summaryForType(credentials, "tadoOAuth2");
+const gh = summariesForType(credentials, "githubPat");
+const tado = summariesForType(credentials, "tadoOAuth2");
 assert(typeMatchesStatus(gh, "all"), "all includes ready");
 assert(typeMatchesStatus(gh, "ready"), "connected is set up");
 assert(!typeMatchesStatus(gh, "unset"), "connected is not unset");
 assert(typeMatchesStatus(tado, "attention"), "pending reauth needs attention");
-assert(typeMatchesStatus(null, "unset"), "no row is not set up");
-assert(!typeMatchesStatus(null, "ready"), "no row is not set up");
-assert(!typeMatchesStatus(null, "attention"), "no row does not need attention");
+assert(typeMatchesStatus([], "unset"), "no row is not set up");
+assert(!typeMatchesStatus([], "ready"), "no row is not set up");
+assert(!typeMatchesStatus([], "attention"), "no row does not need attention");
 
 const all = filterCredentialTypes(types, credentials, "", ALL_STATUSES);
 assert(all.map((entry) => entry.id).join() === "githubPat,anthropicApi,openaiApi,tadoOAuth2", "registry order kept");

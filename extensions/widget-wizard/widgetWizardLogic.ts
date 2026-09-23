@@ -3063,7 +3063,7 @@ const RECOMMENDED_PLATFORMS: readonly string[] = ["anthropic", "openai"];
 export interface WizardPlatform {
   id: string;
   label: string;
-  /** What `openSettings("credentials", …)` needs to land on the right card. */
+  /** What `openSettings("ai", …)` needs to land on the right provider tab. */
   credentialType: string;
   /** True once any of its models has a key. */
   configured: boolean;

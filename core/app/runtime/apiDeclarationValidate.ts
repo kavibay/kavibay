@@ -207,7 +207,7 @@ export function isSafePathSegment(value: string): boolean {
   if (value === "" || value.length > HARD_STRING_MAX_LEN) return false;
   if (value === "." || value === ".." || value.startsWith(".")) return false;
   // `%` would let a pre-encoded `%2f` smuggle in a separator.
-  // eslint-disable-next-line no-control-regex
+  // oxlint-disable-next-line no-control-regex
   return !/[/\\%\u0000-\u001f\u007f]/.test(value);
 }
 

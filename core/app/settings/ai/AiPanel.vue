@@ -11,9 +11,9 @@
  * enable state lives in the backend next to the catalog rather than in this
  * panel's `localStorage`.
  */
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import KavibaySelect from "@sdk/KavibaySelect.vue";
-import CredentialEditor from "../credentials/CredentialEditor.vue";
+import CredentialConnections from "../credentials/CredentialConnections.vue";
 import {
   listCredentials,
   listCredentialTypes,
@@ -39,6 +39,7 @@ import {
   enabledSummary,
   modelsForProvider,
   providerHasKey,
+  resolveAiProviderFocus,
   quickModelChoices,
   quickModelSelection,
   shortcutFromKey,
@@ -46,11 +47,15 @@ import {
   type AiProviderTab,
 } from "./aiPanelLogic";
 import { listTextActions } from "../../extensions/textActions";
+import { useSettingsModal } from "../useSettingsModal";
 
+const { aiProvider: focusProvider } = useSettingsModal();
 const models = ref<LlmModelOption[]>([]);
 const types = ref<CredentialTypeSchema[]>([]);
 const credentials = ref<CredentialSummary[]>([]);
-const activeProvider = ref<AiProviderTab["id"]>(AI_PROVIDER_TABS[0].id);
+const activeProvider = ref<AiProviderTab["id"]>(
+  resolveAiProviderFocus(focusProvider.value) ?? AI_PROVIDER_TABS[0].id,
+);
 const loading = ref(true);
 const error = ref<string | null>(null);
 /** Model id currently being written, so its row can show the pending state. */
@@ -98,17 +103,49 @@ const activeType = computed<CredentialTypeSchema | null>(() => {
   return types.value.find((type) => type.id === typeId) ?? null;
 });
 
-/** First stored credential of the open tab's type — the UI is single-credential. */
-const activeSummary = computed<CredentialSummary | null>(() => {
-  const typeId = activeType.value?.id;
-  if (!typeId) return null;
-  return credentials.value.find((entry) => entry.typeId === typeId) ?? null;
-});
-
 /** "2 / 4" badge per tab, so a fully switched-off provider is visible closed. */
 function tabSummary(provider: AiProviderTab["id"]): string {
   const { enabled, total } = enabledSummary(models.value, provider);
   return `${enabled}/${total}`;
+}
+
+const keyEditorEl = ref<HTMLElement | null>(null);
+
+/** Select the provider tab a caller named, then consume the deep-link. */
+function applyProviderFocus(requested: string | null): boolean {
+  const next = resolveAiProviderFocus(requested, models.value);
+  if (!next) return false;
+  activeProvider.value = next;
+  focusProvider.value = null;
+  return true;
+}
+
+/**
+ * Scroll Settings to the key card and focus the secret field.
+ *
+ * Must run after `loading` is false — the Providers block is not in the DOM
+ * while the panel still says Loading, so a scroll then is a no-op. The scroll
+ * parent is `.settings-body`, not the window; `nearest` on the tab strip also
+ * left the card below the fold.
+ */
+async function revealKeyEditor() {
+  await nextTick();
+  const card = keyEditorEl.value;
+  if (!card) return;
+  const scroller = card.closest(".settings-body");
+  if (scroller instanceof HTMLElement) {
+    const top =
+      card.getBoundingClientRect().top -
+      scroller.getBoundingClientRect().top +
+      scroller.scrollTop;
+    scroller.scrollTo({ top: Math.max(0, top - 8) });
+  } else {
+    card.scrollIntoView({ block: "start" });
+  }
+  const input =
+    card.querySelector<HTMLInputElement>("input[type='password']") ??
+    card.querySelector<HTMLInputElement>("input");
+  input?.focus();
 }
 
 async function reload() {
@@ -131,12 +168,20 @@ async function reload() {
     quickShortcut.value = loadedShortcut;
     disabledQuickTemplates.value = disabledTemplates;
     quickTemplates.value = loadedTemplates.filter((action) => action.widgetAction);
+    const shouldReveal = applyProviderFocus(focusProvider.value);
+    loading.value = false;
+    if (shouldReveal) await revealKeyEditor();
   } catch (cause) {
     error.value = String(cause);
   } finally {
     loading.value = false;
   }
 }
+
+watch(focusProvider, (requested) => {
+  if (!requested || loading.value) return;
+  if (applyProviderFocus(requested)) void revealKeyEditor();
+});
 
 /**
  * Persist one switch, then apply it locally. Writing first means a rejected
@@ -375,13 +420,14 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <CredentialEditor
-          v-if="activeType"
-          :key="activeType.id"
-          :type="activeType"
-          :summary="activeSummary"
-          @changed="reload"
-        />
+        <div v-if="activeType" ref="keyEditorEl" class="ai-key">
+          <CredentialConnections
+            :key="activeType.id"
+            :type="activeType"
+            :credentials="credentials"
+            @changed="reload"
+          />
+        </div>
       </section>
 
       <section v-if="showModels" class="ai-block">

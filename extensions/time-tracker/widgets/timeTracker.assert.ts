@@ -1,9 +1,10 @@
-import { effectScope } from "vue";
+import { computed, effectScope } from "vue";
 import type { WidgetContext } from "@sdk/contract/sdk";
 import timeTrackerExtension from "../extension";
 import {
   TIME_TRACKER_STATE_KEY,
   duplicateTimeTrackerData,
+  timeTrackerSearchText,
   timeTrackerWidget,
   type TimeTrackerData,
   type TimeTrackerModel,
@@ -27,10 +28,13 @@ const context = {
   data,
 } satisfies WidgetContext<{ weekStartsOn: 0 | 1 | 2 | 3 | 4 | 5 | 6; monthStartsOn: number }>;
 
+const searchText = computed(() => timeTrackerSearchText(context.instanceId));
+assert(searchText.value === "", "unmounted tracker starts with no search text");
 const scope = effectScope();
 const model = await scope.run(() => timeTrackerWidget.component.setup(context)) as TimeTrackerModel;
 const projectId = model.addProject("Alpha");
 const taskId = model.addTask(projectId, "Write report");
+assert(searchText.value === "Alpha Write report", "cached search text follows the first mount and new tasks");
 model.start(taskId, 1_000);
 await model.flush();
 
@@ -48,5 +52,15 @@ const closed = await data.get<TimeTrackerData>(TIME_TRACKER_STATE_KEY);
 assert(closed?.sessions[0]?.endedAt === 2_000, "finishing a task closes its session");
 assert(normalizeState({ ...closed, settings: context.config }).tasks[0]?.done === true, "finish marks task done");
 scope.stop();
+assert(searchText.value === "Alpha Write report", "hidden tracker keeps its searchable snapshot");
+
+const reopenedScope = effectScope();
+const reopened = await reopenedScope.run(() => timeTrackerWidget.component.setup(context)) as TimeTrackerModel;
+assert(searchText.value === "Alpha Write report", "cached search text follows restored tracker data");
+reopened.renameProject(projectId, "Beta");
+reopened.setTaskText(taskId, "Review report");
+assert(searchText.value === "Beta Review report", "cached search text subscribes to the replacement state");
+await reopened.flush();
+reopenedScope.stop();
 
 console.log("time-tracker contract assertions passed");

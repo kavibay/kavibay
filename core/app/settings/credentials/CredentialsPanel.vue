@@ -10,14 +10,13 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { BrandMark } from "@sdk/brand";
 import KavibaySelect from "@sdk/KavibaySelect.vue";
-import CredentialEditor from "./CredentialEditor.vue";
+import CredentialConnections from "./CredentialConnections.vue";
 import {
   listCredentials,
   listCredentialTypes,
   type CredentialSummary,
   type CredentialTypeSchema,
 } from "./credentialsApi";
-import { statusTone } from "./credentialsLogic";
 import {
   ALL_STATUSES,
   CREDENTIAL_STATUS_FILTERS,
@@ -25,7 +24,8 @@ import {
   filterCredentialTypes,
   resolveSelectedTypeId,
   rowStatusLabel,
-  summaryForType,
+  summariesForType,
+  typeTone,
   type CredentialStatusFilter,
 } from "./credentialsPanelLogic";
 import { useSettingsModal } from "../useSettingsModal";
@@ -45,10 +45,6 @@ const visible = computed(() =>
 
 const selectedType = computed(
   () => visible.value.find((type) => type.id === selectedId.value) ?? null,
-);
-
-const selectedSummary = computed(() =>
-  selectedType.value ? summaryForType(credentials.value, selectedType.value.id) : null,
 );
 
 const statusOptions = CREDENTIAL_STATUS_FILTERS.map((entry) => ({
@@ -169,9 +165,9 @@ onMounted(reload);
             </span>
             <span
               class="creds-pill"
-              :class="`creds-pill--${statusTone(summaryForType(credentials, type.id))}`"
+              :class="`creds-pill--${typeTone(summariesForType(credentials, type.id))}`"
             >
-              {{ rowStatusLabel(summaryForType(credentials, type.id)) }}
+              {{ rowStatusLabel(summariesForType(credentials, type.id)) }}
             </span>
           </button>
           <p v-if="visible.length === 0" class="creds-empty">
@@ -180,11 +176,11 @@ onMounted(reload);
         </div>
       </section>
 
-      <CredentialEditor
+      <CredentialConnections
         v-if="selectedType"
         :key="selectedType.id"
         :type="selectedType"
-        :summary="selectedSummary"
+        :credentials="credentials"
         @changed="reload"
       />
     </template>

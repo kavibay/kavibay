@@ -23,6 +23,11 @@ export interface WidgetInstance {
    */
   hidden?: boolean;
   /**
+   * When this card was last soft-hidden (ms since epoch). The palette Hidden
+   * list is newest-first; omitted on older layouts and while the card is open.
+   */
+  hiddenAt?: number;
+  /**
    * Pinned: always mounted when not Hidden (survives outside click and cockpit close).
    * Default (not pinned): visible only while the cockpit session is open.
    */
@@ -58,6 +63,8 @@ export interface DeskPlacement {
   height?: number;
   contentScale?: number;
   hidden?: boolean;
+  /** Last soft-hide time; kept only while `hidden` is true. */
+  hiddenAt?: number;
   pinned?: boolean;
 }
 

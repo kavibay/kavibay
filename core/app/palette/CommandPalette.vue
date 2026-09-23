@@ -150,7 +150,7 @@ import type {
   ExtensionInlineView,
   ExtensionInstanceAction,
 } from "@sdk/types";
-import { scheduleRegionSync } from "../system/clickThrough";
+import { scheduleRegionSync, setClickThroughPaused } from "../system/clickThrough";
 import { evaluate, formatResult } from "../../../extensions/calculator/widgets/calculator";
 import { useAppearance } from "../settings/useAppearance";
 import { useExtensionsPrefs } from "../settings/useExtensionsPrefs";
@@ -158,6 +158,10 @@ import { useSettingsModal } from "../settings/useSettingsModal";
 import { SquareArrowOutUpRightIcon } from "@sdk/icons";
 import InlineWidgetBody from "../host/InlineWidgetBody.vue";
 import PinIcon from "../host/PinIcon.vue";
+import {
+  SHORTCUT_HINT_TARGET_KEY,
+  shortcutModifierLabel,
+} from "../host/shortcutHints";
 import ResizeEdges from "../host/ResizeEdges.vue";
 import {
   loadTypeSizes,
@@ -195,7 +199,7 @@ function extensionIconUrl(row: PaletteRow): string | undefined {
  *
  * Keyed by type id rather than by row so search results and the widget
  * overview share it — and looked up from the catalog rather than carried on the row,
- * because rows are rebuilt on every keystroke and stay plain data.
+ * so searchable rows stay plain data.
  *
  * `getExtension` is the first-party path: action-only extensions are not in
  * the widget catalog, so looking only there would hide their icons.
@@ -281,9 +285,8 @@ function quitOnboarding() {
   skipTourAction();
 }
 
-/** Collapse the results list after an accepted action (does not advance onboarding). */
+/** Reset transient browse state after an accepted action (does not advance onboarding). */
 function afterPaletteAction() {
-  query.value = "";
   selectedIndex.value = 0;
   // Opening something from inside a folder ends the browse — the next open
   // should not land back in a folder listing from minutes ago.
@@ -407,6 +410,25 @@ const paletteListHeight = inject<Ref<number | undefined>>(
   "kavibayPaletteListHeight",
   ref(undefined),
 );
+const shortcutHintTarget = inject(SHORTCUT_HINT_TARGET_KEY);
+const shortcutModifier = shortcutModifierLabel();
+const pinShortcutTip = `Pin\n${shortcutModifier}+S`;
+const hidePaletteShortcutTip = `Hide\n${shortcutModifier}+W`;
+const shortcutHintVisible = computed(
+  () => shortcutHintTarget?.value?.kind === "palette",
+);
+const MAX_DESK_SHORTCUTS = 9;
+
+/** Ctrl+Shift+1…9 selects the matching desk; later desks have no chord. */
+function deskShortcutLabel(index: number): string | undefined {
+  const number = index + 1;
+  return number <= MAX_DESK_SHORTCUTS ? `Ctrl+Shift+${number}` : undefined;
+}
+
+/** Tooltip text for a desk chord while the palette shortcut hints are active. */
+function deskShortcutTip(index: number): string | undefined {
+  return deskShortcutLabel(index);
+}
 const resizePalette = inject<
   (payload: {
     width: number;
@@ -504,8 +526,10 @@ watch(settingsOpen, async (isOpen, wasOpen) => {
 });
 const { toggleColorMode } = useAppearance();
 
-/** Grip + pin inside the palette on hover. */
-const paletteChromeVisible = computed(() => paletteHovered.value);
+/** Grip + pin inside the palette on hover or while Ctrl-hold hints are visible. */
+const paletteChromeVisible = computed(
+  () => paletteHovered.value || shortcutHintVisible.value,
+);
 
 /** Effective palette outer width for resize handles. */
 const resizeWidth = computed(() => paletteWidth.value ?? DEFAULT_PALETTE_WIDTH);
@@ -564,9 +588,9 @@ function onPaletteResizeEnd() {
 }
 
 /**
- * Resolve which mounted widget (if any) should preview-scale for a palette row.
+ * Resolve which mounted widget (if any) should show the selection ring.
  * Only visible/focusable targets — not create, show-hidden, commands, or apps.
- * App rows fall through to null (no preview-scale on app selection).
+ * App rows fall through to null (no ring on app selection).
  */
 function previewTargetId(row: PaletteRow | undefined): string | null {
   if (!row) return null;
@@ -580,8 +604,8 @@ function previewTargetId(row: PaletteRow | undefined): string | null {
 }
 
 /**
- * After Tab focuses a widget, keep scale at 100% for that instance until the
- * user moves the selection (otherwise the selection watch would re-preview).
+ * After Tab focuses a widget, skip the selection ring/scale for that instance
+ * until the user moves the selection (otherwise the watch would re-preview).
  */
 let suppressPreviewInstanceId: string | null = null;
 
@@ -594,7 +618,7 @@ let leftSearchViaTab = false;
 
 /** Push the current selection’s preview target to the host (or clear it). */
 function syncPreviewFromSelection() {
-  // With a widget in the panel the selection is off screen — scaling a desk
+  // With a widget in the panel the selection is off screen — ringing a desk
   // card for it would highlight something the user is not looking at.
   if (inlineWidget.value !== null) {
     previewWidget?.(null);
@@ -662,14 +686,21 @@ function appQueryBoost(app: { name: string; path: string }): number {
   return queryFrecencyBoost(appLaunchHistory.value, query.value, app.name, app.path);
 }
 
+/** App visibility changes with the index/preferences, not with the search text. */
+const appSearchPools = computed(() => {
+  const visible: typeof installedAppsIndex.value = [];
+  const hidden: typeof installedAppsIndex.value = [];
+  for (const app of installedAppsIndex.value) {
+    (isAppHidden(hiddenAppKeys.value, app.name, app.path) ? hidden : visible).push(app);
+  }
+  return { visible, hidden };
+});
+
 /** Hidden installed apps that still fuzzy-match the current query. */
 const hiddenAppMatches = computed(() => {
   const q = query.value.trim();
   if (!q) return [];
-  const hiddenPool = installedAppsIndex.value.filter((app) =>
-    isAppHidden(hiddenAppKeys.value, app.name, app.path),
-  );
-  return buildAppRows(q, hiddenPool, 12, appUsageBoost, appQueryBoost).map((row) => ({
+  return buildAppRows(q, appSearchPools.value.hidden, 12, appUsageBoost, appQueryBoost).map((row) => ({
     ...row,
     fromHiddenSearch: true,
     subtitle: "Hidden from search",
@@ -677,6 +708,51 @@ const hiddenAppMatches = computed(() => {
 });
 
 const hiddenAppMatchCount = computed(() => hiddenAppMatches.value.length);
+
+const openNewRows = computed(() => buildOpenNewRows(widgetCatalog.value));
+
+/**
+ * Keep query-independent rows and body text warm. Extension hooks read reactive
+ * state here, so edits still invalidate the index; typing only re-ranks it.
+ */
+const widgetSearchIndex = computed(() => {
+  const instances = widgetInstances ?? [];
+  const bodies = new Map<string, string>();
+  const titleFor = (instance: WidgetInstance) => {
+    const def = getExtension(instance.typeId);
+    return instance.title ?? def?.title ?? instance.typeId;
+  };
+  const searchTextFor = (instanceId: string) => bodies.get(instanceId) ?? "";
+  const typeKeywordsFor = (instance: WidgetInstance) => {
+    const def = getExtension(instance.typeId);
+    const keywords = [instance.typeId];
+    if (def?.title) keywords.push(def.title);
+    if (def?.keywords?.length) keywords.push(...def.keywords);
+    if (instance.title) keywords.push(instance.title);
+    const body = searchTextFor(instance.instanceId);
+    if (body) keywords.push(body);
+    return keywords;
+  };
+  // Skip unknown or disabled types.
+  const known = instances.filter(
+    (i) => Boolean(getExtension(i.typeId)) && isEnabled(i.typeId),
+  );
+  for (const instance of known) {
+    bodies.set(
+      instance.instanceId,
+      getExtension(instance.typeId)?.searchText?.(instance.instanceId) ?? "",
+    );
+  }
+  // Every instance is its own row; the create row rides underneath them.
+  const widgetRows = buildWidgetRows(
+    known,
+    titleFor,
+    typeKeywordsFor,
+    (id) => instanceDeskLabels?.(id) ?? "",
+    (instance) => getExtension(instance.typeId)?.actions?.[0],
+  );
+  return { rows: attachNotePreviews(widgetRows, searchTextFor), searchTextFor };
+});
 
 const resultState = computed(() => {
   // Inside a folder, that folder is the whole world — mixing apps and widgets
@@ -687,48 +763,12 @@ const resultState = computed(() => {
   }
 
   // ArrowDown starts with the recent list; a typed query still ranks globally.
-  if (recentOpen.value) {
-    const recentRows = resolveRecentRows(recentRuns.value);
-    if (query.value.trim().length === 0) return { rows: recentRows, hasOtherResults: false };
+  if (recentOpen.value && query.value.trim().length === 0) {
+    return { rows: resolveRecentRows(recentRuns.value), hasOtherResults: false };
   }
 
-  const instances = widgetInstances ?? [];
-  const catalog = widgetCatalog.value;
-  const titleFor = (instance: WidgetInstance) => {
-    const def = getExtension(instance.typeId);
-    return instance.title ?? def?.title ?? instance.typeId;
-  };
-  const searchTextFor = (instanceId: string) => {
-    const instance = instances.find((item) => item.instanceId === instanceId);
-    return instance ? getExtension(instance.typeId)?.searchText?.(instanceId) ?? "" : "";
-  };
-  const typeKeywordsFor = (instance: WidgetInstance) => {
-    const def = getExtension(instance.typeId);
-    const keywords = [instance.typeId];
-    if (def?.title) keywords.push(def.title);
-    if (def?.keywords?.length) keywords.push(...def.keywords);
-    if (instance.title) keywords.push(instance.title);
-    // Extension body text is expensive — only index it while searching.
-    if (query.value.trim()) {
-      const body = getExtension(instance.typeId)?.searchText?.(instance.instanceId) ?? "";
-      if (body) keywords.push(body);
-    }
-    return keywords;
-  };
-  // Skip unknown or disabled types.
-  const known = instances.filter(
-    (i) => Boolean(getExtension(i.typeId)) && isEnabled(i.typeId),
-  );
-  // Every instance is its own row; the create row rides underneath them.
-  const widgetRows = buildWidgetRows(
-    known,
-    titleFor,
-    typeKeywordsFor,
-    (id) => instanceDeskLabels?.(id) ?? "",
-    (instance) => getExtension(instance.typeId)?.actions?.[0],
-  );
-  const typeRows = buildOpenNewRows(catalog);
-  const widgetRowsWithNotes = attachNotePreviews(widgetRows, searchTextFor);
+  const { rows: widgetRowsWithNotes, searchTextFor } = widgetSearchIndex.value;
+  const typeRows = openNewRows.value;
   const offDeskRows = offDeskWidgetRows.value;
   if (widgetsOpen.value) {
     if (query.value.trim().length === 0) {
@@ -742,12 +782,9 @@ const resultState = computed(() => {
   const searchableWidgetRows = widgetsOpen.value
     ? [...widgetRowsWithNotes, ...offDeskRows]
     : widgetRowsWithNotes;
-  const visibleApps = installedAppsIndex.value.filter(
-    (app) => !isAppHidden(hiddenAppKeys.value, app.name, app.path),
-  );
   const appRows = buildAppRows(
     query.value,
-    visibleApps,
+    appSearchPools.value.visible,
     12,
     appUsageBoost,
     appQueryBoost,
@@ -1378,7 +1415,7 @@ async function popOutInlineWidget() {
   const ext = getExtension(target.typeId);
   // Synchronous on purpose: the new card mounts on the next tick, so the widget
   // reads the seeded state instead of the defaults it was created with.
-  runDuplicateHook(ext, target.instanceId, created);
+  await runDuplicateHook(ext, target.instanceId, created);
   // Moved, not copied — but only where the hooks can actually carry the state.
   // A runtime package keeps its storage in Rust, out of reach of onDispose, so
   // its scratch copy is left intact rather than cleared after nothing moved.
@@ -2013,7 +2050,7 @@ async function focusWidgetRow(row: PaletteWidgetRow) {
   afterPaletteAction();
 }
 
-/** Soft-toggle show/hide for a palette instance row (Ctrl/Cmd+H). */
+/** Soft-toggle show/hide for a palette instance row (Ctrl/Cmd+W or H). */
 async function toggleWidgetRow(row: PaletteWidgetRow) {
   if (row.snippet || !toggleWidget) return;
   const before = widgetInstances?.find((item) => item.instanceId === row.instanceId);
@@ -2242,8 +2279,6 @@ async function runResultAt(index: number) {
     rememberCommand();
     toggleColorMode();
     afterPaletteAction();
-    query.value = "";
-    selectedIndex.value = 0;
     return;
   }
 
@@ -2329,14 +2364,10 @@ async function runAction(action: PaletteRowAction, args: ActionArgs) {
   afterPaletteAction();
   // No dismiss: the cockpit stays open so the effect is visible — closing it
   // would hide the very widget the action just started.
-  query.value = "";
-  selectedIndex.value = 0;
 }
 
 /** Open Settings from palette command or chrome menu. */
 function prepareSettingsOpen() {
-  query.value = "";
-  selectedIndex.value = 0;
   paletteMenuOpen.value = false;
   afterPaletteAction();
 }
@@ -2353,8 +2384,6 @@ function openSettingsSection(section: Parameters<typeof showSettingsSection>[0])
 
 /** Smart-open the Widget Gallery desk widget (create / show / focus). */
 async function openGallery() {
-  query.value = "";
-  selectedIndex.value = 0;
   const instances = widgetInstances ?? [];
   const { smart, targetInstanceId } = resolveTypeSmart(GALLERY_WIDGET_ID, instances);
   // Gallery mount notifies onboarding step 2 via the host.
@@ -2408,6 +2437,8 @@ function onFocusPaletteEvent(event: Event) {
 function onKeydown(event: KeyboardEvent) {
   // Prevent retained palette focus from navigating or running commands.
   if (settingsOpen.value) return;
+  // The desk-name field is in this same capture tree; leave keys to it.
+  if (renamingDeskId.value) return;
 
   const row = results.value[selectedIndex.value];
   const mod = event.ctrlKey || event.metaKey;
@@ -2418,6 +2449,12 @@ function onKeydown(event: KeyboardEvent) {
   // still back out of the view; Tab is left to the browser, which walks focus
   // into the widget — where the user is heading anyway.
   if (inlineWidgetOpen.value) {
+    if (mod && !event.altKey && key === "w") {
+      event.preventDefault();
+      event.stopPropagation();
+      hidePaletteFromChrome();
+      return;
+    }
     // The pop-out control is also keyboard-first: move this exact inline
     // instance to the desk (or create it for a scratch preview).
     if (mod && !event.altKey && key === "o") {
@@ -2439,7 +2476,7 @@ function onKeydown(event: KeyboardEvent) {
     }
   }
 
-  // Type/widget actions: Enter primary; Ctrl/Cmd+N new; +H hide; +R delete.
+  // Type/widget actions: Enter primary; Ctrl/Cmd+N new; +W/+H hide; +R delete.
   // Never bare letters — they steal keystrokes while typing (e.g. "gra"+"n").
   if (row && (row.kind === "type" || row.kind === "widget") && mod && !event.altKey) {
     if (key === "n") {
@@ -2448,7 +2485,7 @@ function onKeydown(event: KeyboardEvent) {
       void openNewTypeAction(row.typeId);
       return;
     }
-    if (key === "h") {
+    if (key === "w" || key === "h") {
       if (row.kind === "type" && row.canHide) {
         event.preventDefault();
         event.stopPropagation();
@@ -2477,6 +2514,23 @@ function onKeydown(event: KeyboardEvent) {
     event.stopPropagation();
     cycleFileSort();
     return;
+  }
+
+  // The palette chrome is its own surface: pin with Ctrl/Cmd+S and hide it
+  // with Ctrl/Cmd+W when no row-specific action consumed the chord above.
+  if (!folderScopeActive.value && mod && !event.altKey) {
+    if (key === "s") {
+      event.preventDefault();
+      event.stopPropagation();
+      togglePalettePinned?.();
+      return;
+    }
+    if (key === "w") {
+      event.preventDefault();
+      event.stopPropagation();
+      hidePaletteFromChrome();
+      return;
+    }
   }
 
   // Ctrl/Cmd+T on a directory row — same condition the terminal button uses,
@@ -2819,6 +2873,20 @@ function onDeskTabClick(deskId: string) {
   }, 220);
 }
 
+/** Bind the one visible rename field — a string ref inside `v-for` is an array. */
+function bindRenameInput(el: unknown) {
+  renameInputEl.value = el instanceof HTMLInputElement ? el : null;
+}
+
+/** Leave rename mode and restore click-through / hit regions. */
+function endDeskRename() {
+  renamingDeskId.value = null;
+  renameDraft.value = "";
+  renameInputEl.value = null;
+  setClickThroughPaused(false);
+  scheduleRegionSync();
+}
+
 /** Open inline rename on double-click. */
 function onDeskTabDblClick(desk: DeskTab) {
   if (deskTabClickTimer) {
@@ -2827,9 +2895,13 @@ function onDeskTabDblClick(desk: DeskTab) {
   }
   renamingDeskId.value = desk.id;
   renameDraft.value = desk.name;
+  // The field replaces a button; pause click-through so the first keystroke
+  // and the caret land on the input instead of the desktop behind it.
+  setClickThroughPaused(true);
   void nextTick(() => {
     renameInputEl.value?.focus();
     renameInputEl.value?.select();
+    scheduleRegionSync();
   });
 }
 
@@ -2842,14 +2914,12 @@ function commitDeskRename() {
   if (trimmed && trimmed !== original) {
     kavibayRenameDesk?.(deskId, trimmed);
   }
-  renamingDeskId.value = null;
-  renameDraft.value = "";
+  endDeskRename();
 }
 
 /** Cancel inline rename and restore the original label (Esc). */
 function cancelDeskRename() {
-  renamingDeskId.value = null;
-  renameDraft.value = "";
+  endDeskRename();
 }
 
 /** Create a new desk and switch to it. */
@@ -2909,9 +2979,11 @@ function onConfirmDeleteDesk() {
 function onRenameKeydown(event: KeyboardEvent) {
   if (event.key === "Enter") {
     event.preventDefault();
+    event.stopPropagation();
     commitDeskRename();
   } else if (event.key === "Escape") {
     event.preventDefault();
+    event.stopPropagation();
     cancelDeskRename();
   }
 }
@@ -3079,10 +3151,13 @@ onMounted(async () => {
     paletteMenuOpen.value = false;
     onboardingMenuOpen.value = false;
     deskCtxMenu.value = null;
-    renamingDeskId.value = null;
+    endDeskRename();
     leftSearchViaTab = false;
     clearWidgetFocus?.();
     inputEl.value?.focus();
+    // Spotlight-style reopen: keep the last query visible, but make fresh
+    // typing replace it without requiring Backspace or a mouse selection.
+    inputEl.value?.select();
   });
 });
 
@@ -3152,12 +3227,16 @@ onUnmounted(() => {
         type="button"
         class="palette-card-chrome-btn"
         :class="{ 'palette-card-chrome-btn--pin-on': palettePinned }"
-        v-tip="'Pin'"
+        v-tip="shortcutHintVisible ? pinShortcutTip : 'Pin'"
         aria-label="Toggle palette pin"
         :aria-pressed="palettePinned"
         @click.stop="togglePalettePinned?.()"
       >
         <PinIcon :active="palettePinned" />
+        <span v-if="shortcutHintVisible" class="palette-shortcut-hint" aria-hidden="true">
+          <span>Pin</span>
+          <span>{{ shortcutModifier }}+S</span>
+        </span>
       </button>
       <button
         ref="paletteMenuTriggerEl"
@@ -3174,10 +3253,14 @@ onUnmounted(() => {
       <button
         type="button"
         class="palette-card-chrome-btn"
-        v-tip="'Hide palette'"
+        v-tip="shortcutHintVisible ? hidePaletteShortcutTip : 'Hide'"
         aria-label="Hide palette"
         @click.stop="hidePaletteFromChrome"
       >
+        <span v-if="shortcutHintVisible" class="palette-shortcut-hint" aria-hidden="true">
+          <span>Hide</span>
+          <span>{{ shortcutModifier }}+W</span>
+        </span>
         <svg class="palette-card-chrome-icon" viewBox="0 0 24 24" aria-hidden="true">
           <g>
             <path
@@ -3448,32 +3531,53 @@ onUnmounted(() => {
           </button>
         </div>
       </div>
-      <div v-if="kavibayDesks" class="palette-statusbar-center">
+      <div
+        v-if="kavibayDesks"
+        class="palette-statusbar-center"
+        :class="{ 'palette-statusbar-center--shortcut-hints': shortcutHintVisible }"
+      >
         <div class="palette-desk-tab-group">
-          <button
-            v-for="desk in kavibayDesks"
-            :key="desk.id"
-            type="button"
-            class="palette-desk-tab"
-            :class="{ 'palette-desk-tab--active': desk.id === kavibayActiveDeskId }"
-            @pointerdown.stop
-            @click.stop="onDeskTabClick(desk.id)"
-            @dblclick.stop="onDeskTabDblClick(desk)"
-            @contextmenu="onDeskTabContextMenu($event, desk.id)"
-          >
+          <!--
+            Input and button are siblings on purpose. An <input> inside a
+            <button> is invalid HTML: the browser refuses the caret, blur
+            fires immediately, and the rename never sticks.
+          -->
+          <template v-for="(desk, deskIndex) in kavibayDesks" :key="desk.id">
             <input
               v-if="renamingDeskId === desk.id"
-              ref="renameInputEl"
+              :ref="bindRenameInput"
               v-model="renameDraft"
-              class="palette-desk-rename"
+              class="palette-desk-tab palette-desk-rename"
               type="text"
+              :size="Math.max(4, renameDraft.length + 1)"
+              spellcheck="false"
+              aria-label="Desk name"
+              @pointerdown.stop
               @click.stop
-              @dblclick.stop
               @keydown="onRenameKeydown"
               @blur="commitDeskRename"
             />
-            <span v-else class="palette-desk-tab-label">{{ desk.name }}</span>
-          </button>
+            <button
+              v-else
+              type="button"
+              class="palette-desk-tab"
+              v-tip="shortcutHintVisible ? deskShortcutTip(deskIndex) : undefined"
+              :class="{ 'palette-desk-tab--active': desk.id === kavibayActiveDeskId }"
+              @pointerdown.stop
+              @click.stop="onDeskTabClick(desk.id)"
+              @dblclick.stop="onDeskTabDblClick(desk)"
+              @contextmenu="onDeskTabContextMenu($event, desk.id)"
+            >
+              <span class="palette-desk-tab-label">{{ desk.name }}</span>
+              <span
+                v-if="shortcutHintVisible && deskShortcutLabel(deskIndex)"
+                class="palette-desk-shortcut-tip"
+                aria-hidden="true"
+              >
+                <span>{{ deskShortcutLabel(deskIndex) }}</span>
+              </span>
+            </button>
+          </template>
           <button
             type="button"
             class="palette-add-hit-area palette-desk-add-hit"
@@ -4117,7 +4221,7 @@ onUnmounted(() => {
               class="palette-item-action"
               @click="hideTypeTarget(row)"
             >
-              <KbdHint :keys="modKeys('H')" />
+              <KbdHint :keys="modKeys('W')" />
               <span>Hide</span>
             </button>
             <!-- Ctrl/Cmd+N New when an instance already exists; bare Enter creates when none. -->
@@ -4162,7 +4266,7 @@ onUnmounted(() => {
               class="palette-item-action"
               @click="toggleWidgetRow(row)"
             >
-              <KbdHint :keys="modKeys('H')" />
+              <KbdHint :keys="modKeys('W')" />
               <span>Hide</span>
             </button>
             <button
@@ -4370,6 +4474,7 @@ onUnmounted(() => {
 /* Same control as .palette-bar-btn, so same shape — leaving these square while
    the bar went round would just move the inconsistency to the other corner. */
 .palette-card-chrome-btn {
+  position: relative;
   width: 28px;
   height: 28px;
   padding: 0;
@@ -4384,6 +4489,37 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Keyboard chord hint shown above the palette's pin/hide controls. */
+.palette-shortcut-hint {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  z-index: 5;
+  padding: 4px 7px;
+  border: 1px solid rgba(var(--fg-rgb), 0.16);
+  border-radius: 6px;
+  background: rgba(var(--surface-bg-rgb), 0.96);
+  box-shadow: 0 6px 16px rgba(var(--shadow-rgb), 0.32);
+  color: rgba(var(--fg-rgb), 0.92);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+/* The shared hover/focus tooltip owns the label when the pointer is already
+   on the control; this prevents a duplicate bubble during the Ctrl hold. */
+.palette-card-chrome-btn:hover .palette-shortcut-hint,
+.palette-card-chrome-btn:focus-visible .palette-shortcut-hint {
+  display: none;
 }
 
 .palette-card-chrome-icon {
@@ -4835,18 +4971,25 @@ onUnmounted(() => {
   outline: none;
 }
 
+/* Full-bleed bar so these read as section labels, not extra list rows.
+   Negative X-margin cancels .palette-list's 8px padding; 20px X-padding
+   keeps the label aligned with the row icon column (list 8px + item 12px).
+   The first heading keeps the list's 8px top inset under the Widgets chrome;
+   later headings add a section-break above and sit a bit closer to their rows. */
 .palette-section-heading {
   list-style: none;
-  padding: 12px 12px 4px;
-  color: rgba(var(--fg-rgb), 0.48);
+  margin: 0 -8px 6px;
+  padding: 11px 20px 7px;
+  background: var(--fill);
+  color: var(--text-muted);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-.palette-section-heading:first-child {
-  padding-top: 4px;
+.palette-section-heading:not(:first-child) {
+  margin-top: 8px;
 }
 
 .palette-list-overlay-scroll {
@@ -5475,6 +5618,11 @@ onUnmounted(() => {
   scrollbar-width: none;
 }
 
+/* Let the temporary desk tooltip bubbles extend below the status bar. */
+.palette-statusbar-center--shortcut-hints {
+  overflow: visible;
+}
+
 .palette-statusbar-center::-webkit-scrollbar {
   display: none;
 }
@@ -5484,6 +5632,7 @@ onUnmounted(() => {
  * until pointed at. Everything in this bar is now one chip.
  */
 .palette-desk-tab {
+  position: relative;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -5523,23 +5672,47 @@ onUnmounted(() => {
   text-overflow: ellipsis;
 }
 
+/* Ctrl-hold tooltip shown for every desk with a Ctrl+Shift+1…9 chord. */
+.palette-desk-shortcut-tip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-width: max-content;
+  padding: 4px 7px;
+  border: 1px solid rgba(var(--fg-rgb), 0.16);
+  border-radius: 6px;
+  background: rgba(var(--surface-bg-rgb), 0.96);
+  box-shadow: 0 6px 16px rgba(var(--shadow-rgb), 0.32);
+  color: rgba(var(--fg-rgb), 0.92);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+/* While hovering one desk, its shared body-level tooltip owns that tab. */
+.palette-desk-tab:hover .palette-desk-shortcut-tip,
+.palette-desk-tab:focus-visible .palette-desk-shortcut-tip {
+  display: none;
+}
+
 .palette-desk-rename {
-  width: 64px;
+  box-sizing: border-box;
+  width: auto;
   min-width: 48px;
-  max-width: 100px;
-  /* Occupies a tab's slot, so it carries a tab's metrics — otherwise the whole
-     strip jumps the moment you start renaming. */
-  height: 28px;
-  padding: 0 10px;
+  max-width: 160px;
+  cursor: text;
   border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  corner-shape: var(--surface-corner-shape, round);
-  background: var(--fill);
+  background: var(--fill-hover);
   color: var(--text);
-  font-size: 13px;
-  font-weight: 500;
   font-family: inherit;
-  outline: none;
 }
 
 .palette-desk-ctx {

@@ -60,7 +60,12 @@ export function normalizePlacement(p: DeskPlacement): DeskPlacement {
   if (typeof p.contentScale === "number" && Number.isFinite(p.contentScale)) {
     next.contentScale = Math.round(clampContentScale(p.contentScale) * 1000) / 1000;
   }
-  if (p.hidden === true) next.hidden = true;
+  if (p.hidden === true) {
+    next.hidden = true;
+    if (typeof p.hiddenAt === "number" && Number.isFinite(p.hiddenAt)) {
+      next.hiddenAt = Math.round(p.hiddenAt);
+    }
+  }
   if (p.pinned === true) next.pinned = true;
   return next;
 }
@@ -117,6 +122,9 @@ export function migrateV3ToV4(v3: SavedLayoutV3): SavedLayoutV4 {
     ...(typeof i.height === "number" ? { height: i.height } : {}),
     ...(typeof i.contentScale === "number" ? { contentScale: i.contentScale } : {}),
     ...(i.hidden === true ? { hidden: true } : {}),
+    ...(i.hidden === true && typeof i.hiddenAt === "number" && Number.isFinite(i.hiddenAt)
+      ? { hiddenAt: i.hiddenAt }
+      : {}),
     ...(i.pinned === true ? { pinned: true } : {}),
   }));
   const desk: Desk = {
@@ -158,6 +166,11 @@ export function instancesForDesk(layout: SavedLayoutV4, deskId: string): WidgetI
       ...(entry.title !== undefined ? { title: entry.title } : {}),
       ...(entry.hideTitle !== undefined ? { hideTitle: entry.hideTitle } : {}),
       ...(placement.hidden === true ? { hidden: true } : {}),
+      ...(placement.hidden === true &&
+      typeof placement.hiddenAt === "number" &&
+      Number.isFinite(placement.hiddenAt)
+        ? { hiddenAt: placement.hiddenAt }
+        : {}),
       ...(placement.pinned === true ? { pinned: true } : {}),
       ...(typeof placement.width === "number" ? { width: placement.width } : {}),
       ...(typeof placement.height === "number" ? { height: placement.height } : {}),

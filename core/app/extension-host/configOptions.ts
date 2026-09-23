@@ -29,8 +29,9 @@ interface OptionRow {
 export async function loadConfigOptions(
   host: Host,
   field: ConfigField,
+  instanceId?: string,
 ): Promise<ConfigOption[]> {
   if (!field.source) return [];
-  const rows = await host.query<OptionRow[]>(field.source.provider, field.source.query, {}, null);
+  const rows = await host.query<OptionRow[]>(field.source.provider, field.source.query, {}, instanceId ? { extensionId: "host", trust: "core", instanceId } : null);
   return rows.map((row) => ({ value: row.id, label: row.name ?? String(row.id) }));
 }

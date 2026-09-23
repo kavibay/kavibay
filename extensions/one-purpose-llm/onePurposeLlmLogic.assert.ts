@@ -2,6 +2,8 @@
  * Pure-logic checks: `npx tsx extensions/one-purpose-llm/onePurposeLlmLogic.assert.ts`
  */
 import {
+  attachmentProblem,
+  base64FromDataUrl,
   buildApiMessages,
   createCustomPurposeTemplate,
   DEFAULT_ONE_PURPOSE_ID,
@@ -13,6 +15,7 @@ import {
   type LlmModelOption,
   MAX_ONE_PURPOSE_WIDTH,
   MIN_ONE_PURPOSE_HEIGHT,
+  MAX_ONE_PURPOSE_ATTACHMENTS,
   normalizeOnePurposeSettings,
   normalizeCustomPurposeTemplates,
   ONE_PURPOSE_PURPOSES,
@@ -199,6 +202,12 @@ function model(id: string, provider: string, configured: boolean): LlmModelOptio
   eq(settings.height, MIN_ONE_PURPOSE_HEIGHT, "height clamped up");
 }
 
+// The untouched layout starts with a compact, one-line context area.
+{
+  const settings = normalizeOnePurposeSettings({ contextFlex: 0.7, promptFlex: 1, resultFlex: 1 });
+  eq(settings.contextFlex, 0.2, "legacy default context size becomes compact");
+}
+
 // Overrides for retired purposes are dropped, current ones survive.
 {
   const settings = normalizeOnePurposeSettings({
@@ -240,14 +249,30 @@ function model(id: string, provider: string, configured: boolean): LlmModelOptio
   const settings = normalizeOnePurposeSettings({
     purposeId: "translate",
     prompts: { translate: "Nur Bairisch." },
+    context: "Use Bavarian wording.",
   });
   deepEq(
     buildApiMessages(settings, "Hello"),
     [
       { role: "system", content: "Nur Bairisch." },
-      { role: "user", content: "Hello" },
+      { role: "user", content: "Context:\nUse Bavarian wording.\n\nInput:\nHello" },
     ],
     "messages are system + one user turn",
+  );
+}
+
+// Images stay on the user turn and keep their provider-neutral payload until
+// the host turns them into Anthropic/OpenAI blocks.
+{
+  const settings = normalizeOnePurposeSettings({
+    attachments: [{ mediaType: "image/png", data: "QUJD" }],
+  });
+  const messages = buildApiMessages(settings, "What is this?");
+  assert(messages[1].images?.[0].mediaType === "image/png", "image reaches the user turn");
+  eq(base64FromDataUrl("data:image/png;base64,QUJD"), "QUJD", "data URL prefix is stripped");
+  assert(
+    attachmentProblem({ type: "image/png", size: 1 }, MAX_ONE_PURPOSE_ATTACHMENTS) !== null,
+    "attachment limit is enforced",
   );
 }
 
@@ -256,6 +281,7 @@ function model(id: string, provider: string, configured: boolean): LlmModelOptio
 {
   const settings = normalizeOnePurposeSettings({
     purposeId: "answer-email",
+    context: "The customer is Max Müller.",
     anonymized: [{ id: 1, term: "Max Müller", all: true, ordinal: 0 }],
   });
   const messages = buildApiMessages(settings, "Hallo Max Müller, danke für Ihre Mail.");
@@ -288,6 +314,7 @@ function model(id: string, provider: string, configured: boolean): LlmModelOptio
     model: "claude-sonnet-5",
     prompts: { "correct-grammar": "Be strict." },
     input: "teh",
+    context: "Use a concise tone.",
     output: "the",
     anonymized: [{ id: 1, term: "teh", all: true, ordinal: 0 }],
   });
@@ -297,6 +324,7 @@ function model(id: string, provider: string, configured: boolean): LlmModelOptio
   eq(copy.model, "claude-sonnet-5", "duplicate keeps model");
   deepEq(copy.prompts, { "correct-grammar": "Be strict." }, "duplicate keeps prompt edits");
   eq(copy.input, "", "duplicate clears input");
+  eq(copy.context, "", "duplicate clears context");
   eq(copy.output, "", "duplicate clears output");
 }
 

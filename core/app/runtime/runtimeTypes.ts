@@ -37,6 +37,12 @@ export interface HostExtensionRef {
    * its messages dropped without a word.
    */
   packageFormat?: PackageFormat;
+  /**
+   * Which root the package sits in, for `origin === "runtime"`. `custom` means
+   * it was built here in the Wizard, which is the only thing that makes
+   * reopening it there meaningful.
+   */
+  packageOrigin?: PackageOrigin;
   allowDuplicate: boolean;
   position: { x: number; y: number };
   /** Size the widget opens at, from the manifest. */

@@ -27,21 +27,6 @@ pub fn unprotect_secret(encoded: &str) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|error| format!("protected secret is not UTF-8: {error}"))
 }
 
-/// Lazy migration for values written before protection existed (Tado,
-/// Cloudflare): try to unprotect; if that fails, the stored value is treated as
-/// legacy plaintext. Returns `(plaintext, needs_reprotect)` — callers re-save
-/// with [`protect_secret`] when `needs_reprotect` is true.
-///
-/// A plaintext token can never be mistaken for a protected value in practice:
-/// protected values are base64 of a DPAPI blob with a fixed header, while
-/// legacy tokens are raw OAuth/API strings that fail base64/DPAPI decoding.
-pub fn unprotect_or_legacy_plaintext(stored: &str) -> (String, bool) {
-    match unprotect_secret(stored) {
-        Ok(plaintext) => (plaintext, false),
-        Err(_) => (stored.to_string(), true),
-    }
-}
-
 #[cfg(windows)]
 fn protect_bytes(plaintext: &[u8]) -> Result<Vec<u8>, String> {
     use windows::core::PCWSTR;
@@ -164,24 +149,5 @@ mod tests {
         assert!(!protected.contains(secret));
         let restored = unprotect_secret(&protected).expect("unprotect");
         assert_eq!(restored, secret);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn legacy_helper_passes_protected_values_through() {
-        let protected = protect_secret("tok-123").expect("protect");
-        let (plain, needs_reprotect) = unprotect_or_legacy_plaintext(&protected);
-        assert_eq!(plain, "tok-123");
-        assert!(!needs_reprotect);
-    }
-
-    /// Legacy plaintext (not a valid protected blob) must survive unchanged and
-    /// be flagged for re-protection. Runs on every platform: unprotect always
-    /// fails for a raw token string.
-    #[test]
-    fn legacy_helper_flags_plaintext_for_migration() {
-        let (plain, needs_reprotect) = unprotect_or_legacy_plaintext("raw-legacy-token");
-        assert_eq!(plain, "raw-legacy-token");
-        assert!(needs_reprotect);
     }
 }

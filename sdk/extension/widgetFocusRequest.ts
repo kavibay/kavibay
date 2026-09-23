@@ -21,6 +21,15 @@ export interface WidgetFocusRequestDetail {
   instanceId?: string;
   /** Absent means the desk — the surface that existed before inline views. */
   surface?: WidgetSurface;
+  /**
+   * The package this card was opened in order to work on.
+   *
+   * Only meaningful to a widget that edits other widgets — the Wizard. It rides
+   * on the focus event rather than being left in module state because the host
+   * chooses which card gets opened (revealed, focused, or freshly made), and
+   * only the focus event names that card.
+   */
+  openPackageId?: string;
 }
 
 /**

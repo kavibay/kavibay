@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tauri::AppHandle;
 
-use crate::credentials::resolve::{resolve_for_type, ResolveError};
+use crate::credentials::resolve::{resolve_for_owner, ResolveError};
 use crate::llm::catalog::{find_model, LlmProvider};
 
 /// A generation can involve real thinking; the default client timeout is far
@@ -86,6 +86,7 @@ pub struct WizardReply {
 /// Runs one completion against the named model.
 pub async fn complete(
     app: &AppHandle,
+    owner: &str,
     model_id: &str,
     system: &str,
     messages: &[WizardMessage],
@@ -122,7 +123,7 @@ pub async fn complete(
     if provider == LlmProvider::Anthropic {
         mark_cache_breakpoint(&mut turns);
     }
-    let credential = resolve_for_type(app, provider.credential_type())
+    let credential = resolve_for_owner(app, provider.credential_type(), owner)
         .await
         .map_err(|error| match error {
             ResolveError::NotConfigured => "not_configured".to_string(),

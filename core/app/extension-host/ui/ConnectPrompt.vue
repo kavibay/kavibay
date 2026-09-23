@@ -1,7 +1,14 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import type { ProviderId, ProviderStatus } from "@sdk/contract/sdk";
 import { BrandMark } from "@sdk/brand";
+import ConnectionSelect from "../../settings/credentials/ConnectionSelect.vue";
+import { listCredentials } from "../../settings/credentials/credentialsApi";
+import {
+  connectionEpoch,
+  connectionSelection,
+  widgetConnectionOwner,
+} from "../../settings/credentials/connections";
 
 /**
  * Gate state `provider`. The connect screen belongs to the runtime, not to the
@@ -11,17 +18,52 @@ import { BrandMark } from "@sdk/brand";
  * Copy comes from `ProviderStatus`, which is why the contract models it as a
  * discriminated union rather than a boolean — "connecting" and "auth-expired"
  * need different words and different affordances from "disconnected".
+ *
+ * `disconnected` covers two different dead ends once a platform can hold
+ * several accounts. With none saved, the answer is Settings → Credentials.
+ * With accounts saved but none bound to *this* instance, sending the user
+ * there is a dead end — the choice is per widget and cannot be made anywhere
+ * else — so the prompt becomes the chooser itself.
  */
 const props = defineProps<{
   provider: ProviderId;
   status: ProviderStatus;
   /** Display name from the manifest; the provider id is a fallback. */
   displayName?: string;
+  /** This instance, so an unbound choice can be made here. */
+  instanceId?: string;
+  /** The provider's credential type, absent for providers that need none. */
+  credentialType?: string;
 }>();
 
 defineEmits<{ connect: [] }>();
 
 const name = computed(() => props.displayName ?? props.provider.split("/").pop() ?? props.provider);
+
+/** True while accounts of this type exist but none is bound to this instance. */
+const needsChoice = ref(false);
+watch(
+  () => [props.credentialType, props.instanceId, props.status.state, connectionEpoch.value],
+  async () => {
+    const { credentialType, instanceId } = props;
+    if (!credentialType || !instanceId || props.status.state !== "disconnected") {
+      needsChoice.value = false;
+      return;
+    }
+    try {
+      const [saved, binding] = await Promise.all([
+        listCredentials(),
+        connectionSelection(widgetConnectionOwner(instanceId), credentialType),
+      ]);
+      needsChoice.value =
+        !binding.credentialId && saved.some((entry) => entry.typeId === credentialType);
+    } catch {
+      // A failed lookup only costs the shortcut; the connect button still works.
+      needsChoice.value = false;
+    }
+  },
+  { immediate: true },
+);
 
 const copy = computed(() => {
   switch (props.status.state) {
@@ -43,10 +85,20 @@ const copy = computed(() => {
   <div class="connect">
     <!-- Renders only for the providers we ship a logo for; see BrandMark. -->
     <BrandMark :provider="provider" :size="28" />
-    <p class="line">{{ copy.line }}</p>
-    <button v-if="copy.action" type="button" class="action" @click="$emit('connect')">
-      {{ copy.action }}
-    </button>
+
+    <!-- The chooser carries its own heading, so the generic line would repeat it. -->
+    <ConnectionSelect
+      v-if="needsChoice && credentialType && instanceId"
+      :owner="widgetConnectionOwner(instanceId)"
+      :type-ids="[credentialType]"
+    />
+
+    <template v-else>
+      <p class="line">{{ copy.line }}</p>
+      <button v-if="copy.action" type="button" class="action" @click="$emit('connect')">
+        {{ copy.action }}
+      </button>
+    </template>
   </div>
 </template>
 
@@ -62,6 +114,12 @@ const copy = computed(() => {
   padding: 12px;
   box-sizing: border-box;
   text-align: center;
+}
+
+/* The chooser is a form, not a caption: give it the card's width. */
+.connect > section {
+  align-self: stretch;
+  text-align: left;
 }
 
 .line {

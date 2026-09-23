@@ -21,7 +21,6 @@ export type BrandId =
   | "google"
   | "open-meteo"
   | "linear"
-  | "trello"
   | "n8n"
   | "spotify"
   | "fitbit"
@@ -37,7 +36,6 @@ const MARKS: Readonly<Record<string, BrandId>> = {
   "kavibay.tado/tado": "tado",
   "kavibay.github/github": "github",
   "kavibay.linear/linear": "linear",
-  "kavibay.trello/trello": "trello",
   "kavibay.n8n/n8n": "n8n",
   "kavibay.spotify/spotify": "spotify",
   "kavibay.fitbit/fitbit": "fitbit",
@@ -49,7 +47,6 @@ const MARKS: Readonly<Record<string, BrandId>> = {
   tadooauth2: "tado",
   githubpat: "github",
   linearapi: "linear",
-  trelloapi: "trello",
   n8napi: "n8n",
   spotifyoauth2: "spotify",
   fitbitoauth2: "fitbit",

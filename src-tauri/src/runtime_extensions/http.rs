@@ -17,7 +17,8 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
 
-use crate::credentials::{oauth, resolve_for_type, ResolveError, ResolvedCredential};
+use crate::credentials::resolve::resolve_for_connection;
+use crate::credentials::{oauth, ResolveError, ResolvedCredential};
 
 use super::api_declaration::{self, Endpoint};
 use super::binding::{self, BoundBody, BoundRequest};
@@ -30,7 +31,7 @@ use super::net_guard::{address_blocked, AddressPolicy};
 const NETWORK_DECLARED: &str = "network.declared";
 
 /// Mirrors `protocol.rs`: the Wizard previews a draft under this prefix.
-const DRAFT_PREFIX: &str = "__draft__";
+pub const DRAFT_PREFIX: &str = "__draft__";
 
 /// Who is calling. First-party code is compiled into the app and already runs in
 /// the privileged webview, so it holds no grants; runtime packages hold both a
@@ -326,7 +327,7 @@ fn success(
     app: &AppHandle,
     ext_id: &str,
     endpoint: &Endpoint,
-    primary_url: &str,
+    cache_scope: &str,
     status: u16,
     body: &str,
     now: i64,
@@ -337,7 +338,7 @@ fn success(
                 .limits
                 .lock()
                 .unwrap()
-                .store(ext_id, &endpoint.id, primary_url, status, body, now);
+                .store(ext_id, &endpoint.id, cache_scope, status, body, now);
         }
     }
     HttpCallResult {
@@ -358,6 +359,7 @@ fn success(
 pub async fn call_endpoint(
     app: &AppHandle,
     ext_id: &str,
+    instance_id: &str,
     endpoint_id: &str,
     args: Value,
 ) -> HttpCallResult {
@@ -404,7 +406,7 @@ pub async fn call_endpoint(
         // The budget is keyed by the id as given, so a draft spends its own and
         // cannot exhaust the kept package it will become.
         let _ = draft_id;
-        return execute(app, ext_id, &endpoint, args, Caller::Draft).await;
+        return execute(app, ext_id, instance_id, &endpoint, args, Caller::Draft).await;
     }
 
     if !installs::has_permission(app, ext_id, NETWORK_DECLARED) {
@@ -448,7 +450,15 @@ pub async fn call_endpoint(
         return HttpCallResult::failure("unknown_endpoint");
     };
 
-    execute(app, ext_id, &endpoint, args, Caller::RuntimePackage).await
+    execute(
+        app,
+        ext_id,
+        instance_id,
+        &endpoint,
+        args,
+        Caller::RuntimePackage,
+    )
+    .await
 }
 
 /// Runs one already-resolved endpoint: bind, check limits, send.
@@ -459,15 +469,37 @@ pub async fn call_endpoint(
 async fn execute(
     app: &AppHandle,
     ext_id: &str,
+    instance_id: &str,
     endpoint: &Endpoint,
     args: Value,
     caller: Caller,
 ) -> HttpCallResult {
     let endpoint_id = endpoint.id.as_str();
+    let connection = match &endpoint.credential {
+        None => None,
+        Some(type_id) => {
+            let selected = crate::credentials::db::open_db(app).and_then(|conn| {
+                crate::credentials::bindings::selection(
+                    &conn,
+                    &format!("widget:{instance_id}"),
+                    type_id,
+                )
+            });
+            match selected {
+                Ok(binding) if binding.credential_id.is_some() && binding.available => {
+                    Some(binding)
+                }
+                _ => return HttpCallResult::failure("credential_not_configured"),
+            }
+        }
+    };
 
     // A credential endpoint needs its own grant: owning a credential is not the
     // same as letting every package use it.
-    if let Some(credential_type) = &endpoint.credential {
+    if let Some(credential_id) = connection
+        .as_ref()
+        .and_then(|binding| binding.credential_id.as_deref())
+    {
         // A draft of a widget that is already installed is that widget being
         // edited, not a stranger. Refusing every draft outright meant the one
         // endpoint such a widget exists for could not be tried in the preview
@@ -484,7 +516,7 @@ async fn execute(
         // is the same answer a kept package gets for the same change.
         if caller == Caller::Draft {
             let base_id = ext_id.strip_prefix(DRAFT_PREFIX).unwrap_or(ext_id);
-            if !installs::has_credential_grant(app, base_id, credential_type) {
+            if !installs::has_credential_grant(app, base_id, credential_id) {
                 return HttpCallResult::with_detail(
                     "credential_not_granted",
                     "a preview can only use a credential this widget was already granted — keep this widget and enable it"
@@ -500,7 +532,7 @@ async fn execute(
             }
         }
         if caller == Caller::RuntimePackage
-            && !installs::has_credential_grant(app, ext_id, credential_type)
+            && !installs::has_credential_grant(app, ext_id, credential_id)
         {
             return HttpCallResult::failure("credential_not_granted");
         }
@@ -510,7 +542,18 @@ async fn execute(
         Ok(bound) => bound,
         Err(detail) => return HttpCallResult::with_detail("invalid_arguments", detail),
     };
-    let primary_url = bound.urls.first().cloned().unwrap_or_default();
+    // Cache identity is the bound url *plus* the account it was fetched for:
+    // two connections of the same type must never read each other's rows, and
+    // an edited credential (a new revision) starts from an empty cache.
+    let cache_scope = format!(
+        "{}|{}|{}",
+        bound.urls.first().map(String::as_str).unwrap_or_default(),
+        connection
+            .as_ref()
+            .and_then(|binding| binding.credential_id.as_deref())
+            .unwrap_or_default(),
+        connection.as_ref().map_or(0, |binding| binding.revision)
+    );
     let now = now_secs();
     let state = app.state::<RuntimeHttpState>();
 
@@ -518,7 +561,7 @@ async fn execute(
     if let Some((status, body)) = state.limits.lock().unwrap().cached(
         ext_id,
         endpoint_id,
-        &primary_url,
+        &cache_scope,
         endpoint.cache_ttl_secs,
         now,
     ) {
@@ -554,7 +597,16 @@ async fn execute(
     // layer (and its token refreshes) faster than its own rate limit.
     let mut credential = match &endpoint.credential {
         None => None,
-        Some(credential_type) => match resolve_for_type(app, credential_type).await {
+        Some(credential_type) => match resolve_for_connection(
+            app,
+            credential_type,
+            connection
+                .as_ref()
+                .and_then(|binding| binding.credential_id.as_deref())
+                .unwrap_or_default(),
+        )
+        .await
+        {
             Ok(resolved) => Some(resolved),
             Err(ResolveError::NotConfigured) => {
                 return HttpCallResult::failure("credential_not_configured")
@@ -600,9 +652,10 @@ async fn execute(
                 if status == 401 && !refreshed_once {
                     if let Some(credential_id) = &credential_id {
                         match oauth::force_refresh(app, credential_id).await {
-                            Ok(_) => match resolve_for_type(
+                            Ok(_) => match resolve_for_connection(
                                 app,
                                 endpoint.credential.as_deref().unwrap_or_default(),
+                                credential_id,
                             )
                             .await
                             {
@@ -615,7 +668,7 @@ async fn execute(
                                                     app,
                                                     ext_id,
                                                     endpoint,
-                                                    &primary_url,
+                                                    &cache_scope,
                                                     retry_status,
                                                     &retry_body,
                                                     now,
@@ -644,7 +697,7 @@ async fn execute(
                         ..HttpCallResult::failure("http_error")
                     };
                 }
-                return success(app, ext_id, endpoint, &primary_url, status, &body, now);
+                return success(app, ext_id, endpoint, &cache_scope, status, &body, now);
             }
             Err(code) => {
                 // A blocked address is a property of the declaration, not of a
@@ -693,13 +746,22 @@ pub fn runtime_extensions_budget_status(app: AppHandle) -> Result<BudgetStatus, 
 pub async fn extension_http_call(
     app: AppHandle,
     ext_id: String,
+    instance_id: String,
     endpoint_id: String,
     args: Value,
 ) -> Result<HttpCallResult, String> {
     let Some(endpoint) = first_party::endpoint(&ext_id, &endpoint_id) else {
         return Ok(HttpCallResult::failure("unknown_endpoint"));
     };
-    Ok(execute(&app, &ext_id, &endpoint, args, Caller::FirstParty).await)
+    Ok(execute(
+        &app,
+        &ext_id,
+        &instance_id,
+        &endpoint,
+        args,
+        Caller::FirstParty,
+    )
+    .await)
 }
 
 /// Calls a declared endpoint of a runtime package.
@@ -712,10 +774,11 @@ pub async fn extension_http_call(
 pub async fn runtime_extensions_http_call(
     app: AppHandle,
     ext_id: String,
+    instance_id: String,
     endpoint_id: String,
     args: Value,
 ) -> Result<HttpCallResult, String> {
-    Ok(call_endpoint(&app, &ext_id, &endpoint_id, args).await)
+    Ok(call_endpoint(&app, &ext_id, &instance_id, &endpoint_id, args).await)
 }
 
 #[cfg(test)]

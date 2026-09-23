@@ -126,13 +126,10 @@ pub fn migrate(conn: &Connection) -> Result<(), String> {
                          REFERENCES credentials(id) ON DELETE CASCADE,
           data_protected TEXT NOT NULL
         );
-        CREATE TABLE IF NOT EXISTS credential_imports (
-          source      TEXT PRIMARY KEY,
-          imported_at INTEGER NOT NULL
-        );
         "#,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    super::bindings::initialize(conn)
 }
 
 /// 16 random bytes as hex — opaque, collision-free enough for a local store,
@@ -183,15 +180,6 @@ pub fn list(conn: &Connection) -> Result<Vec<CredentialRecord>, String> {
 pub fn load(conn: &Connection, id: &str) -> Result<Option<CredentialRecord>, String> {
     let sql = format!("SELECT {SELECT_COLUMNS} FROM credentials WHERE id = ?1");
     conn.query_row(&sql, params![id], row_to_record)
-        .optional()
-        .map_err(|e| e.to_string())
-}
-
-/// The first credential of a type, used while the UI is single-credential.
-pub fn find_by_type(conn: &Connection, type_id: &str) -> Result<Option<CredentialRecord>, String> {
-    let sql =
-        format!("SELECT {SELECT_COLUMNS} FROM credentials WHERE type_id = ?1 ORDER BY created_at, id LIMIT 1");
-    conn.query_row(&sql, params![type_id], row_to_record)
         .optional()
         .map_err(|e| e.to_string())
 }
@@ -314,28 +302,6 @@ pub fn delete(conn: &Connection, id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// True when a legacy store has already been imported (see `import.rs`).
-pub fn is_imported(conn: &Connection, source: &str) -> Result<bool, String> {
-    let count: i64 = conn
-        .query_row(
-            "SELECT COUNT(1) FROM credential_imports WHERE source = ?1",
-            params![source],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-    Ok(count > 0)
-}
-
-/// Marks a legacy store as imported so the migration runs exactly once.
-pub fn mark_imported(conn: &Connection, source: &str, at: i64) -> Result<(), String> {
-    conn.execute(
-        "INSERT OR REPLACE INTO credential_imports (source, imported_at) VALUES (?1, ?2)",
-        params![source, at],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,8 +333,6 @@ mod tests {
 
         assert_eq!(list(&conn).unwrap().len(), 2);
         assert_eq!(load(&conn, "a").unwrap().unwrap().name, "GitHub");
-        assert_eq!(find_by_type(&conn, "githubPat").unwrap().unwrap().id, "a");
-        assert!(find_by_type(&conn, "nope").unwrap().is_none());
 
         delete(&conn, "a").unwrap();
         assert!(load(&conn, "a").unwrap().is_none());
@@ -402,15 +366,6 @@ mod tests {
             CredentialState::from_str("connected"),
             CredentialState::Connected
         );
-    }
-
-    #[test]
-    fn import_markers_are_recorded_once() {
-        let conn = test_conn();
-        assert!(!is_imported(&conn, "github_actions").unwrap());
-        mark_imported(&conn, "github_actions", 5).unwrap();
-        mark_imported(&conn, "github_actions", 6).unwrap();
-        assert!(is_imported(&conn, "github_actions").unwrap());
     }
 
     // Secret round-trips go through DPAPI, so they are Windows-only (like the app).

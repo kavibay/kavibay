@@ -241,9 +241,15 @@ export interface FocusTrackerCapability {
 
 export type LlmChatRole = "system" | "user";
 
+export interface LlmImage {
+  mediaType: string;
+  data: string;
+}
+
 export interface LlmChatMessage {
   role: LlmChatRole;
   content: string;
+  images?: LlmImage[];
 }
 
 export interface LlmChatRequest {
@@ -258,6 +264,9 @@ export type LlmStreamEvent =
   | { type: "cancelled" }
   | { type: "error"; message: string };
 
+/** Host Settings section a first-party widget may open, with an optional focus. */
+export type SettingsOpenSection = "credentials" | "ai";
+
 /**
  * Reviewed host surface for first-party LLM widgets.
  *
@@ -270,6 +279,11 @@ export interface LlmCapability {
   quickModel<T = unknown>(): Promise<T>;
   stream(request: LlmChatRequest, onEvent: (event: LlmStreamEvent) => void): Promise<void>;
   cancel(requestId: string): Promise<void>;
+  /**
+   * Opens Settings → AI. `focus` is a catalog provider id (`anthropic`) so
+   * that provider's tab is selected — the panel that actually accepts the key.
+   */
+  openSettings(section: "ai", focus?: string): void;
 }
 
 export interface WizardCompletionRequest {
@@ -332,10 +346,11 @@ export interface WizardCapability {
    */
   setDeveloperConsentBypass(on: boolean): Promise<boolean>;
   /**
-   * Opens Settings → Credentials. `credentialType` is a registry id
-   * (`googleCalendarOAuth2`), not a secret — it selects that row.
+   * Opens a host Settings section. `focus` is a registry credential type
+   * (`googleCalendarOAuth2`) for `"credentials"`, or a catalog provider id
+   * (`anthropic`) for `"ai"` — never a secret.
    */
-  openSettings(section: "credentials", credentialType?: string): void;
+  openSettings(section: SettingsOpenSection, focus?: string): void;
 
   conversationsList<T = unknown>(): Promise<T>;
   conversationLoad<T = unknown>(id: string): Promise<T>;
@@ -345,11 +360,15 @@ export interface WizardCapability {
   runtimeScan<T = unknown>(): Promise<T>;
   runtimeInstalls<T = unknown>(): Promise<T>;
   runtimeEntryUrl(id: string, entry: string): string;
+  /**
+   * Enabling *is* the consent. The host derives which accounts that covers
+   * from the declaration on disk and the approved providers — a caller cannot
+   * name a credential here, and a grant is for one account, never a type.
+   */
   runtimeSetEnabled(
     id: string,
     enabled: boolean,
     manifestPermissions: string[],
-    credentialTypes: string[],
     contractGrant?: unknown,
   ): Promise<void>;
   runtimeReadPackage<T = unknown>(id: string): Promise<T>;
@@ -487,7 +506,7 @@ export interface ProviderDefinition {
   /**
    * Where this provider may send its credential.
    *
-   * Exact hostnames for a public API (Trello, GitHub). `{ fromCredential }`
+   * Exact hostnames for a public API (Linear, GitHub). `{ fromCredential }`
    * when the host is the instance URL the person typed (n8n) — the value is
    * not compiled in; the rule that it must come from the credential is.
    */
@@ -511,6 +530,20 @@ export interface ProviderDefinition {
    * nobody declared shows a placeholder, which is the right failure.
    */
   imageHosts?: string[];
+  /**
+   * Where this provider's records *live on the web* — the pages a person would
+   * open to see the record itself. Linear answers from `api.linear.app` and its
+   * issues live on `linear.app`.
+   *
+   * Compiled in and PR-reviewed, for the same reason as `imageHosts` and with
+   * the same shape: the url arrives inside a vendor response and is therefore
+   * data, so the host re-checks it against this list before handing it to the
+   * OS browser. What this buys is that a *generated* widget can offer "open
+   * this issue" at all — it cannot name the destination, only pass on a url the
+   * reviewed provider already vouched for. Declaring nothing means this
+   * provider's widgets open nothing, which is the right default.
+   */
+  linkHosts?: string[];
   queries: Record<string, ProviderQuery<any, any>>;
   actions: Record<string, ProviderAction<any, any>>;
 }
@@ -1002,6 +1035,16 @@ export type WidgetRequest =
   | { type: "data.delete"; key: string }
   | { type: "http.get"; url: string; params?: Record<string, unknown> }
   | { type: "http.post"; url: string; body?: unknown }
+  /**
+   * Open one url in the person's browser.
+   *
+   * A url, not a choice among declarations, because the destination arrived
+   * inside a provider's own response — the widget is passing data back, not
+   * naming a place. The host answers whether one of *its* providers vouches for
+   * that host, so a frame asking for somewhere else is refused rather than
+   * trusted.
+   */
+  | { type: "openExternal"; url: string }
   /**
    * One endpoint from the package's own `api.json`, by id.
    *

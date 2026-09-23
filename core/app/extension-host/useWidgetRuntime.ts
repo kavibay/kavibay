@@ -119,12 +119,12 @@ export function useWidgetRuntime(
   // completes the set the gate is waiting for.
   let statusSub: Subscription | undefined;
   if (declaredProviders.length > 0) {
-    const subs = declaredProviders.map((pid) => host.onStatusChange(pid, refresh));
+    const subs = declaredProviders.map((pid) => host.onStatusChange(pid, refresh, instance.id));
     statusSub = { unsubscribe: () => subs.forEach((sub) => sub.unsubscribe()) };
     // A credential stored in an earlier session is already valid; without this
     // the widget would open on a connect prompt for a provider that is in fact
     // connected, and only correct itself after the user acted.
-    for (const pid of declaredProviders) void host.refreshProviderStatus(pid);
+    for (const pid of declaredProviders) void host.refreshProviderStatus(pid, instance.id);
   }
 
   function unmount() {

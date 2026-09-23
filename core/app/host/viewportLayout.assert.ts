@@ -47,6 +47,8 @@ const desk: Desk = {
       offset: { x: 200, y: 100 },
       width: 320,
       height: 240,
+      hidden: true,
+      hiddenAt: 123,
     },
   ],
   viewport: uhd,
@@ -58,6 +60,7 @@ assert(Math.abs(scaled.palette.y - 540) < 0.01, "palette y");
 assert(Math.abs((scaled.paletteWidth ?? 0) - 200) < 0.01, "palette width");
 assert(Math.abs(scaled.placements[0]!.offset.x - 100) < 0.01, "offset x");
 assert(Math.abs((scaled.placements[0]!.width ?? 0) - 160) < 0.01, "widget width");
+assert(scaled.placements[0]!.hidden === true && scaled.placements[0]!.hiddenAt === 123, "hide recency survives scale");
 assert(scaled.viewport?.width === 1920, "viewport updated");
 
 const same = scaleDeskToViewport(scaled, fhd, fhd);

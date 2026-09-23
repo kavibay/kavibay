@@ -67,9 +67,7 @@ fn summarize(
     let mut missing = Vec::new();
 
     for field in type_def.fields {
-        // Environment overrides count as configured, so a developer setup with
-        // env vars doesn't show up as "incomplete".
-        let value = field_value(type_def, secret, field.key);
+        let value = field_value(secret, field.key);
         match (field.kind, &value) {
             (FieldKind::Password, Some(_)) => secrets_set.push(field.key.to_string()),
             (FieldKind::Text, Some(value)) => {
@@ -178,7 +176,6 @@ pub fn credential_types_list() -> Vec<CredentialTypeSchema> {
 #[tauri::command]
 pub fn credentials_list(app: AppHandle) -> Result<Vec<CredentialSummary>, String> {
     let conn = db::open_db(&app)?;
-    super::import::run_pending_imports(&app, &conn);
 
     let mut out = Vec::new();
     for record in db::list(&conn)? {
@@ -208,48 +205,9 @@ pub fn credentials_status(app: AppHandle, id: String) -> Result<Option<Credentia
     Ok(Some(summarize(&record, &secret, pending, error)?))
 }
 
-/// Status of the credential of `type_id`, if one exists.
-///
-/// Widgets that own a connect affordance (the calendar card) poll this; it
-/// carries no secret values, only state, the account label and which fields are
-/// still missing.
-#[tauri::command]
-pub fn credentials_type_status(
-    app: AppHandle,
-    type_id: String,
-) -> Result<Option<CredentialSummary>, String> {
-    let conn = db::open_db(&app)?;
-    super::import::run_pending_imports(&app, &conn);
-
-    let Some(record) = db::find_by_type(&conn, &type_id)? else {
-        return Ok(None);
-    };
-    let secret = db::load_secret(&conn, &record.id)?.unwrap_or_default();
-    let pending = super::oauth::is_pending(&app, &record.id);
-    let error = super::oauth::last_error(&app, &record.id);
-    Ok(Some(summarize(&record, &secret, pending, error)?))
-}
-
-/// Whether a usable credential of `type_id` exists.
-///
-/// Widgets call this to render their "set this up" state without learning
-/// anything about the credential itself.
-#[tauri::command]
-pub fn credentials_configured(app: AppHandle, type_id: String) -> Result<bool, String> {
-    let conn = db::open_db(&app)?;
-    super::import::run_pending_imports(&app, &conn);
-
-    let Some(record) = db::find_by_type(&conn, &type_id)? else {
-        return Ok(false);
-    };
-    Ok(record.state == CredentialState::Connected)
-}
-
 /// Creates or updates a credential and returns its id.
 ///
-/// Without an `id` this reuses the existing credential of `type_id` when there
-/// is one — the UI is single-credential per type today, while the store already
-/// supports several.
+/// Without an ID, this always creates a new connection.
 #[tauri::command]
 pub fn credentials_save(
     app: AppHandle,
@@ -262,8 +220,8 @@ pub fn credentials_save(
     let conn = db::open_db(&app)?;
 
     let existing = match &id {
-        Some(id) => db::load(&conn, id)?,
-        None => db::find_by_type(&conn, &type_id)?,
+        Some(id) => Some(db::load(&conn, id)?.ok_or("connection not found")?),
+        None => None,
     };
     if let Some(record) = &existing {
         if record.type_id != type_id {

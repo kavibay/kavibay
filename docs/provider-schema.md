@@ -60,7 +60,7 @@ Needs a connected account. The widget gate shows a connect prompt until then.
 | `teamIssues` | Open issues in one Linear team | `teamId: string` (from `teams`) | `list of { id: string, identifier: string, title: string, url: string, updatedAt: string, state: string, stateType: string, team: string, teamKey: string }` | 1 min |
 | `teams` | The teams in your Linear workspace | none | `list of { id: string, name: string, key: string }` | 5 min |
 
-No actions — this provider is read-only.
+Actions: `createIssue` (write), `updateIssue` (write).
 
 ## n8n
 
@@ -119,20 +119,6 @@ Needs a connected account. The widget gate shows a connect prompt until then.
 |---|---|---|---|---|
 | `zones` | The names of your heating zones | none | `list of { id: string, name: string }` | 360 min |
 | `zoneStates` | Current temperature and humidity in every room | none | `list of { id: string, temperature: number?, humidity: number? }` | 16 min |
-
-No actions — this provider is read-only.
-
-## Trello
-
-`kavibay.trello/trello` · `extensions/trello/provider.ts`
-
-Needs a connected account. The widget gate shows a connect prompt until then.
-
-| Query | Reads | Arguments | Returns | Refresh |
-|---|---|---|---|---|
-| `boards` | The open boards on your Trello account | none | `list of { id: string, name: string, url: string, shortLink: string }` | 5 min |
-| `cards` | The open cards on one Trello board | `boardId: string` (from `boards`) | `list of { id: string, name: string, url: string, description: string, due: string?, listId: string, boardId: string, closed: boolean }` | 1 min |
-| `lists` | The open lists on one Trello board | `boardId: string` (from `boards`) | `list of { id: string, name: string, boardId: string }` | 5 min |
 
 No actions — this provider is read-only.
 

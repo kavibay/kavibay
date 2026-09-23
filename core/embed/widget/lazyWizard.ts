@@ -10,7 +10,6 @@ import n8nExtension from "../../../extensions/n8n/extension";
 import notionExtension from "../../../extensions/notion/extension";
 import spotifyExtension from "../../../extensions/spotify/extension";
 import tadoExtension from "../../../extensions/tado/extension";
-import trelloExtension from "../../../extensions/trello/extension";
 import weatherExtension from "../../../extensions/weather/extension";
 
 import "./wizardDemoChrome.css";
@@ -71,7 +70,6 @@ export default {
     notionExtension,
     spotifyExtension,
     tadoExtension,
-    trelloExtension,
     weatherExtension,
   ],
 };

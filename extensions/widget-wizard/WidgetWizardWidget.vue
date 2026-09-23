@@ -33,7 +33,11 @@ import WizardChevron from "./WizardChevron.vue";
 import WizardGenerationStatus from "./WizardGenerationStatus.vue";
 import WizardPreviewStage, { type PreviewFault } from "./WizardPreviewStage.vue";
 import { takeNewProjectRequest, type WidgetWizardModel } from "./widgets/widgetWizard";
-import { WIDGET_FOCUS_EVENT, widgetFocusRequestMatches } from "@sdk/widgetFocusRequest";
+import {
+  WIDGET_FOCUS_EVENT,
+  widgetFocusRequestMatches,
+  type WidgetFocusRequestDetail,
+} from "@sdk/widgetFocusRequest";
 import { isHighlightable, tokenize, type CodeToken } from "./highlight";
 import {
   REPAIR_BUDGET,
@@ -1723,9 +1727,9 @@ const activeModel = computed(() =>
 const platforms = computed(() => wizardPlatforms(models.value));
 const hasAnyKey = computed(() => wizardHasAnyKey(models.value));
 
-/** Open Settings on the credential card for one platform. */
-function openPlatformSettings(platform: { credentialType: string }): void {
-  wizard.openSettings("credentials", platform.credentialType);
+/** Open Settings → AI on this platform's provider tab. */
+function openPlatformSettings(platform: { id: string }): void {
+  wizard.openSettings("ai", platform.id);
 }
 
 /**
@@ -2152,6 +2156,19 @@ async function startProjectFromPalette(): Promise<void> {
  */
 function onFocusRequest(event: Event): void {
   if (!widgetFocusRequestMatches(event, props.model.instanceId)) return;
+  const openPackageId = (event as CustomEvent<WidgetFocusRequestDetail>).detail
+    ?.openPackageId;
+  if (openPackageId) {
+    /**
+     * A widget's own card sent us here through its "Edit in Wizard" menu item.
+     *
+     * The host dispatches this focus twice — once now and once 60 ms later, for
+     * a card that was still mounting — so the already-open check is what keeps
+     * one menu click from opening the same draft twice.
+     */
+    if (session.value.packageId !== openPackageId) void openWidget(openPackageId);
+    return;
+  }
   if (takeNewProjectRequest()) {
     void startProjectFromPalette();
     return;
@@ -3734,29 +3751,13 @@ const consentStillMatches = computed(() => {
   return declaration?.contents === savedApiText.value;
 });
 
-function credentialTypesFor(row: ScannedRuntimeExtension | undefined): string[] {
-  return Array.from(
-    new Set(
-      (row?.apiEndpoints ?? [])
-        .map((endpoint) => endpoint.credential)
-        .filter((type): type is string => typeof type === "string" && type.length > 0),
-    ),
-  );
-}
-
 async function enablePackage(
   id: string,
   contractGrant?: { approved: string[] },
 ): Promise<boolean> {
   const row = scanned.value.find((item) => item.id === id);
   try {
-    await wizard.runtimeSetEnabled(
-      id,
-      true,
-      row?.permissions ?? [],
-      credentialTypesFor(row),
-      contractGrant,
-    );
+    await wizard.runtimeSetEnabled(id, true, row?.permissions ?? [], contractGrant);
     await rescan();
     return true;
   } catch {
@@ -4168,8 +4169,12 @@ async function enablePackage(
       -->
       <p v-if="hasAnyKey && activeModel && !activeModel.configured" class="wiz-setup">
         No API key for {{ activeModel.label }} yet.
-        <button type="button" class="wiz-link" @click="wizard.openSettings('credentials')">
-          Open Settings
+        <button
+          type="button"
+          class="wiz-link"
+          @click="wizard.openSettings('ai', activeModel.provider)"
+        >
+          Add key
         </button>
       </p>
 
@@ -4839,6 +4844,7 @@ async function enablePackage(
             :effort-levels="effortLevels"
             :disabled="busy"
             @update:effort="effort = $event"
+            @add-key="wizard.openSettings('ai', $event)"
           />
           <button v-if="busy" type="button" @click="stop">Stop</button>
           <button

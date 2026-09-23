@@ -25,13 +25,23 @@ function assert(cond: boolean, msg: string) {
   if (!cond) throw new Error(msg);
 }
 
+/** Records what actually reached the OS, so a refusal is distinguishable from a no-op. */
+const opened: string[] = [];
+const widgetTransport = {
+  openExternalVouched: async (url: string) => {
+    opened.push(url);
+  },
+} as unknown as Parameters<typeof Host>[4];
+
 function boot() {
   const reg = new ExtensionRegistry();
   reg.load(todoExtension, { kind: "bundled" });
   reg.load(tadoExtension, { kind: "bundled" });
   assert(reg.link().length === 0, `fixtures must link: ${JSON.stringify(reg.errors)}`);
   const { ui } = makeUi({});
-  return new Host(reg, makeFetcher().fetcher, ui);
+  // Fifth argument, not fourth: the fourth slot is provider transport, and
+  // putting the widget mock there would make every provider call throw.
+  return new Host(reg, makeFetcher().fetcher, ui, undefined, widgetTransport);
 }
 
 const inst = <T>(definitionId: string, id: string, configuration: T): WidgetInstance<T> =>
@@ -261,6 +271,51 @@ async function fixture() {
   const conn = bridge.connect(tadoTile.id, () => {});
   const res = JSON.parse(await conn.handle("{not json")) as WidgetResponse;
   assert(res.ok === false, "an unparseable request is refused");
+}
+
+/**
+ * A url is the one thing a guest gets to choose, so it is the one thing the
+ * host cannot take on trust.
+ *
+ * `openExternal` exists so a generated widget can offer "open this issue" — it
+ * passes back a url that arrived inside a provider's own response. Which sites
+ * that permits is the host's fact about the widget's declared providers, and a
+ * frame naming somewhere else must be refused rather than believed. Pinned
+ * because the failure is invisible: the browser simply opens, and whatever the
+ * widget encoded into the url goes with it.
+ */
+{
+  const { bridge } = await fixture();
+  opened.length = 0;
+  const conn = bridge.connect(tadoTile.id, () => {});
+
+  const allowed = await raw(conn, { type: "openExternal", url: "https://tado.com/rooms/1" });
+  assert(allowed.ok === true, `a host the widget's provider vouches for opens: ${JSON.stringify(allowed)}`);
+  assert(opened.join() === "https://tado.com/rooms/1", `and it is the url that reached the OS: ${opened.join()}`);
+
+  for (const url of [
+    "https://evil.example/steal?data=secret",
+    "http://tado.com/rooms/1",
+    "https://my.tado.com/api/v2/me",
+  ]) {
+    opened.length = 0;
+    const res = await raw(conn, { type: "openExternal", url });
+    assert(res.ok === false, `${url} must be refused: ${JSON.stringify(res)}`);
+    assert(opened.length === 0, `${url} must not reach the OS`);
+  }
+}
+
+/**
+ * The permission rides on the declared provider, not on knowing the url. The
+ * Todo widget declares none, so the same vouched host is refused for it.
+ */
+{
+  const { bridge } = await fixture();
+  opened.length = 0;
+  const conn = bridge.connect(todoTile.id, () => {});
+  const res = await raw(conn, { type: "openExternal", url: "https://tado.com/rooms/1" });
+  assert(res.ok === false, `a widget with no provider opens nothing: ${JSON.stringify(res)}`);
+  assert(opened.length === 0, "and nothing reached the OS");
 }
 
 console.log("bridge.assert.ts: ok");

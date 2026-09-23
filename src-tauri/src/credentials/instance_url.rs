@@ -112,7 +112,6 @@ mod tests {
                 required: true,
                 placeholder: None,
                 help: None,
-                env: None,
             }],
             auth: AuthKind::Static,
             inject: Injection::Header {

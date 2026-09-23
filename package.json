@@ -14,7 +14,8 @@
     "package:win:standalone": "tauri build --no-bundle",
     "package:linux": "tauri build --bundles appimage,deb",
     "typecheck": "vue-tsc --noEmit",
-    "lint": "eslint .",
+    "typecheck:fast": "vue-tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/vue-tsc.tsbuildinfo",
+    "lint": "oxlint .",
     "test:assert": "node scripts/runAsserts.mjs",
     "verify": "node scripts/verify.mjs",
     "verify:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target/check --all-targets -- -D warnings && cargo test --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target/check --lib",
@@ -39,16 +40,12 @@
     "vue": "^3.5.42"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
     "@tauri-apps/cli": "^2",
     "@types/semver": "^7.8.0",
     "@vitejs/plugin-vue": "^6.0.8",
-    "eslint": "^10.9.1",
-    "eslint-plugin-vue": "^10.10.0",
-    "globals": "^17.11.0",
+    "oxlint": "^1.82.0",
     "tsx": "^4.23.13",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.68.0",
     "vite": "^8.2.2",
     "vue-tsc": "^3.3.11"
   }
