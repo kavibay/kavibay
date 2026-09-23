@@ -280,6 +280,9 @@ pub fn credentials_save(
 
     db::upsert_record(&conn, &record)?;
     db::save_secret(&conn, &record.id, &secret)?;
+    if existing.is_none() {
+        super::bindings::adopt_orphaned_default(&conn, &type_id, &record.id)?;
+    }
     Ok(record.id)
 }
 
