@@ -64,6 +64,7 @@ export const browserCapabilityTransport: WidgetCapabilityTransport = {
     await navigator.clipboard?.writeText(text);
   },
   clipboardList: async () => absent("clipboard.list"),
+  clipboardOnChange: async () => absent("clipboard.onChange"),
   clipboardRestore: async () => absent("clipboard.restore"),
   clipboardSetRevealed: async () => absent("clipboard.setRevealed"),
   clipboardDelete: async () => absent("clipboard.delete"),

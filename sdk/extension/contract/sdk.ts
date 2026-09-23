@@ -173,6 +173,11 @@ export interface OpenExternalCapability {
 export interface ClipboardCapability {
   writeText(text: string): Promise<void>;
   list<T = unknown>(): Promise<T>;
+  /**
+   * Called with the whole history whenever it changes — a copy anywhere, or a
+   * restore, delete or clear here. Resolves to the unsubscribe.
+   */
+  onChange<T = unknown>(listener: (entries: T) => void): Promise<() => void>;
   restore(id: string): Promise<void>;
   setRevealed(id: string, revealed: boolean): Promise<void>;
   delete(id: string): Promise<void>;
