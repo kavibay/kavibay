@@ -42,6 +42,8 @@ pub struct ClickThrough {
     pub outside_click_armed: bool,
     /// Bumped on every rect update so the click-through watcher can tell the
     /// boundary moved even though the cursor did not, and tick fast again.
+    /// Also bumped when Rust makes the window interactive itself, so the watcher
+    /// rewrites its answer instead of trusting the one it wrote last.
     pub generation: u64,
 }
 
@@ -116,6 +118,22 @@ pub fn next_watch_tick_ms(moved: bool, rects_changed: bool, outside_click_armed:
     } else {
         WATCH_IDLE_TICK_MS
     }
+}
+
+/// Must the watcher write `ignore` to the window on this tick?
+///
+/// Writing only when the answer changes is what keeps the watcher cheap, but it
+/// makes the last write a belief about the window, not a reading of it. The
+/// reveal paths make the window interactive themselves; with nothing on screen
+/// to hover, the answer never changed again, so a frontend that did not respond
+/// left a fullscreen window that swallowed every click. A new generation says
+/// the belief may be stale.
+pub fn click_through_needs_write(
+    last_written: Option<bool>,
+    ignore: bool,
+    generation_changed: bool,
+) -> bool {
+    generation_changed || last_written != Some(ignore)
 }
 
 /// Can the click-through hit test trust `window.cursor_position()`?
@@ -445,6 +463,21 @@ mod tests {
         // That path reads mouse button edges, so a click shorter than the idle
         // interval would land entirely between two ticks and be dropped.
         assert_eq!(next_watch_tick_ms(false, false, true), WATCH_TICK_MS);
+    }
+
+    #[test]
+    fn an_unchanged_answer_is_not_written_again() {
+        assert!(!click_through_needs_write(Some(true), true, false));
+        assert!(click_through_needs_write(Some(true), false, false));
+        assert!(click_through_needs_write(None, true, false));
+    }
+
+    #[test]
+    fn a_new_generation_rewrites_even_the_same_answer() {
+        // Rust revealed the window and made it interactive behind the watcher's
+        // back. The cursor is still in a gap, so the answer is still "ignore" —
+        // and it has to be written again, or the window keeps every click.
+        assert!(click_through_needs_write(Some(true), true, true));
     }
 
     #[test]
