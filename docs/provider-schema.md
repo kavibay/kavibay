@@ -60,7 +60,7 @@ Needs a connected account. The widget gate shows a connect prompt until then.
 | `teamIssues` | Open issues in one Linear team | `teamId: string` (from `teams`) | `list of { id: string, identifier: string, title: string, url: string, updatedAt: string, state: string, stateType: string, team: string, teamKey: string }` | 1 min |
 | `teams` | The teams in your Linear workspace | none | `list of { id: string, name: string, key: string }` | 5 min |
 
-No actions — this provider is read-only.
+Actions: `createIssue` (write), `updateIssue` (write).
 
 ## n8n
 
@@ -122,20 +122,6 @@ Needs a connected account. The widget gate shows a connect prompt until then.
 
 No actions — this provider is read-only.
 
-## Trello
-
-`kavibay.trello/trello` · `extensions/trello/provider.ts`
-
-Needs a connected account. The widget gate shows a connect prompt until then.
-
-| Query | Reads | Arguments | Returns | Refresh |
-|---|---|---|---|---|
-| `boards` | The open boards on your Trello account | none | `list of { id: string, name: string, url: string, shortLink: string }` | 5 min |
-| `cards` | The open cards on one Trello board | `boardId: string` (from `boards`) | `list of { id: string, name: string, url: string, description: string, due: string?, listId: string, boardId: string, closed: boolean }` | 1 min |
-| `lists` | The open lists on one Trello board | `boardId: string` (from `boards`) | `list of { id: string, name: string, boardId: string }` | 5 min |
-
-No actions — this provider is read-only.
-
 ## Weather (Open-Meteo)
 
 `kavibay.weather/weather` · `extensions/weather/provider.ts`
@@ -145,6 +131,7 @@ Needs no credential.
 | Query | Reads | Arguments | Returns | Refresh |
 |---|---|---|---|---|
 | `current` | The current outdoor temperature and conditions for a place | `location: string` (from `places`) | `{ place: string, temperature: number?, apparentTemperature: number?, humidity: number?, windSpeed: number?, condition: string }` | 10 min |
+| `forecast` | Current conditions plus the next hours and days for a place, as the Weather widget shows them | `location: string` (from `places`) | `{ location: string, temperature_c: number, condition: string, icon: string, apparent_c: number, humidity_pct: number, wind_kmh: number, hourly: list of { time: string, temperature_c: number, icon: string, condition: string }, daily: list of { date: string, temperature_min_c: number, temperature_max_c: number, icon: string, condition: string } }` | 3 min |
 | `places` | Places matching a name, so a widget can offer a list to pick from | `name: string` | `list of { id: string, name: string }` | 1440 min |
 
 No actions — this provider is read-only.

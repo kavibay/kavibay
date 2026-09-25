@@ -2,7 +2,7 @@
   "format": "contract",
   "name": "one-purpose-llm",
   "version": "1.0.0",
-  "displayName": "Single Purpose LLM",
+  "displayName": "Single Purpose AI",
   "description": "Pick a purpose, adjust its prompt and run it on a configured LLM.",
   "author": "kavibay",
   "engines": { "kavibay": "^0.1" },
@@ -29,7 +29,7 @@
               "name": "template",
               "type": "enum",
               "required": true,
-              "options": ["Translate", "Correct grammar", "New email", "Write an answer", "Explain it like I'm 12"]
+              "options": ["Translate", "Correct grammar", "New email", "Write a reply", "Explain it like I'm 12"]
             },
             {
               "name": "text",
@@ -46,7 +46,7 @@
     { "id": "translate", "title": "Translate", "subtitle": "German ↔ English", "widgetAction": { "id": "use-template", "args": { "template": "Translate" } } },
     { "id": "correct-grammar", "title": "Correct grammar", "subtitle": "Same wording, fixed", "widgetAction": { "id": "use-template", "args": { "template": "Correct grammar" } } },
     { "id": "new-email", "title": "Write as email", "subtitle": "Notes → subject + body", "widgetAction": { "id": "use-template", "args": { "template": "New email" } } },
-    { "id": "answer-email", "title": "Write an answer", "subtitle": "Drafts a reply", "widgetAction": { "id": "use-template", "args": { "template": "Write an answer" } } },
+    { "id": "answer-email", "title": "Write a reply", "subtitle": "Drafts a reply", "widgetAction": { "id": "use-template", "args": { "template": "Write a reply" } } },
     { "id": "explain-like-im-12", "title": "Explain it like I'm 12", "subtitle": "Clear and simple", "widgetAction": { "id": "use-template", "args": { "template": "Explain it like I'm 12" } } }
   ]
 }

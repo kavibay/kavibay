@@ -84,7 +84,7 @@ Kill Port invokes its fixed Rust command after validating the port).
 
 A provider-only extension is the same shape without a palette row: `provider.ts`
 plus `contributes.providers` in `extension.ts`, and no `view.ts`. The compiled
-allowlist is generated from that file. Linear, Trello, n8n, Spotify, Fitbit and Notion are the examples — Settings →
+allowlist is generated from that file. Linear, n8n, Spotify, Fitbit and Notion are the examples — Settings →
 Credentials and the Widget Wizard see it; the palette does not until a widget
 is written against it.
 
@@ -128,7 +128,7 @@ host owns the beep, focus, and reveal. Snake may use the HTTPS-only
 `ctx.openExternal.open()` surface, and Snippets may use
 `ctx.clipboard.writeText()`; neither exposes an arbitrary host command. Polling,
 scheduling, and teardown remain the widget's `setup()`/`onScopeDispose`
-responsibility. Single Purpose LLM may additionally use `ctx.llm.models()`,
+responsibility. Single Purpose AI may additionally use `ctx.llm.models()`,
 `ctx.llm.stream()` and `ctx.llm.cancel()`; the host keeps the model catalog,
 provider selection and credentials behind that fixed streaming surface. The
 Widget Wizard uses `ctx.wizard` for its fixed authoring, conversation, draft,
@@ -429,7 +429,7 @@ other way.
 
 Home Assistant and n8n live on the user's own network. n8n shipped 2026-08-29
 as the first `FromCredential` provider; Home Assistant is the same rule, not
-yet written. GitHub, Linear and Trello are unaffected — they stay on exact
+yet written. GitHub and Linear are unaffected — they stay on exact
 hosts.
 
 The check belongs on **who supplied the address**, not on which address it is.
@@ -455,7 +455,7 @@ What shipped with n8n (2026-08-29), and what Home Assistant still needs:
 5. **Validate on save.** Parse the URL; drop userinfo, query and fragment; keep
    a path prefix (`N8N_PATH`); strip a trailing `/api/v1`.
 6. **Still pending for Home Assistant:** a blocking identity probe before store.
-   n8n uses the existing "Test connection" button, same as GitHub and Trello.
+   n8n uses the existing "Test connection" button, same as GitHub and Linear.
 
 **What this gives up, stated plainly.** For a `FromCredential` provider the host
 allowlist stops being a boundary; the app will send that credential wherever the

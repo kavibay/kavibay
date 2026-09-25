@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import type { WeatherModel } from "./weather";
 import WeatherIcon from "./WeatherIcon.vue";
 
@@ -10,6 +10,9 @@ const data = model.data;
 const loading = model.loading;
 const error = model.error;
 const rootEl = ref<HTMLElement | null>(null);
+
+/** The main view's forecast row: the next four days, today is the big number. */
+const upcomingDays = computed(() => data.value?.daily.slice(1, 5) ?? []);
 
 function prevView() {
   model.setViewIndex(state.value.viewIndex - 1);
@@ -63,82 +66,74 @@ function dayLabel(dateString: string): string {
         @pointerdown.stop
         @click="focusCarousel"
       >
-        <button
-          type="button"
-          class="weather-nav weather-nav--prev"
-          aria-label="Previous view"
-          @click.stop="prevView"
-        >
-          ‹
-        </button>
-        <button
-          type="button"
-          class="weather-nav weather-nav--next"
-          aria-label="Next view"
-          @click.stop="nextView"
-        >
-          ›
-        </button>
-
-        <div class="weather-slide">
-          <div v-if="state.viewIndex === 0" class="weather-main">
-            <WeatherIcon :icon="data.icon" />
-            <div class="weather-text">
-              <p class="weather-temp">{{ Math.round(data.temperature_c) }}°C</p>
-              <p class="weather-condition">{{ data.condition }}</p>
-            </div>
+        <div v-if="state.viewIndex === 0" class="weather-now">
+          <div class="weather-now-head">
+            <p class="weather-now-temp">{{ Math.round(data.temperature_c) }}°</p>
+            <WeatherIcon :icon="data.icon" class="weather-now-icon" />
           </div>
-
-          <div v-else-if="state.viewIndex === 1" class="weather-details">
-            <p class="weather-slide-title">Details</p>
-            <div class="weather-details-grid">
-              <div>
-                <div class="weather-metric-label">Feels like</div>
-                <div>{{ Math.round(data.apparent_c) }}°C</div>
-              </div>
-              <div>
-                <div class="weather-metric-label">Humidity</div>
-                <div>{{ Math.round(data.humidity_pct) }}%</div>
-              </div>
-              <div>
-                <div class="weather-metric-label">Wind</div>
-                <div>{{ Math.round(data.wind_kmh) }} km/h</div>
-              </div>
-              <div>
-                <div class="weather-metric-label">Condition</div>
-                <div>{{ data.condition }}</div>
-              </div>
+          <p class="weather-now-place" :title="model.location">
+            <span class="weather-now-city">{{ data.location }}</span>
+            · {{ data.condition }}
+          </p>
+          <div v-if="upcomingDays.length" class="weather-now-days">
+            <div v-for="day in upcomingDays" :key="day.date" class="weather-now-day">
+              <span class="weather-now-day-name">{{ dayLabel(day.date) }}</span>
+              <span class="weather-now-day-temp">{{ Math.round(day.temperature_max_c) }}°</span>
             </div>
-          </div>
-
-          <div v-else-if="state.viewIndex === 2" class="weather-hourly">
-            <p class="weather-slide-title">Next hours</p>
-            <p v-if="data.hourly.length === 0" class="weather-empty">No hourly data</p>
-            <div v-else class="weather-hourly-row">
-              <div v-for="hour in data.hourly" :key="hour.time" class="weather-hour">
-                <div class="weather-hour-time">{{ hourLabel(hour.time) }}</div>
-                <WeatherIcon :icon="hour.icon" class="weather-hour-icon" />
-                <div>{{ Math.round(hour.temperature_c) }}°</div>
-              </div>
-            </div>
-          </div>
-
-          <div v-else class="weather-daily">
-            <p class="weather-slide-title">5 days</p>
-            <p v-if="data.daily.length === 0" class="weather-empty">No daily data</p>
-            <template v-else>
-              <div v-for="day in data.daily" :key="day.date" class="weather-day-row">
-                <span class="weather-day-name">{{ dayLabel(day.date) }}</span>
-                <WeatherIcon :icon="day.icon" class="weather-day-icon" />
-                <span class="weather-day-temps">
-                  {{ Math.round(day.temperature_min_c) }}° /
-                  {{ Math.round(day.temperature_max_c) }}°
-                </span>
-              </div>
-            </template>
           </div>
         </div>
 
+        <div v-else-if="state.viewIndex === 1" class="weather-details">
+          <p class="weather-slide-title">Details</p>
+          <div class="weather-details-grid">
+            <div>
+              <div class="weather-metric-label">Feels like</div>
+              <div>{{ Math.round(data.apparent_c) }}°C</div>
+            </div>
+            <div>
+              <div class="weather-metric-label">Humidity</div>
+              <div>{{ Math.round(data.humidity_pct) }}%</div>
+            </div>
+            <div>
+              <div class="weather-metric-label">Wind</div>
+              <div>{{ Math.round(data.wind_kmh) }} km/h</div>
+            </div>
+            <div>
+              <div class="weather-metric-label">Condition</div>
+              <div>{{ data.condition }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div v-else-if="state.viewIndex === 2" class="weather-hourly">
+          <p class="weather-slide-title">Next hours</p>
+          <p v-if="data.hourly.length === 0" class="weather-empty">No hourly data</p>
+          <div v-else class="weather-hourly-row">
+            <div v-for="hour in data.hourly" :key="hour.time" class="weather-hour">
+              <div class="weather-hour-time">{{ hourLabel(hour.time) }}</div>
+              <WeatherIcon :icon="hour.icon" class="weather-hour-icon" />
+              <div>{{ Math.round(hour.temperature_c) }}°</div>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="weather-daily">
+          <p class="weather-slide-title">5 days</p>
+          <p v-if="data.daily.length === 0" class="weather-empty">No daily data</p>
+          <template v-else>
+            <div v-for="day in data.daily" :key="day.date" class="weather-day-row">
+              <span class="weather-day-name">{{ dayLabel(day.date) }}</span>
+              <WeatherIcon :icon="day.icon" class="weather-day-icon" />
+              <span class="weather-day-temps">
+                {{ Math.round(day.temperature_min_c) }}° /
+                {{ Math.round(day.temperature_max_c) }}°
+              </span>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <div class="weather-controls" @pointerdown.stop>
         <div class="weather-dots" role="tablist" aria-label="Views">
           <button
             v-for="index in 4"
@@ -152,26 +147,6 @@ function dayLabel(dateString: string): string {
             @click.stop="goView(index - 1)"
           />
         </div>
-      </div>
-
-      <div class="weather-footer" @pointerdown.stop>
-        <span class="weather-location" :title="model.location">{{ data.location }}</span>
-        <button
-          type="button"
-          class="weather-refresh"
-          :class="{ 'weather-refresh--spin': loading }"
-          :disabled="loading"
-          aria-label="Refresh"
-          v-tip="'Refresh'"
-          @click="model.refresh"
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 13.65-6.65z"
-            />
-          </svg>
-        </button>
       </div>
 
       <p v-if="error" class="weather-status weather-status--error weather-status--inline">
@@ -189,7 +164,8 @@ function dayLabel(dateString: string): string {
   width: 100%;
   min-height: 0;
   height: 100%;
-  padding: 12px;
+  /* The card insets its content already; the big number lines up with the title. */
+  padding: 2px 0 0;
   overflow: hidden;
   box-sizing: border-box;
   container-type: inline-size;
@@ -210,65 +186,13 @@ function dayLabel(dateString: string): string {
 }
 
 .weather-carousel {
-  position: relative;
-  box-sizing: border-box;
-  width: 100%;
-  flex: 0 0 auto;
-  outline: none;
-  min-height: 88px;
-  padding: 0 22px;
-}
-
-.weather-nav {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 2;
-  width: 22px;
-  height: 36px;
-  padding: 0;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: rgba(var(--fg-rgb), 0.4);
-  font-size: 22px;
-  line-height: 1;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-.weather:hover .weather-nav,
-.weather-nav:focus-visible {
-  opacity: 1;
-}
-
-.weather-nav:hover {
-  color: rgba(var(--fg-rgb), 0.9);
-  background: rgba(var(--fg-rgb), 0.08);
-}
-
-.weather-nav--prev { left: 0; }
-.weather-nav--next { right: 0; }
-
-.weather-dots {
   display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
   justify-content: center;
-  gap: 6px;
-  margin-top: 10px;
+  min-height: 0;
+  outline: none;
 }
-
-.weather-dot {
-  width: 6px;
-  height: 6px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: rgba(var(--fg-rgb), 0.28);
-  cursor: pointer;
-}
-
-.weather-dot--active { background: rgba(var(--fg-rgb), 0.9); }
 
 .weather-slide-title {
   margin: 0 0 8px;
@@ -285,25 +209,86 @@ function dayLabel(dateString: string): string {
   color: rgba(var(--fg-rgb), 0.5);
 }
 
-.weather-main {
+.weather-now {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
 }
 
-.weather-text { min-width: 0; }
-.weather-temp {
+/* Nothing in the main view may shrink: a squeezed flex item with overflow
+   hidden collapses to zero height. Short cards lose the free space instead. */
+.weather-now-head,
+.weather-now-place,
+.weather-now-days {
+  flex-shrink: 0;
+}
+
+.weather-now-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.weather-now-temp {
   margin: 0;
-  font-size: 28px;
-  font-weight: 600;
-  line-height: 1.1;
+  font-size: clamp(40px, 30cqw, 84px);
+  font-weight: 700;
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: rgba(var(--fg-rgb), 0.95);
 }
 
-.weather-condition {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: rgba(var(--fg-rgb), 0.65);
+.weather-now-icon {
+  width: clamp(48px, 30cqw, 84px);
+  height: clamp(48px, 30cqw, 84px);
+  /* Tight enough to fade out inside the icon box: the widget clips at its edge. */
+  filter: drop-shadow(0 0 7px rgba(255, 184, 40, 0.5));
+}
+
+.weather-now-place {
+  margin: 6px 0 0;
+  overflow: hidden;
+  font-size: clamp(13px, 5.6cqw, 18px);
+  line-height: 1.25;
+  color: rgba(var(--fg-rgb), 0.55);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weather-now-city {
+  font-weight: 700;
+  color: rgba(var(--fg-rgb), 0.95);
+}
+
+.weather-now-days {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+}
+
+.weather-now-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.weather-now-day-name {
+  font-size: clamp(11px, 4.6cqw, 15px);
+  color: rgba(var(--fg-rgb), 0.55);
+}
+
+.weather-now-day-temp {
+  font-size: clamp(13px, 5.6cqw, 18px);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgba(var(--fg-rgb), 0.95);
 }
 
 .weather-details-grid {
@@ -384,59 +369,37 @@ function dayLabel(dateString: string): string {
   }
 }
 
-.weather-footer {
-  position: relative;
+/* Quiet until the card is touched, so the resting widget is just the weather. */
+.weather-controls {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.weather-location {
-  flex: 0 1 auto;
-  max-width: calc(100% - 36px);
-  min-width: 0;
-  overflow: hidden;
-  color: rgba(var(--fg-rgb), 0.6);
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.weather-refresh {
-  position: absolute;
-  right: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: rgba(var(--fg-rgb), 0.55);
-  cursor: pointer;
+  height: 16px;
+  margin-top: 2px;
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity 0.12s ease;
 }
 
-.weather:hover .weather-refresh,
-.weather-refresh:focus-visible {
+.weather:hover .weather-controls,
+.weather-controls:focus-within {
   opacity: 1;
 }
 
-.weather-refresh:hover:not(:disabled) {
-  color: rgba(var(--fg-rgb), 0.9);
-  background: rgba(var(--fg-rgb), 0.08);
+.weather-dots {
+  display: flex;
+  gap: 6px;
 }
 
-.weather-refresh:disabled { cursor: default; }
-.weather-refresh--spin svg { animation: weather-spin 0.8s linear infinite; }
-
-@keyframes weather-spin {
-  to { transform: rotate(360deg); }
+.weather-dot {
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(var(--fg-rgb), 0.28);
+  cursor: pointer;
 }
+
+.weather-dot--active { background: rgba(var(--fg-rgb), 0.9); }
 </style>

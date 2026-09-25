@@ -11,6 +11,7 @@ import { isSafeExtensionIconPath } from "./extensionIcon";
 import { DEFAULT_CONTENT_SCALE, clampContentScale } from "../host/resizeLogic";
 import { extensionHostWidgets } from "../extension-host/cockpit";
 import { isContractManifest } from "../extension-host/bundledExtensions";
+import { copyConnections, disposeConnections } from "../settings/credentials/connections";
 
 /**
  * Discover first-party extensions via Vite glob.
@@ -372,6 +373,7 @@ export function runExtensionHook(
   hook: "onCreate" | "onSuspend" | "onResume" | "onDispose",
   instanceId: string,
 ): void {
+  if (hook === "onDispose") void disposeConnections(instanceId).catch(console.error);
   if (!ext) return;
   const fn = ext[hook];
   if (!fn) return;
@@ -406,15 +408,17 @@ export async function runExtensionAction(
 }
 
 /** Safe onDuplicate lifecycle call. */
-export function runDuplicateHook(
+export async function runDuplicateHook(
   ext: RegisteredExtension | undefined,
   fromInstanceId: string,
   toInstanceId: string,
-): void {
-  if (!ext?.onDuplicate) return;
+): Promise<void> {
+  const copied = copyConnections(fromInstanceId, toInstanceId);
+  if (!ext?.onDuplicate) { await copied; return; }
   try {
     ext.onDuplicate(fromInstanceId, toInstanceId);
   } catch (err) {
     console.error(`[kavibay] Extension "${ext.id}" onDuplicate failed:`, err);
   }
+  await copied;
 }

@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -99,11 +100,33 @@ pub fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(data_dir(app)?.join("credentials.db"))
 }
 
-/// Opens the credential database and applies its idempotent schema migration.
+/// Opens the credential database, migrating its schema on the first open.
 pub fn open_db(app: &AppHandle) -> Result<Connection, String> {
     let conn = Connection::open(db_path(app)?).map_err(|e| e.to_string())?;
-    migrate(&conn)?;
+    prepare(&conn)?;
     Ok(conn)
+}
+
+/// Set once this process has migrated the schema.
+///
+/// Every credential read opens the database — four times for one runtime
+/// endpoint call — and each open re-ran eight DDL statements. Two first opens
+/// racing both migrate, which is harmless: every statement is idempotent.
+// ponytail: one flag for the one credentials.db a process opens; key it by
+// path if a second database ever appears, and a file deleted under the running
+// app stays unmigrated until restart.
+static MIGRATED: AtomicBool = AtomicBool::new(false);
+
+fn prepare(conn: &Connection) -> Result<(), String> {
+    if MIGRATED.load(Ordering::Acquire) {
+        // Per connection, unlike the schema: SQLite does not persist it.
+        return conn
+            .execute_batch("PRAGMA foreign_keys = ON;")
+            .map_err(|e| e.to_string());
+    }
+    migrate(conn)?;
+    MIGRATED.store(true, Ordering::Release);
+    Ok(())
 }
 
 /// Creates the credential tables when initializing a database.
@@ -126,13 +149,10 @@ pub fn migrate(conn: &Connection) -> Result<(), String> {
                          REFERENCES credentials(id) ON DELETE CASCADE,
           data_protected TEXT NOT NULL
         );
-        CREATE TABLE IF NOT EXISTS credential_imports (
-          source      TEXT PRIMARY KEY,
-          imported_at INTEGER NOT NULL
-        );
         "#,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    super::bindings::initialize(conn)
 }
 
 /// 16 random bytes as hex — opaque, collision-free enough for a local store,
@@ -183,15 +203,6 @@ pub fn list(conn: &Connection) -> Result<Vec<CredentialRecord>, String> {
 pub fn load(conn: &Connection, id: &str) -> Result<Option<CredentialRecord>, String> {
     let sql = format!("SELECT {SELECT_COLUMNS} FROM credentials WHERE id = ?1");
     conn.query_row(&sql, params![id], row_to_record)
-        .optional()
-        .map_err(|e| e.to_string())
-}
-
-/// The first credential of a type, used while the UI is single-credential.
-pub fn find_by_type(conn: &Connection, type_id: &str) -> Result<Option<CredentialRecord>, String> {
-    let sql =
-        format!("SELECT {SELECT_COLUMNS} FROM credentials WHERE type_id = ?1 ORDER BY created_at, id LIMIT 1");
-    conn.query_row(&sql, params![type_id], row_to_record)
         .optional()
         .map_err(|e| e.to_string())
 }
@@ -314,31 +325,33 @@ pub fn delete(conn: &Connection, id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// True when a legacy store has already been imported (see `import.rs`).
-pub fn is_imported(conn: &Connection, source: &str) -> Result<bool, String> {
-    let count: i64 = conn
-        .query_row(
-            "SELECT COUNT(1) FROM credential_imports WHERE source = ?1",
-            params![source],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-    Ok(count > 0)
-}
-
-/// Marks a legacy store as imported so the migration runs exactly once.
-pub fn mark_imported(conn: &Connection, source: &str, at: i64) -> Result<(), String> {
-    conn.execute(
-        "INSERT OR REPLACE INTO credential_imports (source, imported_at) VALUES (?1, ?2)",
-        params![source, at],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The one test that goes through `prepare`, which flips a process-wide flag.
+    #[test]
+    fn the_schema_is_migrated_once_and_foreign_keys_on_every_connection() {
+        prepare(&Connection::open_in_memory().unwrap()).unwrap();
+
+        let later = Connection::open_in_memory().unwrap();
+        prepare(&later).unwrap();
+        let foreign_keys: i64 = later
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            foreign_keys, 1,
+            "every connection still enforces foreign keys"
+        );
+        let tables: i64 = later
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 0, "a later open runs no DDL");
+    }
 
     fn test_conn() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
@@ -367,8 +380,6 @@ mod tests {
 
         assert_eq!(list(&conn).unwrap().len(), 2);
         assert_eq!(load(&conn, "a").unwrap().unwrap().name, "GitHub");
-        assert_eq!(find_by_type(&conn, "githubPat").unwrap().unwrap().id, "a");
-        assert!(find_by_type(&conn, "nope").unwrap().is_none());
 
         delete(&conn, "a").unwrap();
         assert!(load(&conn, "a").unwrap().is_none());
@@ -402,15 +413,6 @@ mod tests {
             CredentialState::from_str("connected"),
             CredentialState::Connected
         );
-    }
-
-    #[test]
-    fn import_markers_are_recorded_once() {
-        let conn = test_conn();
-        assert!(!is_imported(&conn, "github_actions").unwrap());
-        mark_imported(&conn, "github_actions", 5).unwrap();
-        mark_imported(&conn, "github_actions", 6).unwrap();
-        assert!(is_imported(&conn, "github_actions").unwrap());
     }
 
     // Secret round-trips go through DPAPI, so they are Windows-only (like the app).

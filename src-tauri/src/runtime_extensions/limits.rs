@@ -122,12 +122,12 @@ impl LimitState {
         &self,
         ext_id: &str,
         endpoint_id: &str,
-        url: &str,
+        scope: &str,
         ttl_secs: Option<u64>,
         now: i64,
     ) -> Option<(u16, String)> {
         let ttl = ttl_secs.filter(|ttl| *ttl > 0)?;
-        let entry = self.cache.get(&cache_key(ext_id, endpoint_id, url))?;
+        let entry = self.cache.get(&cache_key(ext_id, endpoint_id, scope))?;
         if now.saturating_sub(entry.fetched_at) >= ttl as i64 {
             return None;
         }
@@ -139,13 +139,13 @@ impl LimitState {
         &mut self,
         ext_id: &str,
         endpoint_id: &str,
-        url: &str,
+        scope: &str,
         status: u16,
         body: &str,
         now: i64,
     ) {
         self.cache.insert(
-            cache_key(ext_id, endpoint_id, url),
+            cache_key(ext_id, endpoint_id, scope),
             CacheEntry {
                 fetched_at: now,
                 status,
@@ -235,8 +235,12 @@ fn key(ext_id: &str, endpoint_id: &str) -> EndpointKey {
     (ext_id.to_string(), endpoint_id.to_string())
 }
 
-fn cache_key(ext_id: &str, endpoint_id: &str, url: &str) -> CacheKey {
-    (ext_id.to_string(), endpoint_id.to_string(), url.to_string())
+fn cache_key(ext_id: &str, endpoint_id: &str, scope: &str) -> CacheKey {
+    (
+        ext_id.to_string(),
+        endpoint_id.to_string(),
+        scope.to_string(),
+    )
 }
 
 #[cfg(test)]

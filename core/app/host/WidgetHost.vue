@@ -7,6 +7,7 @@ import {
   provide,
   reactive,
   ref,
+  readonly,
   toRaw,
   watch,
 } from "vue";
@@ -99,6 +100,17 @@ import { useExtensionAboutModal } from "../extensions/useExtensionAboutModal";
 import { hostDismissHeld } from "@sdk";
 import { paletteDropActive, requestInlineWidget } from "../palette/inlineWidgetRequest";
 import { useOnboarding } from "../onboarding/useOnboarding";
+import { setupState, startSetupIfNeeded } from "../onboarding/setupSession";
+import { isSetupVisible } from "../onboarding/setupLogic";
+import { isGalleryWidget, WIDGET_WIZARD_ID } from "./builtinWidgetIds";
+import { pruneConnections } from "../settings/credentials/connections";
+import { starterDeskIds } from "./starterDesk";
+import {
+  galleryPickOffset,
+  galleryTourPlacement,
+  type GalleryTourPlacement,
+} from "./galleryTourPlacement";
+import { ONBOARDING_GALLERY_STEP } from "../onboarding/onboardingLogic";
 import {
   DEFAULT_PALETTE_WIDTH,
   DEFAULT_WIDGET_MIN_HEIGHT,
@@ -116,6 +128,7 @@ import {
 } from "./gridSnap";
 import {
   findClearSpawnOffset,
+  SPAWN_GAP,
   type SpawnRect,
 } from "./spawnPlacement";
 import { nextWidgetFocusId } from "./widgetFocusCycle";
@@ -130,9 +143,14 @@ import {
   matchWidgetCloseKey,
   resolveWidgetCloseTarget,
 } from "./widgetCloseKeys";
+import {
+  CTRL_SHORTCUT_HINT_DELAY_MS,
+  SHORTCUT_HINT_TARGET_KEY,
+  type ShortcutHintTarget,
+} from "./shortcutHints";
 import WidgetInstanceView from "./WidgetInstanceView.vue";
 import DemoHotkeyOverlay from "./DemoHotkeyOverlay.vue";
-import { kavibayCockpitOpen } from "./cockpitSession";
+import { kavibayCockpitOpen, type CockpitTrigger } from "./cockpitSession";
 import { startBrowserZoomGuard } from "./browserZoomGuard";
 
 const extensionRegistry = listExtensions().filter((extension) => extension.isWidget);
@@ -177,6 +195,11 @@ function instanceToPlacement(instance: WidgetInstance): DeskPlacement {
     instanceId: instance.instanceId,
     offset: { x: instance.offset.x, y: instance.offset.y },
     ...(instance.hidden === true ? { hidden: true } : {}),
+    ...(instance.hidden === true &&
+    typeof instance.hiddenAt === "number" &&
+    Number.isFinite(instance.hiddenAt)
+      ? { hiddenAt: instance.hiddenAt }
+      : {}),
     ...(instance.pinned === true ? { pinned: true } : {}),
     ...(typeof instance.width === "number" ? { width: instance.width } : {}),
     ...(typeof instance.height === "number" ? { height: instance.height } : {}),
@@ -491,6 +514,10 @@ const frontInstanceId = ref<string | null>(null);
 const previewInstanceId = ref<string | null>(null);
 /** Brief scale pulse when keyboard focus moves to a widget. */
 const focusPopInstanceId = ref<string | null>(null);
+/** Active surface whose pin/hide controls advertise chords after a Ctrl hold. */
+const shortcutHintTarget = ref<ShortcutHintTarget | null>(null);
+let ctrlShortcutHintTimer: ReturnType<typeof setTimeout> | undefined;
+let ctrlShortcutHintHeld = false;
 /**
  * Which surface the user last interacted with: palette (true) or a widget
  * (false). Whatever is active paints above the rest, so a click-raised card can
@@ -1020,12 +1047,12 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /** Duplicate one instance on the active desk and run onDuplicate. */
-function onDuplicate(instanceId: string) {
+async function onDuplicate(instanceId: string) {
   const source = instances.find((item) => item.instanceId === instanceId);
   if (!source) return;
 
   const copy = duplicateInstance(source);
-  runDuplicateHook(getExtension(source.typeId), source.instanceId, copy.instanceId);
+  await runDuplicateHook(getExtension(source.typeId), source.instanceId, copy.instanceId);
   flushToDoc();
   applyLayoutDoc(
     addCatalogInstance(
@@ -1080,13 +1107,17 @@ function focusPaletteIfNoCardsLeft() {
   });
 }
 
-/** Soft-hide one instance (keeps settings and offset; unmounts card). */
+/**
+ * Soft-hide one instance (keeps settings and offset; unmounts card).
+ * Records `hiddenAt` so the palette Hidden list puts last-closed first.
+ */
 function onHide(instanceId: string) {
   const instance = instances.find((item) => item.instanceId === instanceId);
   if (!instance || instance.hidden === true) return;
   pushCloseUndo({ kind: "hide", instanceId });
   runExtensionHook(getExtension(instance.typeId), "onSuspend", instance.instanceId);
   instance.hidden = true;
+  instance.hiddenAt = Date.now();
   if (focusedInstanceId.value === instanceId) focusedInstanceId.value = null;
   if (frontInstanceId.value === instanceId) frontInstanceId.value = null;
   if (previewInstanceId.value === instanceId) previewInstanceId.value = null;
@@ -1117,13 +1148,9 @@ function raiseWidget(instanceId: string) {
   if (focusedInstanceId.value !== instanceId) focusedInstanceId.value = null;
   /**
    * Touching a card also ends the palette's ↑/↓ preview, exactly as taking
-   * keyboard focus into one does (`onFocusWidget`).
-   *
-   * The preview layer is the only one allowed above the front palette (340), so
-   * a preview left behind outranked every card including the one just clicked:
-   * arrow down to a widget, then click into another, and the arrowed-at card
-   * stayed on top — scaled up — over the card being typed in. Nothing cleared it,
-   * because the palette only pushes a new target when its selection moves.
+   * keyboard focus into one does (`onFocusWidget`). The palette only pushes a
+   * new target when its selection moves, so without this the ring would stay on
+   * the arrowed-at card after clicking into another.
    */
   if (previewInstanceId.value !== instanceId) previewInstanceId.value = null;
 }
@@ -1298,6 +1325,12 @@ function closeCockpit(options: { keepPeeked?: boolean } = {}) {
  * clearing cockpitOpen).
  */
 function onPaletteHotkey(revealedByRust = false) {
+  // The setup card owns the screen until it is answered, and `paletteHidden` is
+  // true *on purpose* while it is up — so every branch below would read that as
+  // "the palette is away, bring it back" and put a search field behind the one
+  // thing the user is being asked to read. Rust may still have revealed the
+  // window on the way in; leaving it visible with the card on it is correct.
+  if (isSetupVisible(setupState.value)) return;
   // A toggle during a peek keeps what the peek put on screen: the session
   // stops being a peek, so releasing the peek key no longer takes it away.
   if (peeking.value) {
@@ -1424,11 +1457,15 @@ function onRevealWidget(instanceId: string) {
   const wasHidden = instance.hidden === true;
   if (wasHidden) {
     delete instance.hidden;
+    delete instance.hiddenAt;
     // Also clear the active-desk placement flag directly so a later flush cannot
     // resurrect Hidden from a stale placement row.
     const desk = layoutDoc.desks.find((row) => row.id === layoutDoc.activeDeskId);
     const placement = desk?.placements.find((row) => row.instanceId === instanceId);
-    if (placement) delete placement.hidden;
+    if (placement) {
+      delete placement.hidden;
+      delete placement.hiddenAt;
+    }
     persist();
     // Purge other soft-hidden-only copies of this type (Gallery/New orphans).
     disposePurgedHidden(instance.typeId);
@@ -1475,13 +1512,12 @@ function onHighlightWidget(instanceId: string) {
 }
 
 /**
- * Scale a mounted widget while its palette row is selected (↑/↓ preview).
- * Pass null to clear. Does not flash or steal input focus.
- * Also raises the card so selection always paints above other widgets.
+ * Mark a mounted widget while its palette row is selected (↑/↓ preview).
+ * Pass null to clear. Does not restack, flash, or steal input focus — the
+ * card keeps its place, scales slightly, and WidgetCard draws a ring.
  */
 function onPreviewWidget(instanceId: string | null) {
   previewInstanceId.value = instanceId;
-  if (instanceId) frontInstanceId.value = instanceId;
 }
 
 /** Clear keyboard-focus raise state (e.g. Shift+Tab back to search). */
@@ -1598,6 +1634,66 @@ function onNudgeKeydown(event: KeyboardEvent) {
   scheduleRegionSync();
 }
 
+/** Move the active palette or widget by one drag-grid gap per arrow press. */
+function onGapMoveKeydown(event: KeyboardEvent) {
+  if (settingsOpen.value) return;
+  if (!event.ctrlKey || !event.altKey || event.shiftKey || event.metaKey) return;
+
+  let dx = 0;
+  let dy = 0;
+  switch (event.key) {
+    case "ArrowUp":
+      dy = -GRID_GAP;
+      break;
+    case "ArrowDown":
+      dy = GRID_GAP;
+      break;
+    case "ArrowLeft":
+      dx = -GRID_GAP;
+      break;
+    case "ArrowRight":
+      dx = GRID_GAP;
+      break;
+    default:
+      return;
+  }
+
+  // Palette focus wins over the last-clicked widget, matching the other host
+  // chords. A hidden palette cannot own the chord even if its input kept focus.
+  const paletteActive = paletteVisible.value &&
+    (paletteHasDomFocus() || paletteFront.value);
+  const target = paletteActive ? null : widgetChordTarget();
+  if (!paletteActive && !target) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  beginLayoutGesture();
+
+  if (paletteActive) {
+    // Match a plain palette drag: move only the palette and compensate widget
+    // offsets so their absolute screen positions do not jump.
+    palettePos.x += dx;
+    palettePos.y += dy;
+    if (dx !== 0 || dy !== 0) {
+      for (const item of instances) {
+        item.offset = {
+          x: item.offset.x - dx,
+          y: item.offset.y - dy,
+        };
+      }
+    }
+  } else if (target) {
+    target.offset = {
+      x: target.offset.x + dx,
+      y: target.offset.y + dy,
+    };
+  }
+
+  endLayoutGesture();
+  persist();
+  scheduleRegionSync();
+}
+
 /**
  * Ctrl+Shift+1…9 switches to the Nth desk (1-based, same order as palette tabs).
  * Uses event.code so Shift does not turn "1" into "!".
@@ -1633,8 +1729,8 @@ function paletteHasDomFocus(): boolean {
 }
 
 /**
- * Ctrl/Cmd+H hides the widget you are in, Ctrl/Cmd+R removes it — the palette
- * chords, without going back to the palette to reach them.
+ * Ctrl/Cmd+W or Ctrl/Cmd+H closes/hides the widget you are in, Ctrl/Cmd+R
+ * removes it — the palette chords, without going back to the palette to reach them.
  *
  * Capture-phase like the other host chords, so a widget that owns plain keys
  * (Snake, Notes) cannot swallow them first. Text fields inside a card are
@@ -1662,6 +1758,61 @@ function widgetChordTarget(): WidgetInstance | null {
   if (!mountedInstances.value.some((item) => item.instanceId === instanceId)) return null;
   return instance;
 }
+
+/** Find the surface that owns the current keyboard focus/click target. */
+function resolveShortcutHintTarget(): ShortcutHintTarget | null {
+  if (settingsOpen.value) return null;
+  if (paletteHasDomFocus()) return { kind: "palette" };
+  const widget = widgetChordTarget();
+  return widget ? { kind: "widget", instanceId: widget.instanceId } : null;
+}
+
+/** Cancel a pending/visible Ctrl shortcut hint. */
+function clearCtrlShortcutHint() {
+  if (ctrlShortcutHintTimer !== undefined) {
+    clearTimeout(ctrlShortcutHintTimer);
+    ctrlShortcutHintTimer = undefined;
+  }
+  ctrlShortcutHintHeld = false;
+  shortcutHintTarget.value = null;
+}
+
+/** Show pin/hide shortcut hints once Ctrl has been held on an active surface. */
+function onCtrlShortcutHintKeydown(event: KeyboardEvent) {
+  // Ctrl+Alt is reserved for movement/search chords, never for discoverability
+  // hints. Cancel both a pending timer and already-visible hints immediately.
+  if (event.key === "Alt") {
+    clearCtrlShortcutHint();
+    return;
+  }
+  if (event.key !== "Control" && event.key !== "Meta") return;
+  if (event.altKey) {
+    clearCtrlShortcutHint();
+    return;
+  }
+  if (event.repeat || ctrlShortcutHintHeld) return;
+  ctrlShortcutHintHeld = true;
+  ctrlShortcutHintTimer = setTimeout(() => {
+    ctrlShortcutHintTimer = undefined;
+    if (!ctrlShortcutHintHeld) return;
+    shortcutHintTarget.value = resolveShortcutHintTarget();
+  }, CTRL_SHORTCUT_HINT_DELAY_MS);
+}
+
+/** Hide the shortcut hints as soon as the modifier is released. */
+function onCtrlShortcutHintKeyup(event: KeyboardEvent) {
+  if (event.key === "Control" || event.key === "Meta") clearCtrlShortcutHint();
+}
+
+/** Avoid leaving hints visible when the webview loses keyboard focus. */
+function onCtrlShortcutHintBlur() {
+  clearCtrlShortcutHint();
+}
+
+/** Settings takes over the surface, so no underlying pin/hide hint survives. */
+watch(settingsOpen, (open) => {
+  if (open) clearCtrlShortcutHint();
+});
 
 /** Modifier shape shared by the single-letter card chords (Ctrl/Cmd, no Shift/Alt). */
 function isCardChord(event: KeyboardEvent, letter: string): boolean {
@@ -1748,7 +1899,7 @@ function onWidgetCloseKeydown(event: KeyboardEvent) {
  * Bring a widget to the front, flash it, and ask it to take input focus
  * (Notes focuses the TipTap editor). Used by palette note findings.
  */
-async function onFocusWidget(instanceId: string) {
+async function onFocusWidget(instanceId: string, openPackageId?: string) {
   const instance = instances.find((item) => item.instanceId === instanceId);
   if (!instance) return;
   // Tab / Enter focus ends the live selection preview.
@@ -1767,7 +1918,11 @@ async function onFocusWidget(instanceId: string) {
   const dispatchFocus = () => {
     window.dispatchEvent(
       new CustomEvent(WIDGET_FOCUS_EVENT, {
-        detail: { instanceId, surface: "desk" satisfies WidgetSurface },
+        detail: {
+          instanceId,
+          surface: "desk" satisfies WidgetSurface,
+          ...(openPackageId ? { openPackageId } : {}),
+        },
       }),
     );
   };
@@ -1872,7 +2027,9 @@ async function onQuickActionOpenWidget(payload: {
 
 /** A first-party builder saved a runtime package and wants to open it now. */
 async function onRunRuntimeWidget(event: Event) {
-  const typeId = (event as CustomEvent<{ typeId?: string }>).detail?.typeId;
+  const detail = (event as CustomEvent<{ typeId?: string; openPackageId?: string }>)
+    .detail;
+  const typeId = detail?.typeId;
   if (typeof typeId !== "string" || !typeId) return;
   await rescanRuntimeExtensions();
   /**
@@ -1886,7 +2043,23 @@ async function onRunRuntimeWidget(event: Event) {
    */
   const visible = instances.find((row) => row.typeId === typeId && row.hidden !== true);
   const instanceId = visible?.instanceId ?? onAddType(typeId);
-  if (instanceId) await onFocusWidget(instanceId);
+  if (instanceId) await onFocusWidget(instanceId, detail?.openPackageId);
+}
+
+/**
+ * Reopen a Wizard-built package in the Wizard.
+ *
+ * Deliberately the same event the Wizard's own "New Widget" action uses, so the
+ * host keeps one rule for which card answers — reveal a hidden one, focus a
+ * visible one, or make one — instead of this path guessing at an instance and
+ * guessing wrong whenever there are two Wizards.
+ */
+function onEditInWizard(packageId: string) {
+  window.dispatchEvent(
+    new CustomEvent("kavibay:run-runtime-widget", {
+      detail: { typeId: WIDGET_WIZARD_ID, openPackageId: packageId },
+    }),
+  );
 }
 
 onMounted(async () => {
@@ -1897,11 +2070,19 @@ onMounted(async () => {
   for (const entry of layoutDoc.catalog) {
     runExtensionHook(getExtension(entry.typeId), "onCreate", entry.instanceId);
   }
+  // Same moment, same reason: the catalog is loaded and complete here, which is
+  // the only point where "this instance no longer exists" can be said safely.
+  void pruneConnections(layoutDoc.catalog.map((entry) => entry.instanceId)).catch(
+    console.error,
+  );
   window.addEventListener("kavibay:reveal-widget", onRevealWidgetEvent);
   window.addEventListener("kavibay:resize-widget", onResizeWidgetEvent);
   window.addEventListener("kavibay:run-runtime-widget", onRunRuntimeWidget);
   window.addEventListener("keydown", onCtrlTapKey, true);
   window.addEventListener("keyup", onCtrlTapKey, true);
+  window.addEventListener("keydown", onCtrlShortcutHintKeydown, true);
+  window.addEventListener("keyup", onCtrlShortcutHintKeyup, true);
+  window.addEventListener("blur", onCtrlShortcutHintBlur);
   window.addEventListener("keydown", onCycleWidgetFocusKeydown, true);
   window.addEventListener("keydown", onNudgeKeydown, true);
   window.addEventListener("keydown", onDeskSwitchKeydown, true);
@@ -1911,6 +2092,7 @@ onMounted(async () => {
   window.addEventListener("keydown", onPinKeydown, true);
   window.addEventListener("keydown", onDuplicateKeydown, true);
   window.addEventListener("keydown", onMoveToPanelKeydown, true);
+  window.addEventListener("keydown", onGapMoveKeydown, true);
   window.addEventListener("resize", onViewportResize);
   // Constant for the process lifetime — the display backend cannot change under it.
   domGapCatcher.value = await needsDomGapCatcher();
@@ -1923,10 +2105,17 @@ onMounted(async () => {
   unlistenPaletteShow = await listen("palette:show", () => {
     void openCockpit(true);
   });
-  unlistenPaletteHotkey = await listen<{ revealed?: boolean }>("palette:hotkey", (event) => {
-    lastRustHotkeyAt = Date.now();
-    onPaletteHotkey(event.payload?.revealed === true);
-  });
+  unlistenPaletteHotkey = await listen<{ revealed?: boolean; trigger?: CockpitTrigger }>(
+    "palette:hotkey",
+    (event) => {
+      lastRustHotkeyAt = Date.now();
+      const revealed = event.payload?.revealed === true;
+      onPaletteHotkey(revealed);
+      // The tour's hotkey step is passed here and nowhere else: this is the only
+      // path on which Rust reports *which* gesture brought a hidden window back.
+      onboarding.notifyCockpitRevealed(event.payload?.trigger ?? "app", revealed);
+    },
+  );
   // Hold-to-peek fires twice per hold — once on the way down, once on the way up.
   unlistenCockpitPeek = await listen<{ active?: boolean; revealed?: boolean }>(
     "cockpit:peek",
@@ -1961,10 +2150,30 @@ onMounted(async () => {
   });
   // Installer "Start Kavibay" / first ever launch: search + guided tour.
   // Later launches stay hidden until a Ctrl double tap or tray Open.
-  if (consumeFirstOpen()) {
-    onPaletteHotkey(true);
-    // Guided tour replaces the former auto-spawned Gallery.
-    onboarding.startIfNeeded(true);
+  const firstOpen = consumeFirstOpen();
+  if (firstOpen) startSetupIfNeeded(true);
+  // An unanswered setup card brings the window up, and it does so on *every*
+  // start rather than only the first.
+  //
+  // `consumeFirstOpen` fires once and is spent, so a user who closed Kavibay
+  // mid-card came back to a card that existed, rendered, and sat behind a
+  // hidden window — waiting for the double tap that the card itself is there to
+  // teach. The one screen nobody can be expected to get past on their own was
+  // the one screen that required knowing how.
+  //
+  // The card comes *alone*, too: showing it over a search field and a desk of
+  // cards put five overlapping panels in front of someone who had never seen
+  // the app. So the window opens with no palette behind it, and the rest of the
+  // first run is the reward for answering: desk, palette, tour, in that order.
+  if (isSetupVisible(setupState.value)) {
+    void openCockpit(false, false);
+    const stopWatchingSetup = watch(setupState, (next) => {
+      if (next?.status !== "done") return;
+      stopWatchingSetup();
+      void revealFirstRun({ afterSetup: true });
+    });
+  } else if (firstOpen) {
+    void revealFirstRun();
   }
   warmDeskViewsWhenIdle();
 });
@@ -2003,12 +2212,16 @@ onUnmounted(() => {
   if (highlightClearTimer !== undefined) clearTimeout(highlightClearTimer);
   if (focusPopClearTimer !== undefined) clearTimeout(focusPopClearTimer);
   if (focusPopFrame !== undefined) cancelAnimationFrame(focusPopFrame);
+  clearCtrlShortcutHint();
   if (viewportResizeTimer) clearTimeout(viewportResizeTimer);
   window.removeEventListener("kavibay:reveal-widget", onRevealWidgetEvent);
   window.removeEventListener("kavibay:resize-widget", onResizeWidgetEvent);
   window.removeEventListener("kavibay:run-runtime-widget", onRunRuntimeWidget);
   window.removeEventListener("keydown", onCtrlTapKey, true);
   window.removeEventListener("keyup", onCtrlTapKey, true);
+  window.removeEventListener("keydown", onCtrlShortcutHintKeydown, true);
+  window.removeEventListener("keyup", onCtrlShortcutHintKeyup, true);
+  window.removeEventListener("blur", onCtrlShortcutHintBlur);
   window.removeEventListener("keydown", onCycleWidgetFocusKeydown, true);
   window.removeEventListener("keydown", onNudgeKeydown, true);
   window.removeEventListener("keydown", onDeskSwitchKeydown, true);
@@ -2018,6 +2231,7 @@ onUnmounted(() => {
   window.removeEventListener("keydown", onPinKeydown, true);
   window.removeEventListener("keydown", onDuplicateKeydown, true);
   window.removeEventListener("keydown", onMoveToPanelKeydown, true);
+  window.removeEventListener("keydown", onGapMoveKeydown, true);
   window.removeEventListener("resize", onViewportResize);
   unlistenPaletteShow?.();
   unlistenPaletteHotkey?.();
@@ -2387,7 +2601,16 @@ function clearSpawnOffsetFor(
  */
 function onAddType(
   typeId: string,
-  opts?: { screen?: { x: number; y: number }; forceNew?: boolean },
+  opts?: {
+    screen?: { x: number; y: number };
+    forceNew?: boolean;
+    /**
+     * What asked for this card. The gallery is the only caller that says, and
+     * it says because it covers the band above the palette — a card opening
+     * there would land behind the panel that spawned it.
+     */
+    origin?: "gallery";
+  },
 ): string | undefined {
   if (!isEnabled(typeId)) return undefined;
   if (!opts?.forceNew) {
@@ -2403,18 +2626,36 @@ function onAddType(
   if (!def) return undefined;
   // Whatever the last card of this type was resized to beats the manifest.
   const size = initialSizeForExtension(def, rememberedSizeFor(typeId));
-  const spawnSize = gridSnapSpawnSize({
+  const preferredSize = {
     w: size.width ?? def.defaultSize?.w ?? 280,
     h: size.height ?? def.defaultSize?.h ?? 180,
-  });
+  };
   const atScreen = opts?.screen;
+  // The tour's gallery step is the one spawn that is composed rather than
+  // fitted: palette-width, directly above it, so the two read as one surface.
+  // Null means it would not fit and this falls through to the ordinary path.
+  const tourPlaced = atScreen ? null : galleryTourSpawn(typeId, preferredSize.h);
+  const spawnSize = tourPlaced?.size ?? gridSnapSpawnSize(preferredSize);
+  // A pick from the gallery starts on the free side of the palette instead of
+  // at its own manifest offset, then goes through the same de-overlap as
+  // everything else — so the second and third pick stack outward from there.
+  const pickOffset =
+    !atScreen && opts?.origin === "gallery"
+      ? galleryPickOffset({
+          paletteWidth: paletteSpawnObstacle().w,
+          widgetWidth: spawnSize.w,
+          gap: SPAWN_GAP,
+        })
+      : null;
   // Manifest offsets fan out; pull nearer, clear overlaps, snap to 15px grid.
-  const preferred = atScreen
-    ? { x: atScreen.x - palettePos.x, y: atScreen.y - palettePos.y }
-    : spawnOffsetNearPalette(def.position);
-  const baseOffset = atScreen
-    ? preferred
-    : clearSpawnOffsetFor(preferred, spawnSize);
+  const preferred =
+    pickOffset ??
+    (atScreen
+      ? { x: atScreen.x - palettePos.x, y: atScreen.y - palettePos.y }
+      : spawnOffsetNearPalette(def.position));
+  const baseOffset =
+    tourPlaced?.offset ??
+    (atScreen ? preferred : clearSpawnOffsetFor(preferred, spawnSize));
   const created = createInstance(typeId, baseOffset, {
     hideTitle: Boolean(def.defaultHideTitle),
     width: spawnSize.w,
@@ -2440,6 +2681,98 @@ function onAddType(
   onboarding.notifyWidgetAdded(typeId);
   scheduleRegionSync();
   return created.instanceId;
+}
+
+/**
+ * The gallery's composed placement, but only while the tour is teaching it.
+ *
+ * Guarded on the active step rather than on "is this the gallery", because
+ * every other way of opening it — the palette command, the Widgets button, a
+ * later visit during the extras — is somebody reaching for a tool on a desk
+ * they have arranged, and moving their card would be rude. During the lesson
+ * there is no arranged desk to disturb.
+ */
+function galleryTourSpawn(
+  typeId: string,
+  preferredHeight: number,
+): GalleryTourPlacement | null {
+  if (!isGalleryWidget(typeId)) return null;
+  if (onboarding.activeStep.value !== ONBOARDING_GALLERY_STEP) return null;
+  const palette = paletteSpawnObstacle();
+  return galleryTourPlacement({
+    paletteWidth: palette.w,
+    paletteHeight: palette.h,
+    paletteCentreY: palettePos.y,
+    preferredHeight,
+    viewportHeight: window.innerHeight,
+    margin: viewportEdgeMargin({ width: window.innerWidth, height: window.innerHeight }),
+    gap: SPAWN_GAP,
+  });
+}
+
+/**
+ * Everything the first run shows once the setup card has been answered.
+ *
+ * Order matters and is not arbitrary: the palette has to be placed before the
+ * widgets, because spawn offsets are measured from it, and the tour has to
+ * start after them, or its "add a widget" step would count the starters as the
+ * user's own doing. (`startIfNeeded` is idempotent, so the card no longer
+ * calls it — one owner for the sequence beats two that have to agree.)
+ */
+async function revealFirstRun(opts: { afterSetup?: boolean } = {}) {
+  onPaletteHotkey(true);
+  await waitForPaletteBox();
+  placeStarterDesk();
+  // Guided tour replaces the former auto-spawned Gallery. Coming out of the
+  // setup card it starts past the welcome step, which that card delivered —
+  // and both calls no-op if the card already declined the tour.
+  if (opts.afterSetup) {
+    onboarding.startAfterSetup();
+    return;
+  }
+  onboarding.startIfNeeded(true);
+}
+
+/**
+ * Wait until the palette has a box worth measuring.
+ *
+ * Starters are placed *around* the palette, and `onPaletteHotkey` only flips it
+ * from `display: none` to visible — Vue paints it a frame or two later. Measure
+ * before that and `paletteSpawnObstacle()` reports 1x1, which blocks nothing
+ * and drops the first card straight across the search field. That was visible
+ * on the very first screen a new user sees, and invisible to every test that
+ * checked only *which* widgets were placed.
+ *
+ * Capped rather than open-ended: a few frames is generous, and a placement
+ * slightly off beats a first run that never finishes revealing itself.
+ */
+async function waitForPaletteBox(): Promise<void> {
+  for (let i = 0; i < 6; i += 1) {
+    await nextTick();
+    if ((paletteAnchorEl.value?.getBoundingClientRect().height ?? 0) > 1) return;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
+}
+
+/**
+ * Put the manifest-declared starter widgets on a brand-new desk.
+ *
+ * Which widgets those are is not a decision this file gets to make — see
+ * `starterDesk.ts` for why the manifests own it. All the host does is ask the
+ * registry, respect the user's own enable prefs, and add the cards.
+ */
+function placeStarterDesk() {
+  const ids = starterDeskIds(
+    extensionRegistry.map((extension) => ({
+      id: extension.id,
+      starter: extension.starter,
+      enabled: isEnabled(extension.id),
+      isWidget: extension.isWidget,
+    })),
+  );
+  for (const typeId of ids) {
+    onAddType(typeId);
+  }
 }
 
 /** Switch active desk: flush current state, rebind palette, clear stale focus. */
@@ -2668,6 +3001,7 @@ provide("kavibayPalettePinned", palettePinned);
 provide("kavibayTogglePalettePinned", onTogglePalettePinned);
 provide("kavibayPaletteWidth", paletteWidth);
 provide("kavibayPaletteListHeight", paletteListHeight);
+provide(SHORTCUT_HINT_TARGET_KEY, readonly(shortcutHintTarget));
 provide("kavibayResizePalette", onResizePalette);
 provide("kavibayResizePaletteEnd", onResizePaletteEnd);
 provide("kavibayPaletteMovePointerdown", (event: PointerEvent) => {
@@ -2718,8 +3052,6 @@ provide("kavibayPaletteMovePointerdown", (event: PointerEvent) => {
       :class="{
         'widget-anchor--focused': focusedInstanceId === instance.instanceId,
         'widget-anchor--front': frontInstanceId === instance.instanceId,
-        'widget-anchor--preview':
-          previewInstanceId === instance.instanceId || focusPopInstanceId === instance.instanceId,
       }"
       :style="widgetStyle(instance)"
       v-show="cockpitOpen || survivesDismiss(instance, peekKept)"
@@ -2742,11 +3074,13 @@ provide("kavibayPaletteMovePointerdown", (event: PointerEvent) => {
           :instance="instance"
           :def="defFor(instance.typeId)!"
           :highlighted="highlightedInstanceId === instance.instanceId"
+          :previewed="previewInstanceId === instance.instanceId"
           :multi-desk-remove="isMultiDeskInstance(instance.instanceId)"
           @rename="onRename(instance.instanceId, $event)"
           @update:hide-title="onHideTitle(instance.instanceId, $event)"
           @duplicate="onDuplicate(instance.instanceId)"
           @about="onAbout(instance)"
+          @edit-in-wizard="onEditInWizard($event)"
           @toggle-pin="onTogglePin(instance.instanceId)"
           @move-pointerdown="onWidgetMovePointerDown($event, instance.instanceId)"
           @hide="onHide(instance.instanceId)"
@@ -2805,8 +3139,8 @@ provide("kavibayPaletteMovePointerdown", (event: PointerEvent) => {
 
 /*
  * Palette is the active surface (opened, clicked, or Shift+Tab back into
- * search): it wins over every raised card. Only the palette's own selection
- * preview (340) stays higher, so an arrowed-through widget remains visible.
+ * search): it wins over every raised card. Selection preview no longer
+ * restacks a card above it — the ring lives on the widget in place.
  */
 .palette-anchor--front {
   z-index: 330;
@@ -2855,15 +3189,6 @@ provide("kavibayPaletteMovePointerdown", (event: PointerEvent) => {
    opened its own ⋯ menu. */
 .widget-anchor--focused:has(.widget-card--menu-open) {
   z-index: 320;
-}
-
-/*
- * ↑/↓ preview happens while the palette still owns the keyboard, so this is the
- * one card allowed above the front palette — otherwise the previewed widget
- * could hide behind it.
- */
-.widget-anchor--preview {
-  z-index: 340;
 }
 
 .widget-anchor:active {

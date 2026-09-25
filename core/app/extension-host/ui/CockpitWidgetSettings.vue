@@ -31,7 +31,7 @@ const values = computed(() => instanceConfig(boundInstanceId));
  */
 const missing = computed<string[]>(() => []);
 
-const loadOptions = (field: ConfigField) => loadConfigOptions(extensionHost, field);
+const loadOptions = (field: ConfigField) => loadConfigOptions(extensionHost, field, boundInstanceId);
 
 /**
  * Writes to the shared reactive config, which the mounted widget is watching —

@@ -164,6 +164,10 @@ export const calendarProvider = defineProvider({
   // Keep this in agreement with the compiled Rust declaration. OAuth itself
   // uses the second host; Calendar API calls use the first one.
   hosts: ["www.googleapis.com", "oauth2.googleapis.com"],
+  // Events answer from Google APIs; Meet links and the calendar itself live
+  // on these two. `meetingUrl` is usually Meet; a widget that opens the event
+  // page would need `calendar.google.com`.
+  linkHosts: ["meet.google.com", "calendar.google.com"],
   queries: {
     calendars: {
       description: "The calendars available in your Google account",

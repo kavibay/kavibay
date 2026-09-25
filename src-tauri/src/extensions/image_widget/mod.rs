@@ -23,7 +23,9 @@ fn safe_instance_id(instance_id: &str) -> Result<String, String> {
     if s.is_empty() {
         return Err("empty instance id".into());
     }
-    if s == "." || s == ".." || s.contains("..") || s.contains('/') || s.contains('\\') {
+    // `:` because on Windows `base.join("C:")` is the drive's working directory,
+    // and `image_widget_clear` runs `remove_dir_all` on whatever this yields.
+    if s == "." || s.contains("..") || s.contains(['/', '\\', ':', '\0']) {
         return Err("invalid instance id".into());
     }
     Ok(s.to_string())
@@ -85,4 +87,30 @@ pub fn image_widget_clear(app: AppHandle, instance_id: String) -> Result<(), Str
         fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::safe_instance_id;
+
+    #[test]
+    fn instance_ids_stay_one_folder_under_the_widget_dir() {
+        assert!(safe_instance_id("0b6c1f3e-7a52-4c1d-9e8f-2a4b6c8d0e1f").is_ok());
+        assert!(safe_instance_id("inst-1730000000000-abc123").is_ok());
+        for escape in [
+            "",
+            ".",
+            "..",
+            "a/b",
+            "a\\b",
+            "C:",
+            "C:x",
+            "\\\\server\\share",
+        ] {
+            assert!(
+                safe_instance_id(escape).is_err(),
+                "{escape:?} must be refused"
+            );
+        }
+    }
 }

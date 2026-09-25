@@ -21,9 +21,6 @@ pub struct FieldDef {
     pub required: bool,
     pub placeholder: Option<&'static str>,
     pub help: Option<&'static str>,
-    /// Environment variable consulted when no value is stored — the
-    /// developer/CI override that existed per integration before this layer.
-    pub env: Option<&'static str>,
 }
 
 /// How the editor renders a field. `Password` values are additionally never
@@ -163,10 +160,6 @@ pub enum Injection {
         name: &'static str,
         value: &'static str,
     },
-    /// Query parameters appended to the request URL (Trello's `key` + `token`).
-    Query {
-        params: &'static [(&'static str, &'static str)],
-    },
 }
 
 impl Injection {
@@ -179,7 +172,6 @@ impl Injection {
                 extra_headers: _,
             } => vec![*value],
             Injection::Header { value, .. } => vec![*value],
-            Injection::Query { params } => params.iter().map(|(_, value)| *value).collect(),
         }
     }
 }
@@ -366,7 +358,6 @@ mod tests {
                 required: true,
                 placeholder: None,
                 help: None,
-                env: None,
             }],
             auth: AuthKind::Static,
             inject: Injection::Bearer {

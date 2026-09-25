@@ -1,4 +1,4 @@
-# Single Purpose LLM
+# Single Purpose AI
 
 Run focused LLM tasks such as translation and grammar correction with configurable prompts.
 

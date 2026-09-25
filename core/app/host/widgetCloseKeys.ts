@@ -1,7 +1,7 @@
 /**
- * Ctrl/Cmd+H hides and Ctrl/Cmd+R removes the widget the user is working in —
- * the same pair the palette offers on a row, now reachable without going back
- * to the palette first.
+ * Ctrl/Cmd+W or Ctrl/Cmd+H hides the widget the user is working in, while
+ * Ctrl/Cmd+R removes it — the same actions the palette offers on a row, now
+ * reachable without going back to the palette first.
  *
  * Both halves are kept pure so the interesting part (which card a keystroke
  * means) is testable without a DOM: the host only supplies what it already
@@ -21,7 +21,7 @@ export interface WidgetCloseKeyEvent {
 }
 
 /**
- * Ctrl/Cmd+H → hide, Ctrl/Cmd+R → remove; anything else → null.
+ * Ctrl/Cmd+W / H → hide, Ctrl/Cmd+R → remove; anything else → null.
  *
  * Shift is excluded so Ctrl+Shift+… chords (desk switch, nudge) keep their
  * meaning, and Alt so nothing collides with a window-manager binding.
@@ -33,7 +33,7 @@ export function matchWidgetCloseKey(
   if (event.altKey || event.shiftKey) return null;
 
   const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
-  if (key === "h") return "hide";
+  if (key === "w" || key === "h") return "hide";
   if (key === "r") return "remove";
   return null;
 }

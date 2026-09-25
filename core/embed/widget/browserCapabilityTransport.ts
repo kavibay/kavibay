@@ -49,12 +49,22 @@ export const browserCapabilityTransport: WidgetCapabilityTransport = {
     window.open(url, "_blank", "noopener,noreferrer");
   },
 
+  /**
+   * Same tab-opening as above. The host-side check on which provider vouched
+   * for the url has already run in `Host.openExternalVouched`; the embed has no
+   * Rust backstop underneath it to add a second one.
+   */
+  openExternalVouched: async (url: string) => {
+    window.open(url, "_blank", "noopener,noreferrer");
+  },
+
   // — Clipboard ————————————————————————————————————————————
   clipboardWriteText: async (text: string) => {
     // Writing is allowed: it is a user-initiated copy, not a read of history.
     await navigator.clipboard?.writeText(text);
   },
   clipboardList: async () => absent("clipboard.list"),
+  clipboardOnChange: async () => absent("clipboard.onChange"),
   clipboardRestore: async () => absent("clipboard.restore"),
   clipboardSetRevealed: async () => absent("clipboard.setRevealed"),
   clipboardDelete: async () => absent("clipboard.delete"),

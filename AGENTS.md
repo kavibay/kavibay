@@ -17,7 +17,7 @@ scaffold CLIs, no new test frameworks.
 | `src-tauri/` | Rust backend — part of core; stays at repo root for the Tauri CLI | GPL-3.0-or-later |
 | `src-tauri/src/extensions/` | Rust backends belonging to one widget each. Shared by two? Then it is host code and stays a level up. | GPL-3.0-or-later |
 | `sdk/extension/` | Extension-facing SDK implementations (`@sdk` alias) | MIT |
-| `sdk/runtime/` | postMessage SDK for sandboxed packages (planned, P2.2) | MIT |
+| `sdk/runtime/` | postMessage SDK for sandboxed packages; the host serves it as `@kavibay/runtime.js` | MIT |
 | `extensions/` | First-party widgets, compiled into the app | MIT |
 | `examples/` | Runtime package templates + probes (`runtime-extension-s`, `ipc-probe`) | MIT |
 | `docs/` | Guides + `superpowers/{specs,plans}` | CC-BY-4.0 |
@@ -43,7 +43,7 @@ Licensing rules that constrain code changes:
 
 ```bash
 npm run tauri dev                # run the app (Vite + cargo)
-npm run verify                   # typecheck + eslint + all 111 assert files, in parallel — what CI runs
+npm run verify                   # incremental typecheck + oxlint + all asserts, in parallel — what CI runs
 npm run verify:rust              # cargo fmt --check + clippy -D warnings + cargo test --lib
 npm run build                    # vue-tsc typecheck + vite build
 npm run build:embed              # custom-element bundle the site loads (`core/embed/` → `../www.kavibay.com/embed/`)
@@ -84,10 +84,10 @@ rationale: `docs/superpowers/plans/2026-08-08-ci-cd-open-source.md`.
   click-through (cursor polling + `set_ignore_cursor_events`) live in Rust
   (`src-tauri/src/lib.rs`).
 - Two extension tiers:
-  1. **First-party** (`extensions/<id>/`), in two formats sharing one folder.
-     Both are auto-discovered via Vite glob — never register manually — and the
-     folder name MUST equal the id/name in the manifest.
-     - **Contract** (`"format": "contract"`, where new work goes):
+  1. **First-party** (`extensions/<id>/`), all in the contract format.
+     They are auto-discovered via Vite glob — never register manually — and
+     the folder name MUST equal the id/name in the manifest.
+     - **Contract** (`"format": "contract"`):
        `manifest.json` + `extension.ts`. Widgets add `view.ts` + `widgets/`;
        a provider-only extension adds `provider.ts` and omits `view.ts`.
        `extension.ts` and `view.ts` (when present) are read by their
@@ -101,9 +101,6 @@ rationale: `docs/superpowers/plans/2026-08-08-ci-cd-open-source.md`.
        `docs/extension-host.md`. Do not learn the contract from
        `docs/extension-sdk-reference/` — it is frozen at the Phase 1 handoff and
        the live contract is `sdk/extension/contract/sdk.ts`.
-     - **Legacy** (no `format` key): `manifest.json` + `index.ts` + widget
-       `.vue`, discovered by `core/app/extensions/loadExtensions.ts`. Still the
-       majority. Port one when you touch it; do not start one.
   2. **Runtime packages** (community, sandboxed): user-installed folders under
      `{appData}/extensions/` (not the repo dir!), served via the `kavibay-ext`
      protocol into sandboxed iframes; storage/commands only via the postMessage
@@ -111,15 +108,23 @@ rationale: `docs/superpowers/plans/2026-08-08-ci-cd-open-source.md`.
 - The host stays generic: per-extension behavior only via manifest `ui` flags and
   lifecycle hooks (`onCreate/onDuplicate/onSuspend/onResume/onDispose`) — **never
   add `typeId` switches to host code**.
-- Data fetching: `backendCommand` + `useWidgetData` (from `@sdk`) for global no-arg
-  polls; instance-bound APIs invoke from the extension's composable with
-  `onSuspend`/`onResume` gating (see `tado`, `github-actions`).
+- Data fetching goes through the widget's context: `ctx.providers[id]` queries
+  for an account's data (host-cached per connection; see `tado`), `ctx.http`
+  for a keyless API whose hosts are declared (see `stocks`).
 - Credentials: declarative types in `src-tauri/src/credentials/registry.rs`, one
   encrypted store, one generic Settings → Credentials panel. Extensions declare
   `credentials: [{ type, required }]` in their manifest and resolve nothing
   themselves (`docs/extensions.md` → Credentials). Settings → AI is *not* a second
   credential panel: it renders the same schema-driven `CredentialEditor` per
   provider tab and adds only the model on/off switches.
+- Connections: a credential *type* is an auth schema, a *connection* is one saved
+  account using it, and a platform may have several (Linear issues one API key
+  per workspace). Which connection a consumer uses is host-owned state keyed by
+  `(owner, typeId)` in `credentials/bindings.rs` — `widget:<instanceId>` for a
+  widget, `host:default` for the palette, quick AI and the Wizard. Nothing
+  resolves by type alone, and a deleted connection never falls back to another
+  account. The picker is one component (`ConnectionSelect.vue`), rendered by the
+  host in widget settings and on the connect prompt; no widget builds its own.
 - LLM models: one editable catalog (`src-tauri/src/llm/models.json`), loaded and
   validated by `llm/catalog.rs`, plus the user's on/off choices (`llm/prefs.rs`,
   `{appData}/llm-models.json`). The prefs live in Rust
@@ -154,8 +159,12 @@ rationale: `docs/superpowers/plans/2026-08-08-ci-cd-open-source.md`.
 5. Secrets only via `src-tauri/src/security/secrets.rs` (DPAPI; Keychain backend
    pending). Never plaintext at rest, never in localStorage, never returned to the
    frontend. Integration credentials go through `src-tauri/src/credentials/`
-   (type registry + one encrypted store + `resolve_for_type`) — no per-integration
-   credential tables, commands, or settings panels. Runtime packages get none.
+   (type registry + one encrypted store + `resolve_for_owner` / `resolve_for_connection`)
+   — no per-integration credential tables, commands, or settings panels. A runtime
+   package never receives a secret either: its declared requests are authenticated
+   in Rust, and only against the exact connection the user granted it. A grant is
+   per connection, not per type — allowing the work workspace does not allow a
+   personal one added afterwards.
 6. Main-window CSP (`src-tauri/tauri.conf.json`): no new entries without maintainer
    review. Prefer a Rust command for network data; FE direct fetch only for keyless
    public APIs.

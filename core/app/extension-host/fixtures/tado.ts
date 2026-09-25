@@ -20,6 +20,9 @@ const tado = defineProvider({
   // device code. Restating it here is what finding 12 removed.
   requiresCredential: true,
   hosts: ["my.tado.com", "auth.tado.com"],
+  // The API answers from `my.tado.com`; a room page a person would open is on
+  // `tado.com`. Two lists because they are two different trusts.
+  linkHosts: ["tado.com"],
   queries: {
     rooms: {
       key: () => [],

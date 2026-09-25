@@ -201,7 +201,9 @@ pub(crate) fn package_root_for<R: tauri::Runtime>(
 /// believes. A dot-prefixed id would also reach into `.drafts`, which is exactly
 /// what the draft namespace exists to prevent.
 fn resolve_in_roots(roots: &[PathBuf], ext_id: &str) -> Option<PathBuf> {
-    if ext_id.is_empty() || ext_id.starts_with('.') || ext_id.contains(['/', '\\', '\0']) {
+    // `:` because on Windows `root.join("C:")` is the drive's working
+    // directory, not a folder under the root.
+    if ext_id.is_empty() || ext_id.starts_with('.') || ext_id.contains(['/', '\\', '\0', ':']) {
         return None;
     }
     roots
@@ -946,6 +948,8 @@ mod tests {
         assert_eq!(resolve_in_roots(&roots, "a/b"), None);
         assert_eq!(resolve_in_roots(&roots, "a\\b"), None);
         assert_eq!(resolve_in_roots(&roots, ".."), None);
+        // A drive-relative id escapes the root on Windows (the cwd is a dir).
+        assert_eq!(resolve_in_roots(&roots, "C:"), None);
 
         let _ = fs::remove_dir_all(&root);
     }

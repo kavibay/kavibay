@@ -10,6 +10,7 @@ import {
   enabledSummary,
   modelsForProvider,
   providerHasKey,
+  resolveAiProviderFocus,
   quickModelChoices,
   quickModelSelection,
   shortcutFromKey,
@@ -98,6 +99,14 @@ assert(providerHasKey(catalog, "anthropic"), "a stored key shows the model list"
 assert(!providerHasKey(catalog, "openai"), "no key, no model list");
 assert(!providerHasKey(catalog, "cloudflare"), "an unkeyed provider stays hidden");
 assert(!providerHasKey([], "anthropic"), "an empty catalog has no key");
+
+assert(resolveAiProviderFocus("openai") === "openai", "a tab id selects that tab");
+assert(
+  resolveAiProviderFocus("cloudflareWorkersAi", catalog) === "cloudflare",
+  "a credential type selects the provider that uses it",
+);
+assert(resolveAiProviderFocus("nope", catalog) === null, "unknown focus is ignored");
+assert(resolveAiProviderFocus(null) === null, "absent focus leaves the default tab");
 
 const toggled = withModelEnabled(catalog, "claude-sonnet-5", true);
 assert(toggled[1].enabled, "the named model flips");

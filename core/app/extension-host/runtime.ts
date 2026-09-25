@@ -14,7 +14,7 @@ import { QueryCache, toProviderError } from "./query-cache";
 import { CredentialVault } from "./credentials";
 import { InstanceDataStore } from "./data-store";
 import { HttpBroker, type Fetcher } from "./http";
-import type { ProviderTransport } from "./providerTransport";
+import type { ProviderTransport, ProviderConnection } from "./providerTransport";
 import type { WidgetCapabilityTransport } from "./widgetCapabilityTransport";
 import { useDeveloperPrefs } from "../settings/useDeveloperPrefs";
 
@@ -42,7 +42,8 @@ export interface HostUi {
  * dropdown from a provider query, say — and no caller rule applies. Anything
  * originating in extension code passes one.
  */
-export type Caller = { extensionId: ExtensionId; trust: TrustTier } | null;
+export type Caller = { extensionId: ExtensionId; trust: TrustTier; instanceId?: string } | null;
+const connectionOwner = (caller: Caller) => caller?.instanceId ? `widget:${caller.instanceId}` : "host:default";
 
 export class Host {
   readonly cache = new QueryCache();
@@ -70,14 +71,18 @@ export class Host {
     /** Keeps generated package definitions in sync after a wizard operation. */
     private runtimePackageSync?: (rows: unknown, installs: unknown) => void,
     /** Opens the host-owned Settings surface without exposing its implementation. */
-    private settingsOpener?: (section: "credentials", credentialType?: string) => void,
+    private settingsOpener?: (section: "credentials" | "ai", focus?: string) => void,
   ) {
     this.http = new HttpBroker(fetcher, transport);
   }
 
   // --- provider lifecycle --------------------------------------------------
 
-  providerStatus(id: ProviderId): ProviderStatus {
+  private statusKey(id: ProviderId, instanceId?: string): string {
+    return this.transport?.connection && instanceId ? `${id}:${instanceId}` : id;
+  }
+
+  providerStatus(id: ProviderId, instanceId?: string): ProviderStatus {
     const found = this.registry.providers.get(id);
     if (!found) return { state: "not-installed" };
     /**
@@ -95,17 +100,19 @@ export class Host {
      */
     if (!found.def.requiresCredential) return { state: "connected" };
     if (this.vault.isExpired(id)) return { state: "auth-expired" };
-    return this.status.get(id) ?? { state: "disconnected" };
+    return this.status.get(this.statusKey(id, instanceId)) ?? { state: "disconnected" };
   }
 
-  private setStatus(id: ProviderId, s: ProviderStatus) {
-    this.status.set(id, s);
-    for (const cb of this.statusSubs.get(id) ?? []) cb(s);
+  private setStatus(id: ProviderId, s: ProviderStatus, instanceId?: string) {
+    const key = this.statusKey(id, instanceId);
+    this.status.set(key, s);
+    for (const cb of this.statusSubs.get(key) ?? []) cb(s);
   }
 
-  onStatusChange(id: ProviderId, cb: (s: ProviderStatus) => void): Subscription {
-    let set = this.statusSubs.get(id);
-    if (!set) { set = new Set(); this.statusSubs.set(id, set); }
+  onStatusChange(id: ProviderId, cb: (s: ProviderStatus) => void, instanceId?: string): Subscription {
+    const key = this.statusKey(id, instanceId);
+    let set = this.statusSubs.get(key);
+    if (!set) { set = new Set(); this.statusSubs.set(key, set); }
     set.add(cb);
     return { unsubscribe: () => set!.delete(cb) };
   }
@@ -126,10 +133,10 @@ export class Host {
    * to be fetched and pushed into the same status map, which then notifies
    * subscribers exactly as a local `connect()` would.
    */
-  async refreshProviderStatus(id: ProviderId): Promise<void> {
+  async refreshProviderStatus(id: ProviderId, instanceId?: string): Promise<void> {
     if (!this.transport || !this.registry.providers.has(id)) return;
-    const connected = await this.transport.isConnected(id);
-    this.setStatus(id, connected ? { state: "connected" } : { state: "disconnected" });
+    const connected = await this.transport.isConnected(id, instanceId ? `widget:${instanceId}` : "host:default");
+    this.setStatus(id, connected ? { state: "connected" } : { state: "disconnected" }, instanceId);
   }
 
   disconnect(id: ProviderId) {
@@ -145,15 +152,15 @@ export class Host {
    * vault still holds the token in JS; what has already changed is that no
    * provider can reach it, so the Phase 2 swap is invisible to provider code.
    */
-  private hostContext(id: ProviderId): ProviderHostContext {
+  private hostContext(id: ProviderId, connection?: ProviderConnection | null): ProviderHostContext {
     const def = this.registry.providers.get(id)!.def;
     return {
       // forProvider, not forPolicy: the allowlist decision belongs to whoever
       // attaches the credential, and that is no longer this process.
-      http: this.http.forProvider(id, Array.isArray(def.hosts) ? def.hosts : []),
+      http: this.http.forProvider(id, Array.isArray(def.hosts) ? def.hosts : [], connection),
       credentials: {
         isConnected: async () =>
-          this.transport ? this.transport.isConnected(id) : this.vault.has(id),
+          connection ? connection.available : this.transport ? this.transport.isConnected(id) : this.vault.has(id),
       },
     };
   }
@@ -168,25 +175,63 @@ export class Host {
     fail({ kind: "disconnected", message: `${id} not connected` });
   }
 
-  async query<T>(id: ProviderId, name: string, args: any, _caller: Caller = null): Promise<T> {
-    this.assertReady(id);
+  private async requestConnection(id: ProviderId, caller: Caller): Promise<ProviderConnection | null> {
+    if (!this.transport?.connection) { this.assertReady(id); return null; }
+    /**
+     * Everything but bundled code answers to a grant. Listed the other way
+     * round — naming the tiers that need one — a tier nobody thought of (a
+     * signed catalog package is `reviewed`, and nothing bundled) spent the
+     * account without one, because the host only checks a grant for a package
+     * id it is given.
+     */
+    const packageId = caller && caller.trust !== "core"
+      ? this.registry.extensions.get(caller.extensionId)!.manifest.name : undefined;
+    const owner = connectionOwner(caller);
+    const connection = await this.transport.connection(id, owner, packageId);
+    if (connection && !connection.credentialId) {
+      fail({ kind: "disconnected", message: `${id}: no account chosen yet` });
+    }
+    /**
+     * Chosen but unusable is a different dead end, and saying "choose an
+     * account" there sends the user to a control that already holds the right
+     * answer. It is either an account that needs reconnecting, or one this
+     * widget has not been approved for.
+     */
+    if (connection && !connection.available) {
+      fail({
+        kind: "disconnected",
+        message: `${id}: this account needs reconnecting, or this widget has not been allowed to use it`,
+      });
+    }
+    // The owner travels with every fetch: the host spends the account bound to
+    // it and only checks that `credentialId` agrees.
+    return connection && { ...connection, owner, ...(packageId ? { packageId } : {}) };
+  }
+
+  private connectionKey(connection: ProviderConnection | null): (string | number)[] {
+    return connection ? ["connection", connection.credentialId!, connection.revision, connection.packageId ?? "bundled"] : [];
+  }
+
+  async query<T>(id: ProviderId, name: string, args: any, caller: Caller = null): Promise<T> {
+    const connection = await this.requestConnection(id, caller);
     const def = this.registry.providers.get(id)!.def;
     const q = def.queries[name] ?? fail({ kind: "not-found", message: `unknown query ${name}` });
-    return this.cache.read<T>([id, name, ...q.key(args)], q.staleTime ?? 30_000, () =>
-      this.runFetch(id, name, q, args),
+    return this.cache.read<T>([id, name, ...this.connectionKey(connection), ...q.key(args)], q.staleTime ?? 30_000, () =>
+      this.runFetch(id, name, q, args, connection),
     );
   }
 
   async subscribe<T>(
     id: ProviderId, name: string, args: any,
-    onState: (s: QueryState<T>) => void, _caller: Caller = null,
+    onState: (s: QueryState<T>) => void, caller: Caller = null,
   ): Promise<Subscription> {
+    const connection = await this.requestConnection(id, caller);
     const def = this.registry.providers.get(id)!.def;
     const q = def.queries[name] ?? fail({ kind: "not-found", message: `unknown query ${name}` });
-    const key = [id, name, ...q.key(args)];
+    const key = [id, name, ...this.connectionKey(connection), ...q.key(args)];
     return this.cache.subscribe(
       key, q.staleTime ?? 30_000,
-      async () => { this.assertReady(id); return this.runFetch(id, name, q, args); },
+      async () => { if (!this.transport?.connection) this.assertReady(id); return this.runFetch(id, name, q, args, connection); },
       onState as (s: QueryState<unknown>) => void,
     );
   }
@@ -209,8 +254,9 @@ export class Host {
     name: string,
     q: ProviderQuery<any, any>,
     args: any,
+    connection?: ProviderConnection | null,
   ): Promise<any> {
-    const value = await q.fetch(args, this.hostContext(id));
+    const value = await q.fetch(args, this.hostContext(id, connection));
     if (q.result && import.meta.env?.DEV) {
       const problems = resultSchemaProblems(q.result, value);
       if (problems.length > 0) {
@@ -241,13 +287,13 @@ export class Host {
    * is contribute a provider, a command, or a palette callback — that is code
    * the host would run, refused at load.
    */
-  async action<T>(id: ProviderId, name: string, args: any, _caller: Caller = null): Promise<T> {
-    this.assertReady(id);
+  async action<T>(id: ProviderId, name: string, args: any, caller: Caller = null): Promise<T> {
+    const connection = await this.requestConnection(id, caller);
     const def = this.registry.providers.get(id)!.def;
     const a = def.actions[name] ?? fail({ kind: "not-found", message: `unknown action ${name}` });
-    const result = await a.execute(args, this.hostContext(id));
+    const result = await a.execute(args, this.hostContext(id, connection));
     for (const inv of a.invalidates?.(args) ?? []) {
-      this.cache.invalidate([id, inv.query, ...(inv.key ?? [])]);
+      this.cache.invalidate([id, inv.query, ...this.connectionKey(connection), ...(inv.key ?? [])]);
     }
     return result as T;
   }
@@ -263,11 +309,12 @@ export class Host {
     extensionId: ExtensionId,
     endpoint: string,
     args: Record<string, unknown>,
+    instanceId: string,
   ): Promise<unknown> {
     if (!this.widgetTransport?.runtimeHttpCall) {
       return { ok: false, code: "unavailable" };
     }
-    return this.widgetTransport.runtimeHttpCall(extensionId, endpoint, args);
+    return this.widgetTransport.runtimeHttpCall(extensionId, endpoint, args, instanceId);
   }
 
   /**
@@ -288,6 +335,54 @@ export class Host {
       throw new Error("openExternal is unavailable");
     }
     await this.widgetTransport.openExternal(parsed.toString());
+  }
+
+  /**
+   * Hostnames the providers a widget declares vouch for their records living on.
+   *
+   * Derived from the registry, never from the widget: the declaration is what
+   * the person approved, and a guest asking to open a url has no say in which
+   * providers it declared. Linear answers from `api.linear.app` and vouches for
+   * `linear.app`, which is why this is its own list rather than `hosts`.
+   */
+  linkHosts(definitionId: string): string[] {
+    const found = this.registry.widget(definitionId);
+    if (!found) return [];
+    return [
+      ...new Set(
+        (found.widget.requires?.providers ?? []).flatMap(
+          (id) => this.registry.providers.get(id)?.def.linkHosts ?? [],
+        ),
+      ),
+    ];
+  }
+
+  /**
+   * Opens a url one of this widget's providers vouched for.
+   *
+   * The route a widget without the bundled-only `openExternal` capability
+   * takes. A generated widget cannot name a destination — it can only pass on a
+   * url that arrived inside a reviewed provider's response, and the host checks
+   * that claim rather than believing it.
+   */
+  async openExternalVouched(definitionId: string, url: string): Promise<void> {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error("only HTTPS URLs may be opened by a widget");
+    }
+    if (parsed.protocol !== "https:") {
+      throw new Error("only HTTPS URLs may be opened by a widget");
+    }
+    const allowed = this.linkHosts(definitionId);
+    if (!allowed.some((host) => host.toLowerCase() === parsed.hostname.toLowerCase())) {
+      throw new Error(`no provider of this widget links to ${parsed.hostname}`);
+    }
+    if (!this.widgetTransport) {
+      throw new Error("openExternal is unavailable");
+    }
+    await this.widgetTransport.openExternalVouched(parsed.toString());
   }
 
   // --- widget context ------------------------------------------------------
@@ -319,7 +414,7 @@ export class Host {
     const found = this.registry.widget(instance.definitionId);
     if (!found) return { state: "missing-definition" };
     const pending = (found.widget.requires?.providers ?? [])
-      .map((provider) => ({ provider, status: this.providerStatus(provider) }))
+      .map((provider) => ({ provider, status: this.providerStatus(provider, instance.id) }))
       .filter((entry) => entry.status.state !== "connected");
     if (pending.length > 0) {
       return { state: "provider", provider: pending[0]!.provider, status: pending[0]!.status, pending };
@@ -378,11 +473,20 @@ export class Host {
       ctx.openExternal = {
         open: (url) => this.openExternal(url),
       };
+    } else if (this.linkHosts(instance.definitionId).length > 0 && this.widgetTransport) {
+      // No capability to declare: holding a provider that vouches for a link
+      // host *is* the permission, and it came with the account the person
+      // already approved.
+      ctx.openExternal = {
+        open: (url) => this.openExternalVouched(instance.definitionId, url),
+      };
     }
     if (w.capabilities?.clipboard && this.widgetTransport) {
       ctx.clipboard = {
         writeText: (text) => this.widgetTransport!.clipboardWriteText(text),
         list: <T>() => this.widgetTransport!.clipboardList() as Promise<T>,
+        onChange: <T>(listener: (entries: T) => void) =>
+          this.widgetTransport!.clipboardOnChange(listener as (entries: unknown) => void),
         restore: (id) => this.widgetTransport!.clipboardRestore(id),
         setRevealed: (id, revealed) => this.widgetTransport!.clipboardSetRevealed(id, revealed),
         delete: (id) => this.widgetTransport!.clipboardDelete(id),
@@ -434,11 +538,12 @@ export class Host {
     }
     if (w.capabilities?.llm && this.widgetTransport) {
       ctx.llm = {
-        models: <T>() => this.widgetTransport!.llmModels() as Promise<T>,
+        models: <T>() => this.widgetTransport!.llmModels(instance.id) as Promise<T>,
         quickModel: <T>() => this.widgetTransport!.llmQuickModel() as Promise<T>,
         stream: (request, onEvent) =>
           this.widgetTransport!.llmStream(instance.id, request, onEvent),
         cancel: (requestId) => this.widgetTransport!.llmCancel(requestId),
+        openSettings: (section, focus) => this.settingsOpener?.(section, focus),
       };
     }
     if (w.capabilities?.wizard && this.widgetTransport) {
@@ -449,9 +554,9 @@ export class Host {
         return rows as T;
       };
       const wizard: WizardCapability = {
-        models: <T>() => this.widgetTransport!.wizardModels() as Promise<T>,
+        models: <T>() => this.widgetTransport!.wizardModels(instance.id) as Promise<T>,
         complete: <T>(request: WizardCompletionRequest) =>
-          this.widgetTransport!.wizardComplete(request) as Promise<T>,
+          this.widgetTransport!.wizardComplete(request, instance.id) as Promise<T>,
         providers: <T>() =>
           Promise.resolve(
             [...this.registry.providers.entries()]
@@ -470,8 +575,7 @@ export class Host {
           prefs.setWizardAutoEnable(on);
           return prefs.wizardAutoEnable.value;
         },
-        openSettings: (section: "credentials", credentialType?: string) =>
-          this.settingsOpener?.(section, credentialType),
+        openSettings: (section, focus) => this.settingsOpener?.(section, focus),
         conversationsList: <T>() =>
           this.widgetTransport!.wizardConversationsList() as Promise<T>,
         conversationLoad: <T>(id: string) =>
@@ -488,14 +592,12 @@ export class Host {
           id: string,
           enabled: boolean,
           manifestPermissions: string[],
-          credentialTypes: string[],
           contractGrant?: unknown,
         ) => {
           await this.widgetTransport!.wizardRuntimeSetEnabled(
             id,
             enabled,
             manifestPermissions,
-            credentialTypes,
             contractGrant,
           );
           await refreshRuntimePackages();
@@ -539,11 +641,11 @@ export class Host {
      * the same fact is stated.
      */
     ctx.endpoint = ((endpoint: string, args?: Record<string, unknown>) =>
-      this.callEndpoint(found.ext.id, endpoint, args ?? {})) as WidgetContext<T>["endpoint"];
+      this.callEndpoint(found.ext.id, endpoint, args ?? {}, instance.id)) as WidgetContext<T>["endpoint"];
 
     const declared = w.requires?.providers ?? [];
     if (declared.length > 0) {
-      const caller = { extensionId: found.ext.id, trust: found.ext.trust };
+      const caller = { extensionId: found.ext.id, trust: found.ext.trust, instanceId: instance.id };
       ctx.providers = Object.fromEntries(
         declared.map((pid) => [pid, this.providerApi(pid, caller)]),
       );
@@ -556,8 +658,8 @@ export class Host {
       query: (name, args) => this.query(pid, name, args ?? {}, caller),
       action: (name, args) => this.action(pid, name, args ?? {}, caller),
       subscribe: (name, args, onState) => this.subscribe(pid, name, args ?? {}, onState, caller),
-      status: async () => this.providerStatus(pid),
-      onStatusChange: (cb) => this.onStatusChange(pid, cb),
+      status: async () => this.providerStatus(pid, caller?.instanceId),
+      onStatusChange: (cb) => this.onStatusChange(pid, cb, caller?.instanceId),
     };
   }
 

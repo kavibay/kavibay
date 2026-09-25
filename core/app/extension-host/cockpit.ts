@@ -20,9 +20,11 @@ import { createCommandUi } from "./commandUi";
 import { tauriProviderTransport } from "./tauriProviderTransport";
 import { tauriWidgetCapabilityTransport } from "./tauriWidgetCapabilityTransport";
 import { bundledExtensions, type BundledExtension, type BundledWidget } from "./bundledExtensions";
+import { startsGated } from "../host/starterDesk";
 import { widgetViews } from "./widgetViews";
 import CockpitWidget from "./ui/CockpitWidget.vue";
 import CockpitWidgetSettings from "./ui/CockpitWidgetSettings.vue";
+import WidgetConnectionSettings from "./ui/WidgetConnectionSettings.vue";
 import { useSettingsModal } from "../settings/useSettingsModal";
 
 /**
@@ -433,12 +435,16 @@ function toRegistered(definitionId: string): RegisteredExtension | undefined {
 
   // The gear, for widgets that declare configuration. Without it the gate's
   // form is a one-way door: asked once, never reachable again.
-  const settingsComponent: Component | undefined = bundled?.settings ?? (widget.configuration
+  const hasConnections = Boolean(widget.requires?.providers?.some(id => registry.providers.get(id)?.def.credentialType)
+    || widget.capabilities?.llm || widget.capabilities?.wizard);
+  const settingsComponent: Component | undefined = bundled?.settings || widget.configuration || hasConnections
     ? {
         name: `ExtensionHostSettings(${definitionId})`,
-        setup: () => () => h(CockpitWidgetSettings, { definitionId }),
+        setup: () => () => h(WidgetConnectionSettings, { definitionId }, {
+          default: () => bundled?.settings ? h(bundled.settings) : widget.configuration ? h(CockpitWidgetSettings, { definitionId }) : null,
+        }),
       }
-    : undefined);
+    : undefined;
 
   // Declared in the manifest, implemented in the definition, paired by
   // `bundledExtensions.ts` — which refuses either half without the other.
@@ -487,6 +493,11 @@ function toRegistered(definitionId: string): RegisteredExtension | undefined {
     categories: [...(metadata.categories ?? [])],
     isWidget: true,
     ...(metadata.enabledByDefault === false ? { enabledByDefault: false } : {}),
+    // A starter is a request, not a grant: it survives only if the widget can
+    // actually show something on a fresh profile. See `startsGated`.
+    ...(typeof metadata.starter === "number" && !startsGated(widget)
+      ? { starter: metadata.starter }
+      : {}),
     iconComponent: bundled?.icon,
     menuComponent: bundled?.menu,
     position: metadata.position ? { ...metadata.position } : { x: 0, y: 0 },
@@ -516,7 +527,7 @@ function toRegistered(definitionId: string): RegisteredExtension | undefined {
     searchText: widget.palette?.searchText,
     instanceActions: widget.palette?.instanceActions,
     onDuplicate:
-      widget.configuration || widget.duplicateData
+      widget.configuration || widget.duplicateData || hasConnections
         ? (fromId, toId) => {
             if (widget.configuration) {
               copyInstanceConfig(fromId, toId, widget.configuration);

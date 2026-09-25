@@ -173,7 +173,7 @@ Recommended order, after the small host prerequisites:
 12. Alarm, Moodist, Snake, and Snippets — distinct host capability cases (done).
 13. Focus Tracker, Clipboard, Color Picker, Image, and Launcher Buttons — OS
     and filesystem integrations (done).
-14. Single Purpose LLM — credentials, streaming, cancellation, and text actions.
+14. Single Purpose AI — credentials, streaming, cancellation, and text actions.
 
 Confetti, Kill Port, Widget Gallery, and Widget Wizard now use the Contract host.
 The Wizard keeps its package-generation and control-plane work behind the
@@ -197,7 +197,7 @@ number of extensions that use the field. The rank is by that count.
 | 5 | menuComponent | 6 | Bundled `view.ts` entries may contribute a Vue menu alongside the framework-free definition. | Yes; the adapter carries it into `RegisteredExtension.menuComponent`. | Closed for bundled menus; runtime packages remain intentionally menu-free. |
 | 6 | backendCommand and refreshInterval | 2 each | No arbitrary Tauri command or generic backend poll. The contract now exposes reviewed, fixed host capabilities for bundled OS widgets (sdk/extension/contract/sdk.ts). | `Host.buildWidgetContext()` binds only the compiled capability declaration; runtime packages cannot request it. | Closed for System Info, Now Playing, Alarm, Snake, and Snippets; future host surfaces need their own reviewed capability rather than a generic command string. |
 | 7 | inlineView and instanceActions | 2 use each | Contract widgets may contribute a synchronous JSON inline summary; row instance actions remain unmodelled. | Inline summaries reach the palette; instance actions stay a later gap. | Inline view closed; add a separate row-action surface when required. |
-| 8 | textActions family | 1 extension | No equivalent. | No; the cockpit maps contract commands, not selection actions (core/app/extension-host/cockpit.ts:311-365; core/app/extensions/textActions.ts:34-110). | Keep Single Purpose LLM in the old host until a text-action boundary exists. |
+| 8 | textActions family | 1 extension | No equivalent. | No; the cockpit maps contract commands, not selection actions (core/app/extension-host/cockpit.ts:311-365; core/app/extensions/textActions.ts:34-110). | Keep Single Purpose AI in the old host until a text-action boundary exists. |
 | 9 | dynamicActionParams | 1 | Contract widget definitions may rebuild local action chips from the values already typed in the palette (sdk/extension/contract/sdk.ts). | The cockpit forwards the definition callback to the existing palette argument mode. | Closed for Snippets; the callback remains intentionally extension-owned. |
 
 The measured individual counts are: component 28, iconComponent 28,
@@ -294,7 +294,7 @@ Use the target deliberately:
 - Todo, Notes, Time Tracker, Calculator history, Alarm rows, Image state, and
   similar user records belong in ctx.data unless they are host-owned assets.
   Forgetting these is content loss, not merely a reset.
-- Shared stores in Emoji Picker, Snippets, and Single Purpose LLM do not fit the
+- Shared stores in Emoji Picker, Snippets, and Single Purpose AI do not fit the
   current per-instance ctx.data scope. Keep a host-owned shared store or add an
   explicit extension-scoped capability; do not silently make each instance private.
 - Clipboard history, Focus Tracker rules, Wizard conversations, and imported
@@ -370,9 +370,9 @@ OS/filesystem boundaries are fixed host capabilities rather than
 direct widget commands. Image and Launcher Buttons persist through `ctx.data`,
 while Clipboard and Color Picker keep their backend/session semantics.
 
-### Phase 6 — Single Purpose LLM; leave host control-plane surfaces put
+### Phase 6 — Single Purpose AI; leave host control-plane surfaces put
 
-Single Purpose LLM was last among the larger movable widgets because it combines
+Single Purpose AI was last among the larger movable widgets because it combines
 optional credentials, streaming/cancellation, shared template data, per-instance
 state, menu UI, palette actions, and selection text actions. Confetti, Kill Port,
 and Gallery are now ported; Widget Wizard is now ported behind its reviewed

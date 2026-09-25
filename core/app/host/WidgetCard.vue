@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, provide, ref, useSlots, watch } from "vue";
+import {
+  computed,
+  inject,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  provide,
+  ref,
+  useSlots,
+  watch,
+} from "vue";
 import { scheduleRegionSync, setClickThroughPaused } from "../system/clickThrough";
 import ResizeEdges from "./ResizeEdges.vue";
 import PinIcon from "./PinIcon.vue";
@@ -19,7 +29,11 @@ import {
 } from "./hidePressLogic";
 import { onboardingState } from "../onboarding/onboardingSession";
 import { WIDGET_FOCUS_EVENT, widgetFocusRequestMatches } from "@sdk";
-import { SquareArrowDownRightIcon } from "@sdk/icons";
+import { SparklesIcon, SquareArrowDownRightIcon } from "@sdk/icons";
+import {
+  SHORTCUT_HINT_TARGET_KEY,
+  shortcutModifierLabel,
+} from "./shortcutHints";
 
 const props = withDefaults(
   defineProps<{
@@ -29,6 +43,14 @@ const props = withDefaults(
     hasSettings: boolean;
     /** When true, offer the extension's README in the widget menu. */
     hasAbout?: boolean;
+    /**
+     * When true, offer "Edit in Wizard".
+     *
+     * Only for a package the Wizard built. Reopening anything else there would
+     * hand the model a package it has no conversation for, and the card would
+     * promise an edit it cannot make.
+     */
+    canEditInWizard?: boolean;
     /** No card padding; body fills the chrome (e.g. Image widget). */
     flush?: boolean;
     /** Drop the default min-width so narrow docks are not padded out. */
@@ -37,6 +59,8 @@ const props = withDefaults(
     allowDuplicate?: boolean;
     /** Search-result flash: colorful border that fades out. */
     highlighted?: boolean;
+    /** Palette row is selected: persistent accent ring, no restack. */
+    previewed?: boolean;
     /** When true, the Pin menu item shows as on. */
     pinned?: boolean;
     /** When true, show host edge-resize handles. */
@@ -74,6 +98,7 @@ const props = withDefaults(
   {
     allowDuplicate: true,
     highlighted: false,
+    previewed: false,
     pinned: false,
     resizable: true,
     lockSquare: false,
@@ -90,6 +115,8 @@ const emit = defineEmits<{
   "update:hideTitle": [hideTitle: boolean];
   duplicate: [];
   about: [];
+  /** Reopen this widget's own package in the Widget Wizard. */
+  "edit-in-wizard": [];
   hide: [];
   /** Leave the desk and open in the palette panel instead. */
   "move-to-panel": [];
@@ -110,6 +137,11 @@ const emit = defineEmits<{
 }>();
 
 const slots = useSlots();
+const shortcutHintTarget = inject(SHORTCUT_HINT_TARGET_KEY);
+const shortcutModifier = shortcutModifierLabel();
+const pinShortcutTip = `Pin\n${shortcutModifier}+S`;
+const hideShortcutTip = `Hide\n${shortcutModifier}+W`;
+
 /** Local flash class so re-highlighting restarts the CSS animation. */
 const flashing = ref(false);
 const menuOpen = ref(false);
@@ -177,7 +209,22 @@ const chromeVisible = computed(
     settingsOpen.value ||
     renaming.value ||
     hidePressPhase.value !== "idle" ||
+    shortcutHinting.value ||
     forceCoachChrome.value,
+);
+
+/** Ctrl-hold is scoped to this card, including its compact action menu. */
+const shortcutHinting = computed(
+  () =>
+    shortcutHintTarget?.value?.kind === "widget" &&
+    shortcutHintTarget.value.instanceId === props.instanceId,
+);
+
+/** Ctrl-hold hints belong to this card only, never every visible widget. */
+const shortcutHintVisible = computed(
+  () =>
+    shortcutHinting.value &&
+    !chromeCompact.value,
 );
 
 /**
@@ -418,6 +465,13 @@ function onAbout() {
   menuOpen.value = false;
   removeChoiceOpen.value = false;
   emit("about");
+}
+
+/** Hand this widget's package back to the Wizard; close the menu first. */
+function onEditInWizard() {
+  menuOpen.value = false;
+  removeChoiceOpen.value = false;
+  emit("edit-in-wizard");
 }
 
 /** Emit duplicate and close the menu. */
@@ -741,6 +795,7 @@ watch(
       'widget-card--flush': flush,
       'widget-card--compact': compact,
       'widget-card--flash': flashing,
+      'widget-card--preview': previewed,
       'widget-card--sized': hostSized,
       'widget-card--playground': playground,
       'widget-card--hug-height': hugHeight,
@@ -798,12 +853,16 @@ watch(
         class="widget-card-chrome-btn"
         :class="{ 'widget-card-chrome-btn--pin-on': pinned }"
         :data-onboarding-target="coachTargets ? 'widget-pin' : undefined"
-        v-tip="'Pin'"
+        v-tip="shortcutHinting ? pinShortcutTip : 'Pin'"
         aria-label="Toggle pin"
         :aria-pressed="pinned"
         @click.stop="emit('toggle-pin')"
       >
         <PinIcon :active="pinned" />
+        <span v-if="shortcutHintVisible" class="widget-card-shortcut-hint" aria-hidden="true">
+          <span>Pin</span>
+          <span>{{ shortcutModifier }}+S</span>
+        </span>
       </button>
       <button
         ref="triggerEl"
@@ -832,7 +891,11 @@ watch(
         }"
         :style="{ '--hide-press-arm-ms': `${HIDE_PRESS_ARM_MS}ms` }"
         :data-onboarding-target="coachTargets ? 'widget-hide' : undefined"
-        v-tip="hidePressTipLabel(hidePressPhase, hidePressOver, hidePressHinting)"
+        v-tip="
+          shortcutHinting
+            ? hideShortcutTip
+            : hidePressTipLabel(hidePressPhase, hidePressOver, hidePressHinting)
+        "
         :aria-label="
           hidePressPhase === 'armed' && hidePressOver ? 'Delete widget' : 'Hide widget'
         "
@@ -914,6 +977,10 @@ watch(
             />
           </g>
         </svg>
+        <span v-if="shortcutHintVisible" class="widget-card-shortcut-hint" aria-hidden="true">
+          <span>Hide</span>
+          <span>{{ shortcutModifier }}+W</span>
+        </span>
       </button>
     </div>
 
@@ -934,7 +1001,7 @@ watch(
           role="menuitem"
           class="widget-menu-tool widget-menu-tool--labeled"
           :class="{ 'widget-menu-tool--active': pinned }"
-          v-tip="'Pin'"
+          v-tip="shortcutHinting ? pinShortcutTip : 'Pin'"
           aria-label="Toggle pin"
           :aria-pressed="pinned"
           @click="onTogglePin"
@@ -1146,6 +1213,23 @@ watch(
         </button>
       </div>
       <div
+        v-if="canEditInWizard"
+        class="widget-menu-toolbar widget-menu-toolbar--settings"
+        role="group"
+        aria-label="Widget authoring"
+      >
+        <button
+          type="button"
+          role="menuitem"
+          class="widget-menu-tool widget-menu-tool--labeled"
+          aria-label="Edit in Wizard"
+          @click="onEditInWizard"
+        >
+          <SparklesIcon class="widget-menu-tool-icon" :size="16" />
+          Edit in Wizard
+        </button>
+      </div>
+      <div
         v-if="hasAbout"
         class="widget-menu-toolbar widget-menu-toolbar--settings"
         role="group"
@@ -1350,6 +1434,37 @@ watch(
   justify-content: center;
 }
 
+/* Keyboard chord hint shown above the active card's pin/hide controls. */
+.widget-card-shortcut-hint {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  z-index: 5;
+  padding: 4px 7px;
+  border: 1px solid rgba(var(--fg-rgb), 0.16);
+  border-radius: 6px;
+  background: rgba(var(--surface-bg-rgb), 0.96);
+  box-shadow: 0 6px 16px rgba(var(--shadow-rgb), 0.32);
+  color: rgba(var(--fg-rgb), 0.92);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+/* Let the shared hover/focus tooltip own the same label while the pointer is
+   already on the control; the always-visible hint covers the non-hover case. */
+.widget-card-chrome-btn:hover .widget-card-shortcut-hint,
+.widget-card-chrome-btn:focus-visible .widget-card-shortcut-hint {
+  display: none;
+}
+
 .widget-card-chrome-btn:hover {
   background: rgba(var(--fg-rgb), 0.1);
   color: rgba(var(--fg-rgb), 0.92);
@@ -1463,6 +1578,18 @@ watch(
 /* Search-result ping: soft accent ring that fades out (on the glass layer). */
 .widget-card--flash .widget-card-surface {
   animation: widget-search-flash 0.9s ease-out forwards;
+}
+
+/* Palette ↑/↓ selection: same ring as the flash, held while the row is active. */
+.widget-card--preview:not(.widget-card--flash) .widget-card-surface {
+  border-color: rgba(120, 180, 255, 0.55);
+  outline: 1px solid rgba(120, 180, 255, 0.35);
+  outline-offset: 2px;
+  box-shadow:
+    0 0 0 1px rgba(120, 180, 255, 0.2),
+    0 0 16px 2px rgba(120, 180, 255, 0.18),
+    var(--surface-box-shadow),
+    var(--surface-inner-highlight, 0 0 transparent);
 }
 
 @keyframes widget-search-flash {

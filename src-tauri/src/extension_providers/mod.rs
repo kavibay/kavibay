@@ -38,7 +38,9 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::AppHandle;
 
-use crate::credentials::resolve::{resolve_for_type, ResolveError, ResolvedCredential};
+use crate::credentials::resolve::{
+    resolve_for_connection, resolve_for_owner, ResolveError, ResolvedCredential,
+};
 use crate::runtime_extensions::http::vetted_address_with;
 use crate::runtime_extensions::net_guard::{is_user_network, AddressPolicy};
 
@@ -49,7 +51,7 @@ const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// Where a provider may send its credential.
 ///
-/// `Exact` is a compiled hostname list (GitHub, Trello). `FromCredential` is
+/// `Exact` is a compiled hostname list (GitHub, Linear). `FromCredential` is
 /// the compiled *rule* that the host must be the instance URL stored on the
 /// credential (n8n). The webview cannot pick which of those a provider is.
 pub enum HostRule {
@@ -72,6 +74,15 @@ pub struct ProviderDef {
     /// sending a token to a CDN. Empty means this provider has no pictures,
     /// which is a refusal like any other.
     pub image_hosts: &'static [&'static str],
+    /// Hostnames this provider's records live on, for `openExternal`.
+    ///
+    /// Separate from both other lists for the same reason they are separate
+    /// from each other: `hosts` receives the credential, `image_hosts` is
+    /// fetched by the host process, and this one is handed to the *user's
+    /// browser*. A list serving two of those purposes is one edit away from
+    /// sending a token somewhere it was never meant to go. Empty means this
+    /// provider's widgets open nothing.
+    pub link_hosts: &'static [&'static str],
 }
 
 impl ProviderDef {
@@ -383,6 +394,7 @@ async fn send(
 /// `provider_id` is checked against the provider table; an unknown provider is
 /// refused rather than treated as unauthenticated, so a typo cannot silently
 /// downgrade a request to anonymous.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn extension_provider_fetch(
     app: AppHandle,
@@ -390,6 +402,9 @@ pub async fn extension_provider_fetch(
     url: String,
     method: String,
     body: Option<Value>,
+    owner: Option<String>,
+    credential_id: Option<String>,
+    package_id: Option<String>,
 ) -> Result<ProviderFetchResult, String> {
     let provider = find(&provider_id).ok_or("unknown_provider")?;
     provider_http_method(&method)?;
@@ -398,12 +413,31 @@ pub async fn extension_provider_fetch(
     // matters is that the *final* url passes every check (finding 13).
     let credential = match provider.credential_type {
         None => None,
-        Some(type_id) => Some(resolve_for_type(&app, type_id).await.map_err(
-            |error| match error {
-                ResolveError::NotConfigured => "disconnected".to_string(),
-                other => other.to_string(),
-            },
-        )?),
+        Some(type_id) => {
+            let binding = crate::credentials::bindings::selection(
+                &crate::credentials::db::open_db(&app)?,
+                owner.as_deref().ok_or("connection_required")?,
+                type_id,
+            )?;
+            let credential_id = bound_connection(&binding, credential_id.as_deref())?;
+            if let Some(package_id) = &package_id {
+                if !crate::runtime_extensions::installs::has_credential_grant(
+                    &app,
+                    base_package_id(package_id),
+                    &credential_id,
+                ) {
+                    return Err("credential_not_granted".into());
+                }
+            }
+            Some(
+                resolve_for_connection(&app, type_id, &credential_id)
+                    .await
+                    .map_err(|error| match error {
+                        ResolveError::NotConfigured => "disconnected".to_string(),
+                        other => other.to_string(),
+                    })?,
+            )
+        }
     };
 
     let url = substitute_metadata(&url, credential.as_ref().map(|c| &c.record.metadata))?;
@@ -518,12 +552,99 @@ pub async fn extension_capability_fetch(
 pub async fn extension_provider_is_connected(
     app: AppHandle,
     provider_id: String,
+    owner: String,
 ) -> Result<bool, String> {
     let provider = find(&provider_id).ok_or("unknown_provider")?;
     let Some(type_id) = provider.credential_type else {
         return Ok(true); // nothing to connect
     };
-    Ok(resolve_for_type(&app, type_id).await.is_ok())
+    Ok(resolve_for_owner(&app, type_id, &owner).await.is_ok())
+}
+
+#[tauri::command]
+pub fn extension_provider_connection(
+    app: AppHandle,
+    provider_id: String,
+    owner: String,
+    package_id: Option<String>,
+) -> Result<Option<crate::credentials::bindings::ConnectionBinding>, String> {
+    let provider = find(&provider_id).ok_or("unknown_provider")?;
+    let mut binding = provider
+        .credential_type
+        .map(|type_id| {
+            crate::credentials::bindings::selection(
+                &crate::credentials::db::open_db(&app)?,
+                &owner,
+                type_id,
+            )
+        })
+        .transpose()?;
+    if let (Some(package_id), Some(binding)) = (package_id, binding.as_mut()) {
+        let package_id = base_package_id(&package_id);
+        binding.available &= binding.credential_id.as_ref().is_some_and(|id| {
+            crate::runtime_extensions::installs::has_credential_grant(&app, package_id, id)
+        });
+    }
+    Ok(binding)
+}
+
+/// A draft of an installed widget is that widget being edited, not a stranger,
+/// so its grants are the kept package's.
+///
+/// Both the status check above and `extension_provider_fetch` have to agree on
+/// this. They did not: the fetch path stripped the prefix and the status path
+/// did not, so a preview of a granted widget reported itself disconnected and
+/// never got as far as the request that would have worked.
+fn base_package_id(package_id: &str) -> &str {
+    package_id
+        .strip_prefix(crate::runtime_extensions::http::DRAFT_PREFIX)
+        .unwrap_or(package_id)
+}
+
+/// The account a provider request may use: the one bound to its owner.
+///
+/// The webview also names the account it expects, because its cache is keyed
+/// by it — but the account comes from the binding, not from the wire
+/// (CLAUDE.md invariant 4); the wire only has to agree. Taking the wire's id
+/// let a caller that sent no package id spend any saved account, not just
+/// the one its owner is bound to. A mismatch is either an
+/// owner that switched accounts after the host read its connection, where
+/// answering would file one account's rows under the other's key, or an id
+/// that was never this owner's.
+fn bound_connection(
+    binding: &crate::credentials::bindings::ConnectionBinding,
+    requested: Option<&str>,
+) -> Result<String, String> {
+    let bound = binding.credential_id.as_deref().ok_or("disconnected")?;
+    if requested != Some(bound) {
+        return Err("connection_changed".into());
+    }
+    Ok(bound.to_string())
+}
+
+/// Hands one provider-vouched url to the OS browser.
+///
+/// Two checks guard this, deliberately at different altitudes. The precise one
+/// — *which* providers this particular widget declares — is the host's, because
+/// a draft being previewed in the Wizard has no package on disk whose manifest
+/// could be read here. This is the backstop underneath it: a url whose host no
+/// shipped provider vouches for is refused whatever asked for it, and that list
+/// is compiled in, so neither a generated widget nor the host process can widen
+/// it.
+///
+/// The url itself is data from a vendor response, which is exactly why the
+/// check is on the *host* rather than on the path that produced it.
+#[tauri::command]
+pub fn extension_open_external(url: String) -> Result<(), String> {
+    let parsed = url::Url::parse(&url).map_err(|_| "invalid_url".to_string())?;
+    if parsed.scheme() != "https" {
+        return Err("not_https".into());
+    }
+    let host = parsed.host_str().ok_or("invalid_url")?;
+    if !crate::extensions::providers().any(|provider| listed(provider.link_hosts, host)) {
+        return Err("host_not_allowed".into());
+    }
+    crate::extensions::app_launcher::launch_path(parsed.to_string())
 }
 
 /// Lets `ResolvedCredential::apply` be used in a builder chain.
@@ -735,6 +856,7 @@ mod tests {
             host_rule: HostRule::Exact(&["allowed.example"]),
             credential_type: None,
             image_hosts: &[],
+            link_hosts: &[],
         };
         let map = metadata(&[("homeId", Value::from("evil.example.com/x"))]);
         let final_url = substitute_metadata("https://{{homeId}}", Some(&map)).expect("substitutes");
@@ -811,6 +933,7 @@ mod tests {
             host_rule: HostRule::Exact(&["shared.example"]),
             credential_type: Some("someToken"),
             image_hosts: &[],
+            link_hosts: &[],
         };
         let capability = CapabilityHosts {
             extension_id: "test.other",
@@ -828,6 +951,61 @@ mod tests {
         assert!(
             listed(capability.hosts, provider.exact_hosts()[0]),
             "and the reverse direction"
+        );
+    }
+
+    /// A request spends the account bound to its owner and no other, whatever
+    /// id the webview puts next to it.
+    #[test]
+    fn a_request_can_only_spend_its_owners_account() {
+        let binding = |id: Option<&str>| crate::credentials::bindings::ConnectionBinding {
+            type_id: "linearApi".into(),
+            credential_id: id.map(str::to_string),
+            available: true,
+            revision: 1,
+        };
+        assert_eq!(
+            bound_connection(&binding(Some("work")), Some("work")),
+            Ok("work".to_string())
+        );
+        assert_eq!(
+            bound_connection(&binding(Some("work")), Some("personal")),
+            Err("connection_changed".to_string()),
+            "another saved account is refused, not used",
+        );
+        assert_eq!(
+            bound_connection(&binding(Some("work")), None),
+            Err("connection_changed".to_string()),
+            "naming no account does not mean \"any\"",
+        );
+        assert_eq!(
+            bound_connection(&binding(None), Some("work")),
+            Err("disconnected".to_string()),
+            "an owner with no account chosen gets none",
+        );
+    }
+
+    /// Linear issues live on `linear.app`, not `api.linear.app`. The backstop
+    /// under `openExternal` is this compiled list, and a click that reached
+    /// the OS for a host nobody vouched for would be the failure the host
+    /// check exists to prevent.
+    #[test]
+    fn a_vouched_link_host_is_not_the_api_host() {
+        let linear = crate::extensions::providers()
+            .find(|provider| provider.id == "kavibay.linear/linear")
+            .expect("linear ships");
+        assert!(
+            listed(linear.link_hosts, "linear.app"),
+            "issue pages live on linear.app",
+        );
+        assert!(
+            !listed(linear.link_hosts, "api.linear.app"),
+            "the API host is where the credential goes, not the browser",
+        );
+        assert!(
+            !crate::extensions::providers()
+                .any(|provider| listed(provider.link_hosts, "evil.example")),
+            "a host nobody declared must not open",
         );
     }
 
@@ -868,6 +1046,7 @@ mod tests {
             host_rule: HostRule::FromCredential { field: "origin" },
             credential_type: Some(N8N_API),
             image_hosts: &[],
+            link_hosts: &[],
         };
         let mut metadata = serde_json::Map::new();
         metadata.insert(

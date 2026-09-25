@@ -26,8 +26,14 @@ use providers::{WizardMessage, WizardReply};
 /// Settings" instead of letting the user pick a provider and then fail at send
 /// time.
 #[tauri::command]
-pub fn wizard_models(app: AppHandle) -> Result<Vec<LlmModelOption>, String> {
-    catalog::options(&app, |model| model.authoring)
+pub fn wizard_models(
+    app: AppHandle,
+    instance_id: Option<String>,
+) -> Result<Vec<LlmModelOption>, String> {
+    let owner = instance_id
+        .map(|id| format!("widget:{id}"))
+        .unwrap_or_else(|| crate::credentials::bindings::HOST_OWNER.into());
+    catalog::options_for_owner(&app, &owner, |model| model.authoring)
 }
 
 /// Which of the two package formats a turn is authoring.
@@ -56,6 +62,7 @@ pub enum WidgetFormat {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn wizard_complete(
     app: AppHandle,
+    instance_id: String,
     model: String,
     messages: Vec<WizardMessage>,
     format: Option<WidgetFormat>,
@@ -70,5 +77,13 @@ pub async fn wizard_complete(
         WidgetFormat::RuntimePackage => prompt::system_prompt(),
         WidgetFormat::ContractPackage => prompt::contract_system_prompt(&providers),
     };
-    providers::complete(&app, &model, &system, &messages, effort.as_deref()).await
+    providers::complete(
+        &app,
+        &format!("widget:{instance_id}"),
+        &model,
+        &system,
+        &messages,
+        effort.as_deref(),
+    )
+    .await
 }

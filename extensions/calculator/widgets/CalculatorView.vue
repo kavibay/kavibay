@@ -27,6 +27,11 @@ function setExpression(event: Event) {
   props.model.setExpression((event.target as HTMLInputElement).value);
 }
 
+function selectHistory(index: number) {
+  props.model.selectHistory(index);
+  void focusInput();
+}
+
 async function focusInput() {
   await nextTick();
   const element = inputEl.value;
@@ -71,9 +76,36 @@ void scrollHistoryToEnd();
       </button>
 
       <div ref="historyEl" class="calc-history" aria-label="Calculation history" @wheel.stop>
-        <div v-for="entry in model.history.value" :key="entry.id" class="calc-entry">
+        <div
+          v-for="(entry, index) in model.history.value"
+          :key="entry.id"
+          class="calc-entry"
+        >
           <div class="calc-entry-expr">{{ entry.expression }}</div>
-          <div class="calc-entry-result">{{ entry.result }}</div>
+          <button
+            type="button"
+            class="calc-entry-result"
+            :aria-label="`Use result ${entry.result}`"
+            @click="selectHistory(index)"
+          >
+            <svg
+              class="calc-restore-icon"
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 5v14" />
+              <path d="m19 12-7 7-7-7" />
+            </svg>
+            <span>{{ entry.result }}</span>
+          </button>
         </div>
       </div>
     </div>
@@ -117,6 +149,7 @@ void scrollHistoryToEnd();
   color: rgba(var(--fg-rgb), 0.95);
   font-size: 16px;
   font-variant-numeric: tabular-nums;
+  text-align: right;
   outline: none;
 }
 
@@ -209,10 +242,44 @@ void scrollHistoryToEnd();
 }
 
 .calc-entry-result {
+  appearance: none;
   font-size: 18px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  font-family: inherit;
   color: rgba(var(--fg-rgb), 0.92);
+  display: inline-flex;
+  align-self: flex-end;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: right;
   overflow-wrap: anywhere;
 }
+
+.calc-entry-result:focus-visible {
+  outline: 1px solid rgba(var(--fg-rgb), 0.4);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.calc-restore-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  opacity: 0;
+  color: rgba(var(--fg-rgb), 0.55);
+  transition: opacity 0.12s ease;
+}
+
+.calc-entry-result:hover .calc-restore-icon,
+.calc-entry-result:focus-visible .calc-restore-icon {
+  opacity: 1;
+}
+
 </style>

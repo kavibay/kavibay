@@ -35,6 +35,8 @@ export interface ContractCatalogMetadata {
   categories?: string[];
   /** Off on a fresh profile; absent means on. See `RegisteredExtension`. */
   enabledByDefault?: boolean;
+  /** Place this on the very first desk, lowest first. See `starterDesk.ts`. */
+  starter?: number;
   position?: { x: number; y: number };
   defaultSize?: { w: number; h: number };
   allowDuplicate?: boolean;
@@ -164,6 +166,9 @@ function toCatalogMetadata(entry: Record<string, unknown>): ContractCatalogMetad
     // A catalog fact, not a geometry one, so it sits beside keywords rather
     // than under `ui`.
     enabledByDefault: asBool(entry.enabledByDefault),
+    // Also a catalog fact rather than a geometry one: it says which desk a
+    // widget belongs on, not where on it.
+    starter: typeof entry.starter === "number" ? entry.starter : undefined,
     position: asPoint(ui.defaultOffset),
     defaultSize: asSize(ui.defaultSize),
     allowDuplicate: asBool(ui.allowDuplicate),

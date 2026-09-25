@@ -33,7 +33,11 @@ import WizardChevron from "./WizardChevron.vue";
 import WizardGenerationStatus from "./WizardGenerationStatus.vue";
 import WizardPreviewStage, { type PreviewFault } from "./WizardPreviewStage.vue";
 import { takeNewProjectRequest, type WidgetWizardModel } from "./widgets/widgetWizard";
-import { WIDGET_FOCUS_EVENT, widgetFocusRequestMatches } from "@sdk/widgetFocusRequest";
+import {
+  WIDGET_FOCUS_EVENT,
+  widgetFocusRequestMatches,
+  type WidgetFocusRequestDetail,
+} from "@sdk/widgetFocusRequest";
 import { isHighlightable, tokenize, type CodeToken } from "./highlight";
 import {
   REPAIR_BUDGET,
@@ -131,6 +135,8 @@ import {
   moveProject,
   dropProject,
   splitProviderMentions,
+  wizardPlatforms,
+  wizardHasAnyKey,
   type MentionSegment,
 } from "./widgetWizardLogic";
 
@@ -1710,6 +1716,23 @@ const activeModel = computed(() =>
 );
 
 /**
+ * The platforms this build can author on, and whether any of them is connected.
+ *
+ * Asked before the conversation invites anybody to describe anything. Inviting
+ * first and mentioning the missing key in a caption above the transcript put
+ * the requirement where it reads as a footnote — somebody typed a widget
+ * description, pressed send, and only then found out that the whole thing needs
+ * an account somewhere else.
+ */
+const platforms = computed(() => wizardPlatforms(models.value));
+const hasAnyKey = computed(() => wizardHasAnyKey(models.value));
+
+/** Open Settings → AI on this platform's provider tab. */
+function openPlatformSettings(platform: { id: string }): void {
+  wizard.openSettings("ai", platform.id);
+}
+
+/**
  * The effort levels this model takes, or none.
  *
  * Read off the catalog rather than listed here: the two providers use different
@@ -2133,6 +2156,19 @@ async function startProjectFromPalette(): Promise<void> {
  */
 function onFocusRequest(event: Event): void {
   if (!widgetFocusRequestMatches(event, props.model.instanceId)) return;
+  const openPackageId = (event as CustomEvent<WidgetFocusRequestDetail>).detail
+    ?.openPackageId;
+  if (openPackageId) {
+    /**
+     * A widget's own card sent us here through its "Edit in Wizard" menu item.
+     *
+     * The host dispatches this focus twice — once now and once 60 ms later, for
+     * a card that was still mounting — so the already-open check is what keeps
+     * one menu click from opening the same draft twice.
+     */
+    if (session.value.packageId !== openPackageId) void openWidget(openPackageId);
+    return;
+  }
   if (takeNewProjectRequest()) {
     void startProjectFromPalette();
     return;
@@ -3715,29 +3751,13 @@ const consentStillMatches = computed(() => {
   return declaration?.contents === savedApiText.value;
 });
 
-function credentialTypesFor(row: ScannedRuntimeExtension | undefined): string[] {
-  return Array.from(
-    new Set(
-      (row?.apiEndpoints ?? [])
-        .map((endpoint) => endpoint.credential)
-        .filter((type): type is string => typeof type === "string" && type.length > 0),
-    ),
-  );
-}
-
 async function enablePackage(
   id: string,
   contractGrant?: { approved: string[] },
 ): Promise<boolean> {
   const row = scanned.value.find((item) => item.id === id);
   try {
-    await wizard.runtimeSetEnabled(
-      id,
-      true,
-      row?.permissions ?? [],
-      credentialTypesFor(row),
-      contractGrant,
-    );
+    await wizard.runtimeSetEnabled(id, true, row?.permissions ?? [], contractGrant);
     await rescan();
     return true;
   } catch {
@@ -4143,10 +4163,18 @@ async function enablePackage(
         Draft validation: {{ describeDraftError(session.draftError) }}
       </p>
 
-      <p v-if="activeModel && !activeModel.configured" class="wiz-setup">
+      <!--
+        Still shown when *some* platform has a key but the picked model's does
+        not — the gate below only covers having no key at all.
+      -->
+      <p v-if="hasAnyKey && activeModel && !activeModel.configured" class="wiz-setup">
         No API key for {{ activeModel.label }} yet.
-        <button type="button" class="wiz-link" @click="wizard.openSettings('credentials')">
-          Open Settings
+        <button
+          type="button"
+          class="wiz-link"
+          @click="wizard.openSettings('ai', activeModel.provider)"
+        >
+          Add key
         </button>
       </p>
 
@@ -4337,7 +4365,35 @@ async function enablePackage(
         class="wiz-transcript"
         :class="{ 'wiz-transcript--empty': !session.bubbles.length }"
       >
-        <p v-if="!session.bubbles.length" class="wiz-hint">
+        <!--
+          Two empty states, and which one shows is the point: an unconfigured
+          Wizard cannot do the thing the other one invites. Naming the platforms
+          here rather than in Settings means the requirement and the way to
+          satisfy it arrive together.
+        -->
+        <div v-if="!session.bubbles.length && !hasAnyKey" class="wiz-keygate">
+          <p class="wiz-keygate-title">The Wizard writes widgets with an AI model</p>
+          <p class="wiz-keygate-lead">
+            That runs on your own account, so it needs an API key from one of
+            these. Pick a platform to add its key — you only do this once.
+          </p>
+          <ul class="wiz-keygate-list">
+            <li v-for="platform in platforms" :key="platform.id">
+              <button type="button" class="wiz-keygate-option" @click="openPlatformSettings(platform)">
+                <span class="wiz-keygate-name">
+                  {{ platform.label }}
+                  <span v-if="platform.recommended" class="wiz-keygate-tag">recommended</span>
+                </span>
+                <span class="wiz-keygate-sub">
+                  {{ platform.modelCount }}
+                  {{ platform.modelCount === 1 ? "model" : "models" }}
+                  <template v-if="platform.configured"> · key added</template>
+                </span>
+              </button>
+            </li>
+          </ul>
+        </div>
+        <p v-else-if="!session.bubbles.length" class="wiz-hint">
           Describe a widget — for example: “a tracker for how much water I drink today”.
         </p>
         <!--
@@ -4788,6 +4844,7 @@ async function enablePackage(
             :effort-levels="effortLevels"
             :disabled="busy"
             @update:effort="effort = $event"
+            @add-key="wizard.openSettings('ai', $event)"
           />
           <button v-if="busy" type="button" @click="stop">Stop</button>
           <button
@@ -5598,6 +5655,81 @@ async function enablePackage(
    */
   user-select: text;
   cursor: text;
+}
+
+/* The requirement, not a caption on it: this replaces the invitation rather
+   than sitting above it, so it gets the width and the weight of one. */
+.wiz-keygate {
+  max-width: 420px;
+  margin: auto;
+  padding: 4px;
+}
+
+.wiz-keygate-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(var(--fg-rgb), 0.95);
+}
+
+.wiz-keygate-lead {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(var(--fg-rgb), 0.55);
+}
+
+.wiz-keygate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wiz-keygate-option {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 13px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: rgba(var(--fg-rgb), 0.05);
+  color: rgba(var(--fg-rgb), 0.92);
+  cursor: pointer;
+  text-align: left;
+}
+
+.wiz-keygate-option:hover,
+.wiz-keygate-option:focus-visible {
+  background: rgba(var(--fg-rgb), 0.1);
+  outline: none;
+}
+
+.wiz-keygate-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wiz-keygate-tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.12);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: rgba(var(--fg-rgb), 0.6);
+}
+
+.wiz-keygate-sub {
+  font-size: 11px;
+  color: rgba(var(--fg-rgb), 0.45);
 }
 
 .wiz-hint {

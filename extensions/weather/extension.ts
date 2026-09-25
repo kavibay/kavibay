@@ -13,11 +13,9 @@ export const weatherExtension = defineExtension({
   engines: manifest.engines,
   contributes: {
     /**
-     * The provider is new; the widget is not, and still reads Open-Meteo
-     * through its own `http` capability. Left alone deliberately — it works,
-     * it has its own assertions, and moving a shipping widget onto the
-     * provider is a visible change that deserves its own step. The cost of the
-     * overlap is that the two do not share a cache entry.
+     * The widget reads the provider's `forecast` query, so its data lives in
+     * the host cache and survives the card unmounting whenever the cockpit
+     * closes.
      */
     providers: [weatherProvider],
     widgets: [weatherWidget],

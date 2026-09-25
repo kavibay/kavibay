@@ -8,8 +8,12 @@ const hasTauri = () => "__TAURI_INTERNALS__" in window;
 /** Mirrors Rust `paused`: while true, rects are unused (window stays interactive). */
 let clickThroughPaused = false;
 
-/** Last payload sent to Rust — skip IPC when nothing moved/resized. */
-let lastRectsKey = "";
+/**
+ * Last payload sent to Rust — skip IPC when nothing moved/resized. Starts unset
+ * rather than "" so the first sync is always sent: Rust keeps the previous
+ * page's rects across a reload, and an empty desk would otherwise never clear them.
+ */
+let lastRectsKey: string | undefined;
 
 /**
  * Reports the rectangles of all interactive UI elements to the backend. Rust uses them
@@ -102,6 +106,12 @@ export function scheduleRegionSync() {
  * result list grows.
  */
 export function useRegionSync() {
+  // Rust's pause outlives the page. A reload mid-pause (a menu open, a drag, the
+  // frame between pause and unpause in openCockpit) left it on, and a paused
+  // window takes every click across the whole screen. Runs in the root's setup,
+  // before any child can pause for itself.
+  setClickThroughPaused(false);
+
   let observer: ResizeObserver | undefined;
   const onResize = () => scheduleRegionSync();
 

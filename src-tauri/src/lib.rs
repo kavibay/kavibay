@@ -2,6 +2,7 @@
 // main.rs remains a pure entry point (see PLAN.md §1).
 
 mod appearance_prefs;
+mod autostart;
 mod commands;
 mod credentials;
 mod ctrl_double_tap;
@@ -43,15 +44,66 @@ use tauri::{
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, ShortcutState};
 
 use commands::{
-    cursor_position_is_reliable, next_watch_tick_ms, ClickThrough, OpenMonitor, SharedActiveWindow,
-    SharedClickThrough, SharedOpenMonitor, WATCH_HIDDEN_TICK_MS, WATCH_TICK_MS,
+    click_through_needs_write, cursor_position_is_reliable, next_watch_tick_ms, ClickThrough,
+    OpenMonitor, SharedActiveWindow, SharedClickThrough, SharedOpenMonitor, WATCH_HIDDEN_TICK_MS,
+    WATCH_TICK_MS,
 };
+
+/// What asked for a cockpit toggle.
+///
+/// One value rather than the free-form demo label this used to be, because two
+/// consumers now need it: the presentation overlay, which shows the keystroke,
+/// and the guided tour, whose second step is passed by bringing the window back
+/// *with this gesture* and by nothing else. A label plus a separate flag would
+/// be two things that have to agree, and eventually would not.
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum CockpitTrigger {
+    /// Double tap on Ctrl — the gesture the tour teaches.
+    CtrlDoubleTap,
+    /// Shift+Ctrl+Space, which always opens on the screen under the mouse.
+    CursorHotkey,
+    /// Tray icon, palette command, first open — anything with no keystroke of
+    /// its own to show or to teach.
+    App,
+}
+
+impl CockpitTrigger {
+    /// Keystroke for the presentation overlay; None when there is none to show.
+    fn demo_label(self) -> Option<&'static str> {
+        match self {
+            Self::CtrlDoubleTap => Some("CTRL+CTRL"),
+            Self::CursorHotkey => Some("CTRL+SHIFT+SPACE"),
+            Self::App => None,
+        }
+    }
+}
+
+/// The keystroke that can bring a hidden cockpit back on *this* machine.
+///
+/// Not a constant, because two things it depends on are only known at start-up.
+/// The Ctrl double tap needs a `WH_KEYBOARD_LL` hook and therefore Windows; on
+/// every other platform the fallback is Shift+Ctrl+Space, which is an ordinary
+/// accelerator — and which another program may already own, in which case there
+/// is no keystroke at all and the tray icon is the only way in.
+///
+/// The guided tour asks for this before it teaches the gesture. Teaching a key
+/// this machine cannot deliver is worse than teaching none: the user hides
+/// Kavibay on the first instruction and then cannot get it back.
+struct RevealGesture(Option<CockpitTrigger>);
+
+/// Which keystroke reveals the cockpit here, or null when none does.
+#[tauri::command]
+fn cockpit_reveal_gesture(gesture: tauri::State<'_, RevealGesture>) -> Option<CockpitTrigger> {
+    gesture.0
+}
 
 /// Payload for `palette:hotkey` — `revealed` means Rust just showed a hidden window.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PaletteHotkeyPayload {
     revealed: bool,
+    trigger: CockpitTrigger,
 }
 
 /// Presentation aid controlled from the command palette, off by default.
@@ -88,6 +140,23 @@ fn show_demo_hotkey(app: &tauri::AppHandle, label: &str) {
     }
 }
 
+/// Make the window take clicks now, and tell the click-through watcher.
+///
+/// Only a stopgap until the frontend answers — it pauses click-through while it
+/// opens. The watcher must hear about the write: it rewrites only when its own
+/// answer changes, so an unannounced write left it believing the window was
+/// still click-through. With nothing on screen the answer never changed again,
+/// and a frontend that did not respond (a dev reload, a crashed renderer) left
+/// a fullscreen window over the taskbar that swallowed every click.
+fn make_interactive(window: &tauri::WebviewWindow) {
+    let _ = window.set_ignore_cursor_events(false);
+    if let Some(state) = window.try_state::<SharedClickThrough>() {
+        if let Ok(mut s) = state.lock() {
+            s.generation = s.generation.wrapping_add(1);
+        }
+    }
+}
+
 /// Show/hide the cockpit — the one path behind every trigger.
 ///
 /// Extracted from the shortcut handler so the `--toggle` CLI and the Ctrl double
@@ -101,7 +170,7 @@ fn show_demo_hotkey(app: &tauri::AppHandle, label: &str) {
 /// in because this function cannot know it: the same open happens on a double
 /// tap, on Shift+Ctrl+Space, and on a second launch with `--toggle`, where no key
 /// was pressed at all.
-fn toggle_cockpit(app: &tauri::AppHandle, force_cursor: bool, demo_label: Option<&str>) {
+fn toggle_cockpit(app: &tauri::AppHandle, force_cursor: bool, trigger: CockpitTrigger) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
@@ -109,7 +178,7 @@ fn toggle_cockpit(app: &tauri::AppHandle, force_cursor: bool, demo_label: Option
     // Always clear click-through before the frontend toggles. A stuck
     // ignore_cursor_events=true makes the window look "closed" while
     // is_visible() is still true, so the open path never ran.
-    let _ = window.set_ignore_cursor_events(false);
+    make_interactive(&window);
 
     let target = if force_cursor {
         OpenMonitor::Cursor
@@ -130,8 +199,8 @@ fn toggle_cockpit(app: &tauri::AppHandle, force_cursor: bool, demo_label: Option
     }
 
     // Single frontend entry: open cockpit or close (pinned may remain).
-    let _ = window.emit("palette:hotkey", PaletteHotkeyPayload { revealed });
-    if let Some(label) = demo_label {
+    let _ = window.emit("palette:hotkey", PaletteHotkeyPayload { revealed, trigger });
+    if let Some(label) = trigger.demo_label() {
         show_demo_hotkey(app, label);
     }
 }
@@ -161,7 +230,7 @@ fn peek_cockpit(app: &tauri::AppHandle, active: bool) {
     if active {
         // Same reason as in `toggle_cockpit`: a stuck ignore_cursor_events makes a
         // visible window look closed, and the peek would show nothing.
-        let _ = window.set_ignore_cursor_events(false);
+        make_interactive(&window);
         if !window.is_visible().unwrap_or(false) {
             revealed = true;
             let _ = window.show();
@@ -228,14 +297,14 @@ pub fn run() {
             if argv_asks_for_toggle(&argv) {
                 // Same entry as the double tap, including the Settings "Open on"
                 // preference. No key was pressed, so nothing to show in demo mode.
-                toggle_cockpit(app, false, None);
+                toggle_cockpit(app, false, CockpitTrigger::App);
                 return;
             }
             // A plain second launch means "I want the app" — show it, never hide it.
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_ignore_cursor_events(false);
+                make_interactive(&window);
                 if !window.is_visible().unwrap_or(false) {
-                    toggle_cockpit(app, false, None);
+                    toggle_cockpit(app, false, CockpitTrigger::App);
                 } else {
                     let _ = window.set_focus();
                 }
@@ -281,7 +350,7 @@ pub fn run() {
                     // What is left is Shift+Ctrl+Space, which always covers the
                     // pointer display. The Settings “Open on” preference belongs to
                     // the Ctrl double tap instead.
-                    toggle_cockpit(app, true, Some("CTRL+SHIFT+SPACE"));
+                    toggle_cockpit(app, true, CockpitTrigger::CursorHotkey);
                 })
                 .build(),
         )
@@ -361,29 +430,22 @@ pub fn run() {
                     "[shortcut] Cockpit remains available via Ctrl double tap, the tray icon, or `kavibay --toggle`"
                 );
             }
-            let quick_shortcut_text = quick_action::configured_shortcut(app.handle());
-            let quick_shortcut: tauri_plugin_global_shortcut::Shortcut =
-                quick_shortcut_text.parse().unwrap_or_else(|_| {
-                    quick_action::DEFAULT_SHORTCUT
-                        .parse()
-                        .expect("default shortcut")
-                });
+            // Recorded rather than recomputed: whether Shift+Ctrl+Space is ours
+            // is only knowable from the registration above, and the tour has to
+            // ask the same question later.
+            app.manage(RevealGesture(if cfg!(windows) {
+                Some(CockpitTrigger::CtrlDoubleTap)
+            } else if cursor_toggle {
+                Some(CockpitTrigger::CursorHotkey)
+            } else {
+                None
+            }));
             // Quick actions on selected text, anywhere. A failure here must not
             // take the app down with it: another program may already own the
-            // combination, and everything else still works without it.
-            let registered_quick_shortcut = match app.global_shortcut().register(quick_shortcut) {
-                Ok(()) => {
-                    println!("[shortcut] {quick_shortcut_text} (quick actions) registered");
-                    Some(quick_shortcut)
-                }
-                Err(error) => {
-                    eprintln!("[shortcut] {quick_shortcut_text} (quick actions) unavailable: {error}");
-                    None
-                }
-            };
-            app.manage(quick_action::QuickActionShortcut::new(
-                registered_quick_shortcut,
-            ));
+            // combination, and everything else still works without it. Owns its
+            // own managed state, because a lost registration is retried in the
+            // background and the state has to follow.
+            quick_action::register_shortcut(app.handle());
             app.manage(quick_action::QuickActionShortcutCapture::default());
 
             // Shared click-through state: written by commands and read by the polling thread.
@@ -507,8 +569,12 @@ pub fn run() {
             commands::needs_dom_gap_catcher,
             commands::set_open_monitor,
             commands::app_exit,
+            cockpit_reveal_gesture,
             appearance_prefs::onboarding_preferences_load,
             appearance_prefs::onboarding_preferences_save,
+            autostart::autostart_supported,
+            autostart::autostart_enabled,
+            autostart::autostart_set,
             settings_store::settings_load,
             settings_store::settings_save_sections,
             settings_store::settings_file_path,
@@ -516,6 +582,8 @@ pub fn run() {
             web_storage::web_storage_load,
             web_storage::web_storage_save,
             extension_providers::extension_provider_fetch,
+            extension_providers::extension_provider_connection,
+            extension_providers::extension_open_external,
             extension_providers::extension_provider_is_connected,
             extension_providers::extension_capability_fetch,
             color_picker::color_picker_start,
@@ -564,10 +632,15 @@ pub fn run() {
             quick_action::quick_action_disabled_templates,
             quick_action::quick_action_disabled_templates_set,
             credentials::credential_types_list,
+            credentials::bindings::connections_selection,
+            credentials::bindings::connections_select,
+            credentials::bindings::connections_copy,
+            credentials::bindings::connections_dispose,
+            credentials::bindings::connections_prune,
+            runtime_extensions::installs::connections_package_types,
+            runtime_extensions::installs::connections_grant_package,
             credentials::credentials_list,
             credentials::credentials_status,
-            credentials::credentials_configured,
-            credentials::credentials_type_status,
             credentials::credentials_save,
             credentials::credentials_delete,
             credentials::credentials_test,
@@ -640,7 +713,7 @@ fn reveal_main_window(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
-    let _ = window.set_ignore_cursor_events(false);
+    make_interactive(&window);
     let target = open_monitor_target(&window);
     let _ = window.show();
     let _ = window.set_focus();
@@ -968,7 +1041,7 @@ fn spawn_click_through_watcher(
             tick_ms = next_watch_tick_ms(moved, rects_changed, outside_click_armed);
 
             let ignore = !interactive;
-            if last_ignore != Some(ignore) {
+            if click_through_needs_write(last_ignore, ignore, rects_changed) {
                 let _ = window.set_ignore_cursor_events(ignore);
                 last_ignore = Some(ignore);
             }
@@ -1123,10 +1196,45 @@ impl MouseButtons {
 
 #[cfg(test)]
 mod tests {
-    use super::argv_asks_for_toggle;
+    use super::{argv_asks_for_toggle, CockpitTrigger};
 
     fn argv(args: &[&str]) -> Vec<String> {
         args.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// The frontend matches these strings to decide whether the tour's hotkey
+    /// step was passed (`core/app/host/cockpitSession.ts`). Nothing in Rust
+    /// fails to compile if the spelling changes — the step just becomes
+    /// impossible to complete, silently, on the one screen a new user cannot
+    /// get past.
+    #[test]
+    fn a_trigger_keeps_the_spelling_the_frontend_matches() {
+        assert_eq!(
+            serde_json::to_string(&CockpitTrigger::CtrlDoubleTap).unwrap(),
+            "\"ctrlDoubleTap\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CockpitTrigger::CursorHotkey).unwrap(),
+            "\"cursorHotkey\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CockpitTrigger::App).unwrap(),
+            "\"app\""
+        );
+    }
+
+    /// Only the two gestures have a keystroke to put on screen.
+    #[test]
+    fn only_keystrokes_get_a_demo_label() {
+        assert_eq!(
+            CockpitTrigger::CtrlDoubleTap.demo_label(),
+            Some("CTRL+CTRL")
+        );
+        assert_eq!(
+            CockpitTrigger::CursorHotkey.demo_label(),
+            Some("CTRL+SHIFT+SPACE")
+        );
+        assert_eq!(CockpitTrigger::App.demo_label(), None);
     }
 
     #[test]
@@ -1165,5 +1273,72 @@ mod tests {
         assert!(argv_asks_for_toggle(&argv(
             ["kavibay", "--quiet", "--toggle"].as_ref()
         )));
+    }
+}
+
+/// The ACL as the running app enforces it: `generate_context!` compiles in the
+/// capabilities and the permissions `build.rs` generates, so this asks the
+/// same authority an `invoke` does.
+#[cfg(test)]
+mod acl_tests {
+    use tauri::ipc::Origin;
+
+    fn registered_commands() -> Vec<&'static str> {
+        let source = include_str!("lib.rs");
+        let start = source.find("generate_handler![").unwrap() + "generate_handler![".len();
+        let end = start + source[start..].find(']').unwrap();
+        source[start..end]
+            .split(',')
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(|path| path.rsplit("::").next().unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn each_window_reaches_exactly_its_commands() {
+        let mut context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+        let acl = context.runtime_authority_mut();
+        let allowed = |window: &str, command: &str| {
+            acl.resolve_access(command, window, window, &Origin::Local)
+                .is_some()
+        };
+
+        let commands = registered_commands();
+        assert!(commands.len() > 100, "parsed {} commands", commands.len());
+        for command in &commands {
+            assert!(
+                allowed("main", command),
+                "the main window must reach {command}"
+            );
+        }
+
+        for command in ["quick_action_apply", "llm_chat_stream", "web_storage_load"] {
+            assert!(allowed("quickaction", command), "the popup needs {command}");
+        }
+        for command in [
+            "credentials_delete",
+            "credentials_save",
+            "launch_path",
+            "image_widget_clear",
+            "runtime_extensions_installs_set",
+            "web_storage_save",
+        ] {
+            assert!(
+                !allowed("quickaction", command),
+                "the popup must not reach {command}"
+            );
+        }
+
+        // A package frame is served from its own origin: it reaches nothing,
+        // whichever window it sits in.
+        let frame = Origin::Remote {
+            url: "http://kavibay-ext.localhost/pkg/index.html"
+                .parse()
+                .unwrap(),
+        };
+        assert!(acl
+            .resolve_access("credentials_list", "main", "main", &frame)
+            .is_none());
     }
 }

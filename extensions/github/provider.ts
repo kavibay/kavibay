@@ -209,6 +209,9 @@ export const githubProvider = defineProvider({
   requiresCredential: true,
   credentialType: "githubPat",
   hosts: ["api.github.com"],
+  // Runs and pull requests answer from `api.github.com` and live on
+  // `github.com`; `htmlUrl` / `url` on those rows point at the latter.
+  linkHosts: ["github.com"],
   queries: {
     /**
      * The query this whole change was about: "show me the pull requests waiting

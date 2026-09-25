@@ -19,7 +19,7 @@ const model = computed(() => {
 
 const empty = computed(() => {
   const state = model.value?.settings.value;
-  return !state || (!state.input && !state.output);
+  return !state || (!state.input && !state.context && !state.output);
 });
 const promptEdited = computed(() =>
   model.value
@@ -31,7 +31,7 @@ const promptEdited = computed(() =>
     : false,
 );
 
-/** Clear input + result and close the ⋯ menu. */
+/** Clear context, input and result, then close the ⋯ menu. */
 function onClear() {
   if (empty.value) return;
   model.value?.clearText();

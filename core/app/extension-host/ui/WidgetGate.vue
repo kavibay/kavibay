@@ -57,10 +57,16 @@ const providerName = computed(() => {
   return id ? props.host.registry.providers.get(id)?.def.displayName : undefined;
 });
 
+/** Which credential type the prompt would be asking the user to choose from. */
+const providerCredentialType = computed(() => {
+  const id = runtime.provider.value?.id;
+  return id ? props.host.registry.providers.get(id)?.def.credentialType : undefined;
+});
+
 const view = computed(() => widgetViews[props.instance.definitionId]);
 
 /** Provider-backed `select` options, resolved against this gate's own host. */
-const loadOptions = (field: ConfigField) => loadConfigOptions(props.host, field);
+const loadOptions = (field: ConfigField) => loadConfigOptions(props.host, field, props.instance.id);
 
 function save(values: Record<string, unknown>) {
   Object.assign(props.instance.configuration as object, values);
@@ -80,6 +86,8 @@ function save(values: Record<string, unknown>) {
     :provider="runtime.provider.value.id"
     :status="runtime.provider.value.status"
     :display-name="providerName"
+    :instance-id="instance.id"
+    :credential-type="providerCredentialType"
     @connect="emit('connect', runtime.provider.value!.id)"
   />
 

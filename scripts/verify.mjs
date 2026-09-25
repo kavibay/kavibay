@@ -1,9 +1,10 @@
 /**
  * Runs the three verify steps concurrently — `npm run verify`.
  *
- * They are independent: typecheck reads types, eslint reads style, the assert
- * files run pure logic. Sequentially they cost the sum of all three; the
- * machine has cores to spare, so the wall clock is the slowest one instead.
+ * They are independent: the incremental typecheck reads types, Oxlint reads
+ * source, and the assert files run pure logic. Sequentially they cost the sum
+ * of all three; the machine has cores to spare, so the wall clock is the
+ * slowest one instead.
  *
  * Each step is spawned on this same node binary rather than through `npm run`
  * or a .bin shim, for the reason spelled out in runAsserts.mjs: on Windows the
@@ -23,8 +24,18 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const bin = (...parts) => join(repoRoot, "node_modules", ...parts);
 
 const STEPS = [
-  { name: "typecheck", args: [bin("vue-tsc", "bin", "vue-tsc.js"), "--noEmit"] },
-  { name: "lint", args: [bin("eslint", "bin", "eslint.js"), "."] },
+  {
+    // Mirrors `npm run typecheck:fast` without paying for another npm process.
+    name: "typecheck:fast",
+    args: [
+      bin("vue-tsc", "bin", "vue-tsc.js"),
+      "--noEmit",
+      "--incremental",
+      "--tsBuildInfoFile",
+      "node_modules/.cache/vue-tsc.tsbuildinfo",
+    ],
+  },
+  { name: "oxlint", args: [bin("oxlint", "bin", "oxlint"), "."] },
   { name: "asserts", args: [join(repoRoot, "scripts", "runAsserts.mjs")] },
 ];
 
@@ -66,8 +77,8 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-// eslint warnings do not fail the build, so a green run still has something to
-// say. Print the steps that produced output rather than swallowing it.
+// A green run can still contain warnings, so print the steps that produced
+// output rather than swallowing it.
 for (const result of results.filter((r) => r.output)) {
   console.log(`\n--- ${result.name} ---\n${result.output}`);
 }

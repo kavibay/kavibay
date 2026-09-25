@@ -448,6 +448,9 @@ export const spotifyProvider = defineProvider({
     "image-cdn-ak.spotifycdn.com",
     "image-cdn-fa.spotifycdn.com",
   ],
+  // Tracks and playlists answer from `api.spotify.com` and live on
+  // `open.spotify.com`; `url` / `trackUrl` on those rows point at the latter.
+  linkHosts: ["open.spotify.com"],
   queries: {
     currentlyPlaying: {
       description: "What is playing on your Spotify account right now",

@@ -36,9 +36,15 @@ import {
 const props = defineProps<{
   type: CredentialTypeSchema;
   summary: CredentialSummary | null;
+  /**
+   * What to call a *new* connection when the platform already has one. Empty
+   * for the first, which falls back to the type's own name in Rust.
+   */
+  suggestedName?: string;
 }>();
 
-const emit = defineEmits<{ (event: "changed"): void }>();
+const emit = defineEmits<{ (event: "changed"): void; (event: "saved", id: string): void }>();
+const connectionName = ref(props.summary?.name ?? props.suggestedName ?? "");
 
 const values = ref<FormValues>(buildFormValues(props.type, props.summary));
 const saving = ref(false);
@@ -55,7 +61,7 @@ const users = ref<string[]>([]);
 /** Loads which packages hold a grant for this credential type. */
 async function refreshUsers() {
   try {
-    users.value = await credentialUsers(props.type.id);
+    users.value = props.summary ? await credentialUsers(props.summary.id) : [];
   } catch {
     users.value = [];
   }
@@ -65,7 +71,9 @@ onMounted(refreshUsers);
 
 async function onRevoke(packageId: string) {
   await run(connecting, async () => {
-    await revokeCredentialUse(packageId, props.type.id);
+    if (!props.summary) return null;
+    await revokeCredentialUse(packageId, props.summary.id);
+    emit("changed");
     await refreshUsers();
     return `${packageId} can no longer use this credential.`;
   });
@@ -79,6 +87,7 @@ watch(
   () => props.summary,
   (next) => {
     values.value = buildFormValues(props.type, next);
+    connectionName.value = next?.name ?? props.suggestedName ?? "";
   },
 );
 
@@ -125,11 +134,13 @@ async function run(
 
 async function onSave() {
   await run(saving, async () => {
-    await saveCredential(
+    const id = await saveCredential(
       props.type.id,
       submittableValues(props.type, values.value),
       props.summary?.id,
+      connectionName.value.trim() || props.type.displayName,
     );
+    emit("saved", id);
     emit("changed");
     return "Saved. Secrets are encrypted for this user and never shown again.";
   });
@@ -161,7 +172,8 @@ async function onConnect() {
     // creating it here keeps "Connect" a single click.
     const id =
       props.summary?.id ??
-      (await saveCredential(props.type.id, submittableValues(props.type, values.value)));
+      (await saveCredential(props.type.id, submittableValues(props.type, values.value), undefined, connectionName.value.trim() || props.type.displayName));
+    emit("saved", id);
 
     const device = await connectCredential(id);
     verification.value = device;
@@ -210,13 +222,30 @@ async function openDocs() {
         <!-- Nothing at all for a type we ship no logo for; see BrandMark. -->
         <BrandMark :provider="type.id" :size="22" class="cred-mark" />
         <div>
-          <h3 class="cred-name">{{ type.displayName }}</h3>
-          <p class="cred-desc">{{ type.description }}</p>
+          <h3 class="cred-name">{{ summary?.name || "New connection" }}</h3>
+          <!-- First-run help. Once an account exists it is the same sentence
+               the provider row above already carries. -->
+          <p v-if="!summary" class="cred-desc">{{ type.description }}</p>
         </div>
       </div>
       <span class="cred-status" :class="`cred-status--${tone}`">{{ status }}</span>
     </header>
 
+    <!--
+      First field on purpose: with several accounts on one platform the name is
+      the only thing that tells them apart — the keys themselves are write-only
+      and look identical in every list that offers them.
+    -->
+    <label class="cred-field">
+      <span class="cred-label">Connection name</span>
+      <input
+        v-model="connectionName"
+        type="text"
+        :placeholder="type.displayName"
+        autocomplete="off"
+      />
+      <span class="cred-help">Shown wherever you pick an account — e.g. Work, Personal.</span>
+    </label>
     <label v-for="field in type.fields" :key="field.key" class="cred-field">
       <span class="cred-label">
         {{ field.label }}<span v-if="field.required" class="cred-req">*</span>
@@ -240,10 +269,6 @@ async function openDocs() {
     >
       Open setup guide
     </button>
-
-    <p v-if="summary?.accountLabel" class="cred-account">
-      Connected as {{ summary.accountLabel }}
-    </p>
 
     <div v-if="isPending && verification" class="cred-device">
       <p class="cred-code">{{ verification.userCode }}</p>
@@ -499,13 +524,6 @@ async function openDocs() {
   font-weight: 700;
   letter-spacing: 3px;
   color: rgba(var(--fg-rgb), 0.95);
-}
-
-.cred-account {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: rgba(var(--fg-rgb), 0.85);
 }
 
 .cred-users {

@@ -18,7 +18,7 @@ sdk:
 
 ci:
   - changed-files:
-      - any-glob-to-any-file: [".github/**", "scripts/**", "eslint.config.js"]
+      - any-glob-to-any-file: [".github/**", "scripts/**", ".oxlintrc.json"]
 
 security:
   - changed-files:

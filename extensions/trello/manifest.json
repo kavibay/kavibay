@@ -1,9 +1,0 @@
-{
-  "format": "contract",
-  "name": "trello",
-  "version": "1.0.0",
-  "displayName": "Trello",
-  "description": "Trello boards, lists and cards for widgets that connect a Trello account.",
-  "author": "kavibay",
-  "engines": { "kavibay": "^0.1" }
-}

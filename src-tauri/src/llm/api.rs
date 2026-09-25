@@ -52,7 +52,7 @@ pub async fn stream_chat(
         // token would sit in the decoder until the response ends.
         .header("Accept", "text/event-stream")
         .header("Accept-Encoding", "identity")
-        .json(&provider.body(model, messages));
+        .json(&provider.body(model, messages)?);
     for (name, value) in provider.extra_headers() {
         request = request.header(*name, *value);
     }

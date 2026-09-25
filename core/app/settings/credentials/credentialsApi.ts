@@ -71,8 +71,9 @@ export function saveCredential(
   typeId: string,
   fields: Record<string, string>,
   id?: string,
+  name?: string,
 ): Promise<string> {
-  return invoke<string>("credentials_save", { typeId, id: id ?? null, name: null, fields });
+  return invoke<string>("credentials_save", { typeId, id: id ?? null, name: name ?? null, fields });
 }
 
 export function deleteCredential(id: string): Promise<void> {
@@ -105,16 +106,17 @@ export function cancelConnect(id: string): Promise<void> {
 }
 
 /**
- * Runtime packages currently allowed to have this credential type injected into
- * their declared requests. They never receive the secret itself.
+ * Runtime packages currently allowed to have this exact connection injected into
+ * their declared requests. They never receive the secret itself, and a grant is
+ * per connection: allowing the work workspace does not allow a personal one.
  */
-export function credentialUsers(credentialType: string): Promise<string[]> {
-  return invoke<string[]>("runtime_extensions_credential_users", { credentialType });
+export function credentialUsers(credentialId: string): Promise<string[]> {
+  return invoke<string[]>("runtime_extensions_credential_users", { credentialId });
 }
 
-/** Withdraws one package's access to this credential type. */
-export function revokeCredentialUse(id: string, credentialType: string): Promise<void> {
-  return invoke<void>("runtime_extensions_revoke_credential", { id, credentialType });
+/** Withdraws one package's access to this one connection. */
+export function revokeCredentialUse(id: string, credentialId: string): Promise<void> {
+  return invoke<void>("runtime_extensions_revoke_credential", { id, credentialId });
 }
 
 /** Removes the connected account but keeps the entered fields. */
