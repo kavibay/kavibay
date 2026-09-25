@@ -649,11 +649,19 @@ fn tool_definitions() -> Vec<Tool> {
     vec![
         tool(
             "get_authoring_guide",
-            "Read the exact host-owned runtime or contract package authoring guide.",
+            "Read the authoring guide Kavibay's own Widget Wizard gives its model: the package format, the house style and, for contract packages, the schema of each named provider. A package written from it passes the same validation as one the Wizard writes. Read it once per format before writing or editing a draft. A runtime package runs sandboxed and reaches the network only through endpoints it declares in api.json; a contract package reads the person's connected accounts through providers.",
             object_schema(
                 json!({
-                    "format": { "type": "string", "enum": ["runtime", "contract"] },
-                    "providerIds": { "type": "array", "items": { "type": "string" } }
+                    "format": {
+                        "type": "string",
+                        "enum": ["runtime", "contract"],
+                        "description": "Which package format the guide describes."
+                    },
+                    "providerIds": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Contract format only: provider ids from list_widget_providers whose schemas are appended. Any id with the runtime format returns providers_require_contract_format; an unknown id returns unknown_provider."
+                    }
                 }),
                 &["format"],
             ),
@@ -661,36 +669,49 @@ fn tool_definitions() -> Vec<Tool> {
         ),
         tool(
             "list_widget_providers",
-            "List read-only provider ids and schemas available to contract packages.",
+            "List every provider a contract package can name in requires.providers, each with its schema: query and action names, their arguments and the fields they return. It says nothing about which accounts the person has connected; the host asks for those when the widget is enabled.",
             no_args.clone(),
             true,
         ),
         tool(
             "list_drafts",
-            "List draft summaries from Kavibay's custom authoring workspace.",
+            "List the drafts in Kavibay's custom authoring workspace: id, file paths, revision, validation error, and who wrote each last (lastWriter, lastClient, lastClientName, updatedAt), which says whether the person is editing one in the Widget Wizard right now. Saved widgets are not drafts; list_custom_widgets lists those.",
             no_args.clone(),
             true,
         ),
         tool(
             "read_draft",
-            "Read a complete text draft and its current revision.",
-            object_schema(json!({ "id": { "type": "string" } }), &["id"]),
+            "Read every text file of one draft and its current revision. Pass that revision as expectedRevision on the next write_draft. A draft_not_found error means no draft has this id.",
+            object_schema(
+                json!({ "id": { "type": "string", "description": "Draft id as list_drafts reports it." } }),
+                &["id"],
+            ),
             true,
         ),
         tool(
             "write_draft",
-            "Write a complete text file set to a draft using optimistic revision checking; omitted files are removed. The manifest names the package: writing a different name (`name` for a contract package, `id` for a runtime one) renames the draft, and the reply's `id` and `renamedFrom` say where it moved.",
+            "Write a complete text file set to a draft using optimistic revision checking; omitted files are removed. The manifest names the package: writing a different name (`name` for a contract package, `id` for a runtime one) renames the draft, and the reply's `id` and `renamedFrom` say where it moved. A package holds at most 32 files, 512 KB per file and 2 MB in total, and must include manifest.json. The reply is the draft summary validate_draft returns, validation error included.",
             object_schema(
                 json!({
-                    "id": { "type": "string" },
-                    "expectedRevision": { "type": ["string", "null"] },
+                    "id": {
+                        "type": "string",
+                        "description": "Draft id: letters, digits, '-' and '_', starting with a letter or digit, at most 64 characters."
+                    },
+                    "expectedRevision": {
+                        "type": ["string", "null"],
+                        "description": "null creates a new draft and fails with draft_conflict if one exists; otherwise the revision read_draft or the last write returned. A stale revision fails with draft_conflict and the current one."
+                    },
                     "files": {
                         "type": "array",
+                        "description": "The complete file set. Files not listed here are removed from the draft.",
                         "items": {
                             "type": "object",
                             "properties": {
-                                "path": { "type": "string" },
-                                "contents": { "type": "string" }
+                                "path": {
+                                    "type": "string",
+                                    "description": "Package-relative path with forward slashes, e.g. ui/index.html; absolute paths and '..' are refused."
+                                },
+                                "contents": { "type": "string", "description": "Full file contents as text." }
                             },
                             "required": ["path", "contents"],
                             "additionalProperties": false
@@ -703,29 +724,38 @@ fn tool_definitions() -> Vec<Tool> {
         ),
         tool(
             "validate_draft",
-            "Run the same host validator used before promotion and return its stable error code.",
-            object_schema(json!({ "id": { "type": "string" } }), &["id"]),
+            "Validate a draft as it is on disk now and return its summary: the error field holds a stable error code, or null when the package is valid. write_draft already returns this for what it wrote; call this when the draft may have changed since, for example after the person edited it in the Wizard. A draft that fails validation cannot be saved.",
+            object_schema(
+                json!({ "id": { "type": "string", "description": "Draft id as list_drafts reports it." } }),
+                &["id"],
+            ),
             true,
         ),
         tool(
             "list_custom_widgets",
-            "List metadata for custom-root widgets only; installed packages are not exposed.",
+            "List the saved widgets in the custom root (written with the Wizard or through MCP): id, name, format, status and validation error. Installed third-party packages are not listed and cannot be read through MCP.",
             no_args.clone(),
             true,
         ),
         tool(
             "read_custom_widget",
-            "Read a custom-root widget's text source and content revision.",
-            object_schema(json!({ "id": { "type": "string" } }), &["id"]),
+            "Read a saved custom widget's text files and its content revision, which checkout_custom_widget needs. Reading creates no draft; to change the widget, check it out.",
+            object_schema(
+                json!({ "id": { "type": "string", "description": "Widget id as list_custom_widgets reports it." } }),
+                &["id"],
+            ),
             true,
         ),
         tool(
             "checkout_custom_widget",
-            "Copy a saved custom widget into a new draft for editing; requires the current source revision and never replaces an existing draft.",
+            "Copy a saved custom widget into a new draft for editing; requires the current source revision and never replaces an existing draft. custom_conflict means the widget changed since you read it; draft_exists means a draft already holds it, so read that draft and continue it instead of retrying.",
             object_schema(
                 json!({
-                    "id": { "type": "string" },
-                    "expectedRevision": { "type": "string" }
+                    "id": { "type": "string", "description": "Widget id as list_custom_widgets reports it." },
+                    "expectedRevision": {
+                        "type": "string",
+                        "description": "The revision read_custom_widget returned."
+                    }
                 }),
                 &["id", "expectedRevision"],
             ),
