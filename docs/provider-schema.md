@@ -131,6 +131,7 @@ Needs no credential.
 | Query | Reads | Arguments | Returns | Refresh |
 |---|---|---|---|---|
 | `current` | The current outdoor temperature and conditions for a place | `location: string` (from `places`) | `{ place: string, temperature: number?, apparentTemperature: number?, humidity: number?, windSpeed: number?, condition: string }` | 10 min |
+| `forecast` | Current conditions plus the next hours and days for a place, as the Weather widget shows them | `location: string` (from `places`) | `{ location: string, temperature_c: number, condition: string, icon: string, apparent_c: number, humidity_pct: number, wind_kmh: number, hourly: list of { time: string, temperature_c: number, icon: string, condition: string }, daily: list of { date: string, temperature_min_c: number, temperature_max_c: number, icon: string, condition: string } }` | 3 min |
 | `places` | Places matching a name, so a widget can offer a list to pick from | `name: string` | `list of { id: string, name: string }` | 1440 min |
 
 No actions — this provider is read-only.

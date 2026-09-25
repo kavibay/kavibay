@@ -1,5 +1,11 @@
 import { effectScope } from "vue";
-import type { HttpCapability, WidgetContext } from "@sdk/contract/sdk";
+import type {
+  HttpCapability,
+  QueryState,
+  WidgetContext,
+  WidgetProviderApi,
+} from "@sdk/contract/sdk";
+import { PROVIDER_ID, weatherProvider } from "../provider";
 import {
   describeWeatherCode,
   normalizeWeatherConfig,
@@ -33,9 +39,10 @@ const data = {
 
 const calls: string[] = [];
 const http: HttpCapability = {
-  get: async <T>(url: string) => {
+  get: async <T>(url: string, params?: Record<string, string | number | boolean>) => {
     calls.push(url);
     if (url.includes("geocoding")) {
+      if (params?.name === "Atlantis") return { results: [] } as T;
       return { results: [{ name: "Berlin", latitude: 52.52, longitude: 13.405 }] } as T;
     }
     return {
@@ -63,13 +70,46 @@ const http: HttpCapability = {
   post: async <T>() => undefined as T,
 };
 
+/**
+ * The host side of `ctx.providers`, reduced to what the widget touches: one
+ * subscription, fed by the real provider query. Caching and the refresh timer
+ * are the host's `QueryCache`, asserted in `query-cache.assert.ts`.
+ */
+const subscriptions: Array<{ name: string; args: unknown }> = [];
+const providerHost = {
+  http: { ...http, put: async <T>() => undefined as T },
+  credentials: { isConnected: async () => true },
+};
+const providerApi = {
+  subscribe: async <T>(
+    name: string,
+    args: Record<string, unknown> | undefined,
+    onState: (state: QueryState<T>) => void,
+  ) => {
+    subscriptions.push({ name, args });
+    onState({ status: "loading" });
+    try {
+      const result = await weatherProvider.queries.forecast.fetch(
+        args as { location: string },
+        providerHost,
+      );
+      onState({ status: "success", data: result as T, isStale: false, updatedAt: 0 });
+    } catch (err) {
+      onState({ status: "error", error: { kind: "provider-error", message: (err as Error).message } });
+    }
+    return { unsubscribe() {} };
+  },
+} as unknown as WidgetProviderApi;
+
 const config = { location: "Berlin" };
 const context = {
   instanceId: "weather-assert",
   config,
   data,
-  http,
+  providers: { [PROVIDER_ID]: providerApi },
 } satisfies WidgetContext<{ location: string }>;
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 deepEqual(normalizeWeatherConfig({ location: "  Hamburg " }), { location: "Hamburg" }, "config is normalized");
 deepEqual(normalizeWeatherState({ viewIndex: -1 }), { viewIndex: 3 }, "view index wraps");
@@ -78,8 +118,14 @@ deepEqual(duplicateWeatherData("state", { viewIndex: 9 }), { viewIndex: 1 }, "du
 
 const scope = effectScope();
 const model = await scope.run(() => weatherWidget.component.setup(context)) as WeatherModel;
-await model.refresh();
-equal(model.data.value?.location, "Berlin", "the host HTTP capability loads the place");
+await settle();
+deepEqual(
+  subscriptions,
+  [{ name: "forecast", args: { location: "Berlin" } }],
+  "the widget reads the provider's cached forecast instead of fetching itself",
+);
+equal(model.loading.value, false, "the forecast arrived");
+equal(model.data.value?.location, "Berlin", "the provider loads the place");
 equal(model.data.value?.hourly.length, 2, "hourly forecast data is normalized");
 equal(model.data.value?.daily[0]?.temperature_min_c, 14, "daily forecast data is normalized");
 deepEqual(calls, [
@@ -100,4 +146,17 @@ deepEqual(configChanges, [{ location: "Hamburg" }], "the action changes schema c
 deepEqual(cells.get("state"), { viewIndex: 3 }, "the action persists the selected slide");
 
 scope.stop();
+
+// A place nobody can find is an error the card shows, not an empty forecast.
+{
+  const lost = effectScope();
+  const lostModel = await lost.run(() =>
+    weatherWidget.component.setup({ ...context, config: { location: "Atlantis" } }),
+  ) as WeatherModel;
+  await settle();
+  equal(lostModel.error.value, "Location not found", "an unknown place surfaces as the widget's error");
+  equal(lostModel.data.value, null, "and brings no data with it");
+  lost.stop();
+}
+
 console.log("weather.assert.ts: ok");

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
-import { onScopeDispose, ref, type Ref } from "vue";
+import { computed, onScopeDispose, ref, type Ref } from "vue";
 import {
   defineWidget,
   type WidgetActionContext,
   type WidgetContext,
 } from "@sdk/contract/sdk";
+import { useProviderQuery } from "@sdk/contract/sdk-vue";
+import { PROVIDER_ID } from "../provider";
 import {
-  fetchWeather,
   normalizeWeatherConfig,
   normalizeWeatherState,
   type WeatherConfig,
@@ -15,7 +16,6 @@ import {
 } from "../weatherLogic";
 
 export const WEATHER_STATE_KEY = "state";
-const REFRESH_MS = 60_000;
 
 const VIEW_INDEX: Record<string, number> = {
   now: 0,
@@ -27,11 +27,10 @@ const VIEW_INDEX: Record<string, number> = {
 export interface WeatherModel {
   location: string;
   state: Ref<WeatherStoredState>;
-  data: Ref<WeatherInfo | null>;
-  loading: Ref<boolean>;
-  error: Ref<string | null>;
+  data: Readonly<Ref<WeatherInfo | null>>;
+  loading: Readonly<Ref<boolean>>;
+  error: Readonly<Ref<string | null>>;
   setViewIndex(index: number): void;
-  refresh(): Promise<void>;
 }
 
 /** Duplicate settings and the selected carousel slide, but not fetched data. */
@@ -62,12 +61,15 @@ export const weatherWidget = defineWidget<WeatherConfig>({
   defaultSize: { w: 4, h: 3 },
   minSize: { w: 3, h: 2 },
   mode: "both",
-  capabilities: {
-    http: {
-      hosts: ["geocoding-api.open-meteo.com", "api.open-meteo.com"],
-      methods: ["GET"],
-    },
-  },
+  /**
+   * Read through the provider rather than `ctx.http`, for its cache. The card
+   * unmounts every time the cockpit closes, so a widget that fetched for itself
+   * started from nothing on every Ctrl double tap. The host cache outlives the
+   * mount: an open shows the last forecast at once, and the host refetches only
+   * once it is older than the query's `staleTime` — on a timer while the card
+   * is on screen, never while it is not.
+   */
+  requires: { providers: [PROVIDER_ID] },
   configuration: {
     location: {
       type: "string",
@@ -83,59 +85,34 @@ export const weatherWidget = defineWidget<WeatherConfig>({
     async setup(ctx: WidgetContext<WeatherConfig>): Promise<WeatherModel> {
       const config = normalizeWeatherConfig(ctx.config);
       const state = ref<WeatherStoredState>(normalizeWeatherState(undefined));
-      const data = ref<WeatherInfo | null>(null);
-      const loading = ref(false);
-      const error = ref<string | null>(null);
       let hydrated = false;
-      let loadSequence = 0;
-      let refreshInFlight: Promise<void> | undefined;
-      const timerRef: { current?: ReturnType<typeof setInterval> } = {};
+
+      const { state: forecast } = useProviderQuery<WeatherInfo>(ctx, PROVIDER_ID, "forecast", {
+        location: config.location,
+      });
+      // A failed refresh keeps the last good forecast beside the error.
+      const data = computed(() => forecast.value.data ?? null);
+      const loading = computed(() => forecast.value.status === "loading");
+      const error = computed(() =>
+        forecast.value.status === "error" ? forecast.value.error.message : null,
+      );
 
       const persist = (): Promise<void> =>
         hydrated ? ctx.data.set(WEATHER_STATE_KEY, state.value) : Promise.resolve();
-
-      const refresh = (): Promise<void> => {
-        if (refreshInFlight) return refreshInFlight;
-        const sequence = ++loadSequence;
-        loading.value = true;
-        refreshInFlight = (async () => {
-          if (!ctx.http) {
-            error.value = "Weather HTTP capability unavailable";
-            return;
-          }
-          const result = await fetchWeather(ctx.http, config.location);
-          if (sequence !== loadSequence) return;
-          if (result.ok) {
-            data.value = result.data;
-            error.value = null;
-          } else {
-            error.value = result.error;
-          }
-        })().finally(() => {
-          if (sequence === loadSequence) loading.value = false;
-          refreshInFlight = undefined;
-        });
-        return refreshInFlight;
-      };
 
       const setViewIndex = (index: number) => {
         state.value = normalizeWeatherState({ viewIndex: index });
         void persist();
       };
 
-      onScopeDispose(() => {
-        if (timerRef.current !== undefined) clearInterval(timerRef.current);
-        void persist();
-      });
+      onScopeDispose(() => void persist());
 
       state.value = normalizeWeatherState(
         await ctx.data.get<WeatherStoredState>(WEATHER_STATE_KEY),
       );
       hydrated = true;
-      timerRef.current = setInterval(() => void refresh(), REFRESH_MS);
-      void refresh();
 
-      return { location: config.location, state, data, loading, error, setViewIndex, refresh };
+      return { location: config.location, state, data, loading, error, setViewIndex };
     },
   },
 });

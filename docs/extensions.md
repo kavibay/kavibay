@@ -99,8 +99,8 @@ many land.
 dropped from the first desk however low its number: one that names a provider
 opens as a connect prompt, and one with a `required` configuration field opens
 as a form. Both are chores wearing a card, and the first thing somebody sees
-must not be a chore. `weather` is the cautionary case — no provider, an obvious
-first card, and a required Location field. Nothing failed; the first run just
+must not be a chore. `weather` is the cautionary case — no account to connect, an
+obvious first card, and a required Location field. Nothing failed; the first run just
 greeted new users with an empty form. So do not reach for `starter` unless your
 widget shows something the moment it mounts, and know that adding a required
 field later removes it from the first desk silently and on purpose.

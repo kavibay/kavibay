@@ -13,7 +13,7 @@
       "categories": ["information"],
       "ui": {
         "defaultOffset": { "x": -480, "y": -70 },
-        "defaultSize": { "w": 520, "h": 240 }
+        "defaultSize": { "w": 300, "h": 270 }
       },
       "actions": [
         {

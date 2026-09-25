@@ -1,27 +1,29 @@
 <script setup lang="ts">
+import { useId } from "vue";
 import type { WeatherIconKey } from "../weatherLogic";
 
 defineProps<{ icon: WeatherIconKey }>();
+
+// Gradient ids are document-global and every widget draws several icons.
+const sunFill = useId();
 </script>
 
 <template>
   <svg class="weather-icon" viewBox="0 0 64 64" width="56" height="56" aria-hidden="true">
+    <defs>
+      <radialGradient :id="sunFill" cx="0.36" cy="0.32" r="0.75">
+        <stop offset="0" stop-color="#FFE17A" />
+        <stop offset="0.55" stop-color="#FFC62E" />
+        <stop offset="1" stop-color="#F5A300" />
+      </radialGradient>
+    </defs>
+
     <g v-if="icon === 'clear'">
-      <circle cx="32" cy="32" r="12" fill="#F5C542" />
-      <g stroke="#F5C542" stroke-width="3" stroke-linecap="round">
-        <line x1="32" y1="6" x2="32" y2="14" />
-        <line x1="32" y1="50" x2="32" y2="58" />
-        <line x1="6" y1="32" x2="14" y2="32" />
-        <line x1="50" y1="32" x2="58" y2="32" />
-        <line x1="12" y1="12" x2="18" y2="18" />
-        <line x1="46" y1="46" x2="52" y2="52" />
-        <line x1="12" y1="52" x2="18" y2="46" />
-        <line x1="46" y1="18" x2="52" y2="12" />
-      </g>
+      <circle cx="32" cy="32" r="24" :fill="`url(#${sunFill})`" />
     </g>
 
     <g v-else-if="icon === 'partly-cloudy'">
-      <circle cx="22" cy="22" r="9" fill="#F5C542" />
+      <circle cx="22" cy="22" r="9" :fill="`url(#${sunFill})`" />
       <path
         d="M20 44h26a10 10 0 0 0 0-20 12 12 0 0 0-23-3A9 9 0 0 0 20 44z"
         fill="#E8EEF7"
