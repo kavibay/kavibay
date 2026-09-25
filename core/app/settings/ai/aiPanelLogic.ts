@@ -61,6 +61,24 @@ export function enabledSummary(
 }
 
 /**
+ * Which AI tab a deep-link should open.
+ *
+ * Accepts a catalog provider id (`anthropic`) or a credential type id
+ * (`anthropicApi`) so callers can pass whichever they already have. An unknown
+ * value is ignored — a stale link must not invent a tab.
+ */
+export function resolveAiProviderFocus(
+  requested: string | null | undefined,
+  models: readonly LlmModelOption[] = [],
+): LlmProviderId | null {
+  if (!requested) return null;
+  if (AI_PROVIDER_TABS.some((tab) => tab.id === requested)) {
+    return requested as LlmProviderId;
+  }
+  return models.find((model) => model.credentialType === requested)?.provider ?? null;
+}
+
+/**
  * Whether this provider has a stored key.
  *
  * The model list is pointless without one: toggling rows cannot make a 401

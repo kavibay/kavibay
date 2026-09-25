@@ -12,13 +12,16 @@ export interface CalcHistoryEntry {
 export interface CalcState {
   history: CalcHistoryEntry[];
   expression: string;
+  selectedIndex?: number | null;
 }
 
 export interface CalculatorModel {
   history: Ref<CalcHistoryEntry[]>;
   expression: Ref<string>;
+  selectedIndex: Ref<number | null>;
   live: ComputedRef<string | null>;
   setExpression(value: string): void;
+  selectHistory(index: number): void;
   commit(): boolean;
   clearAll(): void;
 }
@@ -58,20 +61,47 @@ export function normalizeHistory(raw: unknown): CalcHistoryEntry[] {
 export function normalizeCalculatorState(raw: unknown): CalcState {
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     const value = raw as Record<string, unknown>;
+    const normalizedHistory = normalizeHistory(value.history);
+    const selectedIndex =
+      typeof value.selectedIndex === "number" &&
+      Number.isInteger(value.selectedIndex) &&
+      value.selectedIndex >= 0 &&
+      value.selectedIndex < normalizedHistory.length
+        ? value.selectedIndex
+        : null;
+    const history = selectedIndex == null ? normalizedHistory : normalizedHistory.slice(0, selectedIndex + 1);
     return {
-      history: normalizeHistory(value.history),
+      history,
       expression: typeof value.expression === "string" ? value.expression : "",
+      selectedIndex,
     };
   }
-  return { history: normalizeHistory(raw), expression: "" };
+  return { history: normalizeHistory(raw), expression: "", selectedIndex: null };
+}
+
+function baseHistoryIndex(history: CalcHistoryEntry[], selectedIndex?: number | null): number {
+  return selectedIndex != null && selectedIndex >= 0 && selectedIndex < history.length
+    ? selectedIndex
+    : history.length - 1;
+}
+
+export function resolveExpression(
+  history: CalcHistoryEntry[],
+  expression: string,
+  selectedIndex?: number | null,
+): string {
+  const trimmed = expression.trim();
+  const previousResult = history[baseHistoryIndex(history, selectedIndex)]?.result;
+  return previousResult && /^[+\-*/]/.test(trimmed) ? `${previousResult}${trimmed}` : trimmed;
 }
 
 export function appendHistoryEntry(
   history: CalcHistoryEntry[],
   expression: string,
+  selectedIndex?: number | null,
 ): { history: CalcHistoryEntry[]; entry: CalcHistoryEntry } | null {
   const trimmed = expression.trim();
-  const evaluated = evaluate(trimmed);
+  const evaluated = evaluate(resolveExpression(history, trimmed, selectedIndex));
   if (!evaluated.ok) return null;
   const entry: CalcHistoryEntry = {
     id: generateCalcHistoryId(),
@@ -232,6 +262,7 @@ export const calculatorWidget = defineWidget<Record<string, never>>({
     async setup(ctx: WidgetContext<Record<string, never>>): Promise<CalculatorModel> {
       const history = ref<CalcHistoryEntry[]>([]);
       const expression = ref("");
+      const selectedIndex = ref<number | null>(null);
       let hydrated = false;
       let persistence = Promise.resolve();
 
@@ -239,6 +270,7 @@ export const calculatorWidget = defineWidget<Record<string, never>>({
         const state: CalcState = {
           history: history.value.map((entry) => ({ ...entry })),
           expression: expression.value,
+          selectedIndex: selectedIndex.value,
         };
         persistence = persistence.catch(() => undefined).then(() => ctx.data.set(CALCULATOR_STATE_KEY, state));
         return persistence;
@@ -247,7 +279,7 @@ export const calculatorWidget = defineWidget<Record<string, never>>({
       // Register before hydration so the runtime's effect scope owns the
       // watcher even though setup crosses an async storage boundary.
       watch(
-        [history, expression],
+        [history, expression, selectedIndex],
         () => {
           if (hydrated) void persist().catch(() => undefined);
         },
@@ -257,10 +289,15 @@ export const calculatorWidget = defineWidget<Record<string, never>>({
       const saved = normalizeCalculatorState(await ctx.data.get(CALCULATOR_STATE_KEY));
       history.value = saved.history;
       expression.value = saved.expression;
+      selectedIndex.value = saved.selectedIndex ?? null;
       hydrated = true;
 
       const live = computed(() => {
-        const result = evaluate(expression.value);
+        const trimmed = expression.value.trim();
+        if (!trimmed) {
+          return selectedIndex.value == null ? null : history.value[selectedIndex.value]?.result ?? null;
+        }
+        const result = evaluate(resolveExpression(history.value, trimmed, selectedIndex.value));
         return result.ok ? formatResult(result.value) : null;
       });
 
@@ -268,19 +305,29 @@ export const calculatorWidget = defineWidget<Record<string, never>>({
         expression.value = value;
       };
 
+      const selectHistory = (index: number) => {
+        if (index < 0 || index >= history.value.length) return;
+        history.value = history.value.slice(0, index + 1);
+        selectedIndex.value = index;
+        expression.value = "";
+      };
+
       const commit = () => {
-        const next = appendHistoryEntry(history.value, expression.value);
+        const previousIndex = selectedIndex.value;
+        const next = appendHistoryEntry(history.value, expression.value, previousIndex);
         if (!next) return false;
         history.value = next.history;
         expression.value = "";
+        selectedIndex.value = previousIndex == null ? null : next.history.length - 1;
         return true;
       };
 
       const clearAll = () => {
         if (history.value.length > 0) history.value = [];
+        selectedIndex.value = null;
       };
 
-      return { history, expression, live, setExpression, commit, clearAll };
+      return { history, expression, selectedIndex, live, setExpression, selectHistory, commit, clearAll };
     },
   },
 });

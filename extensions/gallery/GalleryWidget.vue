@@ -19,7 +19,10 @@ const { vLazyIntro } = useLazyIntroVideos();
 
 /** Host create path — gallery stays open after Add so several widgets can be placed. */
 const addWidget = inject<
-  (typeId: string, opts?: { screen?: { x: number; y: number } }) => string | undefined
+  (
+    typeId: string,
+    opts?: { screen?: { x: number; y: number }; origin?: "gallery" },
+  ) => string | undefined
 >("kavibayAddWidget");
 const focusWidget = inject<(instanceId: string) => void | Promise<void>>("kavibayFocusWidget");
 
@@ -121,11 +124,18 @@ function selectCategory(category: string | null) {
   activeCategory.value = category;
 }
 
-/** Add a widget centered under the click (viewport coords); focus it; keep gallery open. */
-async function onAdd(id: string, event: MouseEvent) {
-  const instanceId = addWidget?.(id, {
-    screen: { x: event.clientX, y: event.clientY },
-  });
+/**
+ * Add a widget, focus it, keep the gallery open.
+ *
+ * Deliberately *not* placed under the click any more: the gallery is a wide
+ * panel and the tile you clicked is inside it, so the new card opened behind
+ * the gallery — Add appeared to do nothing until you moved the panel away. The
+ * host now places a pick on the free side of the palette; `origin` is the whole
+ * request, because where that side is depends on desk geometry the gallery
+ * cannot see.
+ */
+async function onAdd(id: string) {
+  const instanceId = addWidget?.(id, { origin: "gallery" });
   if (instanceId) await focusWidget?.(instanceId);
 }
 </script>
@@ -205,7 +215,7 @@ async function onAdd(id: string, event: MouseEvent) {
             <button
               type="button"
               class="gallery-add"
-              @click.stop="onAdd(tile.id, $event)"
+              @click.stop="onAdd(tile.id)"
             >
               Add
             </button>

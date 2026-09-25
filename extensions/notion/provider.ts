@@ -128,6 +128,9 @@ export const notionProvider = defineProvider({
   requiresCredential: true,
   credentialType: "notionApi",
   hosts: ["api.notion.com"],
+  // Pages answer from `api.notion.com` and live on `www.notion.so` (and
+  // sometimes the bare `notion.so` redirect).
+  linkHosts: ["www.notion.so", "notion.so"],
   queries: {
     pages: {
       description: "Pages shared with your Notion integration, most recently edited first",

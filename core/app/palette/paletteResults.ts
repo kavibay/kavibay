@@ -90,6 +90,8 @@ export interface PaletteWidgetRow {
   subtitle: string;
   keywords: string[];
   hidden: boolean;
+  /** Last soft-hide time; Hidden overview sorts newest first. */
+  hiddenAt?: number;
   /** Desk names where this instance is placed (e.g. "Main" or "Main, Work"). */
   onDesks: string;
   /** Inline preview when the query matched note body text. */
@@ -459,17 +461,21 @@ export function buildOpenNewRows(
 
 /**
  * The empty-query widget overview is a compact inventory, not a search rank.
- * Keep placed cards first so their Focus/Show actions are immediately useful,
- * then offer the full catalog as explicit New actions.
+ * Open cards stay in desk order; hidden cards are last-closed first so Show
+ * lands on the widget just closed; then the full catalog as New actions.
  */
 export function buildWidgetOverviewRows(
   instances: PaletteWidgetRow[],
   types: PaletteTypeRow[],
   offDesk: PaletteWidgetRow[] = [],
 ): PaletteRow[] {
+  const hidden = instances
+    .filter((row) => row.hidden)
+    // Last closed on top so Show/Inline/Delete land on the widget just hidden.
+    .sort((a, b) => (b.hiddenAt ?? 0) - (a.hiddenAt ?? 0));
   return [
     ...instances.filter((row) => !row.hidden),
-    ...instances.filter((row) => row.hidden),
+    ...hidden,
     ...offDesk,
     ...types,
   ];
@@ -591,6 +597,9 @@ export function buildWidgetRows(
       subtitle: hidden ? "Show widget" : "Focus widget",
       keywords: typeKeywordsFor(instance),
       hidden,
+      ...(hidden && typeof instance.hiddenAt === "number"
+        ? { hiddenAt: instance.hiddenAt }
+        : {}),
       onDesks,
       ...(action ? { action } : {}),
     });

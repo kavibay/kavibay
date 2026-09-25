@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::sync::OnceLock;
 use tauri::AppHandle;
 
-use crate::credentials::db::{self, CredentialState};
+use crate::credentials::db;
 use crate::credentials::registry;
 use crate::llm::prefs;
 
@@ -245,11 +245,29 @@ pub fn options(
     app: &AppHandle,
     include: impl Fn(&LlmModelDef) -> bool,
 ) -> Result<Vec<LlmModelOption>, String> {
-    build(app, include, false)
+    build(
+        app,
+        include,
+        false,
+        crate::credentials::bindings::HOST_OWNER,
+    )
+}
+
+pub fn options_for_owner(
+    app: &AppHandle,
+    owner: &str,
+    include: impl Fn(&LlmModelDef) -> bool,
+) -> Result<Vec<LlmModelOption>, String> {
+    build(app, include, false, owner)
 }
 
 pub fn all_options(app: &AppHandle) -> Result<Vec<LlmModelOption>, String> {
-    build(app, |_| true, true)
+    build(
+        app,
+        |_| true,
+        true,
+        crate::credentials::bindings::HOST_OWNER,
+    )
 }
 
 pub fn is_enabled(app: &AppHandle, model_id: &str) -> bool {
@@ -260,9 +278,9 @@ fn build(
     app: &AppHandle,
     include: impl Fn(&LlmModelDef) -> bool,
     keep_disabled: bool,
+    owner: &str,
 ) -> Result<Vec<LlmModelOption>, String> {
     let conn = db::open_db(app)?;
-    crate::credentials::import::run_pending_imports(app, &conn);
     let disabled = prefs::disabled(app);
 
     let mut configured_types: Vec<(&'static str, bool)> = Vec::new();
@@ -279,10 +297,9 @@ fn build(
         {
             Some((_, configured)) => *configured,
             None => {
-                let configured = db::find_by_type(&conn, credential_type)
-                    .ok()
-                    .flatten()
-                    .is_some_and(|record| record.state == CredentialState::Connected);
+                let configured =
+                    crate::credentials::bindings::selection(&conn, owner, credential_type)?
+                        .available;
                 configured_types.push((credential_type, configured));
                 configured
             }

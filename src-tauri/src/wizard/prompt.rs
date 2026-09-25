@@ -112,7 +112,7 @@ buttons do nothing is not a half-finished widget, it is a picture of one — and
 it is the most common way this goes wrong, so check your own output for it
 before you answer.
 
-Rules that are not negotiable:
+The rules for your reply:
 
 - **An answer without file blocks is not an answer.** The explanation is the
   smaller half of the turn and the files are the turn itself, so never stop
@@ -206,7 +206,7 @@ What goes wrong here, in the order it goes wrong:
   whether to enable you from it. Write what the request reads and from whom, in
   their words. It is the one string in the package written for someone else.
 - **A credential is requested, never held.** Set `credential` to a type the host
-  knows — `githubPat`, `linearApi`, `trelloApi`, `notionApi`, `n8nApi`, `spotifyOAuth2`, `fitbitOAuth2`, `anthropicApi`, `openaiApi`, `cloudflareWorkersAi` — and
+  knows — `githubPat`, `linearApi`, `notionApi`, `n8nApi`, `spotifyOAuth2`, `fitbitOAuth2`, `anthropicApi`, `openaiApi`, `cloudflareWorkersAi` — and
   it attaches the secret to your declared request. You never see the token. An
   `Authorization` header in `headers` fails validation; do not reach for one.
 - **The url is fixed.** `{{name}}` fills one whole path segment and nothing else.
@@ -283,7 +283,7 @@ For example:
 {{ "name": "room-summary", ... }}
 ```
 
-Rules that are not negotiable:
+The rules for your reply:
 
 - **An answer without file blocks is not an answer.** Never stop after
   describing what you would build — that reads as a finished widget and delivers
@@ -544,12 +544,38 @@ mod tests {
             "@kavibay/contract.js",
             // The mount point, without which the frame just stays empty.
             "kavibay-widget",
+            // A generated widget writes `<a href>` for "open this issue". The
+            // frame cannot navigate, so the prompt has to say the host opens
+            // it — or the model ships a link that looks clickable and is dead.
+            "openExternal",
         ] {
             assert!(
                 prompt.contains(rule),
                 "the contract prompt must mention {rule}"
             );
         }
+    }
+
+    /// A generated Linear widget shipped "Open in Linear" as `<a href>` and
+    /// the click did nothing: the frame has no navigation, and telling the
+    /// model to use a click handler instead is a rule it keeps missing. The
+    /// host now intercepts the click, so the prompt has to teach the markup
+    /// that actually works — and must not still say the link is dead.
+    #[test]
+    fn the_contract_prompt_teaches_that_a_provider_link_opens() {
+        let prompt = contract_system_prompt(&[]);
+        assert!(
+            prompt.contains("<a href=\"${issue.url}\">"),
+            "the worked markup is an <a href> with a provider url, not a click handler",
+        );
+        assert!(
+            prompt.contains("ctx.openExternal.open"),
+            "a button still has the explicit call",
+        );
+        assert!(
+            !prompt.contains("An `<a href>` does nothing"),
+            "the old rule contradicts the intercept and would teach a dead control",
+        );
     }
 
     /// The two formats disagree about nearly everything, and a model given both
@@ -687,7 +713,7 @@ mod tests {
         );
         assert!(
             prompt.contains("githubPat")
-                && prompt.contains("trelloApi")
+                && prompt.contains("linearApi")
                 && prompt.contains("n8nApi")
                 && prompt.contains("notionApi")
                 && prompt.contains("spotifyOAuth2")

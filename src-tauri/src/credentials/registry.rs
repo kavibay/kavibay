@@ -11,7 +11,6 @@ use super::types::{
 /// Type id constants — used by API modules and (later) extension manifests.
 pub const GITHUB_PAT: &str = "githubPat";
 pub const LINEAR_API: &str = "linearApi";
-pub const TRELLO_API: &str = "trelloApi";
 pub const NOTION_API: &str = "notionApi";
 pub const N8N_API: &str = "n8nApi";
 pub const SPOTIFY_OAUTH2: &str = "spotifyOAuth2";
@@ -34,7 +33,6 @@ const GITHUB: CredentialTypeDef = CredentialTypeDef {
         required: true,
         placeholder: Some("ghp_… / github_pat_…"),
         help: Some("Needs `repo` (classic) or Actions: Read-only (fine-grained)."),
-        env: None,
     }],
     auth: AuthKind::Static,
     inject: Injection::Bearer {
@@ -69,7 +67,6 @@ const LINEAR: CredentialTypeDef = CredentialTypeDef {
         help: Some(
             "Settings → Account → Security & access. The key is sent without a Bearer prefix.",
         ),
-        env: None,
     }],
     auth: AuthKind::Static,
     inject: Injection::Header {
@@ -81,46 +78,6 @@ const LINEAR: CredentialTypeDef = CredentialTypeDef {
         headers: &[("Content-Type", "application/json")],
         success: "Key accepted by Linear.",
         body: Some(r#"{"query":"{ viewer { id } }"}"#),
-    }),
-    instance_url_field: None,
-};
-
-/// Trello API key + user token. Auth is two query parameters, not a header —
-/// Trello's REST API does not accept Bearer, and the key is considered public.
-const TRELLO: CredentialTypeDef = CredentialTypeDef {
-    id: TRELLO_API,
-    display_name: "Trello",
-    description: "An API key and a user token from trello.com/app-key, with read access to the boards you want to show.",
-    docs_url: Some("https://trello.com/app-key"),
-    fields: &[
-        FieldDef {
-            key: "apiKey",
-            label: "API Key",
-            kind: FieldKind::Text,
-            required: true,
-            placeholder: None,
-            help: Some("trello.com/app-key. The key is public; the token below is the secret."),
-            env: None,
-        },
-        FieldDef {
-            key: "token",
-            label: "Token",
-            kind: FieldKind::Password,
-            required: true,
-            placeholder: None,
-            help: Some("On the same page, generate a token with read access."),
-            env: None,
-        },
-    ],
-    auth: AuthKind::Static,
-    inject: Injection::Query {
-        params: &[("key", "{{apiKey}}"), ("token", "{{token}}")],
-    },
-    test: Some(TestRequest {
-        url: "https://api.trello.com/1/members/me",
-        headers: &[],
-        success: "Key and token accepted by Trello.",
-        body: None,
     }),
     instance_url_field: None,
 };
@@ -141,7 +98,6 @@ const NOTION: CredentialTypeDef = CredentialTypeDef {
         help: Some(
             "notion.so/my-integrations. Share each page or database with the integration — a token without shares sees nothing.",
         ),
-        env: None,
     }],
     auth: AuthKind::Static,
     inject: Injection::Bearer {
@@ -174,7 +130,6 @@ const N8N: CredentialTypeDef = CredentialTypeDef {
             help: Some(
                 "Cloud or self-hosted origin. A path prefix is kept; /api/v1 is the API root and is stripped.",
             ),
-            env: None,
         },
         FieldDef {
             key: "apiKey",
@@ -183,7 +138,6 @@ const N8N: CredentialTypeDef = CredentialTypeDef {
             required: true,
             placeholder: None,
             help: Some("Settings → n8n API. Sent as X-N8N-API-KEY; this file never sees the value."),
-            env: None,
         },
     ],
     auth: AuthKind::Static,
@@ -215,7 +169,6 @@ const SPOTIFY: CredentialTypeDef = CredentialTypeDef {
         help: Some(
             "Redirect URI exactly http://127.0.0.1:17444/callback — HTTP is allowed only for 127.0.0.1, not localhost. PKCE — no client secret.",
         ),
-        env: Some("KAVIBAY_SPOTIFY_CLIENT_ID"),
     }],
     auth: AuthKind::OAuth2AuthCode(AuthCodeDef {
         auth_url: "https://accounts.spotify.com/authorize",
@@ -269,7 +222,6 @@ const FITBIT: CredentialTypeDef = CredentialTypeDef {
             help: Some(
                 "dev.fitbit.com/apps. Redirect URI exactly http://127.0.0.1:17443/ (trailing slash).",
             ),
-            env: Some("KAVIBAY_FITBIT_CLIENT_ID"),
         },
         FieldDef {
             key: "clientSecret",
@@ -278,7 +230,6 @@ const FITBIT: CredentialTypeDef = CredentialTypeDef {
             required: true,
             placeholder: None,
             help: Some("Encrypted for this user; never shown again after saving."),
-            env: Some("KAVIBAY_FITBIT_CLIENT_SECRET"),
         },
     ],
     auth: AuthKind::OAuth2AuthCode(AuthCodeDef {
@@ -321,7 +272,6 @@ const CLOUDFLARE: CredentialTypeDef = CredentialTypeDef {
             required: true,
             placeholder: Some("32-character account id"),
             help: Some("Cloudflare dashboard → Workers & Pages → Account ID."),
-            env: None,
         },
         FieldDef {
             key: "apiToken",
@@ -330,7 +280,6 @@ const CLOUDFLARE: CredentialTypeDef = CredentialTypeDef {
             required: true,
             placeholder: None,
             help: Some("Create a token with the Workers AI: Read permission."),
-            env: None,
         },
     ],
     auth: AuthKind::Static,
@@ -360,7 +309,6 @@ const ANTHROPIC: CredentialTypeDef = CredentialTypeDef {
         required: true,
         placeholder: Some("sk-ant-…"),
         help: Some("Console → Settings → API keys. Billing must be enabled."),
-        env: None,
     }],
     auth: AuthKind::Static,
     // Anthropic reads the key from x-api-key, not Authorization: Bearer.
@@ -390,7 +338,6 @@ const OPENAI: CredentialTypeDef = CredentialTypeDef {
         required: true,
         placeholder: Some("sk-…"),
         help: Some("Project keys work; the project needs a positive credit balance."),
-        env: None,
     }],
     auth: AuthKind::Static,
     inject: Injection::Bearer {
@@ -420,7 +367,6 @@ const GOOGLE_CALENDAR: CredentialTypeDef = CredentialTypeDef {
             required: true,
             placeholder: Some("…apps.googleusercontent.com"),
             help: None,
-            env: Some("KAVIBAY_GOOGLE_CALENDAR_CLIENT_ID"),
         },
         FieldDef {
             key: "clientSecret",
@@ -429,7 +375,6 @@ const GOOGLE_CALENDAR: CredentialTypeDef = CredentialTypeDef {
             required: true,
             placeholder: None,
             help: Some("Encrypted for this user; never shown again after saving."),
-            env: Some("KAVIBAY_GOOGLE_CALENDAR_CLIENT_SECRET"),
         },
     ],
     auth: AuthKind::OAuth2AuthCode(AuthCodeDef {
@@ -492,7 +437,6 @@ const TADO: CredentialTypeDef = CredentialTypeDef {
 pub const ALL: &[CredentialTypeDef] = &[
     GITHUB,
     LINEAR,
-    TRELLO,
     NOTION,
     N8N,
     SPOTIFY,
@@ -637,9 +581,6 @@ mod tests {
             Injection::Bearer { .. } => {
                 panic!("Linear personal API keys reject the Bearer prefix")
             }
-            Injection::Query { .. } => {
-                panic!("Linear personal API keys are a header, not query params")
-            }
         }
         let test = require(LINEAR_API)
             .unwrap()
@@ -649,24 +590,6 @@ mod tests {
             test.body.is_some(),
             "Linear GraphQL cannot be probed with GET"
         );
-    }
-
-    /// Trello authenticates with `?key=&token=`, not a header.
-    #[test]
-    fn trello_auth_is_query_params() {
-        match require(TRELLO_API).unwrap().inject {
-            Injection::Query { params } => {
-                assert_eq!(params, &[("key", "{{apiKey}}"), ("token", "{{token}}")]);
-            }
-            Injection::Bearer { .. } | Injection::Header { .. } => {
-                panic!("Trello REST rejects Bearer and does not use a custom header")
-            }
-        }
-        let test = require(TRELLO_API)
-            .unwrap()
-            .test
-            .expect("Trello has a connection test");
-        assert!(test.body.is_none(), "Trello is probed with GET /members/me");
     }
 
     /// Notion refuses every request without `Notion-Version`.
@@ -680,7 +603,7 @@ mod tests {
                 assert_eq!(value, "{{token}}");
                 assert_eq!(extra_headers, &[("Notion-Version", "2022-06-28")]);
             }
-            Injection::Header { .. } | Injection::Query { .. } => {
+            Injection::Header { .. } => {
                 panic!("Notion is Bearer plus Notion-Version, not a custom header or query")
             }
         }
@@ -702,7 +625,7 @@ mod tests {
                 assert_eq!(name, "X-N8N-API-KEY");
                 assert_eq!(value, "{{apiKey}}");
             }
-            Injection::Bearer { .. } | Injection::Query { .. } => {
+            Injection::Bearer { .. } => {
                 panic!("n8n rejects Bearer and does not put the key in the query")
             }
         }
@@ -753,7 +676,7 @@ mod tests {
                 value,
                 extra_headers: _,
             } => assert_eq!(value, "{{accessToken}}"),
-            Injection::Header { .. } | Injection::Query { .. } => {
+            Injection::Header { .. } => {
                 panic!("Spotify Web API is Bearer")
             }
         }
@@ -809,7 +732,7 @@ mod tests {
                 value,
                 extra_headers: _,
             } => assert_eq!(value, "{{accessToken}}"),
-            Injection::Header { .. } | Injection::Query { .. } => {
+            Injection::Header { .. } => {
                 panic!("Fitbit Web API is Bearer")
             }
         }

@@ -26,22 +26,50 @@ export const CREDENTIAL_STATUS_FILTERS: readonly {
   { value: "unset", label: "Not set up" },
 ];
 
-/** Stored credential for one type, or null when the user has never saved it. */
-export function summaryForType(
+/**
+ * Every saved connection of one type, in store order.
+ *
+ * A type is a schema, not an account: Linear issues one API key per workspace,
+ * so "the credential for this type" is not something the panel can ask for.
+ */
+export function summariesForType(
   credentials: readonly CredentialSummary[],
   typeId: string,
-): CredentialSummary | null {
-  return credentials.find((entry) => entry.typeId === typeId) ?? null;
+): CredentialSummary[] {
+  return credentials.filter((entry) => entry.typeId === typeId);
+}
+
+/**
+ * One tone for a type's whole set of connections.
+ *
+ * Attention outranks ready on purpose: with one working account and one expired
+ * account, the expired one is the only thing the user can act on, and a green
+ * pill would hide it.
+ */
+export function typeTone(summaries: readonly CredentialSummary[]): "ok" | "warn" | "idle" {
+  const tones = summaries.map((summary) => statusTone(summary));
+  if (tones.includes("warn")) return "warn";
+  if (tones.includes("ok")) return "ok";
+  return "idle";
 }
 
 /**
  * Short status for a dense list row.
  *
  * Narrower than `statusLabel`: the editor can afford "Connected — email", a
- * 11px pill next to a long provider name cannot.
+ * 11px pill next to a long provider name cannot. Past one connection the
+ * account label stops fitting and stops being the answer anyway — the count,
+ * plus whether anything needs attention, is what the row has room to say.
  */
-export function rowStatusLabel(summary: CredentialSummary | null): string {
-  if (!summary) return "Not set up";
+export function rowStatusLabel(summaries: readonly CredentialSummary[]): string {
+  if (summaries.length === 0) return "Not set up";
+  if (summaries.length > 1) {
+    const attention = summaries.filter((entry) => statusTone(entry) === "warn").length;
+    return attention > 0
+      ? `${summaries.length} connections · ${attention} need attention`
+      : `${summaries.length} connections`;
+  }
+  const summary = summaries[0]!;
   if (summary.pending) return "Waiting…";
   if (summary.state === "connected") return summary.accountLabel ?? "Set up";
   if (summary.state === "needsReauth") return "Reconnect";
@@ -57,11 +85,11 @@ export function typeMatchesQuery(type: CredentialTypeSchema, query: string): boo
 
 /** Whether a type belongs in the chosen status bucket. */
 export function typeMatchesStatus(
-  summary: CredentialSummary | null,
+  summaries: readonly CredentialSummary[],
   filter: CredentialStatusFilter,
 ): boolean {
   if (filter === "all") return true;
-  const tone = statusTone(summary);
+  const tone = typeTone(summaries);
   if (filter === "ready") return tone === "ok";
   if (filter === "attention") return tone === "warn";
   return tone === "idle";
@@ -82,7 +110,7 @@ export function filterCredentialTypes(
   return types.filter(
     (type) =>
       typeMatchesQuery(type, query) &&
-      typeMatchesStatus(summaryForType(credentials, type.id), filter),
+      typeMatchesStatus(summariesForType(credentials, type.id), filter),
   );
 }
 
@@ -102,7 +130,7 @@ export function resolveSelectedTypeId(
   if (visible.length === 0) return null;
   if (current && visible.some((type) => type.id === current)) return current;
   const waiting = visible.find(
-    (type) => statusTone(summaryForType(credentials, type.id)) === "warn",
+    (type) => typeTone(summariesForType(credentials, type.id)) === "warn",
   );
   return waiting?.id ?? visible[0].id;
 }

@@ -61,6 +61,7 @@ async function runHttpCall(requestId: string, endpointId: string, args: unknown)
   try {
     const result = await invoke<HttpCallResult>("runtime_extensions_http_call", {
       extId: props.extId,
+      instanceId: props.instanceId,
       endpointId,
       args: args ?? null,
     });

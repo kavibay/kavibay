@@ -9,8 +9,8 @@
  *   core/app/         must not reach into extensions/ at all — the plugin system
  *                     only works while the dependency runs one way.
  *
- * Written as a guard script rather than an ESLint rule because the real rule is an
- * allowlist, and `no-restricted-imports` can only express denylists of globs.
+ * Written as a guard script rather than a generic lint rule because the real rule
+ * is an allowlist, while restricted-import rules express denylists of globs.
  *
  * Run: node scripts/importBoundaries.assert.mjs
  */
@@ -85,8 +85,8 @@ function importsIn(source) {
 const ALLOWED_APP_EXTENSION_IMPORTS = [
   // The palette shows a live result while you type an expression. Doing this
   // without the import needs a contribution type for palette results, which
-  // CLAUDE.md puts out of scope for v1 — so it is debt, recorded rather than
-  // hidden.
+  // the v1 scope in docs/extension-sdk-reference/CLAUDE.md left out — so it is
+  // debt, recorded rather than hidden.
   "core/app/palette/CommandPalette.vue",
   // The Phase 3 dev board mounts a real extension on purpose; it is the harness
   // for the gate states and ships in no build.

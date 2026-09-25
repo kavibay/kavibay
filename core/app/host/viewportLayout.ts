@@ -97,7 +97,12 @@ export function scaleDeskToViewport(
     if (typeof p.width === "number") next.width = p.width * sx;
     if (typeof p.height === "number") next.height = p.height * sy;
     if (typeof p.contentScale === "number") next.contentScale = p.contentScale;
-    if (p.hidden === true) next.hidden = true;
+    if (p.hidden === true) {
+      next.hidden = true;
+      if (typeof p.hiddenAt === "number" && Number.isFinite(p.hiddenAt)) {
+        next.hiddenAt = p.hiddenAt;
+      }
+    }
     if (p.pinned === true) next.pinned = true;
     return next;
   });

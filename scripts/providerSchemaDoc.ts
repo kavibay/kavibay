@@ -233,6 +233,7 @@ export function renderRustTable(
       credentialType: def.credentialType,
       requiresCredential: def.requiresCredential,
       imageHosts: rustImageHosts(def),
+      linkHosts: rustHostList(def, "linkHosts", def.linkHosts ?? []),
     }))
     .sort((a, b) => a.id.localeCompare(b.id));
 
@@ -253,6 +254,7 @@ export function renderRustTable(
         host_rule: ${row.hostRule},
         credential_type: ${row.credentialType ? `Some(${JSON.stringify(row.credentialType)})` : "None"},
         image_hosts: ${row.imageHosts},
+        link_hosts: ${row.linkHosts},
     },`,
     )
     .join("\n");
@@ -301,11 +303,20 @@ function rustImageHosts(def: ProviderDefinition): string {
   if (!marked && hosts.length > 0) {
     throw new Error(`${def.name}: declares imageHosts but no result marks image: true`);
   }
+  return rustHostList(def, "imageHosts", hosts);
+}
+
+/**
+ * One compiled host slice, formatted the way `cargo fmt` would leave it.
+ *
+ * Shared by `imageHosts` and `linkHosts`: both are exact-hostname allowlists
+ * reached with a url the vendor chose, so both refuse a wildcard for the same
+ * reason — a wildcard is how an allowlist quietly stops being one.
+ */
+function rustHostList(def: ProviderDefinition, field: string, hosts: string[]): string {
   for (const host of hosts) {
-    // A wildcard is how an allowlist quietly stops being one, and this list is
-    // reached with a url the vendor chose.
     if (host.includes("*") || host.includes("/")) {
-      throw new Error(`${def.name}: imageHosts must be exact hostnames, got ${host}`);
+      throw new Error(`${def.name}: ${field} must be exact hostnames, got ${host}`);
     }
   }
   if (hosts.length === 0) return "&[]";

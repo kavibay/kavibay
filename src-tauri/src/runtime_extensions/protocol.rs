@@ -13,7 +13,7 @@ use tauri::{AppHandle, Runtime};
 
 use super::validate::safe_join;
 
-/// Restrictive CSP for HTML served into extension iframes (network denied by default).
+/// Restrictive CSP for every file served into extension iframes (network denied by default).
 ///
 /// There is deliberately **no `frame-ancestors`**. It reads like the right
 /// directive — "only this app may frame a package" — but `'self'` can never
@@ -64,22 +64,32 @@ fn handle_kavibay_ext_request<R: Runtime>(
     request: &Request<Vec<u8>>,
 ) -> Response<Vec<u8>> {
     match load_kavibay_ext_file(app, request.uri()) {
-        Ok((bytes, content_type)) => {
-            let mut builder = Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, content_type);
-            let bytes = if content_type.starts_with("text/html") {
-                builder = builder.header(header::CONTENT_SECURITY_POLICY, EXTENSION_FRAME_CSP);
-                with_canvas_reset(bytes)
-            } else {
-                bytes
-            };
-            builder
-                .body(bytes)
-                .unwrap_or_else(|_| status_response(StatusCode::INTERNAL_SERVER_ERROR))
-        }
+        Ok((bytes, content_type)) => file_response(bytes, content_type),
         Err(_) => status_response(StatusCode::NOT_FOUND),
     }
+}
+
+/// The CSP goes on every response, not only on HTML.
+///
+/// `sandbox="allow-scripts"` still lets a frame navigate *itself*, and the
+/// host's `frame-src` admits any url on this scheme. An SVG of the package
+/// served without the header was a document that runs script with an open
+/// network: navigate there, `fetch` out whatever the page had read. A CSP on
+/// a script, style or image is ignored, so this costs nothing where it does
+/// not matter. `nosniff` keeps a `.txt` from being promoted to HTML.
+fn file_response(bytes: Vec<u8>, content_type: &'static str) -> Response<Vec<u8>> {
+    let bytes = if content_type.starts_with("text/html") {
+        with_canvas_reset(bytes)
+    } else {
+        bytes
+    };
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CONTENT_SECURITY_POLICY, EXTENSION_FRAME_CSP)
+        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+        .body(bytes)
+        .unwrap_or_else(|_| status_response(StatusCode::INTERNAL_SERVER_ERROR))
 }
 
 /// Resolve URI → package file bytes + content type (always `safe_join`).
@@ -312,7 +322,9 @@ fn validate_ext_id(ext_id: &str) -> Result<(), String> {
     if ext_id == "." || ext_id == ".." {
         return Err("ext_id_invalid".into());
     }
-    if ext_id.contains('/') || ext_id.contains('\\') {
+    // `:` too: on Windows `root.join("C:")` is the drive's working directory,
+    // not a folder under the root.
+    if ext_id.contains(['/', '\\', ':']) {
         return Err("ext_id_invalid".into());
     }
     if ext_id.contains('\0') {
@@ -358,6 +370,29 @@ fn status_response(status: StatusCode) -> Response<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Every file a frame can navigate to carries the frame CSP — an SVG is a
+    /// scripted document too, and without it `connect-src 'none'` was one
+    /// `location = "x.svg"` away from not applying.
+    #[test]
+    fn every_served_file_carries_the_frame_csp() {
+        for content_type in [
+            "text/html; charset=utf-8",
+            "image/svg+xml",
+            "text/plain; charset=utf-8",
+            "application/octet-stream",
+        ] {
+            let response = super::file_response(b"<svg/>".to_vec(), content_type);
+            assert_eq!(
+                response
+                    .headers()
+                    .get(tauri::http::header::CONTENT_SECURITY_POLICY)
+                    .and_then(|value| value.to_str().ok()),
+                Some(super::EXTENSION_FRAME_CSP),
+                "{content_type} must not be served without the frame CSP",
+            );
+        }
+    }
 
     /// The reset has to be in the document before the package's own CSS, or it
     /// is racing the parser — which is what made the black intermittent.
@@ -614,6 +649,7 @@ mod tests {
     fn parse_rejects_bad_ext_id() {
         assert!(validate_ext_id("..").is_err());
         assert!(validate_ext_id("a/b").is_err());
+        assert!(validate_ext_id("C:").is_err());
     }
 
     #[test]

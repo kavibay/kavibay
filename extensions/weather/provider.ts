@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-import { defineProvider } from "@sdk/contract/sdk";
-import { describeWeatherCode } from "./weatherLogic";
+import { defineProvider, type ResultSchema } from "@sdk/contract/sdk";
+import { describeWeatherCode, fetchWeather, type WeatherInfo } from "./weatherLogic";
 
 /**
  * The Open-Meteo provider: outdoor weather as an account you pick, not a URL
@@ -80,6 +80,32 @@ const placeLabel = (place: GeoResult): string =>
  */
 const CURRENT_TTL_MS = 10 * 60 * 1000;
 const PLACES_TTL_MS = 24 * 60 * 60 * 1000;
+/**
+ * Shorter than `current` because this one is on screen: the Weather widget
+ * reads it, and a number that is ten minutes behind the window is noticeable.
+ */
+const FORECAST_TTL_MS = 3 * 60 * 1000;
+
+const hourPoint: ResultSchema = {
+  type: "object",
+  fields: {
+    time: { type: "string" },
+    temperature_c: { type: "number" },
+    icon: { type: "string" },
+    condition: { type: "string" },
+  },
+};
+
+const dayPoint: ResultSchema = {
+  type: "object",
+  fields: {
+    date: { type: "string" },
+    temperature_min_c: { type: "number" },
+    temperature_max_c: { type: "number" },
+    icon: { type: "string" },
+    condition: { type: "string" },
+  },
+};
 
 export const weatherProvider = defineProvider({
   name: "weather",
@@ -199,6 +225,45 @@ export const weatherProvider = defineProvider({
             typeof current.weather_code === "number" ? current.weather_code : -1,
           ).condition,
         };
+      },
+    },
+    forecast: {
+      description:
+        "Current conditions plus the next hours and days for a place, as the Weather widget shows them",
+      args: {
+        location: {
+          type: "string",
+          label: "Place",
+          required: true,
+          source: { query: "places" },
+        },
+      },
+      result: {
+        type: "object",
+        fields: {
+          location: { type: "string" },
+          temperature_c: { type: "number" },
+          condition: { type: "string" },
+          icon: { type: "string" },
+          apparent_c: { type: "number" },
+          humidity_pct: { type: "number" },
+          wind_kmh: { type: "number" },
+          hourly: { type: "list", of: hourPoint },
+          daily: { type: "list", of: dayPoint },
+        },
+      },
+      key: (args: { location: string }) => [args.location],
+      staleTime: FORECAST_TTL_MS,
+      /**
+       * Throws where `current` returns an empty reading. The Weather widget has
+       * always said "Location not found" in place of the numbers, and a thrown
+       * query is how it learns that — the cache keeps the last good forecast
+       * beside the error, so a failed refresh does not blank the card.
+       */
+      fetch: async (args: { location: string }, host): Promise<WeatherInfo> => {
+        const result = await fetchWeather(host.http, args.location);
+        if (!result.ok) throw new Error(result.error);
+        return result.data;
       },
     },
   },

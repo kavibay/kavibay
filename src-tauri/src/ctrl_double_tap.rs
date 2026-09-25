@@ -220,9 +220,9 @@ mod win {
             return;
         };
         let app = app.clone();
-        let _ = app
-            .clone()
-            .run_on_main_thread(move || crate::toggle_cockpit(&app, false, Some("CTRL+CTRL")));
+        let _ = app.clone().run_on_main_thread(move || {
+            crate::toggle_cockpit(&app, false, crate::CockpitTrigger::CtrlDoubleTap)
+        });
     }
 }
 

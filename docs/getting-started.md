@@ -5,7 +5,7 @@ Pick your platform and run it. Everything else is in
 
 **The window is invisible on purpose.** Kavibay starts hidden and lives in the
 tray — tap `Ctrl` twice or double-click the tray icon. On the very first start
-it opens by itself with a short tour.
+it opens by itself, asks whether to start at login, and then runs a short tour.
 
 ## Run on Windows
 

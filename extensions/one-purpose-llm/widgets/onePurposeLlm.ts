@@ -43,6 +43,8 @@ export interface OnePurposeLlmModel {
   clearText(): void;
   setSize(width: number, height: number): void;
   loadModels(): Promise<void>;
+  /** Open Settings → AI on this provider's tab so a key can be entered. */
+  openAiSettings(provider?: string): void;
   stream(
     request: LlmChatRequest,
     onEvent: (event: LlmStreamEvent) => void,
@@ -144,7 +146,7 @@ export function duplicateOnePurposeData(key: string, value: unknown): unknown {
 
 export const onePurposeLlmWidget = defineWidget<Record<string, never>>({
   name: "one-purpose-llm",
-  displayName: "Single Purpose LLM",
+  displayName: "Single Purpose AI",
   description: "Run a focused writing task with a provider-neutral LLM.",
   defaultSize: { w: 5.3, h: 4.7 },
   minSize: { w: 2.2, h: 2.9 },
@@ -202,7 +204,7 @@ export const onePurposeLlmWidget = defineWidget<Record<string, never>>({
           if (settings.value.purposeId === templateId) model.setPurpose("");
         },
         clearText() {
-          model.update({ input: "", anonymized: [], output: "" });
+          model.update({ input: "", context: "", attachments: [], anonymized: [], output: "" });
         },
         setSize(width, height) {
           model.update(clampOnePurposeSize(width, height));
@@ -216,6 +218,9 @@ export const onePurposeLlmWidget = defineWidget<Record<string, never>>({
             ? selected.id
             : catalog.find((item) => item.configured)?.id ?? catalog[0]?.id ?? "";
           if (next && next !== settings.value.model) model.update({ model: next });
+        },
+        openAiSettings(provider) {
+          ctx.llm?.openSettings("ai", provider);
         },
         stream(request, onEvent) {
           if (!ctx.llm) return Promise.reject(new Error("LLM capability unavailable"));

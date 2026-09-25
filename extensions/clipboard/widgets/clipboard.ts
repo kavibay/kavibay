@@ -18,8 +18,6 @@ export interface ClipboardModel {
   displayText(entry: ClipboardEntry): string;
 }
 
-const POLL_MS = 1_000;
-
 function errorMessage(cause: unknown): string {
   if (cause instanceof Error) return cause.message;
   if (typeof cause === "string") return cause;
@@ -66,13 +64,21 @@ export const clipboardWidget = defineWidget({
         }
       };
 
+      /** Counts pushes, so a slower `list()` cannot overwrite a newer one. */
+      let pushes = 0;
+      const apply = (next: unknown) => {
+        const nextEntries = normalizeList(next);
+        entries.value = nextEntries;
+        loadSourceIcons(nextEntries);
+      };
+
       const refresh = (): Promise<void> => {
         if (request) return request;
         request = (async () => {
           try {
-            const nextEntries = normalizeList(await ctx.clipboard!.list<unknown>());
-            entries.value = nextEntries;
-            loadSourceIcons(nextEntries);
+            const before = pushes;
+            const next = await ctx.clipboard!.list<unknown>();
+            if (pushes === before) apply(next);
           } catch (cause) {
             error.value = `Clipboard refresh failed: ${errorMessage(cause)}`;
           } finally {
@@ -135,9 +141,15 @@ export const clipboardWidget = defineWidget({
         }
       };
 
-      const timer = setInterval(() => void refresh(), POLL_MS);
+      // Pushed on every change — a copy anywhere, or a restore, delete or clear
+      // here — so there is nothing to poll for. Polling cloned and shipped the
+      // whole history (up to 2 MB) every second, overlay hidden or not.
+      const stopListening = ctx.clipboard!.onChange((next) => {
+        pushes += 1;
+        apply(next);
+      });
       onScopeDispose(() => {
-        clearInterval(timer);
+        void stopListening.then((stop) => stop()).catch(() => {});
         if (copiedTimer) clearTimeout(copiedTimer);
       });
       void refresh();

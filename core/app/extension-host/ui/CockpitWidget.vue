@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, onErrorCaptured, provide, reactive, ref, watch } from "vue";
+import { computed, inject, onErrorCaptured, onMounted, provide, reactive, ref, watch } from "vue";
 import type { WidgetInstance } from "@sdk/contract/sdk";
 import type { JsonBridge } from "../bridge";
 import { useSettingsModal } from "../../settings/useSettingsModal";
@@ -11,6 +11,7 @@ import {
 import WidgetGate from "./WidgetGate.vue";
 import WidgetWizardPreviewHost from "./WidgetWizardPreviewHost.vue";
 import PermissionRequest from "./PermissionRequest.vue";
+import { awaitConnectionCopy, connectionEpoch } from "../../settings/credentials/connections";
 
 /**
  * Adapter between the cockpit's widget host and the extension host.
@@ -36,6 +37,11 @@ const instanceId = inject<string>("widgetInstanceId");
 if (!instanceId) throw new Error("widgetInstanceId missing");
 // Narrowed once: the throw does not carry into the computed below.
 const boundInstanceId: string = instanceId;
+const connectionsReady = ref(false);
+onMounted(async () => {
+  try { await awaitConnectionCopy(boundInstanceId); connectionsReady.value = true; }
+  catch (cause) { crashed.value = String(cause); }
+});
 
 /** Host chrome exposed to the MIT Widget Wizard without a core import. */
 provide("kavibay:widget-wizard-preview", WidgetWizardPreviewHost);
@@ -114,15 +120,24 @@ onErrorCaptured((error, _instance, info) => {
 const settings = useSettingsModal();
 const providerId = computed(() => definition.value?.requires?.providers?.[0]);
 
-function connect() {
-  settings.showSection("credentials");
+/**
+ * The gate asked for a provider, so open its credential type rather than
+ * whichever row the panel happened to have selected. Reaching this handler at
+ * all means there is nothing to choose here — the prompt offers the chooser
+ * itself when accounts already exist.
+ */
+function connect(provider: string) {
+  settings.showSection(
+    "credentials",
+    extensionHost.registry.providers.get(provider)?.def.credentialType,
+  );
 }
 
 // Closing the panel is the earliest moment the answer can have changed, and the
 // host process is the only one that knows it.
 watch(settings.open, (isOpen) => {
   const id = providerId.value;
-  if (!isOpen && id) void extensionHost.refreshProviderStatus(id);
+  if (!isOpen && id) void extensionHost.refreshProviderStatus(id, boundInstanceId);
 });
 </script>
 
@@ -135,7 +150,8 @@ watch(settings.open, (isOpen) => {
   </div>
 
   <WidgetGate
-    v-else
+    v-else-if="connectionsReady"
+    :key="connectionEpoch"
     :host="extensionHost"
     :instance="instance"
     :sandbox="sandbox"

@@ -214,6 +214,59 @@ const renamed: WidgetInstance = {
   assert(overview.length === 4, "overview retains every instance and catalog widget");
 }
 
+// --- hidden overview is last-closed first -----------------------------------------
+{
+  const olderHidden: WidgetInstance = {
+    instanceId: "h-old",
+    typeId: "snake",
+    offset: { x: 0, y: 0 },
+    hidden: true,
+    hiddenAt: 100,
+  };
+  const newerHidden: WidgetInstance = {
+    instanceId: "h-new",
+    typeId: "clock",
+    offset: { x: 0, y: 0 },
+    hidden: true,
+    hiddenAt: 200,
+  };
+  const instanceRows = buildWidgetRows(
+    [olderHidden, visible, newerHidden],
+    (instance) => instance.typeId,
+    (instance) => [instance.typeId],
+  );
+  const overview = buildWidgetOverviewRows(instanceRows, []);
+  const hiddenRows = overview.filter(
+    (row): row is (typeof instanceRows)[number] => row.kind === "widget" && row.hidden,
+  );
+  assert(hiddenRows[0]?.instanceId === "h-new", "last closed hidden widget is on top");
+  assert(hiddenRows[1]?.instanceId === "h-old", "earlier hidden widgets follow");
+  assert(overview[0]?.kind === "widget" && !overview[0].hidden, "open widgets still lead");
+}
+
+{
+  const first: WidgetInstance = {
+    instanceId: "legacy-a",
+    typeId: "snake",
+    offset: { x: 0, y: 0 },
+    hidden: true,
+  };
+  const second: WidgetInstance = {
+    instanceId: "legacy-b",
+    typeId: "clock",
+    offset: { x: 0, y: 0 },
+    hidden: true,
+  };
+  const instanceRows = buildWidgetRows(
+    [first, second],
+    (instance) => instance.typeId,
+    (instance) => [instance.typeId],
+  );
+  const overview = buildWidgetOverviewRows(instanceRows, []);
+  assert(overview[0]?.kind === "widget" && overview[0].instanceId === "legacy-a", "legacy hidden keeps encounter order");
+  assert(overview[1]?.kind === "widget" && overview[1].instanceId === "legacy-b", "legacy hidden does not reverse");
+}
+
 // --- instances parked on another desk sit between the hidden ones and the catalog ---
 {
   const instanceRows = buildWidgetRows(
@@ -550,7 +603,7 @@ console.log("paletteResults.assert.ts: merge ok");
 
   const widgetRow = buildWidgetRows(
     [({ instanceId: "hidden-llm", typeId: "one-purpose-llm", hidden: true } as WidgetInstance)],
-    () => "Single Purpose LLM",
+    () => "Single Purpose AI",
     () => ["llm"],
     () => "",
     () => ({

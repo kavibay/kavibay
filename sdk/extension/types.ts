@@ -386,6 +386,17 @@ export interface RegisteredExtension {
    * and this is never consulted again.
    */
   enabledByDefault?: boolean;
+  /**
+   * Place this widget on the desk the very first time Kavibay is opened,
+   * lowest number first. Absent means no.
+   *
+   * Here for the same reason `enabledByDefault` is: the alternative was a list
+   * of ids in core, and core is not supposed to know what is in `extensions/`.
+   * A widget that needs a connected account should not claim it — it would
+   * greet a new user with a connect prompt shaped like a card. See
+   * `core/app/host/starterDesk.ts`.
+   */
+  starter?: number;
   /** Manifest-relative icon path (e.g. icon.svg). */
   icon?: string;
   /** Inline icon component from the module; wins over `iconUrl` when present. */

@@ -20,6 +20,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "update:model": [value: string];
+  "add-key": [provider: string];
+  open: [];
 }>();
 
 const open = ref(false);
@@ -72,6 +74,7 @@ function placeMenu() {
 }
 
 async function setOpen(next: boolean) {
+  if (next && !open.value) emit("open");
   open.value = next;
   // Pause click-through while the menu is on document.body (outside the card).
   setClickThroughPaused(next);
@@ -90,6 +93,12 @@ function toggle() {
 
 function choose(modelId: string) {
   emit("update:model", modelId);
+  void setOpen(false);
+}
+
+/** Close the menu and send the user to Settings → AI on this provider. */
+function addKey(provider: string) {
+  emit("add-key", provider);
   void setOpen(false);
 }
 
@@ -173,7 +182,14 @@ onUnmounted(() => {
         <div v-for="group in groups" :key="group.provider" class="opl-picker-group">
           <p class="opl-picker-group-label">
             {{ group.label }}
-            <span v-if="!group.configured" class="opl-picker-group-note">needs a key</span>
+            <button
+              v-if="!group.configured"
+              type="button"
+              class="opl-picker-add-key"
+              @click="addKey(group.provider)"
+            >
+              Add key
+            </button>
           </p>
           <button
             v-for="item in group.models"
@@ -212,6 +228,8 @@ onUnmounted(() => {
 .opl-picker-trigger {
   display: flex;
   align-items: center;
+  height: 28px;
+  box-sizing: border-box;
   gap: 6px;
   max-width: 100%;
   padding: 4px 9px 4px 7px;
@@ -276,7 +294,7 @@ onUnmounted(() => {
 
 .opl-picker-group-label {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   margin: 0 0 4px;
@@ -288,11 +306,23 @@ onUnmounted(() => {
   color: rgba(var(--fg-rgb), 0.4);
 }
 
-.opl-picker-group-note {
+.opl-picker-add-key {
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--fg-rgb), 0.16);
+  background: rgba(var(--fg-rgb), 0.07);
+  color: rgba(var(--fg-rgb), 0.72);
+  font: inherit;
+  font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.02em;
   text-transform: none;
-  color: rgba(var(--fg-rgb), 0.32);
+  cursor: pointer;
+}
+
+.opl-picker-add-key:hover {
+  background: rgba(var(--fg-rgb), 0.14);
+  color: rgba(var(--fg-rgb), 0.92);
 }
 
 .opl-picker-option {
@@ -324,7 +354,7 @@ onUnmounted(() => {
   background: rgba(var(--fg-rgb), 0.12);
 }
 
-/* Still selectable — picking it is how you find out which key to add. */
+/* Still selectable — Add key on the group opens Settings; picking still works. */
 .opl-picker-option--locked {
   opacity: 0.55;
 }

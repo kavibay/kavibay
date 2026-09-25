@@ -22,6 +22,7 @@ import {
   ref,
 } from "vue";
 import RuntimeExtensionFrame from "../runtime/RuntimeExtensionFrame.vue";
+import { connectionEpoch } from "../settings/credentials/connections";
 import ContractPackageWidget from "../extension-host/ui/ContractPackageWidget.vue";
 import type { HostExtensionRef } from "../runtime/runtimeTypes";
 import {
@@ -209,6 +210,7 @@ onBeforeUnmount(() => {
       />
       <RuntimeExtensionFrame
         v-else-if="isRuntime && def.runtimeEntryUrl"
+        :key="connectionEpoch"
         :ext-id="def.id"
         :instance-id="instance.instanceId"
         :entry-url="def.runtimeEntryUrl"

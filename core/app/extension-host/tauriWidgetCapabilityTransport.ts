@@ -87,6 +87,8 @@ export const tauriWidgetCapabilityTransport: WidgetCapabilityTransport = {
       // The alarm still rings when window focus is unavailable.
     }
   },
+  openExternalVouched: (url: string) => invoke<void>("extension_open_external", { url }),
+
   openExternal: async (url: string) => {
     const parsed = new URL(url);
     if (parsed.protocol !== "https:") {
@@ -101,6 +103,8 @@ export const tauriWidgetCapabilityTransport: WidgetCapabilityTransport = {
     await navigator.clipboard.writeText(text);
   },
   clipboardList: () => invoke("clipboard_list"),
+  clipboardOnChange: (listener) =>
+    listen<unknown>("clipboard:updated", (event) => listener(event.payload)),
   clipboardRestore: (id: string) => invoke("clipboard_restore", { id }),
   clipboardSetRevealed: (id: string, revealed: boolean) =>
     invoke("clipboard_set_revealed", { id, revealed }),
@@ -178,12 +182,13 @@ export const tauriWidgetCapabilityTransport: WidgetCapabilityTransport = {
     invoke("focus_tracker_upsert_ignore_rule", { kind, value }),
   focusTrackerDeleteIgnoreRule: (id: number) =>
     invoke("focus_tracker_delete_ignore_rule", { id }),
-  llmModels: () => invoke("llm_models"),
+  llmModels: (instanceId) => invoke("llm_models", { instanceId }),
   llmQuickModel: () => invoke("llm_quick_model"),
   llmStream: async (
     instanceId: WidgetInstanceId,
     request: LlmChatRequest,
     onEvent: (event: LlmStreamEvent) => void,
+    owner?: string,
   ) => {
     let unlisteners: Array<() => void> = [];
     let stopped = false;
@@ -220,6 +225,7 @@ export const tauriWidgetCapabilityTransport: WidgetCapabilityTransport = {
       unlisteners = listeners;
       await invoke("llm_chat_stream", {
         instanceId,
+        owner: owner ?? `widget:${instanceId}`,
         requestId: request.requestId,
         model: request.model,
         messages: request.messages,
@@ -230,15 +236,15 @@ export const tauriWidgetCapabilityTransport: WidgetCapabilityTransport = {
     }
   },
   llmCancel: (requestId: string) => invoke("llm_chat_cancel", { requestId }),
-  wizardModels: () => invoke("wizard_models"),
-  wizardComplete: (request) => invoke("wizard_complete", { ...request }),
+  wizardModels: (instanceId) => invoke("wizard_models", { instanceId }),
+  wizardComplete: (request, instanceId) => invoke("wizard_complete", { ...request, instanceId }),
   wizardConversationsList: () => invoke("wizard_conversations_list"),
   wizardConversationLoad: (id: string) => invoke("wizard_conversation_load", { id }),
   wizardConversationSave: (conversation: unknown) =>
     invoke("wizard_conversation_save", { conversation }),
   wizardConversationDelete: (id: string) => invoke("wizard_conversation_delete", { id }),
-  runtimeHttpCall: (extId: string, endpointId: string, args: Record<string, unknown>) =>
-    invoke("runtime_extensions_http_call", { extId, endpointId, args }),
+  runtimeHttpCall: (extId: string, endpointId: string, args: Record<string, unknown>, instanceId: string) =>
+    invoke("runtime_extensions_http_call", { extId, endpointId, args, instanceId }),
   wizardRuntimeScan: () => invoke("runtime_extensions_scan"),
   wizardRuntimeInstalls: () => invoke("runtime_extensions_installs_list"),
   wizardRuntimeEntryUrl: (id: string, entry: string) =>
@@ -247,14 +253,12 @@ export const tauriWidgetCapabilityTransport: WidgetCapabilityTransport = {
     id: string,
     enabled: boolean,
     manifestPermissions: string[],
-    credentialTypes: string[],
     contractGrant?: unknown,
   ) =>
     invoke("runtime_extensions_installs_set", {
       id,
       enabled,
       manifestPermissions,
-      credentialTypes,
       contractGrant: contractGrant ?? null,
     }).then(() => undefined),
   wizardRuntimeReadPackage: (id: string) => invoke("runtime_extensions_read_package", { id }),
@@ -283,7 +287,7 @@ export const tauriWidgetCapabilityTransport: WidgetCapabilityTransport = {
   },
   // The same command RuntimeExtensionFrame calls, with the same ext id.
   wizardEndpointCall: (extId: string, endpointId: string, args: unknown) =>
-    invoke("runtime_extensions_http_call", { extId, endpointId, args: args ?? null }),
+    invoke("runtime_extensions_http_call", { extId, endpointId, args: args ?? null, instanceId: `preview:${extId}` }),
   wizardDrafts: () => invoke("runtime_extensions_draft_list"),
   wizardDraftRead: (id: string) => invoke("runtime_extensions_draft_read", { id }),
   wizardDraftOpen: (id: string) => invoke("runtime_extensions_draft_open", { id }),

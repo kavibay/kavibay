@@ -189,7 +189,17 @@ function onResizeEnd() {
 
 /** Esc closes settings before App.vue hides the window. */
 function onDocumentKeydown(event: KeyboardEvent) {
-  if (event.key !== "Escape" || !open.value) return;
+  if (!open.value) return;
+
+  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && key === "w") {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    hide();
+    return;
+  }
+
+  if (event.key !== "Escape") return;
   event.preventDefault();
   event.stopImmediatePropagation();
   // One step back per press: a typed filter first, then the dialog. Closing

@@ -31,7 +31,7 @@ import { floatingTip } from "./floatingTip";
   font-weight: 500;
   letter-spacing: 0.01em;
   line-height: 1.2;
-  white-space: nowrap;
+  white-space: pre-line;
   pointer-events: none;
   opacity: 0;
   transform: translateY(2px);

@@ -1,7 +1,7 @@
 import type {
   ExtensionId, HttpCapability, HttpCapabilityDeclaration, ProviderError, ProviderHttpCapability, ProviderId,
 } from "@sdk/contract/sdk";
-import type { ProviderTransport } from "./providerTransport";
+import type { ProviderConnection, ProviderTransport } from "./providerTransport";
 
 /**
  * Ported from docs/extension-sdk-reference/http.ts (Phase 1).
@@ -37,7 +37,7 @@ export class HttpBroker {
    * Falls back to `forPolicy` when no transport is injected, which is what lets
    * the contract suite exercise provider fetches without Tauri.
    */
-  forProvider(providerId: ProviderId, hosts: string[]): ProviderHttpCapability {
+  forProvider(providerId: ProviderId, hosts: string[], connection?: ProviderConnection | null): ProviderHttpCapability {
     const transport = this.transport;
     if (!transport) {
       const local = this.forPolicy({ hosts, methods: ["GET", "POST"] });
@@ -54,7 +54,7 @@ export class HttpBroker {
     }
 
     const send = async <T>(url: string, method: "GET" | "POST" | "PUT", body?: unknown): Promise<T> => {
-      const { status, body: payload } = await transport.fetch(providerId, url, method, body);
+      const { status, body: payload } = await transport.fetch(providerId, url, method, body, connection);
       if (status >= 400) throw statusError(status, payload, url);
       return payload as T;
     };

@@ -17,8 +17,6 @@ assert(brandMarkFor("kavibay.github/github") === "github", "github provider id")
 assert(brandMarkFor("githubPat") === "github", "github credential type");
 assert(brandMarkFor("kavibay.linear/linear") === "linear", "linear provider id");
 assert(brandMarkFor("linearApi") === "linear", "linear credential type");
-assert(brandMarkFor("kavibay.trello/trello") === "trello", "trello provider id");
-assert(brandMarkFor("trelloApi") === "trello", "trello credential type");
 assert(brandMarkFor("kavibay.n8n/n8n") === "n8n", "n8n provider id");
 assert(brandMarkFor("n8nApi") === "n8n", "n8n credential type");
 assert(brandMarkFor("kavibay.spotify/spotify") === "spotify", "spotify provider id");

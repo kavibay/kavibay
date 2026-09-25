@@ -9,12 +9,15 @@ import {
   watch,
 } from "vue";
 import { WIDGET_FOCUS_EVENT, widgetFocusRequestMatches, type WidgetSurface } from "@sdk";
+import type { LlmImage } from "@sdk/contract/sdk";
 import {
   scheduleRegionSync,
   syncInteractiveRegions,
 } from "../../core/app/system/clickThrough";
 import {
   buildApiMessages,
+  attachmentProblem,
+  base64FromDataUrl,
   findPurpose,
   isPromptDefault,
   providerLabel,
@@ -53,7 +56,14 @@ const {
   models,
 } = model;
 
-const rootStyle = { width: "100%", height: "100%" };
+const rootStyle = computed(() => ({
+  width: "100%",
+  height: "100%",
+  "--opl-input-row": `${settings.value.contextFlex + settings.value.promptFlex}fr`,
+  "--opl-context-row": `${settings.value.contextFlex}fr`,
+  "--opl-prompt-row": `${settings.value.promptFlex}fr`,
+  "--opl-result-row": `${settings.value.resultFlex}fr`,
+}));
 
 const purpose = computed(() =>
   findPurpose(settings.value.purposeId, customTemplates.value, hiddenTemplateIds.value),
@@ -83,6 +93,8 @@ const copied = ref(false);
 const promptCollapsed = computed(() => settings.value.promptCollapsed);
 const outputEl = ref<HTMLElement | null>(null);
 const inputEl = ref<HTMLTextAreaElement | null>(null);
+const fileInputEl = ref<HTMLInputElement | null>(null);
+const attachmentError = ref("");
 const rootEl = ref<HTMLElement | null>(null);
 const expandedWidth = ref<number | null>(null);
 let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
@@ -128,7 +140,10 @@ const strayPlaceholder = computed(
 /** Show waiting UI until the first token arrives. */
 const waiting = computed(() => streaming.value && streamed.value.length === 0);
 const canRun = computed(
-  () => settings.value.input.trim().length > 0 && !streaming.value && Boolean(settings.value.model),
+  () =>
+    (settings.value.input.trim().length > 0 || settings.value.attachments.length > 0) &&
+    !streaming.value &&
+    Boolean(settings.value.model),
 );
 
 /**
@@ -146,6 +161,16 @@ async function loadModels() {
   }
 }
 
+/** Open Settings → AI on the named provider, or the one the banner is about. */
+function openAiSettings(provider?: string) {
+  model.openAiSettings(provider ?? selectedModel.value?.provider);
+}
+
+function onRootPointerDown() {
+  // Re-read after Settings so the banner clears once a key is stored.
+  if (!configured.value) void loadModels();
+}
+
 /** Keep the newest streamed text visible. */
 async function scrollOutputToBottom() {
   await nextTick();
@@ -158,7 +183,7 @@ watch(output, () => void scrollOutputToBottom());
 /** Run the active purpose over the input text. */
 async function run() {
   const text = settings.value.input.trim();
-  if (!text || streaming.value) return;
+  if ((!text && settings.value.attachments.length === 0) || streaming.value) return;
 
   await loadModels();
   if (!configured.value || !settings.value.model) {
@@ -174,7 +199,7 @@ async function run() {
   );
   activeRequestId.value = requestId;
   streamed.value = "";
-  update({ output: "" });
+  update({ output: "", attachments: [] });
   streaming.value = true;
 
   try {
@@ -218,9 +243,13 @@ function appendOutput(text: string) {
 }
 
 function failRun(message: string) {
+  const displayMessage =
+    message.includes("images_not_supported")
+      ? "This model does not support images. Choose an Anthropic or OpenAI model."
+      : message;
   streamed.value = streamed.value
-    ? `${streamed.value}\n\nError: ${message}`
-    : `Error: ${message}`;
+    ? `${streamed.value}\n\nError: ${displayMessage}`
+    : `Error: ${displayMessage}`;
 }
 
 /** Shared cleanup when a run finishes, errors, or is cancelled. */
@@ -258,6 +287,121 @@ function onInput(event: Event) {
       : {}),
   });
   dismissAnonymize();
+}
+
+function onContextInput(event: Event) {
+  update({ context: (event.target as HTMLTextAreaElement).value });
+}
+
+async function attach(files: FileList | File[] | null) {
+  if (!files) return;
+  for (const file of Array.from(files)) {
+    const problem = attachmentProblem(file, settings.value.attachments.length);
+    if (problem) {
+      attachmentError.value = problem;
+      continue;
+    }
+    try {
+      const dataUrl = await readAsDataUrl(file);
+      update({
+        attachments: [
+          ...settings.value.attachments,
+          { mediaType: file.type, data: base64FromDataUrl(dataUrl) },
+        ],
+      });
+      attachmentError.value = "";
+    } catch {
+      attachmentError.value = `Could not read ${file.name}.`;
+    }
+  }
+}
+
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("read_failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function removeAttachment(index: number) {
+  update({ attachments: settings.value.attachments.filter((_, at) => at !== index) });
+}
+
+function onFilePicked(event: Event) {
+  const input = event.target as HTMLInputElement;
+  void attach(input.files);
+  input.value = "";
+}
+
+function onInputPaste(event: ClipboardEvent) {
+  const files = Array.from(event.clipboardData?.items ?? [])
+    .filter((item) => item.kind === "file")
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file !== null);
+  if (files.length === 0) return;
+  event.preventDefault();
+  void attach(files);
+}
+
+function thumbSrc(image: LlmImage): string {
+  return `data:${image.mediaType};base64,${image.data}`;
+}
+
+type ResizeTarget = "context" | "prompt";
+const resizeState = ref<{ target: ResizeTarget; lastY: number } | null>(null);
+const MIN_RESIZE_FLEX = 0.2;
+
+function adjustResize(target: ResizeTarget, deltaY: number) {
+  const height = rootEl.value?.getBoundingClientRect().height ?? 0;
+  const totalFlex =
+    settings.value.contextFlex + settings.value.promptFlex + settings.value.resultFlex;
+  if (height <= 0 || totalFlex <= 0) return;
+
+  const first = target === "context" ? settings.value.contextFlex : settings.value.promptFlex;
+  const second = target === "context" ? settings.value.promptFlex : settings.value.resultFlex;
+  const deltaFlex = deltaY / (height / totalFlex);
+  const nextFirst = Math.min(
+    first + second - MIN_RESIZE_FLEX,
+    Math.max(MIN_RESIZE_FLEX, first + deltaFlex),
+  );
+  const nextSecond = first + second - nextFirst;
+  update(
+    target === "context"
+      ? { contextFlex: nextFirst, promptFlex: nextSecond }
+      : { promptFlex: nextFirst, resultFlex: nextSecond },
+  );
+}
+
+function onResizeMove(event: PointerEvent) {
+  const state = resizeState.value;
+  if (!state) return;
+  adjustResize(state.target, event.clientY - state.lastY);
+  state.lastY = event.clientY;
+}
+
+function stopResize() {
+  resizeState.value = null;
+  window.removeEventListener("pointermove", onResizeMove);
+  window.removeEventListener("pointerup", stopResize);
+  window.removeEventListener("pointercancel", stopResize);
+}
+
+function startResize(target: ResizeTarget, event: PointerEvent) {
+  if (streaming.value) return;
+  event.preventDefault();
+  event.stopPropagation();
+  resizeState.value = { target, lastY: event.clientY };
+  window.addEventListener("pointermove", onResizeMove);
+  window.addEventListener("pointerup", stopResize);
+  window.addEventListener("pointercancel", stopResize);
+}
+
+function onResizeKeydown(target: ResizeTarget, event: KeyboardEvent) {
+  if (streaming.value || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+  event.preventDefault();
+  adjustResize(target, event.key === "ArrowDown" ? 8 : -8);
 }
 
 /* Anonymize -------------------------------------------------------------- */
@@ -322,6 +466,10 @@ function removeAnonymized(id: number) {
 
 function onPromptInput(event: Event) {
   setPrompt((event.target as HTMLTextAreaElement).value);
+}
+
+function onOutputInput(event: Event) {
+  update({ output: (event.target as HTMLTextAreaElement).value });
 }
 
 function onCreateTemplate(template: CustomPurposeTemplate) {
@@ -389,6 +537,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  stopResize();
   window.removeEventListener(WIDGET_FOCUS_EVENT, onKavibayFocusWidget);
   if (copyResetTimer != null) clearTimeout(copyResetTimer);
 });
@@ -402,10 +551,11 @@ onUnmounted(() => {
     :class="{ 'opl--prompt-collapsed': promptCollapsed }"
     :style="rootStyle"
     data-interactive
-    @pointerdown.stop
+    @pointerdown.stop="onRootPointerDown"
   >
     <div v-if="!configured" class="opl-banner">
-      <span>{{ providerName }} needs an API key. Add it in Settings → AI.</span>
+      <span>{{ providerName }} needs an API key.</span>
+      <button type="button" class="opl-link" @click="openAiSettings()">Add key</button>
     </div>
 
     <div class="opl-purpose">
@@ -419,6 +569,18 @@ onUnmounted(() => {
         @delete-template="onDeleteTemplate"
       />
       <span class="opl-purpose-hint">{{ purpose.hint }}</span>
+      <button
+        v-if="promptCollapsed"
+        type="button"
+        class="opl-prompt-show"
+        aria-label="Show system prompt"
+        @click="expandPrompt"
+      >
+        <span>System prompt</span>
+        <svg width="12" height="12" viewBox="0 0 20 20" aria-hidden="true">
+          <path d="M8 4l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
     </div>
 
     <section v-if="!promptCollapsed" class="opl-section opl-section--prompt">
@@ -454,114 +616,181 @@ onUnmounted(() => {
         </div>
     </section>
 
-    <section class="opl-section opl-section--input">
+    <div class="opl-input-stack">
+      <section class="opl-section opl-section--context">
+        <p class="opl-label"><span>Context</span></p>
+        <div class="opl-field">
+          <textarea
+          class="opl-textarea"
+          rows="1"
+            placeholder="Optional context…"
+            aria-label="Context"
+            :value="settings.context"
+            :disabled="streaming"
+            @input="onContextInput"
+            @keydown="onInputKeydown"
+          />
+        </div>
+      </section>
+
+      <div
+        class="opl-resizer opl-resizer--context"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize context and prompt"
+        tabindex="0"
+        @pointerdown="startResize('context', $event)"
+        @keydown="onResizeKeydown('context', $event)"
+      />
+
+      <section class="opl-section opl-section--input">
       <p class="opl-label">
         <span>Prompt</span>
-        <button
-          v-if="promptCollapsed"
-          type="button"
-          class="opl-prompt-show"
-          aria-label="Show system prompt"
-          @click="expandPrompt"
-        >
-          <span>System prompt</span>
-          <svg width="12" height="12" viewBox="0 0 20 20" aria-hidden="true">
-            <path d="M8 4l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-        </button>
       </p>
-      <div class="opl-field">
-        <textarea
-          ref="inputEl"
-          class="opl-textarea"
-          rows="2"
-          :placeholder="purpose.inputPlaceholder"
-          :value="settings.input"
-          :disabled="streaming"
-          @input="onInput"
-          @keydown="onInputKeydown"
-          @mouseup="onInputSelect"
-          @blur="dismissAnonymize"
-        />
+        <div
+          class="opl-field"
+          @dragover.prevent
+          @drop.prevent="attach($event.dataTransfer?.files ?? null)"
+        >
+          <textarea
+            ref="inputEl"
+            class="opl-textarea"
+            rows="2"
+            :placeholder="purpose.inputPlaceholder"
+            :value="settings.input"
+            :disabled="streaming"
+            @input="onInput"
+            @keydown="onInputKeydown"
+            @paste="onInputPaste"
+            @mouseup="onInputSelect"
+            @blur="dismissAnonymize"
+          />
 
-        <!-- What will be redacted, and the only way to take a mark back. A
-             mark you cannot see is a mark you cannot trust. -->
-        <ul v-if="settings.anonymized.length" class="opl-marks" aria-label="Anonymized values">
-          <li v-for="mark in settings.anonymized" :key="mark.id" class="opl-mark">
-            <span class="opl-mark-term" :title="mark.term">{{ mark.term }}</span>
-            <span v-if="mark.all" class="opl-mark-scope" v-tip="'Every occurrence'">all</span>
+          <div v-if="settings.attachments.length" class="opl-attachments">
+            <button
+              v-for="(image, index) in settings.attachments"
+              :key="index"
+              type="button"
+              class="opl-attachment"
+              :aria-label="`Remove image ${index + 1}`"
+              v-tip="'Remove image'"
+              @click="removeAttachment(index)"
+            >
+              <img :src="thumbSrc(image)" alt="Attached image" />
+              <span aria-hidden="true">×</span>
+            </button>
+          </div>
+          <p v-if="attachmentError" class="opl-warn">{{ attachmentError }}</p>
+
+          <!-- What will be redacted, and the only way to take a mark back. A
+               mark you cannot see is a mark you cannot trust. -->
+          <ul v-if="settings.anonymized.length" class="opl-marks" aria-label="Anonymized values">
+            <li v-for="mark in settings.anonymized" :key="mark.id" class="opl-mark">
+              <span class="opl-mark-term" :title="mark.term">{{ mark.term }}</span>
+              <span v-if="mark.all" class="opl-mark-scope" v-tip="'Every occurrence'">all</span>
+              <button
+                type="button"
+                class="opl-mark-remove"
+                :aria-label="`Stop anonymizing ${mark.term}`"
+                v-tip="'Remove'"
+                @click="removeAnonymized(mark.id)"
+              >
+                ×
+              </button>
+            </li>
+          </ul>
+
+          <div class="opl-field-footer">
+            <input
+              ref="fileInputEl"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              multiple
+              hidden
+              @change="onFilePicked"
+            />
             <button
               type="button"
-              class="opl-mark-remove"
-              :aria-label="`Stop anonymizing ${mark.term}`"
-              v-tip="'Remove'"
-              @click="removeAnonymized(mark.id)"
+              class="opl-attach"
+              aria-label="Add image"
+              v-tip="'Add image'"
+              :disabled="streaming"
+              @click="fileInputEl?.click()"
             >
-              ×
+              +
             </button>
-          </li>
-        </ul>
-
-        <div class="opl-field-footer">
-          <OnePurposeLlmModelPicker
-            :models="models"
-            :model="settings.model"
-            :disabled="streaming"
-            @update:model="(id: string) => update({ model: id })"
-          />
+            <OnePurposeLlmModelPicker
+              :models="models"
+              :model="settings.model"
+              :disabled="streaming"
+              @update:model="(id: string) => update({ model: id })"
+              @add-key="openAiSettings"
+              @open="loadModels"
+            />
           <button
-            v-if="streaming"
-            type="button"
-            class="opl-run opl-run--stop"
-            aria-label="Stop"
-            v-tip="'Stop'"
-            @click="cancel"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <rect x="6" y="6" width="12" height="12" rx="2" />
-            </svg>
-          </button>
-          <button
-            v-else
-            type="button"
-            class="opl-run"
-            aria-label="Run"
-            v-tip="'Run (Ctrl+Enter)'"
-            :disabled="!canRun"
-            @click="run"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path
-                d="M5 12h14M13 6l6 6-6 6"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-          </button>
+              v-if="streaming"
+              type="button"
+              class="opl-run opl-run--stop"
+              aria-label="Stop"
+              v-tip="'Stop'"
+              @click="cancel"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <rect x="6" y="6" width="12" height="12" rx="2" />
+              </svg>
+            </button>
+            <button
+              v-else
+              type="button"
+              class="opl-run"
+              aria-label="Run"
+              v-tip="'Run (Ctrl+Enter)'"
+              :disabled="!canRun"
+              @click="run"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M5 12h14M13 6l6 6-6 6"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </div>
+
+    <div
+      class="opl-resizer opl-resizer--prompt"
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="Resize prompt and result"
+      tabindex="0"
+      @pointerdown="startResize('prompt', $event)"
+      @keydown="onResizeKeydown('prompt', $event)"
+    />
 
     <section class="opl-section opl-section--result">
-      <p class="opl-label">
-        <span>Result</span>
-        <button
-          v-if="output && !streaming"
-          type="button"
-          class="opl-copy"
-          :aria-label="copied ? 'Copied' : 'Copy result'"
-          v-tip="copied ? 'Copied' : 'Copy result'"
-          @click="copyOutput"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.8" />
-            <path d="M5 15V5a2 2 0 0 1 2-2h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-          </svg>
-        </button>
-      </p>
-      <div ref="outputEl" class="opl-result" @wheel.stop>
+      <div class="opl-result" @wheel.stop>
+        <p class="opl-label">
+          <span>Result</span>
+          <button
+            v-if="output && !streaming"
+            type="button"
+            class="opl-copy"
+            :aria-label="copied ? 'Copied' : 'Copy result'"
+            v-tip="copied ? 'Copied' : 'Copy result'"
+            @click="copyOutput"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.8" />
+              <path d="M5 15V5a2 2 0 0 1 2-2h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </button>
+        </p>
         <div
           v-if="waiting"
           class="opl-thinking"
@@ -571,8 +800,16 @@ onUnmounted(() => {
           <span>Working</span>
           <span class="opl-thinking-dots" aria-hidden="true"><span /><span /><span /></span>
         </div>
-        <p v-else-if="output" class="opl-result-text">{{ output }}</p>
-        <p v-else class="opl-empty">Nothing yet.</p>
+        <textarea
+          v-else
+          ref="outputEl"
+          class="opl-result-input"
+          aria-label="Result"
+          placeholder="Nothing yet."
+          :value="output"
+          :disabled="streaming"
+          @input="onOutputInput"
+        />
       </div>
       <p v-if="strayPlaceholder" class="opl-warn">
         The answer contains a placeholder that was never sent — check it before using it.
@@ -602,8 +839,11 @@ onUnmounted(() => {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(220px, 0.9fr);
-  grid-template-rows: auto auto minmax(0, 1fr) minmax(0, 1fr);
-  gap: 10px 12px;
+  grid-template-rows:
+    auto auto
+    minmax(150px, var(--opl-input-row)) 4px
+    minmax(96px, var(--opl-result-row));
+  gap: 6px 12px;
   height: 100%;
   min-width: 0;
   min-height: 0;
@@ -677,21 +917,68 @@ onUnmounted(() => {
 /* The answer takes whatever room the fields above it leave. */
 .opl-section--result {
   grid-column: 1;
-  grid-row: 4;
+  grid-row: 5;
   min-height: 0;
 }
 
-.opl-section--input {
+.opl-input-stack {
+  grid-column: 1;
+  grid-row: 3;
+  display: grid;
+  grid-template-rows:
+    minmax(54px, var(--opl-context-row)) 10px
+    minmax(96px, var(--opl-prompt-row));
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 10px;
+  background: var(--inset-bg);
+}
+
+.opl-input-stack:focus-within {
+  border-color: rgba(var(--fg-rgb), 0.45);
+}
+
+.opl-input-stack > .opl-section {
+  box-sizing: border-box;
+  padding: 8px;
+}
+
+.opl-input-stack > .opl-section--context {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.opl-input-stack > .opl-section--input {
   grid-column: 1;
   grid-row: 3;
 }
 
-.opl-section--input .opl-field {
+.opl-input-stack .opl-field {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.opl-input-stack .opl-section--context .opl-field {
   flex: 1;
   min-height: 0;
 }
 
-.opl-section--input .opl-textarea {
+.opl-input-stack .opl-section--context .opl-textarea {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+.opl-input-stack .opl-section--input .opl-field {
+  flex: 1;
+  min-height: 0;
+}
+
+.opl-input-stack .opl-section--input .opl-textarea {
   flex: 1;
   min-height: 0;
   max-height: none;
@@ -700,14 +987,70 @@ onUnmounted(() => {
 /* Keep the editable instructions visible beside both input and answer. */
 .opl-section--prompt {
   grid-column: 2;
-  grid-row: 3 / 5;
+  grid-row: 3 / 6;
+  box-sizing: border-box;
+  padding: 8px;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--inset-bg);
+}
+
+.opl-section--prompt:focus-within {
+  border-color: rgba(var(--fg-rgb), 0.45);
 }
 
 .opl-section--prompt .opl-field {
   flex: 1;
   min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.opl-resizer {
+  position: relative;
+  z-index: 2;
+  grid-column: 1;
+  min-height: 10px;
+  cursor: row-resize;
+}
+
+.opl-resizer::after {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  left: 8px;
+  height: 2px;
+  border-radius: 999px;
+  background: transparent;
+  content: "";
+}
+
+.opl-resizer:hover::after,
+.opl-resizer:focus-visible::after {
+  background: var(--border-strong);
+}
+
+.opl-resizer--context {
+  grid-row: 2;
+}
+
+.opl-input-stack .opl-resizer--context::after {
+  background: var(--border);
+}
+
+.opl-input-stack .opl-resizer--context:hover::after,
+.opl-input-stack .opl-resizer--context:focus-visible::after {
+  background: var(--border-strong);
+}
+
+.opl-resizer--prompt {
+  grid-row: 4;
+  min-height: 4px;
 }
 
 /* The card itself shrinks to this one-column layout while the prompt is hidden. */
@@ -715,7 +1058,6 @@ onUnmounted(() => {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.opl--prompt-collapsed .opl-section--input,
 .opl--prompt-collapsed .opl-section--result {
   grid-column: 1 / -1;
 }
@@ -830,6 +1172,37 @@ onUnmounted(() => {
   min-width: 0;
 }
 
+.opl-field-footer :deep(.opl-picker) {
+  margin-left: auto;
+}
+
+.opl-attach {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.opl-attach:hover {
+  background: var(--fill-hover);
+  color: var(--text);
+}
+
+.opl-attach:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .opl-textarea {
   width: 100%;
   min-width: 0;
@@ -870,6 +1243,41 @@ onUnmounted(() => {
 
 .opl-field:focus-within .opl-textarea--prompt {
   color: var(--text);
+}
+
+.opl-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.opl-attachment {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--fill);
+  cursor: pointer;
+}
+
+.opl-attachment img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.opl-attachment span {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  color: white;
+  font-size: 14px;
+  line-height: 1;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
 
 /* Anonymized values ------------------------------------------------------ */
@@ -948,16 +1356,15 @@ onUnmounted(() => {
   display: flex;
   flex: 1;
   flex-direction: column;
+  gap: 6px;
   min-height: 44px;
   padding: 8px 10px;
   box-sizing: border-box;
-  overflow-y: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
-  /* Sits on the card rather than in it, and carries a marker no editable
-     field has: the answer is not something you type into. */
-  border-left: 2px solid rgba(var(--fg-rgb), 0.5);
-  border-radius: 3px 10px 10px 3px;
-  background: var(--fill-hover);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--fill);
   scrollbar-width: none;
 }
 .opl-result::-webkit-scrollbar {
@@ -977,16 +1384,33 @@ onUnmounted(() => {
   background-clip: padding-box;
 }
 
-.opl-result-text {
-  margin: 0;
+.opl-result:focus-within {
+  border-color: rgba(var(--fg-rgb), 0.45);
+}
+
+.opl-result-input {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
   color: var(--text);
+  font: inherit;
   font-size: 12px;
   line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  /* The point of the widget is to take this away with you. */
-  user-select: text;
-  cursor: text;
+  scrollbar-width: none;
+}
+
+.opl-result-input::-webkit-scrollbar {
+  width: 0;
+}
+
+.opl-result-input::placeholder {
+  color: var(--text-faint);
 }
 
 .opl-empty {

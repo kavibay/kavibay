@@ -17,8 +17,40 @@ import {
   normalizeTerms,
   redactText,
 } from "./anonymizeLogic";
+import type { LlmChatMessage, LlmImage } from "@sdk/contract/sdk";
 
 export const ONE_PURPOSE_LLM_ID = "one-purpose-llm";
+
+export const ONE_PURPOSE_ATTACHMENT_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+] as const;
+export const MAX_ONE_PURPOSE_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+export const MAX_ONE_PURPOSE_ATTACHMENTS = 6;
+
+export function attachmentProblem(
+  file: { type: string; size: number },
+  alreadyAttached: number,
+): string | null {
+  if (alreadyAttached >= MAX_ONE_PURPOSE_ATTACHMENTS) {
+    return `At most ${MAX_ONE_PURPOSE_ATTACHMENTS} images per message.`;
+  }
+  if (!(ONE_PURPOSE_ATTACHMENT_TYPES as readonly string[]).includes(file.type)) {
+    return `${file.type || "That file"} is not an image the model accepts.`;
+  }
+  if (file.size > MAX_ONE_PURPOSE_ATTACHMENT_BYTES) {
+    return "That image is larger than 4 MB.";
+  }
+  return null;
+}
+
+export function base64FromDataUrl(dataUrl: string): string {
+  const marker = "base64,";
+  const index = dataUrl.indexOf(marker);
+  return index >= 0 ? dataUrl.slice(index + marker.length) : dataUrl;
+}
 
 /** One model as `llm_models` reports it. */
 export interface LlmModelOption {
@@ -175,14 +207,14 @@ Write the body as finished prose with paragraphs, no bullet points unless the no
   },
   {
     id: "answer-email",
-    label: "Write an answer",
-    hint: "Drafts a reply to a pasted email.",
-    inputPlaceholder: "Paste the email you received…",
-    systemPrompt: `You draft replies to emails.
+    label: "Write a reply",
+    hint: "Drafts a reply to a pasted message.",
+    inputPlaceholder: "Paste the message you received…",
+    systemPrompt: `You draft replies to messages.
 
-The user pastes an email they received. Answer the newest message in it — ignore quoted history, signatures and disclaimers except as context. Reply in the language the email is written in, and match how formal it is.
+The user pastes a message they received. Answer the newest message in it — ignore quoted history, signatures and disclaimers except as context. Reply in the language the message is written in, and match how formal it is.
 
-Address every question and request the email actually makes. Where it asks something only the user can decide — a date, a price, a yes or no — do NOT invent an answer: write a short placeholder in square brackets, like [confirm the date], so it is obvious what still has to be filled in.
+Address every question and request the message actually makes. Where it asks something only the user can decide — a date, a price, a yes or no — do NOT invent an answer: write a short placeholder in square brackets, like [confirm the date], so it is obvious what still has to be filled in.
 
 Reply with ONLY the body of the reply: no subject line, no "Here is your reply", no explanation of what you wrote.`,
   },
@@ -295,6 +327,14 @@ export interface OnePurposeLlmSettings {
   model: string;
   /** Last input text (kept so a reopened widget is where you left it). */
   input: string;
+  /** Optional context sent with the input. */
+  context: string;
+  /** Images attached to the next run. */
+  attachments: LlmImage[];
+  /** Relative heights of the context, prompt and result areas. */
+  contextFlex: number;
+  promptFlex: number;
+  resultFlex: number;
   /** Values redacted before the input leaves the machine. */
   anonymized: AnonymizedTerm[];
   /** Last result. */
@@ -312,6 +352,11 @@ export const DEFAULT_ONE_PURPOSE_SETTINGS: OnePurposeLlmSettings = {
   prompts: {},
   model: "",
   input: "",
+  context: "",
+  attachments: [],
+  contextFlex: 0.2,
+  promptFlex: 1,
+  resultFlex: 1,
   anonymized: [],
   output: "",
   width: DEFAULT_ONE_PURPOSE_WIDTH,
@@ -384,6 +429,22 @@ function normalizePrompts(raw: unknown): Record<string, string> {
   return out;
 }
 
+function normalizeAttachments(raw: unknown): LlmImage[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === "object")
+    .map((value) => ({
+      mediaType: typeof value.mediaType === "string" ? value.mediaType : "",
+      data: typeof value.data === "string" ? value.data : "",
+    }))
+    .filter(
+      (image) =>
+        (ONE_PURPOSE_ATTACHMENT_TYPES as readonly string[]).includes(image.mediaType) &&
+        image.data.length > 0,
+    )
+    .slice(0, MAX_ONE_PURPOSE_ATTACHMENTS);
+}
+
 /**
  * Normalize raw settings from `ctx.data` or partial updates.
  *
@@ -393,6 +454,12 @@ function normalizePrompts(raw: unknown): Record<string, string> {
  */
 export function normalizeOnePurposeSettings(raw: unknown): OnePurposeLlmSettings {
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const flex = (value: unknown, fallback: number) =>
+    typeof value === "number" && Number.isFinite(value)
+      ? Math.min(10, Math.max(0.2, value))
+      : fallback;
+  const compactLegacyLayout =
+    o.contextFlex === 0.7 && o.promptFlex === 1 && o.resultFlex === 1;
   const purposeId =
     typeof o.purposeId === "string" &&
     (findPurpose(o.purposeId).id === o.purposeId || isCustomPurposeId(o.purposeId))
@@ -407,6 +474,13 @@ export function normalizeOnePurposeSettings(raw: unknown): OnePurposeLlmSettings
     prompts: normalizePrompts(o.prompts),
     model: typeof o.model === "string" ? o.model.trim() : "",
     input: typeof o.input === "string" ? o.input : "",
+    context: typeof o.context === "string" ? o.context : "",
+    attachments: normalizeAttachments(o.attachments),
+    contextFlex: compactLegacyLayout
+      ? DEFAULT_ONE_PURPOSE_SETTINGS.contextFlex
+      : flex(o.contextFlex, DEFAULT_ONE_PURPOSE_SETTINGS.contextFlex),
+    promptFlex: flex(o.promptFlex, DEFAULT_ONE_PURPOSE_SETTINGS.promptFlex),
+    resultFlex: flex(o.resultFlex, DEFAULT_ONE_PURPOSE_SETTINGS.resultFlex),
     anonymized: normalizeTerms(o.anonymized),
     output: typeof o.output === "string" ? o.output : "",
     // Existing instances without this newer field should get the new compact default too.
@@ -421,7 +495,7 @@ export function normalizeOnePurposeSettings(raw: unknown): OnePurposeLlmSettings
  */
 export function settingsForDuplicate(source: OnePurposeLlmSettings): OnePurposeLlmSettings {
   const n = normalizeOnePurposeSettings(source);
-  return { ...n, input: "", anonymized: [], output: "" };
+  return { ...n, input: "", context: "", attachments: [], anonymized: [], output: "" };
 }
 
 /**
@@ -437,9 +511,9 @@ export function buildApiMessages(
   userText: string,
   customTemplates: CustomPurposeTemplate[] = [],
   hiddenTemplateIds: string[] = [],
-): { role: "system" | "user"; content: string }[] {
+): LlmChatMessage[] {
   const marks = settings.anonymized;
-  const out: { role: "system" | "user"; content: string }[] = [];
+  const out: LlmChatMessage[] = [];
   let system = resolveSystemPrompt(settings, customTemplates, hiddenTemplateIds).trim();
   if (marks.length) {
     // Without this the model happily translates or "corrects" a placeholder,
@@ -447,6 +521,14 @@ export function buildApiMessages(
     system = system ? `${system}\n\n${ANONYMIZE_SYSTEM_NOTE}` : ANONYMIZE_SYSTEM_NOTE;
   }
   if (system) out.push({ role: "system", content: system });
-  out.push({ role: "user", content: redactText(userText, marks) });
+  const context = redactText(settings.context.trim(), marks);
+  const input = redactText(userText, marks);
+  out.push({
+    role: "user",
+    content: context ? `Context:\n${context}\n\nInput:\n${input}` : input,
+    ...(settings.attachments.length
+      ? { images: settings.attachments.map((image) => ({ ...image })) }
+      : {}),
+  });
   return out;
 }

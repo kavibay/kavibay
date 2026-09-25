@@ -446,10 +446,34 @@ ctx.providers[id].action(name, args)  // write through the provider
 ctx.providers[id].subscribe(name, args, (state) => {})
 ctx.providers[id].status()
 
+ctx.openExternal.open(url)       // open one provider url in the person's browser
+
 // `id` is the full provider id, exactly as written in requires.providers.
 // There is no `ctx.provider`: a widget that grows a second provider would keep
 // working and start reading the wrong one.
 ```
+
+### Links
+
+**Write an `<a href>` with a url a provider gave you.** The frame cannot
+navigate, so the host intercepts the click and opens the person's browser. A
+link that looks like a link and acts like a link is the point:
+
+```html
+<a href="${issue.url}">Open in Linear · ${issue.identifier}</a>
+```
+
+You can also call `ctx.openExternal.open(url)` from a `click` handler — same
+check, same browser. Use that when the control is a button rather than a link.
+
+**Pass a url a provider gave you — never one you built.** The host checks the
+url's host against the sites your declared providers vouch for, and refuses
+anything else. `issue.url` from `kavibay.linear/linear` works. A url you
+assembled from an id and a guessed domain does not, and neither does a search
+engine, an image, or a documentation page you know by heart.
+
+If the data has no url field, show the identifier as plain text. A widget that
+displays `ADM-72` is finished; one with a button that throws is not.
 
 `subscribe` is how a widget stays current. The host refetches on its own
 schedule and pushes the result; a package never polls, and a `setInterval`

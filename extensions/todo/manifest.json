@@ -10,11 +10,12 @@
   "categories": ["productivity"],
   "widgets": {
     "todo": {
+      "starter": 2,
       "replaces": "todo",
       "keywords": ["todo", "tasks", "checklist", "aufgaben", "liste"],
       "categories": ["productivity"],
       "ui": {
-        "defaultOffset": { "x": 240, "y": 420 },
+        "defaultOffset": { "x": 954, "y": -404 },
         "defaultSize": { "w": 280, "h": 260 },
         "grabCursor": false
       },

@@ -8,6 +8,8 @@ import {
   watch,
 } from "vue";
 import { kavibayCockpitOpen } from "../host/cockpitSession";
+import { revealGesture, revealGestureKnown } from "../host/revealGesture";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { syncInteractiveRegions } from "../system/clickThrough";
 import {
   arrowPath,
@@ -16,14 +18,17 @@ import {
   type Point,
   type Rect,
 } from "./onboardingArrow";
-import { onboardingCopyForStep } from "./onboardingCopy";
+import { onboardingCopyForStep, onboardingHotkeyFallbackCopy } from "./onboardingCopy";
 import {
   isCardStep,
   isCoachVisible,
+  ONBOARDING_CORE_DONE_STEP,
   ONBOARDING_DONE_STEP,
+  ONBOARDING_HOTKEY_STEP,
   ONBOARDING_INTRO_STEP,
 } from "./onboardingLogic";
 import {
+  bumpCoachReveal,
   coachRevealEpoch,
   lastHiddenWidgetName,
   onboardingState,
@@ -40,18 +45,49 @@ const {
   acknowledgeDone,
   stepBack,
   skipTourAction,
+  skipHotkeyStep,
+  continueToExtras,
+  finishAtCore,
 } = useOnboarding();
+
+/**
+ * True once the tour has shown itself again because the double tap never came.
+ *
+ * Session-only, deliberately: it describes this attempt at the step, not the
+ * user's progress, and a stored copy would still claim the machine was broken
+ * after they fixed whatever was eating the keystroke. Stepping back into the
+ * step, or replaying the tour, starts the attempt over.
+ */
+const hotkeyRescued = ref(false);
 
 const visible = computed(
   () => state.value != null && isCoachVisible(state.value),
 );
-const copy = computed(() =>
-  state.value?.status === "active"
-    ? onboardingCopyForStep(state.value.step, {
-        hiddenWidgetName: lastHiddenWidgetName.value,
-      })
-    : null,
+const copy = computed(() => {
+  if (state.value?.status !== "active") return null;
+  if (state.value.step === ONBOARDING_HOTKEY_STEP && hotkeyRescued.value) {
+    return onboardingHotkeyFallbackCopy(revealGesture.value);
+  }
+  return onboardingCopyForStep(state.value.step, {
+    hiddenWidgetName: lastHiddenWidgetName.value,
+    revealGesture: revealGesture.value,
+  });
+});
+
+/**
+ * True when this machine has no keystroke to teach at all.
+ *
+ * The card then states the tray route and offers the way on immediately: there
+ * is nothing to press, so there is nothing to wait for, and making the user sit
+ * out the rescue timer to be told the same thing would be a seven-second pause
+ * for no reason. Gated on the host having answered, so the "no gesture" branch
+ * cannot flash up before Rust replies.
+ */
+const hotkeyStepHasNothingToPress = computed(
+  () => revealGestureKnown.value && revealGesture.value === null,
 );
+const isHotkeyStep = computed(() => state.value?.step === ONBOARDING_HOTKEY_STEP);
+const isCoreDoneStep = computed(() => state.value?.step === ONBOARDING_CORE_DONE_STEP);
 const isIntroStep = computed(() => state.value?.step === ONBOARDING_INTRO_STEP);
 const isDoneStep = computed(() => state.value?.step === ONBOARDING_DONE_STEP);
 const isCenteredCard = computed(
@@ -72,48 +108,48 @@ let movementObserver: MutationObserver | null = null;
 /** Preferred bubble placement for the active teaching step. */
 function preferredPlacement(step: number | undefined): BubblePlacement {
   // Resize: sit below the SE corner so the bubble does not cover the card.
-  if (step === 6) return "below-left";
+  if (step === 8) return "below-left";
   // Gallery / move: sit beside the card.
-  if (step === 4 || step === 5) return "left-of";
+  if (step === 5 || step === 7) return "left-of";
   // Pin / hide / delete prefer above (layout falls back to left-of if tight).
   return "above-left";
 }
 
 /** True for steps that teach widget chrome (pin / hide / delete). */
 function isChromeCoachStep(step: number | undefined): boolean {
-  return step === 7 || step === 8 || step === 10;
+  return step === 9 || step === 10 || step === 12;
 }
 
 /** Resolve the element highlighted by the current onboarding step. */
 function resolveTarget(): Element | null {
   const step = state.value?.step;
   if (step == null || isCardStep(step)) return null;
-  if (step === 2 || step === 3 || step === 9) {
+  if (step === 3 || step === 4 || step === 11) {
     return document.querySelector('[data-onboarding-target="palette-search"]');
   }
-  if (step === 4) {
+  if (step === 5) {
     return (
       document.querySelector('[data-onboarding-target="widget-gallery"]') ??
       document.querySelector('[data-onboarding-target="widgets-button"]')
     );
   }
-  if (step === 5) {
+  if (step === 7) {
     return document.querySelector('[data-onboarding-target="widget-drag"]');
   }
-  if (step === 6) {
+  if (step === 8) {
     return (
       document.querySelector('[data-onboarding-target="widget-resize-se"]') ??
       document.querySelector('[data-onboarding-target="widget-drag"]')
     );
   }
-  if (step === 7) {
+  if (step === 9) {
     return (
       document.querySelector(
         '.widget-card-chrome--coach [data-onboarding-target="widget-pin"]',
       ) ?? document.querySelector('[data-onboarding-target="widget-pin"]')
     );
   }
-  if (step === 8 || step === 10) {
+  if (step === 10 || step === 12) {
     return (
       document.querySelector(
         '.widget-card-chrome--coach [data-onboarding-target="widget-hide"]',
@@ -337,10 +373,10 @@ watch(
   async () => {
     // Post-flush so v-if has mounted the bubble before we measure it.
     await nextTick();
-    // A pre-existing Gallery does not emit a fresh mount event when step 3 starts.
+    // A pre-existing Gallery does not emit a fresh mount event when step 4 starts.
     if (
       state.value?.status === "active" &&
-      state.value.step === 3 &&
+      state.value.step === 4 &&
       document.querySelector('[data-onboarding-target="widget-gallery"]')
     ) {
       notifyGalleryVisible();
@@ -348,19 +384,85 @@ watch(
     }
     // Chrome for pin/hide mounts with the step change — wait a frame if needed.
     const step = state.value?.step;
-    if (step === 7 || step === 8 || step === 10) {
+    if (step === 9 || step === 10 || step === 12) {
       for (let i = 0; i < 4 && !resolveTarget(); i += 1) {
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       }
     }
     // One more frame so palette-search exists after replay → palette:show.
-    if (!resolveTarget() && (step === 2 || step === 3 || step === 9)) {
+    if (!resolveTarget() && (step === 3 || step === 4 || step === 11)) {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     }
     reconnectResizeObserver();
     layout();
   },
   { flush: "post" },
+);
+
+/**
+ * How long the tour waits, after the user has hidden it, before assuming the
+ * double tap will not bring it back.
+ *
+ * Long enough for a second, slower attempt — the first tap of a pair often
+ * misses while the gesture is still new — and short enough that somebody whose
+ * machine swallows the keystroke is not left staring at a desktop with no
+ * Kavibay on it, wondering what they broke. This is the one step that can strand
+ * a user, so it is also the one that comes looking for them.
+ */
+const HOTKEY_RESCUE_MS = 7000;
+
+let rescueTimer: ReturnType<typeof setTimeout> | undefined;
+
+function clearRescueTimer() {
+  if (rescueTimer !== undefined) {
+    clearTimeout(rescueTimer);
+    rescueTimer = undefined;
+  }
+}
+
+/** Show the window again and tell the user what else reaches Kavibay. */
+async function rescueHotkeyStep() {
+  rescueTimer = undefined;
+  if (state.value?.status !== "active" || state.value.step !== ONBOARDING_HOTKEY_STEP) return;
+  hotkeyRescued.value = true;
+  kavibayCockpitOpen.value = true;
+  try {
+    await getCurrentWindow().show();
+    await getCurrentWindow().setFocus();
+  } catch {
+    // No Tauri (or a refused show): the card is still correct for whenever the
+    // window does come back.
+  }
+  bumpCoachReveal();
+}
+
+/**
+ * Arm the rescue while the hotkey step is waiting behind a hidden window.
+ *
+ * The closing half of the double tap runs in the webview and always works, so
+ * `kavibayCockpitOpen` going false during this step means the user did their
+ * part. Everything after that depends on a keyboard hook that may never be
+ * called — which is what the timer is for.
+ */
+watch(
+  [() => state.value?.step, kavibayCockpitOpen],
+  ([step, open]) => {
+    if (step !== ONBOARDING_HOTKEY_STEP) {
+      clearRescueTimer();
+      hotkeyRescued.value = false;
+      return;
+    }
+    // Nothing to press means nothing to wait for; the card already says so and
+    // its "Carry on" is showing.
+    if (open || hotkeyRescued.value || hotkeyStepHasNothingToPress.value) {
+      clearRescueTimer();
+      return;
+    }
+    if (rescueTimer === undefined) {
+      rescueTimer = setTimeout(() => void rescueHotkeyStep(), HOTKEY_RESCUE_MS);
+    }
+  },
+  { immediate: true },
 );
 
 onMounted(() => {
@@ -376,6 +478,7 @@ onUnmounted(() => {
   resizeObserver?.disconnect();
   movementObserver?.disconnect();
   window.removeEventListener("resize", layout);
+  clearRescueTimer();
 });
 </script>
 
@@ -402,7 +505,17 @@ onUnmounted(() => {
           <template v-else>{{ seg.text }}</template>
         </template>
       </p>
-      <div class="onboarding-bubble-actions">
+      <div v-if="isCoreDoneStep" class="onboarding-bubble-actions">
+        <button type="button" class="onboarding-link" @click="continueToExtras">
+          Show me the rest
+        </button>
+        <div class="onboarding-bubble-actions-end">
+          <button type="button" class="onboarding-link" @click="finishAtCore">
+            I'm good
+          </button>
+        </div>
+      </div>
+      <div v-else class="onboarding-bubble-actions">
         <button
           v-if="canStepBack"
           type="button"
@@ -427,6 +540,17 @@ onUnmounted(() => {
             @click="acknowledgeDone"
           >
             Got it
+          </button>
+          <!-- Only offered once the tour has come back on its own: before that
+               the way past this step is to perform it, and a visible way out
+               would be taken instead of the gesture. -->
+          <button
+            v-if="isHotkeyStep && (hotkeyRescued || hotkeyStepHasNothingToPress)"
+            type="button"
+            class="onboarding-link"
+            @click="skipHotkeyStep"
+          >
+            Carry on
           </button>
           <button
             v-if="!isDoneStep"

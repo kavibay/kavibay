@@ -98,7 +98,6 @@ of them is used as this app's own identity.
 - GitHub — GitHub, Inc. — https://github.com/logos
 - Google — Google LLC — https://about.google/brand-resource-center/
 - Linear — Linear Orbit, Inc. — https://linear.app/brand
-- Trello — Atlassian Pty Ltd — https://atlassian.design/resources/logo-library
 - n8n — n8n GmbH — https://n8n.io
 - Notion — Notion Labs, Inc. — https://www.notion.com/pages/brand
 - Spotify — Spotify AB — https://developer.spotify.com/documentation/design

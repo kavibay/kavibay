@@ -32,8 +32,15 @@ export interface WidgetCapabilityTransport {
   nowPlayingControl(action: NowPlayingControl): Promise<void>;
   alarmNotify(instanceId: WidgetInstanceId, mode: AlarmNotification): Promise<void>;
   openExternal(url: string): Promise<void>;
+  /**
+   * Opens a url a *provider* vouched for, for widgets that hold no
+   * `openExternal` capability of their own. Rust re-checks the host against the
+   * compiled provider list before the browser sees it.
+   */
+  openExternalVouched(url: string): Promise<void>;
   clipboardWriteText(text: string): Promise<void>;
   clipboardList(): Promise<unknown>;
+  clipboardOnChange(listener: (entries: unknown) => void): Promise<() => void>;
   clipboardRestore(id: string): Promise<void>;
   clipboardSetRevealed(id: string, revealed: boolean): Promise<void>;
   clipboardDelete(id: string): Promise<void>;
@@ -61,18 +68,19 @@ export interface WidgetCapabilityTransport {
   focusTrackerListIgnoreRules(): Promise<unknown>;
   focusTrackerUpsertIgnoreRule(kind: FocusTrackerIgnoreKind, value: string): Promise<unknown>;
   focusTrackerDeleteIgnoreRule(id: number): Promise<void>;
-  llmModels(): Promise<unknown>;
+  llmModels(instanceId?: string): Promise<unknown>;
   llmQuickModel(): Promise<unknown>;
   llmStream(
     instanceId: WidgetInstanceId,
     request: LlmChatRequest,
     onEvent: (event: LlmStreamEvent) => void,
+    owner?: string,
   ): Promise<void>;
   llmCancel(requestId: string): Promise<void>;
-  wizardModels(): Promise<unknown>;
-  wizardComplete(request: WizardCompletionRequest): Promise<unknown>;
+  wizardModels(instanceId?: string): Promise<unknown>;
+  wizardComplete(request: WizardCompletionRequest, instanceId?: string): Promise<unknown>;
   /** One declared endpoint of one package, executed by the Rust broker. */
-  runtimeHttpCall?(extId: string, endpointId: string, args: Record<string, unknown>): Promise<unknown>;
+  runtimeHttpCall?(extId: string, endpointId: string, args: Record<string, unknown>, instanceId: string): Promise<unknown>;
   wizardConversationsList(): Promise<unknown>;
   wizardConversationLoad(id: string): Promise<unknown>;
   wizardConversationSave(conversation: unknown): Promise<void>;
@@ -84,7 +92,6 @@ export interface WidgetCapabilityTransport {
     id: string,
     enabled: boolean,
     manifestPermissions: string[],
-    credentialTypes: string[],
     contractGrant?: unknown,
   ): Promise<void>;
   wizardRuntimeReadPackage(id: string): Promise<unknown>;

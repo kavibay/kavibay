@@ -80,8 +80,12 @@ fast, and the Vue side hot-reloads.
 
 Nothing appears on screen — that is correct. The window starts invisible. Tap
 `Ctrl` twice, or double-click the tray icon. On the very first start it opens by
-itself and a short tour points at the pieces; `Settings → Behavior → Replay tour`
-brings it back.
+itself and asks two setup questions — start at login, and which screen to cover.
+Answer them and the desk arrives with a clock and a to-do list already on it,
+then a short tour teaches the double tap, the launcher and the widget desk.
+It ends there and offers the six card gestures rather than insisting on them.
+`Settings → Behavior → Replay tour` brings it back, and the startup switch stays
+in `Settings → Behavior`.
 
 > `npm run dev` on its own starts only Vite on <http://localhost:1420>. The UI
 > renders in a browser, but every `invoke` fails — use it for pure CSS work, not
@@ -117,7 +121,7 @@ what each one does, its tier, and what it needs — is in
 
 | Category | Widgets |
 |---|---|
-| **Productivity** | Alarm · Clipboard · Clock · Focus Tracker · Moodist · Notes · Single Purpose LLM · Pomodoro · Snippets · Stopwatch · Time Tracker · Timer · Todo |
+| **Productivity** | Alarm · Clipboard · Clock · Focus Tracker · Moodist · Notes · Single Purpose AI · Pomodoro · Snippets · Stopwatch · Time Tracker · Timer · Todo |
 | **Information** | Calendar · GitHub Actions · Stocks · Tado · Weather |
 | **Tools** | Calculator · Color Picker · Emoji Picker · Widget Gallery · Redacted · Snake · Widget Wizard |
 | **System** | AI Usage · Launcher Buttons · System Info |
@@ -182,13 +186,16 @@ and permissions. → [docs/mcp-server.md](docs/mcp-server.md)
 |---|---|
 | `↓` on an empty query | Recently used commands |
 | `←` on an empty query | The widgets on this desk, plus the whole catalog |
-| `Ctrl+N` / `Ctrl+H` / `Ctrl+R` | On a palette row: new instance / hide / delete |
+| `Ctrl+N` / `Ctrl+W` / `Ctrl+H` / `Ctrl+R` | On a palette row: new instance / close (hide) / delete |
+| `Ctrl+S` / `Ctrl+W` | On the search palette itself (outside folder browsing): pin or unpin / hide |
 | `Ctrl+T` | On a folder row: open it in the terminal |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Cycle focus through the open widgets and back to the palette |
 | `Ctrl+Alt+S` | Jump into the palette search from any widget, selecting the old query |
-| `Ctrl+H` / `Ctrl+R` | On the widget you are in: hide it / delete it (content included) |
+| `Ctrl+W` / `Ctrl+H` / `Ctrl+R` | On the widget you are in: close/hide it (`W`/`H`) / delete it (`R`, content included) |
+| `Ctrl+W` | Close the Settings dialog while it is open |
 | `Ctrl+S` / `Ctrl+D` | On the widget you are in: pin or unpin / duplicate |
 | `Ctrl+Shift+←↑→↓` | Nudge the focused widget by 10px |
+| `Ctrl+Alt+←↑→↓` | Move the active widget or palette by one grid gap |
 | `Ctrl`+mousewheel · pinch | Zoom a widget's content (`0.5`…`3`), remembered per card |
 | `Ctrl`+drag | Move the whole layout instead of one widget |
 | Double-click a widget title | Rename it |
@@ -199,7 +206,9 @@ is why the `Ctrl` double tap is a keyboard hook and Windows-only. `Ctrl+Space`
 releases the widgets again the moment you let go — click one while holding and
 that one stays. `Ctrl+Enter` on a widget row opens it in the palette without
 touching your layout, and the ↗ button in that header promotes it to a card and
-takes the content with it. A widget you deleted comes back from `Ctrl+Z` empty.
+takes the content with it. Hold `Ctrl` for 750ms in the palette or active widget
+to reveal the pin/hide and desk shortcut hints. A widget you deleted comes back
+from `Ctrl+Z` empty.
 
 </details>
 

@@ -1,7 +1,20 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "quickaction",
-  "description": "Capability for the selection quick-action popup. Deliberately narrower than the main window: the popup only listens for events and invokes app commands, so it gets no window control, no dialogs and no asset protocol.",
+  "description": "Capability for the selection quick-action popup. Deliberately narrower than the main window: the popup only listens for events and invokes app commands, so it gets no window control, no dialogs and no asset protocol. Of the app commands it gets its own, the LLM calls its one text action makes, and read access to the durable storage it hydrates from.",
   "windows": ["quickaction"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "allow-quick-action-ready",
+    "allow-quick-action-disabled-templates",
+    "allow-quick-action-apply",
+    "allow-quick-action-open-widget",
+    "allow-quick-action-cancel",
+    "allow-llm-quick-model",
+    "allow-llm-models",
+    "allow-llm-chat-stream",
+    "allow-llm-chat-cancel",
+    "allow-web-storage-load",
+    "allow-settings-load"
+  ]
 }

@@ -19,7 +19,6 @@ import CloudflareMark from "./CloudflareMark.vue";
 import GitHubMark from "./GitHubMark.vue";
 import GoogleMark from "./GoogleMark.vue";
 import LinearMark from "./LinearMark.vue";
-import TrelloMark from "./TrelloMark.vue";
 import N8nMark from "./N8nMark.vue";
 import SpotifyMark from "./SpotifyMark.vue";
 import FitbitMark from "./FitbitMark.vue";
@@ -49,8 +48,6 @@ const mark = computed(() => {
       return GitHubMark;
     case "linear":
       return LinearMark;
-    case "trello":
-      return TrelloMark;
     case "n8n":
       return N8nMark;
     case "spotify":

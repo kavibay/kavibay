@@ -7,8 +7,10 @@ import { extensionHost, packageDefinitionId } from "../extension-host/cockpit";
 import type { HostExtensionRef } from "../runtime/runtimeTypes";
 import type { WidgetInstance, WidgetProps } from "./types";
 import { isGalleryWidget } from "./builtinWidgetIds";
+import { canEditInWizard } from "./wizardEditable";
 import { useWidgetData } from "@sdk/useWidgetData";
 import WidgetCard from "./WidgetCard.vue";
+import { connectionEpoch } from "../settings/credentials/connections";
 
 const props = defineProps<{
   instance: WidgetInstance;
@@ -16,6 +18,8 @@ const props = defineProps<{
   def: HostExtensionRef;
   /** Brief search-result flash highlight from the palette. */
   highlighted?: boolean;
+  /** Palette row is selected; card stays in stack and shows a ring. */
+  previewed?: boolean;
   /** When true, Remove menu offers scoped vs global delete. */
   multiDeskRemove?: boolean;
 }>();
@@ -25,6 +29,8 @@ defineEmits<{
   "update:hideTitle": [hideTitle: boolean];
   duplicate: [];
   about: [];
+  /** Reopen this widget's package in the Wizard; carries the package id. */
+  "edit-in-wizard": [packageId: string];
   hide: [];
   "move-to-panel": [];
   remove: [mode: "desk" | "everywhere"];
@@ -44,6 +50,9 @@ defineEmits<{
 }>();
 
 const isRuntime = computed(() => props.def.origin === "runtime");
+
+/** Built here, so the Wizard has a draft to reopen. */
+const wizardEditable = computed(() => canEditInWizard(props.def));
 
 /**
  * Which frame a package gets, from the manifest's own discriminator.
@@ -105,10 +114,12 @@ const hugHeight = computed(() => props.def.hugHeight === true);
     :instance-id="instance.instanceId"
     :has-settings="Boolean(def.settingsComponent) || Boolean(contractSettingsId)"
     :has-about="true"
+    :can-edit-in-wizard="wizardEditable"
     :flush="Boolean(def.flush)"
     :compact="Boolean(def.compact)"
     :allow-duplicate="def.allowDuplicate !== false"
     :highlighted="Boolean(highlighted)"
+    :previewed="Boolean(previewed)"
     :pinned="Boolean(instance.pinned)"
     :resizable="def.resizable !== false"
     :width="instance.width"
@@ -126,6 +137,7 @@ const hugHeight = computed(() => props.def.hugHeight === true);
     @update:hide-title="$emit('update:hideTitle', $event)"
     @duplicate="$emit('duplicate')"
     @about="$emit('about')"
+    @edit-in-wizard="$emit('edit-in-wizard', def.id)"
     @hide="$emit('hide')"
     @move-to-panel="$emit('move-to-panel')"
     @remove="$emit('remove', $event)"
@@ -142,6 +154,7 @@ const hugHeight = computed(() => props.def.hugHeight === true);
     />
     <RuntimeExtensionFrame
       v-else-if="isRuntime && def.runtimeEntryUrl"
+      :key="connectionEpoch"
       :ext-id="def.id"
       :instance-id="instance.instanceId"
       :entry-url="def.runtimeEntryUrl"

@@ -136,10 +136,16 @@ export const vTip: Directive<HTMLElement, string | undefined> = {
     if (!state) return;
     state.text = typeof binding.value === "string" ? binding.value : "";
     state.placement = binding.arg === "below" ? "below" : "above";
-    // Refresh in place while hovering; next enter uses `state.text` otherwise.
-    if (activeEl !== el) return;
-    if (state.text) showFloatingTip(el, state.text, state.placement);
-    else hideFloatingTip(el);
+    // A binding can become non-empty while the pointer is already over the
+    // element (for example when Ctrl-hold reveals a shortcut). In that case no
+    // new pointerenter fires, so treat the current hover/focus as an enter.
+    const isHoveredOrFocused =
+      el.matches(":hover") || document.activeElement === el;
+    if (state.text && (activeEl === el || isHoveredOrFocused)) {
+      showFloatingTip(el, state.text, state.placement);
+      return;
+    }
+    if (activeEl === el) hideFloatingTip(el);
   },
   unmounted(el) {
     const tipEl = el as TipEl;

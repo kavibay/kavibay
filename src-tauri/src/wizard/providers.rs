@@ -11,16 +11,22 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tauri::AppHandle;
 
-use crate::credentials::resolve::{resolve_for_type, ResolveError};
+use crate::credentials::resolve::{resolve_for_owner, ResolveError};
 use crate::llm::catalog::{find_model, LlmProvider};
 
 /// A generation can involve real thinking; the default client timeout is far
-/// too short for it.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(180);
+/// too short for it. On a model that thinks by default, a hard widget at high
+/// effort runs for minutes, not seconds.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
-/// Output ceiling. Chosen to stay inside the non-streaming envelope — above
-/// roughly this, providers expect a stream and the request risks a timeout.
+/// Output ceiling for the non-streamed OpenAI request. Chosen to stay inside
+/// the non-streaming envelope — above roughly this, the request risks a timeout.
 const MAX_TOKENS: u32 = 16000;
+
+/// Output ceiling for Anthropic, which is streamed. Thinking and the package
+/// share it, and the models that think by default can spend most of 16K before
+/// the first file.
+const ANTHROPIC_MAX_TOKENS: u32 = 64000;
 
 /// One image attached to a turn.
 #[derive(Debug, Clone, Deserialize)]
@@ -86,6 +92,7 @@ pub struct WizardReply {
 /// Runs one completion against the named model.
 pub async fn complete(
     app: &AppHandle,
+    owner: &str,
     model_id: &str,
     system: &str,
     messages: &[WizardMessage],
@@ -122,7 +129,7 @@ pub async fn complete(
     if provider == LlmProvider::Anthropic {
         mark_cache_breakpoint(&mut turns);
     }
-    let credential = resolve_for_type(app, provider.credential_type())
+    let credential = resolve_for_owner(app, provider.credential_type(), owner)
         .await
         .map_err(|error| match error {
             ResolveError::NotConfigured => "not_configured".to_string(),
@@ -139,7 +146,8 @@ pub async fn complete(
             "https://api.anthropic.com/v1/messages",
             json!({
                 "model": model.api_id,
-                "max_tokens": MAX_TOKENS,
+                "max_tokens": ANTHROPIC_MAX_TOKENS,
+                "stream": true,
                 // A block rather than a bare string, so it can carry a cache
                 // breakpoint. See `mark_cache_breakpoint` for why this is the
                 // single largest saving available here.
@@ -211,10 +219,14 @@ pub async fn complete(
 
     let response = request.send().await.map_err(|error| error.to_string())?;
     let status = response.status();
-    let payload: Value = response
-        .json()
-        .await
-        .map_err(|_| format!("provider_returned_non_json:{status}"))?;
+    let raw = response.text().await.map_err(|error| error.to_string())?;
+    // Anthropic answers a successful request as an event stream; everything
+    // else, error bodies included, is one JSON document.
+    let payload: Value = if provider == LlmProvider::Anthropic && status.is_success() {
+        anthropic_payload_from_events(&raw)?
+    } else {
+        serde_json::from_str(&raw).map_err(|_| format!("provider_returned_non_json:{status}"))?
+    };
 
     if !status.is_success() {
         return Err(provider_error(status.as_u16(), &payload));
@@ -462,6 +474,49 @@ fn check_image(image: &WizardImage) -> Result<(), String> {
 fn decoded_len(data: &str) -> usize {
     let padding = data.bytes().rev().take_while(|byte| *byte == b'=').count();
     data.len() / 4 * 3 - padding.min(2)
+}
+
+/// Folds an Anthropic event stream back into the shape of a non-streamed
+/// response, so `anthropic_text` and `usage_of` read it unchanged.
+///
+/// Streamed only to get past the non-streaming envelope — nothing is shown
+/// while it arrives, so the whole body is read first.
+fn anthropic_payload_from_events(raw: &str) -> Result<Value, String> {
+    let mut text = String::new();
+    let mut usage = serde_json::Map::new();
+    let mut stop_reason = Value::Null;
+    for data in raw.lines().filter_map(|line| line.strip_prefix("data:")) {
+        let Ok(event) = serde_json::from_str::<Value>(data.trim()) else {
+            continue;
+        };
+        match event.get("type").and_then(Value::as_str) {
+            Some("message_start") => {
+                if let Some(Value::Object(counts)) = event.pointer("/message/usage") {
+                    usage.extend(counts.clone());
+                }
+            }
+            Some("content_block_delta") => {
+                if let Some(delta) = event.pointer("/delta/text").and_then(Value::as_str) {
+                    text.push_str(delta);
+                }
+            }
+            Some("message_delta") => {
+                if let Some(reason) = event.pointer("/delta/stop_reason") {
+                    stop_reason = reason.clone();
+                }
+                if let Some(Value::Object(counts)) = event.get("usage") {
+                    usage.extend(counts.clone());
+                }
+            }
+            Some("error") => return Err(provider_error(500, &event)),
+            _ => {}
+        }
+    }
+    Ok(json!({
+        "content": [{ "type": "text", "text": text }],
+        "stop_reason": stop_reason,
+        "usage": usage,
+    }))
 }
 
 /// Text of an Anthropic response.
@@ -836,6 +891,32 @@ mod tests {
         assert_eq!(decoded_len("QUJD"), 3);
         assert_eq!(decoded_len("QUJDRA=="), 4);
         assert_eq!(decoded_len("QUJDREU="), 5);
+    }
+
+    /// The folded stream reads exactly like the non-streamed response did:
+    /// text joined, usage from both ends, the stop reason kept.
+    #[test]
+    fn a_streamed_answer_folds_back_into_one_response() {
+        let stream = [
+            r#"event: message_start"#,
+            r#"data: {"type":"message_start","message":{"usage":{"input_tokens":12,"cache_read_input_tokens":900,"cache_creation_input_tokens":0,"output_tokens":1}}}"#,
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hm"}}"#,
+            r#"data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Here "}}"#,
+            r#"data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"it is."}}"#,
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":340}}"#,
+            r#"data: {"type":"message_stop"}"#,
+        ]
+        .join("\n");
+        let payload = anthropic_payload_from_events(&stream).unwrap();
+        assert_eq!(anthropic_text(&payload).unwrap(), "Here it is.");
+        let usage = usage_of(&payload, LlmProvider::Anthropic);
+        assert_eq!((usage.input, usage.cached, usage.output), (12, 900, 340));
+
+        let refused = anthropic_payload_from_events(
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"refusal"},"usage":{"output_tokens":0}}"#,
+        )
+        .unwrap();
+        assert_eq!(anthropic_text(&refused).unwrap_err(), "model_refused");
     }
 
     /// A refusal is an HTTP 200 with no content — not an error status.
