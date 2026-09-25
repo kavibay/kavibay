@@ -211,8 +211,12 @@ fn platform_search(dir: &Path, query: &str, limit: usize) -> Option<Vec<FileEntr
     }
 }
 
+// The three commands the palette calls while someone types are `async`: a
+// synchronous command runs on the UI thread, and a folder search can wait on the
+// Windows index for 900 ms and then walk the disk for another 350.
+
 /// List files/folders in `dir` whose names start with `prefix` (case-insensitive).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_path_completions(
     dir: String,
     prefix: String,
@@ -226,7 +230,7 @@ pub fn list_path_completions(
 }
 
 /// Direct children of a folder, unfiltered — the palette's folder browse view.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browse_folder(dir: String, limit: Option<usize>) -> Result<Vec<FileEntry>, String> {
     let limit = limit.unwrap_or(MAX_BROWSE_LIMIT).clamp(1, MAX_BROWSE_LIMIT);
     let dir_path = validate_list_dir(&dir)?;
@@ -240,7 +244,7 @@ pub fn browse_folder(dir: String, limit: Option<usize>) -> Result<Vec<FileEntry>
 /// and the same API deep-scans the folder when it is not. Any failure there
 /// (indexer disabled, WinRT unavailable) degrades to the portable walk rather
 /// than to an empty result: a slower answer beats "nothing found".
-#[tauri::command]
+#[tauri::command(async)]
 pub fn search_folder(
     dir: String,
     query: String,
