@@ -44,8 +44,9 @@ use tauri::{
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, ShortcutState};
 
 use commands::{
-    cursor_position_is_reliable, next_watch_tick_ms, ClickThrough, OpenMonitor, SharedActiveWindow,
-    SharedClickThrough, SharedOpenMonitor, WATCH_HIDDEN_TICK_MS, WATCH_TICK_MS,
+    click_through_needs_write, cursor_position_is_reliable, next_watch_tick_ms, ClickThrough,
+    OpenMonitor, SharedActiveWindow, SharedClickThrough, SharedOpenMonitor, WATCH_HIDDEN_TICK_MS,
+    WATCH_TICK_MS,
 };
 
 /// What asked for a cockpit toggle.
@@ -139,6 +140,23 @@ fn show_demo_hotkey(app: &tauri::AppHandle, label: &str) {
     }
 }
 
+/// Make the window take clicks now, and tell the click-through watcher.
+///
+/// Only a stopgap until the frontend answers — it pauses click-through while it
+/// opens. The watcher must hear about the write: it rewrites only when its own
+/// answer changes, so an unannounced write left it believing the window was
+/// still click-through. With nothing on screen the answer never changed again,
+/// and a frontend that did not respond (a dev reload, a crashed renderer) left
+/// a fullscreen window over the taskbar that swallowed every click.
+fn make_interactive(window: &tauri::WebviewWindow) {
+    let _ = window.set_ignore_cursor_events(false);
+    if let Some(state) = window.try_state::<SharedClickThrough>() {
+        if let Ok(mut s) = state.lock() {
+            s.generation = s.generation.wrapping_add(1);
+        }
+    }
+}
+
 /// Show/hide the cockpit — the one path behind every trigger.
 ///
 /// Extracted from the shortcut handler so the `--toggle` CLI and the Ctrl double
@@ -160,7 +178,7 @@ fn toggle_cockpit(app: &tauri::AppHandle, force_cursor: bool, trigger: CockpitTr
     // Always clear click-through before the frontend toggles. A stuck
     // ignore_cursor_events=true makes the window look "closed" while
     // is_visible() is still true, so the open path never ran.
-    let _ = window.set_ignore_cursor_events(false);
+    make_interactive(&window);
 
     let target = if force_cursor {
         OpenMonitor::Cursor
@@ -212,7 +230,7 @@ fn peek_cockpit(app: &tauri::AppHandle, active: bool) {
     if active {
         // Same reason as in `toggle_cockpit`: a stuck ignore_cursor_events makes a
         // visible window look closed, and the peek would show nothing.
-        let _ = window.set_ignore_cursor_events(false);
+        make_interactive(&window);
         if !window.is_visible().unwrap_or(false) {
             revealed = true;
             let _ = window.show();
@@ -284,7 +302,7 @@ pub fn run() {
             }
             // A plain second launch means "I want the app" — show it, never hide it.
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_ignore_cursor_events(false);
+                make_interactive(&window);
                 if !window.is_visible().unwrap_or(false) {
                     toggle_cockpit(app, false, CockpitTrigger::App);
                 } else {
@@ -695,7 +713,7 @@ fn reveal_main_window(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
-    let _ = window.set_ignore_cursor_events(false);
+    make_interactive(&window);
     let target = open_monitor_target(&window);
     let _ = window.show();
     let _ = window.set_focus();
@@ -1023,7 +1041,7 @@ fn spawn_click_through_watcher(
             tick_ms = next_watch_tick_ms(moved, rects_changed, outside_click_armed);
 
             let ignore = !interactive;
-            if last_ignore != Some(ignore) {
+            if click_through_needs_write(last_ignore, ignore, rects_changed) {
                 let _ = window.set_ignore_cursor_events(ignore);
                 last_ignore = Some(ignore);
             }
