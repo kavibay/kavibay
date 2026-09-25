@@ -31,15 +31,21 @@ pub enum SseParseItem {
     Done,
 }
 
-/// Anthropic models on the modern control surface: thinking is on by default
-/// and `output_config.effort` is accepted. A one-purpose transform wants
-/// neither the added latency nor the empty thinking blocks, so both are set
-/// explicitly. Older models (Haiku 4.5) reject `effort` and do not think
-/// unless asked, so they are deliberately not listed.
-const ANTHROPIC_TUNABLE_MODELS: &[&str] = &["claude-opus-5", "claude-sonnet-5"];
+/// Whether a one-purpose transform should run at `effort: "low"`.
+///
+/// Every model the catalog lists effort levels for accepts it; Haiku 4.5 lists
+/// none because it rejects the field. Thinking is left on: low effort is what
+/// keeps a transform fast, and switching thinking off can leak internal tags
+/// into text that is pasted straight into someone's document.
+fn runs_at_low_effort(model: &str) -> bool {
+    crate::llm::catalog::find_model(model)
+        .is_some_and(|def| def.effort_levels.iter().any(|level| level == "low"))
+}
 
-/// Output cap for a single transform. Anthropic requires `max_tokens`.
-const MAX_OUTPUT_TOKENS: u32 = 4096;
+/// Output cap for a single transform. Anthropic requires `max_tokens`, and on
+/// the models that think by default it caps thinking and answer together.
+/// Streamed, so a generous cap costs nothing unless it is used.
+const MAX_OUTPUT_TOKENS: u32 = 16000;
 
 /// The streaming half of a provider, kept next to the SSE parser that reads its
 /// replies rather than next to the catalog that lists its models.
@@ -100,8 +106,7 @@ impl LlmProvider {
                 if !system.is_empty() {
                     body["system"] = json!(system);
                 }
-                if ANTHROPIC_TUNABLE_MODELS.contains(&model) {
-                    body["thinking"] = json!({ "type": "disabled" });
+                if runs_at_low_effort(model) {
                     body["output_config"] = json!({ "effort": "low" });
                 }
                 Ok(body)
@@ -138,6 +143,18 @@ impl LlmProvider {
                     .and_then(Value::as_str)
                     .filter(|text| !text.is_empty())
                     .map(|text| SseParseItem::Text(text.to_string())),
+                // A declined or cut-off answer still ends with `message_stop`;
+                // only this event says so. Read as done, a quick action would
+                // paste the partial text over the selection as if it were whole.
+                "message_delta" => match value.pointer("/delta/stop_reason")?.as_str()? {
+                    "refusal" => Some(SseParseItem::Failure(
+                        "The model declined this request.".into(),
+                    )),
+                    "max_tokens" => Some(SseParseItem::Failure(
+                        "The answer was cut off at the output limit.".into(),
+                    )),
+                    _ => None,
+                },
                 "message_stop" => Some(SseParseItem::Done),
                 "error" => Some(SseParseItem::Failure(
                     value
@@ -275,11 +292,14 @@ mod tests {
         assert!(haiku.get("thinking").is_none());
         assert!(haiku.get("output_config").is_none());
 
-        let sonnet = LlmProvider::Anthropic
-            .body("claude-sonnet-5", &messages())
-            .unwrap();
-        assert_eq!(sonnet["thinking"]["type"], "disabled");
-        assert_eq!(sonnet["output_config"]["effort"], "low");
+        for model in ["claude-sonnet-5", "claude-opus-5", "claude-fable-5"] {
+            let body = LlmProvider::Anthropic.body(model, &messages()).unwrap();
+            assert!(body.get("thinking").is_none(), "{model} keeps thinking on");
+            assert_eq!(
+                body["output_config"]["effort"], "low",
+                "{model} runs at low effort"
+            );
+        }
     }
 
     #[test]
@@ -336,6 +356,26 @@ mod tests {
         assert_eq!(
             LlmProvider::Cloudflare.body("@cf/meta/llama-3.2-1b-instruct", &messages),
             Err("images_not_supported".into())
+        );
+    }
+
+    /// A refusal or a cut-off answer is a failure, never a finished paste.
+    #[test]
+    fn a_declined_or_cut_off_answer_is_not_done() {
+        let delta = |reason: &str| {
+            LlmProvider::Anthropic.parse_sse_data(&format!(
+                r#"{{"type":"message_delta","delta":{{"stop_reason":"{reason}"}},"usage":{{"output_tokens":3}}}}"#
+            ))
+        };
+        assert!(matches!(delta("refusal"), Some(SseParseItem::Failure(_))));
+        assert!(matches!(
+            delta("max_tokens"),
+            Some(SseParseItem::Failure(_))
+        ));
+        assert_eq!(
+            delta("end_turn"),
+            None,
+            "a normal end still waits for message_stop"
         );
     }
 
