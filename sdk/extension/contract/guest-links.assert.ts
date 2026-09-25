@@ -9,7 +9,7 @@
  * hosts a provider vouches for; this is the missing half that actually hands
  * the click over.
  */
-import { httpsUrlToOpen, installLinkOpening } from "./sandbox-guest";
+import { httpsUrlToOpen, installLinkOpening, type LinkOpeningTarget } from "./sandbox-guest";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -84,7 +84,7 @@ function harness() {
     addEventListener(type: string, listener: (event: unknown) => void, capture?: boolean) {
       listeners.push({ type, capture: capture === true, fire: listener });
     },
-    open: undefined as ((url?: string) => unknown) | undefined,
+    open: undefined as LinkOpeningTarget["open"],
   };
   installLinkOpening(target, async (url) => {
     opened.push(url);
