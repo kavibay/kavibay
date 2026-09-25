@@ -2,6 +2,7 @@ import type { WidgetInstance, WidgetResponse } from "@sdk/contract/sdk";
 import { ExtensionRegistry } from "./registry";
 import { Host } from "./runtime";
 import { JsonBridge } from "./bridge";
+import type { WidgetCapabilityTransport } from "./widgetCapabilityTransport";
 import { todoExtension } from "./fixtures/todo";
 import { tadoExtension } from "./fixtures/tado";
 import { makeFetcher, makeUi } from "./fixtures/harness";
@@ -31,7 +32,7 @@ const widgetTransport = {
   openExternalVouched: async (url: string) => {
     opened.push(url);
   },
-} as unknown as Parameters<typeof Host>[4];
+} as unknown as WidgetCapabilityTransport;
 
 function boot() {
   const reg = new ExtensionRegistry();
