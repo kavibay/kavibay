@@ -17,7 +17,7 @@ scaffold CLIs, no new test frameworks.
 | `src-tauri/` | Rust backend — part of core; stays at repo root for the Tauri CLI | GPL-3.0-or-later |
 | `src-tauri/src/extensions/` | Rust backends belonging to one widget each. Shared by two? Then it is host code and stays a level up. | GPL-3.0-or-later |
 | `sdk/extension/` | Extension-facing SDK implementations (`@sdk` alias) | MIT |
-| `sdk/runtime/` | postMessage SDK for sandboxed packages (planned, P2.2) | MIT |
+| `sdk/runtime/` | postMessage SDK for sandboxed packages; the host serves it as `@kavibay/runtime.js` | MIT |
 | `extensions/` | First-party widgets, compiled into the app | MIT |
 | `examples/` | Runtime package templates + probes (`runtime-extension-s`, `ipc-probe`) | MIT |
 | `docs/` | Guides + `superpowers/{specs,plans}` | CC-BY-4.0 |
@@ -84,10 +84,10 @@ rationale: `docs/superpowers/plans/2026-08-08-ci-cd-open-source.md`.
   click-through (cursor polling + `set_ignore_cursor_events`) live in Rust
   (`src-tauri/src/lib.rs`).
 - Two extension tiers:
-  1. **First-party** (`extensions/<id>/`), in two formats sharing one folder.
-     Both are auto-discovered via Vite glob — never register manually — and the
-     folder name MUST equal the id/name in the manifest.
-     - **Contract** (`"format": "contract"`, where new work goes):
+  1. **First-party** (`extensions/<id>/`), all in the contract format.
+     They are auto-discovered via Vite glob — never register manually — and
+     the folder name MUST equal the id/name in the manifest.
+     - **Contract** (`"format": "contract"`):
        `manifest.json` + `extension.ts`. Widgets add `view.ts` + `widgets/`;
        a provider-only extension adds `provider.ts` and omits `view.ts`.
        `extension.ts` and `view.ts` (when present) are read by their
@@ -101,9 +101,6 @@ rationale: `docs/superpowers/plans/2026-08-08-ci-cd-open-source.md`.
        `docs/extension-host.md`. Do not learn the contract from
        `docs/extension-sdk-reference/` — it is frozen at the Phase 1 handoff and
        the live contract is `sdk/extension/contract/sdk.ts`.
-     - **Legacy** (no `format` key): `manifest.json` + `index.ts` + widget
-       `.vue`, discovered by `core/app/extensions/loadExtensions.ts`. Still the
-       majority. Port one when you touch it; do not start one.
   2. **Runtime packages** (community, sandboxed): user-installed folders under
      `{appData}/extensions/` (not the repo dir!), served via the `kavibay-ext`
      protocol into sandboxed iframes; storage/commands only via the postMessage
@@ -111,9 +108,9 @@ rationale: `docs/superpowers/plans/2026-08-08-ci-cd-open-source.md`.
 - The host stays generic: per-extension behavior only via manifest `ui` flags and
   lifecycle hooks (`onCreate/onDuplicate/onSuspend/onResume/onDispose`) — **never
   add `typeId` switches to host code**.
-- Data fetching: `backendCommand` + `useWidgetData` (from `@sdk`) for global no-arg
-  polls; instance-bound APIs invoke from the extension's composable with
-  `onSuspend`/`onResume` gating (see `tado`, `github-actions`).
+- Data fetching goes through the widget's context: `ctx.providers[id]` queries
+  for an account's data (host-cached per connection; see `tado`), `ctx.http`
+  for a keyless API whose hosts are declared (see `stocks`).
 - Credentials: declarative types in `src-tauri/src/credentials/registry.rs`, one
   encrypted store, one generic Settings → Credentials panel. Extensions declare
   `credentials: [{ type, required }]` in their manifest and resolve nothing

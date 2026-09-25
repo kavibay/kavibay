@@ -262,7 +262,7 @@ square corners, its own font and row height. It looks pasted on over the dark
 card. Build the menu instead — a trigger showing the current value and a floating
 panel of rows, check on the selected one.
 
-**Working example to clone: `extensions/widget-wizard/WizardModelPicker.vue`** —
+**Working example to clone: `extensions/widget-wizard/WizardModelMenu.vue`** —
 outside-click, Escape, arrow keys, two-line rows. Styling follows the host's `⋯`
 menu (`.widget-context-menu` / `.widget-menu-item` in
 `core/app/host/WidgetCard.vue`); copy those values rather than inventing new
@@ -393,7 +393,7 @@ For runtime packages the literal (non-variable) colours are in
 | API needing a User-Agent / fallback host | `extensions/stocks/` (+ `api.json`) |
 | Credentials + Rust API module | `extensions/tado/`, `extensions/github-actions/` |
 | Streaming + chat | `extensions/ask-llm/` |
-| Dropdown / option picker (never `<select>`) | `extensions/widget-wizard/WizardModelPicker.vue` |
+| Dropdown / option picker (never `<select>`) | `extensions/widget-wizard/WizardModelMenu.vue` |
 
 ## Thin plan template (M / L)
 

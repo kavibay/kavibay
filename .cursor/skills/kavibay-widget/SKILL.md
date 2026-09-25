@@ -11,14 +11,12 @@ description: >-
 Every widget is a first-party **extension** under `extensions/<id>/`, discovered
 automatically (`import.meta.glob`) — never registered in a manual barrel.
 
-Two formats share that folder, and the manifest says which:
-
-- **Contract** (`"format": "contract"`) — `manifest.json` + `extension.ts` +
-  `view.ts` + `widgets/`. New widgets go here. Read `docs/extension-host.md`
-  before writing one; `AGENTS.md` lists the three mistakes that are invisible
-  until the browser loads the module.
-- **Legacy** (no `format` key) — `manifest.json` + `index.ts` + widget `.vue`.
-  The tier table below and most of `reference.md` still describe this one.
+Every extension uses the contract format (`"format": "contract"`):
+`manifest.json` + `extension.ts` + `view.ts` + `widgets/`. Read
+`docs/extension-host.md` before writing one; `AGENTS.md` lists the three
+mistakes that are invisible until the browser loads the module. Much of
+`reference.md` still describes the retired `index.ts` format — where the two
+disagree, `docs/extension-host.md` is right.
 
 Canonical contract: `docs/superpowers/specs/2026-07-18-extension-system-design.md`.  
 Patterns and checklists: [reference.md](reference.md).
@@ -36,18 +34,18 @@ and spacing the existing widgets use.
 
 | Tier | Criteria | Process |
 |------|----------|---------|
-| **S** | Client-only, or one plain API call that fits a **declared endpoint**; no new Rust | Decision list (5–10 bullets) → implement from a reference. **Skip** design doc and long plan |
+| **S** | Client-only, or one keyless API through `capabilities.http`; no new Rust command | Decision list (5–10 bullets) → implement from a reference. **Skip** design doc and long plan |
 | **M** | New settings/state/menu or non-trivial UI; a **new credential type** (one registry entry) | Short design (decisions only) → **thin plan** → implement |
 | **L** | New Rust module: streaming, pagination or chained calls, shared cache/quota, OS APIs, settings architecture | Full design → **thin plan** → implement |
 
 Default to **S** unless M/L criteria clearly apply. State the tier to the user in one line before coding.
 
-Two things that used to mean "new Rust module" and no longer do — check these
-before classifying as **L**:
+Two needs that look like **L** and are not — check these first:
 
-- **One API call** → declare it in `extensions/<id>/api.json` and call
-  `extension_http_call`. No Rust, no `lib.rs` entry, no CSP change. See `weather`
-  and `stocks`.
+- **A keyless public API** → list its hosts under `capabilities.http` in the
+  widget definition and in `EXTENSION.capabilities` of
+  `src-tauri/src/extensions/<id>/mod.rs`, then call `ctx.http`. No command,
+  no CSP change. See `stocks`.
 - **An API key or OAuth account** → add one entry to
   `src-tauri/src/credentials/registry.rs`. The storage, the settings UI and the
   OAuth flows already exist. Never a per-integration table, command set or panel.
@@ -66,7 +64,7 @@ Plans must include: goal, constraints, file table, tasks with **interfaces** + v
    Never a native `<select>` for a dropdown — Windows draws that popup itself, white
    and square-cornered on top of the dark card. Build the menu (trigger + panel of
    rows, check on the selected one); clone
-   `extensions/widget-wizard/WizardModelPicker.vue`, markup in [reference.md](reference.md).
+   `extensions/widget-wizard/WizardModelMenu.vue`, markup in [reference.md](reference.md).
 4. Prefer pure helpers in `*Logic.ts`; Vue composables for per-instance cache; lifecycle hooks for seed/dispose — never `typeId` switches in the host.
 5. Comment new methods/functions with a short purpose note.
 
@@ -74,8 +72,9 @@ Plans must include: goal, constraints, file table, tasks with **interfaces** + v
 
 - Pure helpers: Node assert script (`npx tsx` if needed)
 - `npx vue-tsc --noEmit`
-- If Rust touched: `cargo check -p kavibay_lib` (+ targeted `cargo test -p kavibay_lib …`)
-- If an `api.json` was added or changed: `cargo test --lib first_party` — a
+- If Rust touched: `npm run verify:rust` (fmt, clippy, `cargo test --lib`); one
+  module: `cargo test --manifest-path src-tauri/Cargo.toml --lib <module>`
+- If an `api.json` was added or changed: `cargo test --manifest-path src-tauri/Cargo.toml --lib first_party` — a
   malformed declaration would otherwise panic at first use, in front of the user
 - Manual: palette add, duplicate/dispose if stateful, settings if present, and
   the widget's own data path once against the real provider
