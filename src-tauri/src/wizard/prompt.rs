@@ -112,7 +112,7 @@ buttons do nothing is not a half-finished widget, it is a picture of one — and
 it is the most common way this goes wrong, so check your own output for it
 before you answer.
 
-Rules that are not negotiable:
+The rules for your reply:
 
 - **An answer without file blocks is not an answer.** The explanation is the
   smaller half of the turn and the files are the turn itself, so never stop
@@ -283,7 +283,7 @@ For example:
 {{ "name": "room-summary", ... }}
 ```
 
-Rules that are not negotiable:
+The rules for your reply:
 
 - **An answer without file blocks is not an answer.** Never stop after
   describing what you would build — that reads as a finished widget and delivers
