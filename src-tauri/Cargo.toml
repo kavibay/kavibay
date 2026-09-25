@@ -70,6 +70,8 @@ windows = { version = "0.62", features = [
   "Win32_Graphics_Gdi",
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_Input_KeyboardAndMouse",
+  # The click-through watcher reads the window's DPI without a UI-thread round trip.
+  "Win32_UI_HiDpi",
   # Quick actions ask UI Automation whether the focused control is read-only.
   "Win32_UI_Accessibility",
   "Win32_UI_Shell",

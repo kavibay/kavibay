@@ -958,6 +958,7 @@ fn spawn_click_through_watcher(
         }
         // Shares the gate: the pointer read is only trustworthy where the hit test is.
         let buttons = MouseButtons::new(hit_test_usable);
+        let mut probe: Option<WindowProbe> = None;
 
         loop {
             std::thread::sleep(Duration::from_millis(tick_ms));
@@ -971,16 +972,22 @@ fn spawn_click_through_watcher(
             let Some(window) = app.get_webview_window("main") else {
                 continue;
             };
+            if probe.is_none() {
+                probe = WindowProbe::new(&window);
+            }
+            let Some(probe) = probe.as_ref() else {
+                continue;
+            };
 
             // Track which window the user is actually working in. Must happen before
             // the visibility gate: while Kavibay is hidden the foreground window IS
             // the answer we want to remember for the next "Active window" open.
-            remember_active_window(&window, &active_window);
+            remember_active_window(probe.own_handle(), &active_window);
 
             // While hidden, force click-through off. Otherwise the last `ignore=true`
             // sticks across hide/show and the reopened window never receives clicks
             // (the toggle then only flips a ghost overlay).
-            if !window.is_visible().unwrap_or(false) {
+            if !probe.is_visible(&window) {
                 // No boundary to maintain while hidden — idle right down.
                 tick_ms = WATCH_HIDDEN_TICK_MS;
                 last_cursor = None;
@@ -994,14 +1001,7 @@ fn spawn_click_through_watcher(
             // Sample all window geometry before taking the lock, so the critical
             // section below stays pure arithmetic and never holds the mutex
             // across a Win32 call while the frontend may be writing rects.
-            let geometry = match (
-                window.cursor_position(),
-                window.outer_position(),
-                window.scale_factor(),
-            ) {
-                (Ok(cursor), Ok(origin), Ok(scale)) => Some((cursor, origin, scale)),
-                _ => None,
-            };
+            let geometry = probe.geometry(&window);
 
             let cursor_now = geometry.as_ref().map(|(c, _, _)| (c.x, c.y));
             let moved = cursor_now != last_cursor;
@@ -1062,19 +1062,102 @@ fn spawn_click_through_watcher(
 /// means "the window I was working in", which is exactly what we were before we
 /// stole focus.
 #[cfg(windows)]
-fn remember_active_window(window: &tauri::WebviewWindow, state: &SharedActiveWindow) {
+fn remember_active_window(ours: Option<isize>, state: &SharedActiveWindow) {
     use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
     let foreground = unsafe { GetForegroundWindow() };
     let foreground = (!foreground.is_invalid()).then_some(foreground.0 as isize);
-    let ours = window.hwnd().ok().map(|h| h.0 as isize);
     if let Ok(mut slot) = state.lock() {
         *slot = commands::next_active_window(*slot, foreground, ours);
     }
 }
 
 #[cfg(not(windows))]
-fn remember_active_window(_window: &tauri::WebviewWindow, _state: &SharedActiveWindow) {}
+fn remember_active_window(_ours: Option<isize>, _state: &SharedActiveWindow) {}
+
+/// What the watcher reads about the main window every tick: whether it is shown,
+/// where the pointer is, where the window sits and at what scale.
+///
+/// Through Tauri each of those — and `hwnd()` as well — posts a message to the
+/// event loop and blocks until the UI thread answers. That was five round trips
+/// a tick, about 300 a second at the 16 ms cadence, all from a thread that only
+/// reads. On Windows the calls tao answers them with (`IsWindowVisible`,
+/// `GetCursorPos`, `GetWindowRect`, `GetDpiForWindow`) are safe from any thread,
+/// so the watcher makes them itself and the UI thread is left alone.
+#[cfg(windows)]
+struct WindowProbe(windows::Win32::Foundation::HWND);
+
+type WindowGeometry = (PhysicalPosition<f64>, PhysicalPosition<i32>, f64);
+
+#[cfg(windows)]
+impl WindowProbe {
+    /// The one Tauri round trip: the handle does not change for the window's life.
+    fn new(window: &tauri::WebviewWindow) -> Option<Self> {
+        let hwnd = window.hwnd().ok()?;
+        Some(Self(windows::Win32::Foundation::HWND(hwnd.0)))
+    }
+
+    fn own_handle(&self) -> Option<isize> {
+        Some(self.0 .0 as isize)
+    }
+
+    fn is_visible(&self, _window: &tauri::WebviewWindow) -> bool {
+        unsafe { windows::Win32::UI::WindowsAndMessaging::IsWindowVisible(self.0) }.as_bool()
+    }
+
+    fn geometry(&self, _window: &tauri::WebviewWindow) -> Option<WindowGeometry> {
+        use windows::Win32::Foundation::{POINT, RECT};
+        use windows::Win32::UI::HiDpi::GetDpiForWindow;
+        use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, GetWindowRect};
+
+        let mut cursor = POINT::default();
+        let mut rect = RECT::default();
+        unsafe {
+            GetCursorPos(&mut cursor).ok()?;
+            GetWindowRect(self.0, &mut rect).ok()?;
+        }
+        // 0 means an invalid handle, which would divide the hit test into nonsense.
+        let dpi = unsafe { GetDpiForWindow(self.0) };
+        if dpi == 0 {
+            return None;
+        }
+        Some((
+            PhysicalPosition::new(cursor.x as f64, cursor.y as f64),
+            PhysicalPosition::new(rect.left, rect.top),
+            dpi as f64 / 96.0,
+        ))
+    }
+}
+
+/// Elsewhere the Tauri getters are the only portable answer.
+#[cfg(not(windows))]
+struct WindowProbe;
+
+#[cfg(not(windows))]
+impl WindowProbe {
+    fn new(_window: &tauri::WebviewWindow) -> Option<Self> {
+        Some(Self)
+    }
+
+    fn own_handle(&self) -> Option<isize> {
+        None
+    }
+
+    fn is_visible(&self, window: &tauri::WebviewWindow) -> bool {
+        window.is_visible().unwrap_or(false)
+    }
+
+    fn geometry(&self, window: &tauri::WebviewWindow) -> Option<WindowGeometry> {
+        match (
+            window.cursor_position(),
+            window.outer_position(),
+            window.scale_factor(),
+        ) {
+            (Ok(cursor), Ok(origin), Ok(scale)) => Some((cursor, origin, scale)),
+            _ => None,
+        }
+    }
+}
 
 /// Global mouse state — left or right down. Both dismiss, matching the `pointerdown`
 /// the frontend catcher used to see.
