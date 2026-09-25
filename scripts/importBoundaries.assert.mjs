@@ -85,8 +85,8 @@ function importsIn(source) {
 const ALLOWED_APP_EXTENSION_IMPORTS = [
   // The palette shows a live result while you type an expression. Doing this
   // without the import needs a contribution type for palette results, which
-  // CLAUDE.md puts out of scope for v1 — so it is debt, recorded rather than
-  // hidden.
+  // the v1 scope in docs/extension-sdk-reference/CLAUDE.md left out — so it is
+  // debt, recorded rather than hidden.
   "core/app/palette/CommandPalette.vue",
   // The Phase 3 dev board mounts a real extension on purpose; it is the harness
   // for the gate states and ships in no build.
