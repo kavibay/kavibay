@@ -33,6 +33,7 @@ const MAX_PARAMS_PER_LOCATION: usize = 16;
 const DEFAULT_STRING_MAX_LEN: usize = 256;
 const HARD_STRING_MAX_LEN: usize = 2048;
 const MAX_ENUM_VALUES: usize = 32;
+const MAX_ARRAY_ITEMS: usize = 100;
 /// Caps for cache/rate windows — a day is already an eternity for a widget.
 const MAX_WINDOW_SECS: u64 = 86_400;
 
@@ -42,6 +43,7 @@ const MAX_WINDOW_SECS: u64 = 86_400;
 pub enum Method {
     Get,
     Post,
+    Put,
 }
 
 impl Method {
@@ -49,6 +51,7 @@ impl Method {
         match raw {
             "GET" => Some(Method::Get),
             "POST" => Some(Method::Post),
+            "PUT" => Some(Method::Put),
             _ => None,
         }
     }
@@ -57,11 +60,12 @@ impl Method {
         match self {
             Method::Get => "GET",
             Method::Post => "POST",
+            Method::Put => "PUT",
         }
     }
 }
 
-/// How a `POST` body is encoded.
+/// How a `POST` or `PUT` body is encoded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BodyType {
     Json,
@@ -130,6 +134,11 @@ pub fn is_safe_path_segment(value: &str) -> bool {
 /// One declared input value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Param {
+    Array {
+        required: bool,
+        items: Box<Param>,
+        max_items: usize,
+    },
     Text {
         required: bool,
         max_length: usize,
@@ -155,7 +164,8 @@ impl Param {
     /// Whether the caller must supply this value (checked while binding).
     pub fn required(&self) -> bool {
         match self {
-            Param::Text { required, .. }
+            Param::Array { required, .. }
+            | Param::Text { required, .. }
             | Param::Number { required }
             | Param::Boolean { required }
             | Param::Enum { required, .. } => *required,
@@ -410,6 +420,8 @@ fn parse_param(raw: &Value, scope: &str) -> Result<Param, String> {
             "maxLength",
             "charset",
             "description",
+            "items",
+            "maxItems",
         ],
         scope,
     )?;
@@ -425,6 +437,34 @@ fn parse_param(raw: &Value, scope: &str) -> Result<Param, String> {
     };
 
     match kind {
+        "array" => {
+            if scope != "body" {
+                return Err("array_not_in_body".into());
+            }
+            let items = obj.get("items").ok_or("invalid_array_items")?;
+            // Check before recursion: nested arrays and objects are not supported.
+            if !matches!(
+                items.get("type").and_then(Value::as_str),
+                Some("string" | "number" | "boolean" | "enum")
+            ) {
+                return Err("invalid_array_items".into());
+            }
+            let max_items = match obj.get("maxItems") {
+                None => MAX_ARRAY_ITEMS,
+                Some(value) => {
+                    let n = value.as_u64().ok_or("invalid_array_max_items")?;
+                    if n == 0 || n > MAX_ARRAY_ITEMS as u64 {
+                        return Err("invalid_array_max_items".into());
+                    }
+                    n as usize
+                }
+            };
+            Ok(Param::Array {
+                required,
+                items: Box::new(parse_param(items, "items")?),
+                max_items,
+            })
+        }
         "string" => {
             let max_length = match obj.get("maxLength") {
                 None => DEFAULT_STRING_MAX_LEN,
@@ -636,6 +676,13 @@ fn parse_endpoint(raw: &Value) -> Result<Endpoint, String> {
         Some(Value::String(value)) if value == "form" => BodyType::Form,
         Some(_) => return Err("invalid_body_type".into()),
     };
+    if body_type == BodyType::Form
+        && body
+            .values()
+            .any(|param| matches!(param, Param::Array { .. }))
+    {
+        return Err("array_on_form".into());
+    }
 
     let mut headers = BTreeMap::new();
     if let Some(raw_headers) = obj.get("headers") {
@@ -996,19 +1043,103 @@ mod tests {
     }
 
     #[test]
-    fn bodies_belong_to_post() {
+    fn bodies_belong_to_post_and_put() {
         assert_eq!(
             parse_one(json!({ "body": { "text": { "type": "string" } } })).unwrap_err(),
             "body_on_get"
         );
-        let ok = parse_one(json!({
-            "method": "POST",
-            "body": { "text": { "type": "string", "required": true } },
-            "bodyType": "form"
-        }))
-        .unwrap();
-        assert_eq!(ok.body_type, BodyType::Form);
-        assert!(ok.body["text"].required());
+        for method in ["POST", "PUT"] {
+            let ok = parse_one(json!({
+                "method": method,
+                "body": { "text": { "type": "string", "required": true } },
+                "bodyType": "form"
+            }))
+            .unwrap();
+            assert_eq!(ok.method.as_str(), method);
+            assert_eq!(ok.body_type, BodyType::Form);
+            assert!(ok.body["text"].required());
+        }
+        for method in ["PATCH", "DELETE", "put"] {
+            assert_eq!(
+                parse_one(json!({ "method": method })).unwrap_err(),
+                "invalid_method"
+            );
+        }
+    }
+
+    #[test]
+    fn arrays_belong_only_to_json_bodies() {
+        let array = json!({ "type": "array", "items": { "type": "string", "maxLength": 64 }, "required": true });
+        for method in ["POST", "PUT"] {
+            let endpoint =
+                parse_one(json!({ "method": method, "body": { "uris": array } })).unwrap();
+            assert!(matches!(
+                endpoint.body["uris"],
+                Param::Array {
+                    max_items: 100,
+                    required: true,
+                    ..
+                }
+            ));
+        }
+        for items in [
+            json!({ "type": "number" }),
+            json!({ "type": "boolean" }),
+            json!({ "type": "enum", "values": ["a"] }),
+        ] {
+            let mut param = array.clone();
+            param["items"] = items;
+            param["maxItems"] = json!(1);
+            assert!(parse_one(json!({ "method": "PUT", "body": { "values": param } })).is_ok());
+        }
+        for limit in [
+            json!(0),
+            json!(-1),
+            json!(101),
+            json!(1.5),
+            json!("2"),
+            Value::Null,
+        ] {
+            let mut param = array.clone();
+            param["maxItems"] = limit;
+            assert_eq!(
+                parse_one(json!({ "method": "PUT", "body": { "uris": param } })).unwrap_err(),
+                "invalid_array_max_items"
+            );
+        }
+        for items in [
+            Value::Null,
+            json!({}),
+            json!({ "type": "object" }),
+            json!({ "type": "array", "items": { "type": "string" } }),
+            json!({ "type": "const", "value": "a" }),
+        ] {
+            let mut param = array.clone();
+            param["items"] = items;
+            assert_eq!(
+                parse_one(json!({ "method": "PUT", "body": { "uris": param } })).unwrap_err(),
+                "invalid_array_items"
+            );
+        }
+        assert_eq!(parse_one(json!({ "method": "PUT", "body": { "uris": { "type": "array", "items": { "type": "string", "surprise": true } } } })).unwrap_err(), "unknown_key:items.surprise");
+        assert_eq!(
+            parse_one(json!({ "method": "PUT", "body": { "uris": array }, "bodyType": "form" }))
+                .unwrap_err(),
+            "array_on_form"
+        );
+        assert_eq!(
+            parse_one(json!({ "body": { "uris": array } })).unwrap_err(),
+            "body_on_get"
+        );
+        assert_eq!(
+            parse_one(json!({ "query": { "uris": array } })).unwrap_err(),
+            "array_not_in_body"
+        );
+        assert_eq!(
+            parse_one(json!({ "url": "https://api.example.com/{id}", "path": { "id": array } }))
+                .unwrap_err(),
+            "array_not_in_body"
+        );
     }
 
     #[test]

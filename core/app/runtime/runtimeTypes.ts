@@ -143,7 +143,7 @@ export type PackageFormat = "runtime" | "contract";
 export interface ScannedApiEndpoint {
   id: string;
   description: string;
-  method: "GET" | "POST" | string;
+  method: "GET" | "POST" | "PUT" | string;
   /** Primary host plus any fallback hosts — all of them are shown. */
   hosts: string[];
   credential?: string | null;
