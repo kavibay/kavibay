@@ -32,6 +32,8 @@ use extensions::{
     now_playing, system_info,
 };
 
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -999,7 +1001,6 @@ fn spawn_click_through_watcher(
 ) {
     std::thread::spawn(move || {
         let mut last_ignore: Option<bool> = None;
-        let mut prev_mouse_down = false;
         let mut tick_ms = WATCH_TICK_MS;
         let mut last_cursor: Option<(f64, f64)> = None;
         let mut last_generation = 0u64;
@@ -1016,7 +1017,7 @@ fn spawn_click_through_watcher(
             );
         }
         // Shares the gate: the pointer read is only trustworthy where the hit test is.
-        let buttons = MouseButtons::new(hit_test_usable);
+        let mut buttons = MouseButtons::new(&app, hit_test_usable);
         let mut probe: Option<WindowProbe> = None;
 
         loop {
@@ -1024,9 +1025,7 @@ fn spawn_click_through_watcher(
 
             // Sample before the visibility gate so a press-and-hold across hide/show
             // cannot come back as a fresh edge.
-            let mouse_down = buttons.is_down();
-            let pressed = mouse_down && !prev_mouse_down;
-            prev_mouse_down = mouse_down;
+            let pressed = buttons.pressed();
 
             let Some(window) = app.get_webview_window("main") else {
                 continue;
@@ -1218,7 +1217,7 @@ impl WindowProbe {
     }
 }
 
-/// Global mouse state — left or right down. Both dismiss, matching the `pointerdown`
+/// Global mouse presses — left or right. Both dismiss, matching the `pointerdown`
 /// the frontend catcher used to see.
 ///
 /// A struct rather than a free function because the X11 read needs a connection and
@@ -1230,12 +1229,29 @@ struct MouseButtons {
         x11rb::rust_connection::RustConnection,
         x11rb::protocol::xproto::Window,
     )>,
+    /// Whether a button was down at the previous sample.
+    #[cfg(not(target_os = "macos"))]
+    held: bool,
+    /// The monitor's press count at the previous sample.
+    #[cfg(target_os = "macos")]
+    seen: u64,
+}
+
+#[cfg(not(target_os = "macos"))]
+impl MouseButtons {
+    /// A button went down since the previous sample. Holding it is one press.
+    fn pressed(&mut self) -> bool {
+        let down = self.is_down();
+        let pressed = down && !self.held;
+        self.held = down;
+        pressed
+    }
 }
 
 #[cfg(windows)]
 impl MouseButtons {
-    fn new(_x11_usable: bool) -> Self {
-        Self {}
+    fn new(_app: &tauri::AppHandle, _x11_usable: bool) -> Self {
+        Self { held: false }
     }
 
     fn is_down(&self) -> bool {
@@ -1253,9 +1269,10 @@ impl MouseButtons {
     /// still points at XWayland and the connect would *succeed* — but that pointer
     /// never sees Wayland-native input, so every reply would be a confident lie.
     /// Same failure shape as tao's fabricated cursor position, one layer down.
-    fn new(x11_usable: bool) -> Self {
+    fn new(_app: &tauri::AppHandle, x11_usable: bool) -> Self {
         Self {
             x11: x11_usable.then(Self::connect).flatten(),
+            held: false,
         }
     }
 
@@ -1292,43 +1309,65 @@ impl MouseButtons {
     }
 }
 
-// `CGEventSourceButtonState` from Quartz Event Services.
-//
-// Deliberately not AppKit's `NSEvent.pressedMouseButtons`, even though objc2 binds
-// it safely: AppKit is main-thread-bound and this is read from the watcher thread.
-// The Quartz event-source queries carry no such restriction. Same reasoning that
-// put a private X11 connection on Linux instead of a GDK call.
-//
-// Needs no dependency — CoreGraphics is already linked into every macOS build.
+/// Presses the macOS monitor has seen, in any app but Kavibay.
 #[cfg(target_os = "macos")]
-#[link(name = "CoreGraphics", kind = "framework")]
-extern "C" {
-    fn CGEventSourceButtonState(state: i32, button: u32) -> bool;
-}
+static DELIVERED_PRESSES: AtomicU64 = AtomicU64::new(0);
 
+// An `NSEvent` global monitor counts the presses, and the watcher reads the count.
+//
+// The monitor sees a press only once the window server hands it to another app.
+// Over a gap that app is the one under Kavibay, so the press is a click past it.
+// A screenshot tool's area selection (CleanShot, macOS's own Shift+Cmd+4) takes
+// the mouse before any app gets it. Measured on macOS 26, the monitor saw every
+// ordinary click and neither selection's press. The button state read this used
+// before (`CGEventSourceButtonState`) saw both, so dragging out a selection hid
+// Kavibay before the picture was taken.
+//
+// Presses on Kavibay's own windows never reach the monitor. The watcher does not
+// want them either, because they land on a widget and not in a gap. Like the Ctrl
+// double tap's monitor, this one needs no permission.
 #[cfg(target_os = "macos")]
 impl MouseButtons {
-    fn new(_x11_usable: bool) -> Self {
-        Self {}
+    fn new(app: &tauri::AppHandle, _x11_usable: bool) -> Self {
+        // AppKit monitors are installed on the main thread, like the Ctrl double tap's.
+        if let Err(error) = app.run_on_main_thread(Self::install_monitor) {
+            eprintln!("[click-through] outside clicks unavailable: {error}");
+        }
+        Self {
+            seen: DELIVERED_PRESSES.load(Ordering::Relaxed),
+        }
     }
 
-    fn is_down(&self) -> bool {
-        /// Combine hardware and synthesised events, i.e. what the user sees happen.
-        const COMBINED_SESSION_STATE: i32 = 0;
-        const LEFT: u32 = 0;
-        const RIGHT: u32 = 1;
-        // Left or right, matching the Windows read — both dismiss.
-        unsafe {
-            CGEventSourceButtonState(COMBINED_SESSION_STATE, LEFT)
-                || CGEventSourceButtonState(COMBINED_SESSION_STATE, RIGHT)
+    fn install_monitor() {
+        use block2::RcBlock;
+        use objc2_app_kit::{NSEvent, NSEventMask};
+
+        let handler = RcBlock::new(|_event: std::ptr::NonNull<NSEvent>| {
+            DELIVERED_PRESSES.fetch_add(1, Ordering::Relaxed);
+        });
+        match NSEvent::addGlobalMonitorForEventsMatchingMask_handler(
+            NSEventMask::LeftMouseDown | NSEventMask::RightMouseDown,
+            &handler,
+        ) {
+            // Never removed, because the watcher reads the count for the app's lifetime.
+            Some(monitor) => std::mem::forget(monitor),
+            None => {
+                eprintln!("[click-through] outside clicks unavailable: AppKit refused the monitor")
+            }
         }
+    }
+
+    /// Another app received a press since the previous sample.
+    fn pressed(&mut self) -> bool {
+        let count = DELIVERED_PRESSES.load(Ordering::Relaxed);
+        std::mem::replace(&mut self.seen, count) != count
     }
 }
 
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 impl MouseButtons {
-    fn new(_x11_usable: bool) -> Self {
-        Self {}
+    fn new(_app: &tauri::AppHandle, _x11_usable: bool) -> Self {
+        Self { held: false }
     }
 
     fn is_down(&self) -> bool {
