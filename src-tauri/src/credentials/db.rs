@@ -2,7 +2,7 @@
 //!
 //! Two tables by design: `credentials` holds only what the UI may see (name,
 //! state, account label, non-secret metadata) so listing never decrypts, while
-//! `credential_secrets` holds exactly one DPAPI-protected JSON blob per
+//! `credential_secrets` holds exactly one OS-protected JSON blob per
 //! credential. One blob keeps the schema stable when a type gains a field and
 //! leaves a single encrypt/decrypt call site (AGENTS.md invariant 5).
 
@@ -415,8 +415,8 @@ mod tests {
         );
     }
 
-    // Secret round-trips go through DPAPI, so they are Windows-only (like the app).
-    #[cfg(windows)]
+    // Secret round-trips need an OS secret backend (DPAPI or the Keychain).
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn secret_roundtrip_and_delete_cascade() {
         let conn = test_conn();
@@ -439,7 +439,7 @@ mod tests {
         assert!(load_secret(&conn, "a").unwrap().is_none());
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn secrets_are_not_plaintext_at_rest() {
         let conn = test_conn();

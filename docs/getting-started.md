@@ -101,8 +101,15 @@ The gear menu only appears once more than one session exists.
 but nothing has ever been compiled or run on a Mac. Packaging is not set up.
 
 Pinning, click-through and the global hotkey should work — macOS supports all
-three, unlike Wayland. Credential storage, quick actions, Now Playing, the colour
-picker and the focus tracker are Windows-only and stay inert.
+three, unlike Wayland. Quick actions, Now Playing, the colour picker and the
+focus tracker are Windows-only and stay inert.
+
+Credentials and `web-storage.json` are encrypted with a key kept in your login
+keychain as "Kavibay Safe Storage". A debug build is ad-hoc signed, so every
+rebuild has a new signature the keychain has not seen, and macOS asks once per
+build whether `kavibay` may use that item. Allow it; *Always Allow* covers only
+that one build. Deny it and that session runs without the key: credentials
+cannot be read and `web-storage.json` is written unencrypted until the next start.
 
 One decision is already baked in: the transparent window needs Apple's private
 APIs, which **rules out App Store distribution**.

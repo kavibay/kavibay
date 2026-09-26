@@ -21,7 +21,7 @@ and executes community-written extension code. The parts worth attacking:
   filesystem is a vulnerability.
 - **Path traversal** out of a package directory (`safe_join` in
   `src-tauri/src/runtime_extensions/validate.rs`) — including via manifest fields.
-- **Credential exposure.** Secrets are encrypted at rest (DPAPI on Windows) and must
+- **Credential exposure.** Secrets are encrypted at rest (DPAPI on Windows, a Keychain-held key on macOS) and must
   never reach the frontend, `localStorage`, logs, or a runtime package.
 - **Permission bypass** — a package obtaining network access or storage it did not
   declare and the user did not approve.
@@ -57,13 +57,16 @@ sits. An instance started with the override does not join the single-instance
 group, because it is a different profile rather than a second copy of the
 running app.
 
-Encrypted with the OS secret store (DPAPI on Windows, bound to the current user
-profile — see `src-tauri/src/security/secrets.rs`), so a copy of the file is
-useless on another machine or under another account:
+Encrypted with the OS secret store (see `src-tauri/src/security/secrets.rs`), so
+a copy of the file is useless on another machine or under another account:
 
 - `credentials.db` — API tokens and OAuth refresh tokens.
 - `web-storage.json` — the durable copy of everything the frontend stores:
   notes, todos, alarms, timers, widget settings, desk layout.
+
+Windows wraps both with DPAPI, bound to the current user profile. macOS seals
+them with AES-256-GCM under a random key kept in the login keychain as "Kavibay
+Safe Storage"; the key never leaves that keychain except into this process.
 
 Stored unencrypted:
 
@@ -75,8 +78,8 @@ Stored unencrypted:
   and `web-storage.json` mirrors it, so the encrypted file is a durable copy of
   data that also exists in the profile in the clear.
 
-On platforms with no secret backend (every non-Windows build today, until the
-Keychain port lands) `web-storage.json` is written in plaintext instead of not at
+On platforms with no secret backend (Linux today), or on macOS when the keychain
+refuses the key, `web-storage.json` is written in plaintext instead of not at
 all, and the app logs `[web_storage] storing unprotected`. Credentials fail closed
 in the same situation; this file does not, because it is the only copy of the
 user's notes and refusing to write it would destroy them rather than expose them.
