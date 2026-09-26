@@ -281,6 +281,7 @@ async fn send_once(
     let mut builder = match request.method {
         api_declaration::Method::Get => client.get(url.clone()),
         api_declaration::Method::Post => client.post(url.clone()),
+        api_declaration::Method::Put => client.put(url.clone()),
     };
     for (name, value) in &request.headers {
         builder = builder.header(name, value);

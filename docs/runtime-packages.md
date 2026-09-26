@@ -274,10 +274,10 @@ declare endpoints and the host calls them for you.
 |---|---|
 | `id` | what you pass to `kavibay.http()` — a letter, then letters, digits or `_`. **No dashes**: `review_requests`, never `review-requests` |
 | `description` | **shown to the user** before they enable you — write it for them, not for you |
-| `method` | `GET` or `POST` |
+| `method` | `GET`, `POST` or `PUT` |
 | `url` | absolute `https://`, no query string; `{name}` may fill a path segment or sit inside one beside literal text (`/feed/@{uid}/`), one placeholder per segment, never in the host |
 | `path` / `query` / `body` | named parameters, one entry per `{name}` in the url |
-| `bodyType` | `json` (default) or `form`, `POST` only |
+| `bodyType` | `json` (default) or `form`, `POST` and `PUT` only |
 | `headers` | static values; `Accept`, `Content-Type` and `X-*` only |
 | `userAgent` | fixed agent string, when a provider insists on one |
 | `fallbackUrls` | alternates tried on network error or 5xx; same placeholders as `url` |
@@ -285,10 +285,56 @@ declare endpoints and the host calls them for you.
 | `cache` | `{ "ttlSeconds": n }` — a cache hit costs neither a request nor budget |
 | `rate` | `{ "minIntervalSeconds": n }` — your own floor between calls |
 
+Spotify playback uses `PUT https://api.spotify.com/v1/me/player/play` with
+`credential: "spotifyOAuth2"`. The OAuth connection needs
+`user-modify-playback-state`, Spotify Premium and an active playback device
+(or an available device targeted through the `device_id` query parameter).
+An optional JSON body field `context_uri` starts a playlist or album; `uris`
+starts specific tracks (see the array example below). Omit both to resume
+playback. Do not declare a cache for playback commands: each call
+must reach Spotify. A successful request returns HTTP 204 with an empty body.
+Contract widgets can already use the Spotify provider's `play` and `playTrack`
+actions instead of declaring an endpoint.
+
 ### Parameter types
 
 `string` (with optional `maxLength` and `charset`), `number`, `boolean`,
 `enum` (with `values`), and `const` — a fixed value the caller cannot set.
+
+JSON bodies also accept `array` parameters. `items` must describe a `string`,
+`number`, `boolean` or `enum`; each element is checked against that schema,
+including string length and charset. `maxItems` is an integer from 1 to 100
+(default 100). Empty arrays are allowed; `required` controls whether the array
+must be supplied. Arrays cannot be used in paths, queries or form bodies,
+and nested arrays, objects and constant arrays are not supported.
+
+For example, this `api.json` declares Spotify track playback:
+
+```json
+{
+  "schemaVersion": 1,
+  "endpoints": [{
+    "id": "playTrack",
+    "description": "Play selected tracks on your Spotify device.",
+    "method": "PUT",
+    "url": "https://api.spotify.com/v1/me/player/play",
+    "credential": "spotifyOAuth2",
+    "query": { "device_id": { "type": "string" } },
+    "body": {
+      "uris": {
+        "type": "array",
+        "required": true,
+        "maxItems": 100,
+        "items": { "type": "string", "maxLength": 128 }
+      }
+    }
+  }]
+}
+```
+
+Call `kavibay.http("playTrack", { uris: ["spotify:track:TRACK_ID"] })`, optionally
+adding `device_id`. Pass a real array, not a JSON-encoded string: the host
+validates its elements and serializes it as `{"uris":["spotify:track:TRACK_ID"]}`.
 
 `charset` is one of `alnum`, `alnumDash`, `alnumDot`, `alnumSymbol`. There is no
 regex on purpose: a pattern would need two identical implementations and brings

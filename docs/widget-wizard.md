@@ -518,14 +518,11 @@ tenth of the price.
 
 OpenAI places its own breakpoint — `prompt_cache_options.mode` defaults to
 `implicit`, on the latest user message, which is where the Anthropic one goes by
-hand. What it does need is `prompt_cache_key`, a routing hint that sends
-requests sharing a prefix to the same machine; the GPT-5.6 docs are explicit
-that reliable matching depends on it, and a miss costs about 1.7×. It is derived
-from the system prompt itself (`prompt_cache_key()`), so it cannot drift out of
-step with what is actually sent, and two conversations built from the same
-prompt share its cache entry rather than each writing their own. Explicit mode
-is deliberately not used: it would switch OpenAI's own breakpoint off and put
-the placement here, where a mistake loses caching that currently works.
+hand. GPT-6 routes cache requests automatically, so `prompt_cache_key` is not
+needed for cache hits; the stable key derived from the system prompt groups
+cache accounting for the same instructions. Explicit mode is deliberately not
+used: it would switch OpenAI's own breakpoint off and put the placement here,
+where a mistake loses caching that currently works.
 
 **Nothing may rewrite the history.** Trimming superseded file sets out of older
 turns looks like the obvious next saving and is the opposite — it changes the
@@ -730,7 +727,7 @@ name a folder can carry.
 
 The catalog says. `authoringDefault` in `src-tauri/src/llm/models.json` names one
 model per provider, and the Wizard starts on it whenever that provider is
-connected — GPT-5.6 Luna for OpenAI. It used to take the first configured model
+connected — GPT-6 Luna for OpenAI. It used to take the first configured model
 in catalog order, which put whichever entry happened to be listed first in
 charge of what a generation costs, and that file's order is maintained for other
 reasons entirely. A choice already made is still kept: switching away to compare

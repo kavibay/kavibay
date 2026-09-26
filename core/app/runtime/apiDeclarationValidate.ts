@@ -22,9 +22,10 @@ const MAX_PARAMS_PER_LOCATION = 16;
 const DEFAULT_STRING_MAX_LEN = 256;
 const HARD_STRING_MAX_LEN = 2048;
 const MAX_ENUM_VALUES = 32;
+const MAX_ARRAY_ITEMS = 100;
 const MAX_WINDOW_SECS = 86_400;
 
-export type ApiMethod = "GET" | "POST";
+export type ApiMethod = "GET" | "POST" | "PUT";
 export type ApiBodyType = "json" | "form";
 export type ApiCharset = "alnum" | "alnumDash" | "alnumDot" | "alnumSymbol";
 
@@ -33,6 +34,7 @@ export type ApiParam =
   | { kind: "number"; required: boolean }
   | { kind: "boolean"; required: boolean }
   | { kind: "enum"; required: boolean; values: string[] }
+  | { kind: "array"; required: boolean; items: ApiParam; maxItems: number }
   | { kind: "const"; value: string | number | boolean };
 
 export interface ApiEndpoint {
@@ -86,6 +88,8 @@ const PARAM_KEYS = [
   "maxLength",
   "charset",
   "description",
+  "items",
+  "maxItems",
 ];
 
 const CHARSETS: ReadonlySet<string> = new Set([
@@ -226,6 +230,20 @@ function parseParam(raw: unknown, scope: string): ApiParam | string {
   }
 
   switch (kind) {
+    case "array": {
+      if (scope !== "body") return "array_not_in_body";
+      if (!isPlainObject(raw.items) || typeof raw.items.type !== "string" ||
+          !["string", "number", "boolean", "enum"].includes(raw.items.type)) {
+        return "invalid_array_items";
+      }
+      const maxItems = raw.maxItems === undefined ? MAX_ARRAY_ITEMS : raw.maxItems;
+      if (typeof maxItems !== "number" || !Number.isInteger(maxItems) || maxItems < 1 || maxItems > MAX_ARRAY_ITEMS) {
+        return "invalid_array_max_items";
+      }
+      const items = parseParam(raw.items, "items");
+      if (typeof items === "string") return items;
+      return { kind: "array", required, items, maxItems };
+    }
     case "string": {
       let maxLength = DEFAULT_STRING_MAX_LEN;
       if (raw.maxLength !== undefined) {
@@ -324,7 +342,7 @@ function parseEndpoint(raw: unknown, knownCredentialTypes: ReadonlySet<string>):
   }
   if ([...raw.description].length > MAX_DESCRIPTION_LEN) return "description_too_long";
 
-  if (raw.method !== "GET" && raw.method !== "POST") return "invalid_method";
+  if (raw.method !== "GET" && raw.method !== "POST" && raw.method !== "PUT") return "invalid_method";
   const method: ApiMethod = raw.method;
 
   if (typeof raw.url !== "string") return "invalid_url";
@@ -384,6 +402,9 @@ function parseEndpoint(raw: unknown, knownCredentialTypes: ReadonlySet<string>):
   if (raw.bodyType !== undefined) {
     if (raw.bodyType !== "json" && raw.bodyType !== "form") return "invalid_body_type";
     bodyType = raw.bodyType;
+  }
+  if (bodyType === "form" && Object.values(body).some((param) => param.kind === "array")) {
+    return "array_on_form";
   }
 
   const headers: Record<string, string> = {};

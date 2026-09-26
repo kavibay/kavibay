@@ -364,6 +364,15 @@ export const DEFAULT_ONE_PURPOSE_SETTINGS: OnePurposeLlmSettings = {
   promptCollapsed: true,
 };
 
+function currentModelId(id: string): string {
+  switch (id) {
+    case "gpt-5.6-sol": return "gpt-6-astra";
+    case "gpt-5.6-terra": return "gpt-6-sol";
+    case "gpt-5.6-luna": return "gpt-6-luna";
+    default: return id;
+  }
+}
+
 /** Resolve a purpose, falling back to the first one for unknown ids. */
 export function findPurpose(
   purposeId: string,
@@ -448,9 +457,8 @@ function normalizeAttachments(raw: unknown): LlmImage[] {
 /**
  * Normalize raw settings from `ctx.data` or partial updates.
  *
- * The model id is kept as stored rather than checked against a list: the list
- * lives in the host now, and a model that was retired between two runs is
- * caught there with a message that names it.
+ * The host owns the model list. Migrate these retired ids and leave other
+ * unknown ids for the host to explain.
  */
 export function normalizeOnePurposeSettings(raw: unknown): OnePurposeLlmSettings {
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
@@ -472,7 +480,7 @@ export function normalizeOnePurposeSettings(raw: unknown): OnePurposeLlmSettings
   return {
     purposeId,
     prompts: normalizePrompts(o.prompts),
-    model: typeof o.model === "string" ? o.model.trim() : "",
+    model: typeof o.model === "string" ? currentModelId(o.model.trim()) : "",
     input: typeof o.input === "string" ? o.input : "",
     context: typeof o.context === "string" ? o.context : "",
     attachments: normalizeAttachments(o.attachments),

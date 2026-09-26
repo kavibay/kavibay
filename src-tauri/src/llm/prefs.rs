@@ -23,6 +23,16 @@ use crate::settings_store;
 /// Section of `settings.json` these preferences live in.
 const SECTION: &str = "ai";
 
+// Preserve each saved choice's role in the model lineup.
+fn current_model_id(id: &str) -> &str {
+    match id {
+        "gpt-5.6-sol" => "gpt-6-astra",
+        "gpt-5.6-terra" => "gpt-6-sol",
+        "gpt-5.6-luna" => "gpt-6-luna",
+        _ => id,
+    }
+}
+
 /// On-disk shape of the `ai` section of `settings.json`.
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct StoredPrefs {
@@ -47,6 +57,7 @@ pub fn parse_disabled(raw: &str) -> BTreeSet<String> {
         .disabled
         .into_iter()
         .filter(|id| !id.trim().is_empty())
+        .map(|id| current_model_id(&id).to_string())
         .collect()
 }
 
@@ -56,6 +67,7 @@ pub fn parse_quick_model(raw: &str) -> Option<String> {
         .quick_model
         .map(|id| id.trim().to_string())
         .filter(|id| !id.is_empty())
+        .map(|id| current_model_id(&id).to_string())
 }
 
 pub fn parse_quick_shortcut(raw: &str) -> Option<String> {
@@ -272,7 +284,7 @@ mod tests {
     #[test]
     fn the_two_settings_survive_each_other() {
         let mut set = BTreeSet::new();
-        set.insert("gpt-5.6-luna".to_string());
+        set.insert("gpt-6-luna".to_string());
         let raw = render_disabled(
             &set,
             Some("claude-opus-5".to_string()),
@@ -323,12 +335,12 @@ mod tests {
     #[test]
     fn apply_toggles_one_id_and_is_idempotent() {
         let empty = BTreeSet::new();
-        let off = apply(&empty, "gpt-5.6-luna", false);
-        assert!(off.contains("gpt-5.6-luna"));
-        assert_eq!(apply(&off, "gpt-5.6-luna", false), off);
+        let off = apply(&empty, "gpt-6-luna", false);
+        assert!(off.contains("gpt-6-luna"));
+        assert_eq!(apply(&off, "gpt-6-luna", false), off);
 
-        let on = apply(&off, "gpt-5.6-luna", true);
+        let on = apply(&off, "gpt-6-luna", true);
         assert!(on.is_empty());
-        assert_eq!(apply(&on, "gpt-5.6-luna", true), on);
+        assert_eq!(apply(&on, "gpt-6-luna", true), on);
     }
 }
