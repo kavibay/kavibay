@@ -135,10 +135,10 @@
     {
       "provider": "openai",
       "vendor": "openai",
-      "model": "GPT-5.6 Sol",
-      "apiId": "gpt-5.6-sol",
-      "note": "Frontier model for complex professional work",
-      "description": "OpenAI's strongest GPT-5.6 model for complex reasoning and coding.",
+      "model": "GPT-6 Astra",
+      "apiId": "gpt-6-astra",
+      "note": "Most capable model for complex end-to-end work",
+      "description": "OpenAI's most capable model for complex reasoning, coding, computer use, and research.",
       "context": {
         "windowTokens": 1050000,
         "maxOutputTokens": 128000
@@ -146,9 +146,9 @@
       "pricing": {
         "currency": "USD",
         "unitTokens": 1000000,
-        "input": 5,
-        "cachedInput": 0.5,
-        "output": 30
+        "input": 10,
+        "cachedInput": 1,
+        "output": 50
       },
       "capabilities": [
         "text",
@@ -159,9 +159,8 @@
         "structuredOutput"
       ],
       "authoring": true,
-      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-6-astra",
       "effortLevels": [
-        "minimal",
         "low",
         "medium",
         "high",
@@ -172,10 +171,10 @@
     {
       "provider": "openai",
       "vendor": "openai",
-      "model": "GPT-5.6 Terra",
-      "apiId": "gpt-5.6-terra",
-      "note": "Balances intelligence and cost",
-      "description": "The balanced GPT-5.6 model for general-purpose workloads.",
+      "model": "GPT-6 Sol",
+      "apiId": "gpt-6-sol",
+      "note": "Strong model for coding and agentic workflows",
+      "description": "Built to power complex coding and agentic workflows.",
       "context": {
         "windowTokens": 1050000,
         "maxOutputTokens": 128000
@@ -185,7 +184,7 @@
         "unitTokens": 1000000,
         "input": 2,
         "cachedInput": 0.2,
-        "output": 12
+        "output": 10
       },
       "capabilities": [
         "text",
@@ -196,9 +195,8 @@
         "structuredOutput"
       ],
       "authoring": true,
-      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-6-sol",
       "effortLevels": [
-        "minimal",
         "low",
         "medium",
         "high",
@@ -209,10 +207,10 @@
     {
       "provider": "openai",
       "vendor": "openai",
-      "model": "GPT-5.6 Luna",
-      "apiId": "gpt-5.6-luna",
+      "model": "GPT-6 Luna",
+      "apiId": "gpt-6-luna",
       "note": "Optimized for cost-sensitive, high-volume work",
-      "description": "The fastest and least expensive GPT-5.6 model.",
+      "description": "OpenAI's most efficient model for focused, high-volume tasks.",
       "context": {
         "windowTokens": 1050000,
         "maxOutputTokens": 128000
@@ -220,9 +218,9 @@
       "pricing": {
         "currency": "USD",
         "unitTokens": 1000000,
-        "input": 0.2,
-        "cachedInput": 0.02,
-        "output": 1.2
+        "input": 0.1,
+        "cachedInput": 0.01,
+        "output": 0.5
       },
       "capabilities": [
         "text",
@@ -234,9 +232,8 @@
       ],
       "authoring": true,
       "authoringDefault": true,
-      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-6-luna",
       "effortLevels": [
-        "minimal",
         "low",
         "medium",
         "high",

@@ -167,10 +167,9 @@ pub async fn complete(
                 json!({
                     "model": model.api_id,
                     "max_completion_tokens": MAX_TOKENS,
-                    // Routing, not a cache key: it sends requests that share a
-                    // prefix to the same machine, and the docs are explicit
-                    // that GPT-5.6 needs it for the reliable matching. Without
-                    // it a hit is not guaranteed, and a miss costs about 1.7x.
+                    // Keep cache accounting grouped by system prompt. GPT-6
+                    // routes cache requests automatically, so this key is not
+                    // needed to improve cache-hit rates.
                     "prompt_cache_key": prompt_cache_key(system),
                     "messages": with_system,
                 }),

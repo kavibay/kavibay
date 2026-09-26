@@ -44,7 +44,7 @@ const catalog: LlmModelOption[] = [
   model({ id: "claude-opus-5" }),
   model({ id: "claude-sonnet-5", enabled: false }),
   model({
-    id: "gpt-5.6-luna",
+    id: "gpt-6-luna",
     provider: "openai",
     vendor: "openai",
     credentialType: "openaiApi",
@@ -136,7 +136,7 @@ assert(
   "a model switched off since falls back to Automatic",
 );
 assert(
-  quickModelSelection(catalog, "gpt-5.6-luna") === "",
+  quickModelSelection(catalog, "gpt-6-luna") === "",
   "a model whose key was removed falls back to Automatic",
 );
 assert(quickModelSelection(catalog, "") === "", "Automatic stays Automatic");
