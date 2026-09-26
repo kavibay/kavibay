@@ -3011,8 +3011,7 @@ function onDocumentPointerDown(event: PointerEvent) {
     paletteMenuOpen.value &&
     paletteMenuEl.value &&
     !paletteMenuEl.value.contains(target) &&
-    paletteMenuTriggerEl.value &&
-    !paletteMenuTriggerEl.value.contains(target)
+    !paletteMenuTriggerEl.value?.contains(target)
   ) {
     paletteMenuOpen.value = false;
   }
