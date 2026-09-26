@@ -422,6 +422,19 @@ function onHeaderContextMenu(event: MouseEvent) {
   openMenu({ clientX: event.clientX, clientY: event.clientY });
 }
 
+/**
+ * Right-click in the body opens the same menu. A widget with a menu of its own
+ * (the launcher's icons) prevents the default first, and its menu wins. Inside
+ * the open menu or settings nothing opens, so settings do not close under you.
+ */
+function onCardContextMenu(event: MouseEvent) {
+  if (event.defaultPrevented) return;
+  event.preventDefault();
+  const target = event.target as Node;
+  if (menuEl.value?.contains(target) || settingsEl.value?.contains(target)) return;
+  openMenu({ clientX: event.clientX, clientY: event.clientY });
+}
+
 /** Inline position when the menu was opened via right-click. */
 const menuPositionStyle = computed(() => {
   const at = menuAnchor.value;
@@ -807,6 +820,7 @@ watch(
     @pointermove="onCardPointerMove"
     @pointerleave="headerHovered = false"
     @pointerdown="onCardPointerDown"
+    @contextmenu="onCardContextMenu"
   >
     <!-- Glass layer only — keeps backdrop-filter from clipping outside chrome. -->
     <div class="widget-card-surface" aria-hidden="true" />

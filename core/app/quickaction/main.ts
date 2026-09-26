@@ -10,8 +10,11 @@
 import { createApp } from "vue";
 import { hydrateDurableStorage } from "../system/durableStorage";
 import { vTip } from "../system/floatingTip";
+import { suppressNativeContextMenu } from "../system/nativeContextMenu";
 import "../styles.css";
 import "./quickaction.css";
+
+suppressNativeContextMenu();
 
 // This window is built at startup, possibly before the cockpit has restored the
 // durable copy of localStorage — so it hydrates too, read-only. Without that it
