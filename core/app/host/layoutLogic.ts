@@ -16,6 +16,7 @@ import type {
   WidgetPosition,
 } from "./types";
 import { DEFAULT_CONTENT_SCALE, clampContentScale } from "./resizeLogic";
+import { normalizeWidgetAppearance } from "./widgetAppearance";
 
 export const LAYOUT_STORAGE_KEY = "kavibay:layout-v3";
 export const LAYOUT_STORAGE_KEY_V2 = "kavibay:layout-v2";
@@ -131,6 +132,7 @@ export function duplicateInstance(source: WidgetInstance): WidgetInstance {
     },
     ...(source.title !== undefined ? { title: source.title } : {}),
     ...(source.hideTitle !== undefined ? { hideTitle: source.hideTitle } : {}),
+    ...(source.appearance !== undefined ? { appearance: { ...source.appearance } } : {}),
     ...(source.pinned === true ? { pinned: true } : {}),
     ...(typeof source.width === "number" ? { width: source.width } : {}),
     ...(typeof source.height === "number" ? { height: source.height } : {}),
@@ -408,6 +410,8 @@ export function normalizeInstance(i: WidgetInstance): WidgetInstance {
   };
   if (typeof i.title === "string") next.title = i.title;
   if (typeof i.hideTitle === "boolean") next.hideTitle = i.hideTitle;
+  const appearance = normalizeWidgetAppearance(i.appearance);
+  if (appearance) next.appearance = appearance;
   if (i.hidden === true) {
     next.hidden = true;
     if (typeof i.hiddenAt === "number" && Number.isFinite(i.hiddenAt)) {

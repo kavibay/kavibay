@@ -2,6 +2,21 @@
 import type { Component } from "vue";
 import type { LlmCapability } from "./contract/sdk";
 
+/**
+ * A widget card's own surface. Every field is optional; an absent one keeps
+ * the shared appearance from Settings.
+ */
+export interface WidgetAppearance {
+  /** `#rrggbb`. */
+  background?: string;
+  /** 0–1, the alpha of the background. */
+  opacity?: number;
+  /** Backdrop blur in CSS pixels; 0 is none. */
+  blur?: number;
+  /** Corner radius in CSS pixels. */
+  radius?: number;
+}
+
 /** Center offset of a card relative to the palette, in CSS pixels. */
 export interface WidgetPosition {
   x: number;
@@ -264,6 +279,12 @@ export interface ExtensionManifest {
     opaque?: boolean;
     /** Keep the widget mounted while the cockpit is hidden, for background work such as audio. */
     keepAliveWhenHidden?: boolean;
+    /**
+     * The card's own surface, over the shared appearance. With `editable`, each
+     * instance can change it under Appearance in its settings. Bundled
+     * extensions only, like every other `ui` flag.
+     */
+    appearance?: WidgetAppearance & { editable?: boolean };
   };
   /** Declared Tauri command names this extension uses (Rust split later). */
   commands: string[];
@@ -425,6 +446,10 @@ export interface RegisteredExtension {
   opaque: boolean;
   /** Keep the widget mounted while the cockpit is hidden. */
   keepAliveWhenHidden?: boolean;
+  /** The card's own surface from `ui.appearance`. */
+  appearance?: WidgetAppearance;
+  /** `ui.appearance.editable`: each instance may change it in its settings. */
+  appearanceEditable?: boolean;
   commands: string[];
   /** Normalized manifest actions; entries without a handler are dropped. */
   actions: ExtensionAction[];
