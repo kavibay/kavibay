@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36">
+  <!--
+    macOS menu bar template: only alpha counts, macOS tints it for the bar.
+    The tray draws it 18pt tall, so 36px is 1:1 on Retina; edges sit on whole pixels.
+    The mark is the path from icon.svg, without the tile.
+    Regenerate tray-template.png:
+      npx tauri icon src-tauri/icons/tray-template.svg -o <dir> -p 36
+      mv <dir>/36x36.png src-tauri/icons/tray-template.png
+  -->
+  <path
+    d="M 12 10
+       H 70
+       C 75 10 78 14 75 18
+       L 50 46
+       Q 46 50 50 54
+       L 75 82
+       C 78 86 75 90 70 90
+       H 12
+       C 8 90 5 87 5 83
+       V 17
+       C 5 13 8 10 12 10 Z"
+    transform="translate(3.125 -0.75) scale(0.375)"
+    fill="#000000"
+  />
+</svg>
