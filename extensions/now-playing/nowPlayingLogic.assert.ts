@@ -7,6 +7,7 @@ import {
   idleHint,
   normalizeNowPlaying,
   nowPlayingView,
+  settlePlayState,
 } from "./nowPlayingLogic";
 import { nowPlayingWidget } from "./widgets/nowPlaying";
 
@@ -63,5 +64,18 @@ assert(playing.title === "Song" && playing.artist === "Band" && playing.is_playi
 
 assert(normalizeNowPlaying({ has_session: true, access: "sideways" }).access === "ready", "unknown access reads as ready");
 assert(nowPlayingView(normalizeNowPlaying(null)) === "idle", "no payload is idle");
+
+// The recorded flicker: pause sent at 0 ms, Music still says "playing" at 124 ms.
+const pausing = { isPlaying: false, untilMs: 2_000 };
+const stale = settlePlayState(playing, pausing, 124);
+assert(stale.info.is_playing === false, "a stale snapshot does not undo the pause");
+assert(stale.expected === pausing, "the pause stays expected until Music reports it");
+const confirmed = settlePlayState({ ...playing, is_playing: false }, pausing, 657);
+assert(confirmed.info.is_playing === false && confirmed.expected === null, "Music confirmed the pause");
+const ignored = settlePlayState(playing, pausing, 2_000);
+assert(ignored.info.is_playing === true && ignored.expected === null, "after the grace, Music is right");
+const ended = settlePlayState(macIdle, pausing, 124);
+assert(ended.info.has_session === false && ended.expected === null, "a session that ended clears the expectation");
+assert(settlePlayState(playing, null, 0).info === playing, "nothing in flight passes through");
 
 console.log("nowPlayingLogic.assert: ok");
