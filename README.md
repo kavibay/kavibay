@@ -168,8 +168,8 @@ and permissions. → [docs/mcp-server.md](docs/mcp-server.md)
 
 | Key | Does |
 |---|---|
-| `Ctrl` `Ctrl` | Show / hide the cockpit (Windows only — read from a keyboard hook) |
-| `Shift+Ctrl+Space` | Show / hide on the screen under the mouse — and the way in on Linux and macOS |
+| `Ctrl` `Ctrl` | Show / hide the cockpit (Windows and macOS) |
+| `Shift+Ctrl+Space` | Show / hide on the screen under the mouse — and the way in on Linux |
 | `Ctrl+Space` (hold) | Peek at the widgets, no palette |
 | `Ctrl+Shift+Q` | Quick actions on text selected in **any** app — translate, fix grammar, rewrite |
 | `↑` `↓` `Enter` | Move through results; on a widget row, put it on the desk |
@@ -202,13 +202,13 @@ and permissions. → [docs/mcp-server.md](docs/mcp-server.md)
 | Hold the card's `×` | Short release hides; holding arms **delete** |
 
 A few notes worth having: no OS can register a bare modifier as a hotkey, which
-is why the `Ctrl` double tap is a keyboard hook and Windows-only. `Ctrl+Space`
-releases the widgets again the moment you let go — click one while holding and
-that one stays. `Ctrl+Enter` on a widget row opens it in the palette without
-touching your layout, and the ↗ button in that header promotes it to a card and
-takes the content with it. Hold `Ctrl` for 750ms in the palette or active widget
-to reveal the pin/hide and desk shortcut hints. A widget you deleted comes back
-from `Ctrl+Z` empty.
+is why the `Ctrl` double tap watches the keyboard directly and works on Windows
+and macOS only. `Ctrl+Space` releases the widgets again the moment you let go —
+click one while holding and that one stays. `Ctrl+Enter` on a widget row opens
+it in the palette without touching your layout, and the ↗ button in that header
+promotes it to a card and takes the content with it. Hold `Ctrl` for 750ms in
+the palette or active widget to reveal the pin/hide and desk shortcut hints. A
+widget you deleted comes back from `Ctrl+Z` empty.
 
 </details>
 
@@ -216,10 +216,10 @@ from `Ctrl+Z` empty.
 
 | | Status |
 |---|---|
-| **Windows 11 / 10** | Supported. The `Ctrl` double tap is Windows-only. |
-| **Linux (X11)** | Works. |
-| **Linux (Wayland)** | Runs, but **pinned widgets do not stay on top** — Wayland grants no client that right. [How to get an X11 session](docs/getting-started.md#run-on-linux) |
-| **macOS** | **Untested.** The code paths exist; nothing has ever been compiled on a Mac. Packaging is not set up, and the transparent window relies on Apple private APIs, which rules out the App Store. [What to expect](docs/getting-started.md#run-on-macos) |
+| **Windows 11 / 10** | Supported. |
+| **Linux (X11)** | Works, except the `Ctrl` double tap. `Shift+Ctrl+Space` or the tray opens Kavibay instead. |
+| **Linux (Wayland)** | Runs, but **pinned widgets do not stay on top** — Wayland grants no client that right. No `Ctrl` double tap, as on X11. [How to get an X11 session](docs/getting-started.md#run-on-linux) |
+| **macOS** | **Builds and runs from source**, including the `Ctrl` double tap, which needs no permission. Packaging is not set up, and the transparent window relies on Apple private APIs, which rules out the App Store. [What to expect](docs/getting-started.md#run-on-macos) |
 
 ## Where your things live
 
@@ -236,15 +236,16 @@ outside the Windows roaming profile.
 | Regenerable caches — safe to delete | `~/.kavibay/cache/` |
 
 **How secrets are stored.** Every field of a credential is bundled into one JSON
-blob, wrapped with Windows **DPAPI** and written to `credentials.db`; a test
-asserts that neither the value nor the field name survives in what lands on disk.
-The blob is bound to your Windows account, so a copied file is unreadable
-elsewhere. Listing a credential reports the *names* of the fields that hold a
+blob, encrypted and written to `credentials.db`; a test asserts that neither the
+value nor the field name survives in what lands on disk. Windows wraps the blob
+with **DPAPI**; macOS seals it with AES-256-GCM under a key kept in your login
+**Keychain** as "Kavibay Safe Storage". Either way it is bound to your account,
+so a copied file is unreadable elsewhere. Listing a credential reports the *names* of the fields that hold a
 value, never the values. A key leaves Rust only towards its provider.
 
-Where the protection stops: DPAPI defends against someone taking the file, not
-against code running as you. Non-Windows builds fail closed — nothing is stored
-at all until a Keychain backend lands. Details in [SECURITY.md](SECURITY.md).
+Where the protection stops: encryption at rest defends against someone taking
+the file, not against code running as you. Other platforms fail closed and store
+nothing at all. Details in [SECURITY.md](SECURITY.md).
 
 ## Repo map
 

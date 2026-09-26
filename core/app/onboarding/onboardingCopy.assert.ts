@@ -38,12 +38,12 @@ for (let step = 1; step <= ONBOARDING_DONE_STEP; step += 1) {
 }
 
 // The hotkey step teaches whichever keystroke exists here — and only that one.
-const windows = onboardingHotkeyCopy("ctrlDoubleTap");
-assert(text(windows).includes("Ctrl"), "windows copy names Ctrl");
-assert(!text(windows).includes("Shift+Ctrl+Space"), "windows copy does not name the fallback");
+const doubleTap = onboardingHotkeyCopy("ctrlDoubleTap");
+assert(text(doubleTap).includes("Ctrl"), "double-tap copy names Ctrl");
+assert(!text(doubleTap).includes("Shift+Ctrl+Space"), "double-tap copy does not name the fallback");
 assert(
-  windows.segments.some((s) => s.typed && s.text === "Ctrl"),
-  "windows copy marks Ctrl as a key",
+  doubleTap.segments.some((s) => s.typed && s.text === "Ctrl"),
+  "double-tap copy marks Ctrl as a key",
 );
 
 const elsewhere = onboardingHotkeyCopy("cursorHotkey");
@@ -70,7 +70,7 @@ assert(
     text(elsewhere),
   "copyForStep routes the hotkey step to the gesture copy",
 );
-// A missing gesture option must not silently become the Windows lesson: absent
+// A missing gesture option must not silently become the double-tap lesson: absent
 // means "host has not answered", and the tray is the only safe thing to say.
 assert(
   text(onboardingCopyForStep(ONBOARDING_HOTKEY_STEP)) === text(none),
@@ -79,14 +79,14 @@ assert(
 
 // The give-up copy explains the right cause for each platform, and always ends
 // on routes that do not depend on the keystroke that just failed.
-const failedWindows = onboardingHotkeyFallbackCopy("ctrlDoubleTap");
-assert(text(failedWindows).includes("double tap"), "windows fallback blames the double tap");
+const failedDoubleTap = onboardingHotkeyFallbackCopy("ctrlDoubleTap");
+assert(text(failedDoubleTap).includes("double tap"), "double-tap fallback blames the double tap");
 const failedElsewhere = onboardingHotkeyFallbackCopy("cursorHotkey");
 assert(
   text(failedElsewhere).includes("another program"),
   "accelerator fallback blames the program holding it",
 );
-for (const copy of [failedWindows, failedElsewhere, onboardingHotkeyFallbackCopy(null)]) {
+for (const copy of [failedDoubleTap, failedElsewhere, onboardingHotkeyFallbackCopy(null)]) {
   assert(text(copy).toLowerCase().includes("tray"), "every fallback names the tray");
   assert(text(copy).includes("Ctrl+Space"), "every fallback names peek");
 }

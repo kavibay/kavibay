@@ -5,7 +5,7 @@
 //! the desktop-app equivalent of what VS Code keeps in its user profile.
 //!
 //! Explicitly *not* in here: widget content and app state. Notes, timers, the
-//! desk layout and the palette history stay in the DPAPI-protected
+//! desk layout and the palette history stay in the encrypted
 //! `web-storage.json`, because that file is the only copy of what the user
 //! typed. `core/app/system/settingsSections.ts` is the frontend half of that
 //! split and decides which localStorage key lands where. Secrets never appear
