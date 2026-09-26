@@ -521,14 +521,21 @@ pub fn run() {
                     ],
                 )?;
 
-                let Some(icon) = app.default_window_icon().cloned() else {
-                    eprintln!("[tray] no default window icon; skipping tray");
-                    return Ok(());
+                // The menu bar wants a monochrome glyph macOS can tint, not the app icon.
+                #[cfg(target_os = "macos")]
+                let tray = TrayIconBuilder::new()
+                    .icon(tauri::include_image!("icons/tray-template.png"))
+                    .icon_as_template(true);
+                #[cfg(not(target_os = "macos"))]
+                let tray = {
+                    let Some(icon) = app.default_window_icon().cloned() else {
+                        eprintln!("[tray] no default window icon; skipping tray");
+                        return Ok(());
+                    };
+                    TrayIconBuilder::new().icon(icon)
                 };
 
-                TrayIconBuilder::new()
-                    .icon(icon)
-                    .tooltip("Kavibay")
+                tray.tooltip("Kavibay")
                     .menu(&menu)
                     .show_menu_on_left_click(true)
                     .on_menu_event(|app, event| match event.id().as_ref() {
