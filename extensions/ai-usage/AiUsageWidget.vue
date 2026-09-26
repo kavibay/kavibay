@@ -4,6 +4,9 @@ import {
   elapsedTimeLabel,
   formatPercent,
   formatReset,
+  isOutdated,
+  lastSeenLabel,
+  outdatedDetail,
   presentUsageWindow,
   statusLabel,
   timeProgressPercent,
@@ -58,6 +61,12 @@ const displayData = computed(() => {
     claude: { ...data.value.claude, windows: present("claude") },
   };
 });
+
+/** Read from the raw windows: presenting them replaces each past reset time. */
+const outdated = computed(() => ({
+  codex: data.value ? isOutdated(data.value.codex.windows, nowMs.value) : false,
+  claude: data.value ? isOutdated(data.value.claude.windows, nowMs.value) : false,
+}));
 
 const clock = window.setInterval(() => {
   nowMs.value = Date.now();
@@ -184,10 +193,18 @@ function resetLabel(window: PresentedUsageWindow): string {
               {{ providerPlan(displayData[provider]) }}
             </span>
           </div>
-          <span class="status">{{ statusLabel(displayData[provider].status) }}</span>
+          <span class="status">{{
+            outdated[provider]
+              ? lastSeenLabel(displayData[provider].updatedAt, nowMs)
+              : statusLabel(displayData[provider].status)
+          }}</span>
         </header>
 
-        <div v-if="displayData[provider].windows.length" class="window-list">
+        <div v-if="outdated[provider]" class="provider-empty">
+          <p>{{ outdatedDetail(provider) }}</p>
+        </div>
+
+        <div v-else-if="displayData[provider].windows.length" class="window-list">
           <div v-for="window in displayData[provider].windows" :key="window.id" class="usage-window">
             <div class="window-labels">
               <span>{{ window.label }}</span>

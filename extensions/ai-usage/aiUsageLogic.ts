@@ -207,6 +207,38 @@ export function usageTone(used: number): "healthy" | "warning" | "critical" {
   return "healthy";
 }
 
+/**
+ * Every window has reset since the source was read, so none of its numbers
+ * describes now. Each would show 0% used, which is only true at the reset.
+ * The grace keeps the reset animation of the last window on screen.
+ */
+export function isOutdated(windows: readonly UsageWindow[], nowMs: number): boolean {
+  const graceMs = RESET_ANIMATION_MS + RESET_CELEBRATION_MS;
+  return (
+    windows.length > 0 &&
+    windows.every(
+      (window) => window.resetsAt != null && window.resetsAt * 1_000 + graceMs <= nowMs,
+    )
+  );
+}
+
+/** Status for an outdated source: how long ago it was read. */
+export function lastSeenLabel(updatedAt: number | null, nowMs: number): string {
+  if (updatedAt == null || !Number.isFinite(updatedAt)) return "No recent data";
+  const minutes = Math.max(0, Math.floor((nowMs / 1_000 - updatedAt) / 60));
+  const days = Math.floor(minutes / 1_440);
+  const hours = Math.floor(minutes / 60);
+  const age = days > 0 ? `${days}d` : hours > 0 ? `${hours}h` : `${Math.max(1, minutes)}m`;
+  return `Last seen ${age} ago`;
+}
+
+/** What brings fresh numbers back, per provider. */
+export function outdatedDetail(provider: "codex" | "claude"): string {
+  return provider === "codex"
+    ? "Every window has reset since. Codex reports usage again during its next session."
+    : "Every window has reset since. Claude Code reports usage again the next time it runs in a terminal.";
+}
+
 export function statusLabel(status: UsageSourceStatus): string {
   return {
     available: "Available",

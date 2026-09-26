@@ -3,6 +3,8 @@ import {
   formatPercent,
   formatReset,
   elapsedTimeLabel,
+  isOutdated,
+  lastSeenLabel,
   normalizeAiUsageConfig,
   presentUsageWindow,
   usagePercent,
@@ -82,3 +84,25 @@ assert(
 );
 
 console.log("aiUsageLogic.assert: ok");
+
+const day = 86_400;
+const fiveHours = { id: "five_hour", label: "5 hours", usedPercent: 25 };
+const sevenDays = { id: "seven_day", label: "7 days", usedPercent: 4 };
+assert(!isOutdated([], 10 * day * 1_000), "no windows is not outdated");
+assert(
+  isOutdated([{ ...fiveHours, resetsAt: 1 * day }, { ...sevenDays, resetsAt: 6 * day }], 10 * day * 1_000),
+  "every window reset since the read",
+);
+assert(
+  !isOutdated([{ ...fiveHours, resetsAt: 1 * day }, { ...sevenDays, resetsAt: 12 * day }], 10 * day * 1_000),
+  "the 7-day window still holds",
+);
+assert(
+  !isOutdated([{ ...sevenDays, resetsAt: 10 * day }], 10 * day * 1_000 + 2_000),
+  "the last window's reset animation still plays",
+);
+assert(!isOutdated([{ ...sevenDays, resetsAt: null }], 10 * day * 1_000), "unknown reset is not outdated");
+assert(lastSeenLabel(null, 0) === "No recent data", "no read time");
+assert(lastSeenLabel(0, 12 * day * 1_000 + 5_000) === "Last seen 12d ago", "days");
+assert(lastSeenLabel(0, 3 * 3_600 * 1_000 + 60_000) === "Last seen 3h ago", "hours");
+assert(lastSeenLabel(0, 10_000) === "Last seen 1m ago", "under a minute rounds up");
