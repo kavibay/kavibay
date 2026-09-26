@@ -8,7 +8,7 @@ import {
   normalizeColorMode,
   normalizeOpenMonitor,
   normalizeWidgetLayoutMode,
-  OPEN_MONITOR_OPTIONS,
+  openMonitorOptions,
   toggleColorModeValue,
 } from "./appearanceLogic";
 
@@ -88,8 +88,21 @@ assert(
   "wrong casing is not an activeWindow alias",
 );
 assert(
-  OPEN_MONITOR_OPTIONS.every((opt) => normalizeOpenMonitor(opt.id) === opt.id),
+  openMonitorOptions("pc").every((opt) => normalizeOpenMonitor(opt.id) === opt.id),
   "every offered option survives a normalize round-trip",
+);
+assert(
+  openMonitorOptions("mac")[1].hint ===
+    "A double tap on ⌃ Control opens on the display under the pointer",
+  "on a Mac the Open on hints name the Control key",
+);
+assert(
+  openMonitorOptions("pc")[1].hint === "A double tap on Ctrl opens on the display under the pointer",
+  "on a PC the Open on hints name Ctrl",
+);
+assert(
+  openMonitorOptions("mac").every((opt) => !/\bCtrl opens/.test(opt.hint)),
+  "no Mac hint tells the user to double tap Ctrl",
 );
 assert(
   normalizeAppearance({ openMonitor: "activeWindow" }).openMonitor === "activeWindow",

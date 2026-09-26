@@ -1,4 +1,5 @@
 import type { RevealGesture } from "../host/revealGesture";
+import { doubleTapKeyLabel, type KeyPlatform } from "../host/shortcutHints";
 import type { OnboardingStep } from "./onboardingLogic";
 
 /** One body fragment; `typed` marks the command the user should type. */
@@ -10,13 +11,15 @@ export type OnboardingCopy = {
 };
 
 /**
- * Fixed copy, by step.
+ * Fixed copy, by step, for the keyboard this machine has.
  *
  * Two steps are absent on purpose: the hotkey step, whose text depends on which
  * keystroke the host reports (`onboardingHotkeyCopy`), and the core card, which
  * is a branch rather than a lesson (`onboardingCoreDoneCopy`).
  */
-const COPY: Record<Exclude<OnboardingStep, 2 | 6>, OnboardingCopy> = {
+const fixedCopy = (
+  platform: KeyPlatform,
+): Record<Exclude<OnboardingStep, 2 | 6>, OnboardingCopy> => ({
   1: {
     title: "Hey — welcome to Kavibay",
     segments: [
@@ -69,7 +72,7 @@ const COPY: Record<Exclude<OnboardingStep, 2 | 6>, OnboardingCopy> = {
     title: "Keep your favorites close",
     segments: [
       {
-        text: "Pin a widget and it stays put when you tuck Kavibay away with a double tap on Ctrl — perfect for clocks and notes.",
+        text: `Pin a widget and it stays put when you tuck Kavibay away with a double tap on ${doubleTapKeyLabel(platform)} — perfect for clocks and notes.`,
       },
     ],
   },
@@ -105,6 +108,16 @@ const COPY: Record<Exclude<OnboardingStep, 2 | 6>, OnboardingCopy> = {
       },
     ],
   },
+});
+
+/**
+ * The tray route when no keystroke exists, in the click this platform's icon
+ * answers to. The Windows tray icon opens on a double click; the macOS menu bar
+ * icon opens its menu on a single click, and the menu's Open item does the rest.
+ */
+const TRAY_ONLY: Record<KeyPlatform, string> = {
+  pc: "the tray is your way in: double-click the Kavibay icon down by the clock and the desk comes back.",
+  mac: "the menu bar is your way in: click the Kavibay icon up there and choose Open, and the desk comes back.",
 };
 
 /**
@@ -132,10 +145,13 @@ export function onboardingCoreDoneCopy(): OnboardingCopy {
  * The hotkey step's instruction for whichever keystroke this machine has.
  *
  * Kept beside the copy record rather than in it because the step is the one
- * whose text depends on the host: `revealGesture` decides, and a `COPY[2]`
+ * whose text depends on the host: `revealGesture` decides, and a `fixedCopy`
  * entry would have to be one of the three answers pretending to be all of them.
  */
-export function onboardingHotkeyCopy(gesture: RevealGesture | null): OnboardingCopy {
+export function onboardingHotkeyCopy(
+  gesture: RevealGesture | null,
+  platform: KeyPlatform,
+): OnboardingCopy {
   if (gesture === "cursorHotkey") {
     return {
       title: "First, the way back in",
@@ -153,7 +169,7 @@ export function onboardingHotkeyCopy(gesture: RevealGesture | null): OnboardingC
       title: "First, the way back in",
       segments: [
         {
-          text: "No keyboard shortcut is free on this machine, so the tray is your way in: double-click the Kavibay icon down by the clock and the desk comes back. Worth knowing before anything else.",
+          text: `No keyboard shortcut is free on this machine, so ${TRAY_ONLY[platform]} Worth knowing before anything else.`,
         },
       ],
     };
@@ -162,13 +178,14 @@ export function onboardingHotkeyCopy(gesture: RevealGesture | null): OnboardingC
   // gesture hides everything, this card included, so the promise that it all
   // comes back has to be read *before* it happens. Somebody who taps twice
   // expecting a menu and gets an empty desktop thinks they closed the app.
+  const key = doubleTapKeyLabel(platform);
   return {
     title: "First, the only key that matters",
     segments: [
       { text: "Tap " },
-      { text: "Ctrl", typed: true },
+      { text: key, typed: true },
       { text: " twice — everything disappears, this card included. Tap " },
-      { text: "Ctrl", typed: true },
+      { text: key, typed: true },
       { text: " twice again and it is all back. That is how you reach Kavibay from anywhere." },
     ],
   };
@@ -187,7 +204,10 @@ export function onboardingHotkeyCopy(gesture: RevealGesture | null): OnboardingC
  * Same three branches as the lesson, and for the same reason: naming a key this
  * machine cannot deliver is worse than naming none.
  */
-export function onboardingRevealHintCopy(gesture: RevealGesture | null): OnboardingCopy {
+export function onboardingRevealHintCopy(
+  gesture: RevealGesture | null,
+  platform: KeyPlatform,
+): OnboardingCopy {
   if (gesture === "cursorHotkey") {
     return {
       title: "The one thing to remember",
@@ -205,7 +225,7 @@ export function onboardingRevealHintCopy(gesture: RevealGesture | null): Onboard
       title: "The one thing to remember",
       segments: [
         {
-          text: "No keyboard shortcut was free on this machine, so the tray is your way in: double-click the Kavibay icon down by the clock and the desk comes back.",
+          text: `No keyboard shortcut was free on this machine, so ${TRAY_ONLY[platform]}`,
         },
       ],
     };
@@ -214,7 +234,7 @@ export function onboardingRevealHintCopy(gesture: RevealGesture | null): Onboard
     title: "The one thing to remember",
     segments: [
       { text: "Tap " },
-      { text: "Ctrl", typed: true },
+      { text: doubleTapKeyLabel(platform), typed: true },
       {
         text: " twice, any time, in any app — that brings Kavibay up. Tap it twice again and everything is out of the way.",
       },
@@ -229,21 +249,35 @@ export function onboardingRevealHintCopy(gesture: RevealGesture | null): Onboard
  * hide Kavibay — which the webview handles on its own and always works — and
  * then nothing came back, because the shortcut never arrived. For the double
  * tap on Windows that is the `WH_KEYBOARD_LL` hook going uncalled behind an
- * elevated window, an RDP session or some game overlays. The same copy covers
- * macOS, where the double tap comes from an `NSEvent` global monitor instead,
- * although the causes it names are the Windows ones. For Shift+Ctrl+Space it is
- * a global accelerator that another program is holding. Either way the copy
- * does not repeat the gesture, it names the ways in that do not depend on it.
+ * elevated window, an RDP session or some game overlays, and the copy says so.
+ * On macOS the double tap comes from an `NSEvent` global monitor, and no
+ * blocker is known: Secure Event Input (password fields, Secure Keyboard Entry)
+ * was measured and does not stop `flagsChanged` from arriving. Naming a cause
+ * there would send the user hunting for one, so the copy only says the double
+ * tap did not arrive. For Shift+Ctrl+Space it is a global accelerator that
+ * another program is holding. Either way the copy does not repeat the gesture,
+ * it names the ways in that do not depend on it, and the tray route is the one
+ * the platform's icon answers to: a double click in the Windows tray, a single
+ * click and Open in the macOS menu bar.
  */
-export function onboardingHotkeyFallbackCopy(gesture: RevealGesture | null): OnboardingCopy {
+export function onboardingHotkeyFallbackCopy(
+  gesture: RevealGesture | null,
+  platform: KeyPlatform,
+): OnboardingCopy {
   const cause =
-    gesture === "ctrlDoubleTap"
-      ? "The double tap needs to see your keyboard, and something on this machine is keeping it from me — an elevated window or a remote session will do that. "
-      : "That shortcut did not reach me; another program is most likely holding it. ";
+    gesture !== "ctrlDoubleTap"
+      ? "That shortcut did not reach me; another program is most likely holding it. "
+      : platform === "mac"
+        ? "The double tap on ⌃ Control never made it through to me. "
+        : "The double tap needs to see your keyboard, and something on this machine is keeping it from me — an elevated window or a remote session will do that. ";
+  const trayRoute =
+    platform === "mac"
+      ? "click the Kavibay icon in the menu bar and choose Open"
+      : "double-click the Kavibay icon in the tray";
   return {
     title: "That one did not reach me",
     segments: [
-      { text: `${cause}Two ways in that always work: double-click the Kavibay icon in the tray, or hold ` },
+      { text: `${cause}Two ways in that always work: ${trayRoute}, or hold ` },
       { text: "Ctrl+Space", typed: true },
       { text: " for a peek at your widgets." },
     ],
@@ -256,9 +290,10 @@ export function onboardingHotkeyFallbackCopy(gesture: RevealGesture | null): Onb
  */
 export function onboardingCopyForStep(
   step: OnboardingStep,
+  platform: KeyPlatform,
   opts?: { hiddenWidgetName?: string | null; revealGesture?: RevealGesture | null },
 ): OnboardingCopy {
-  if (step === 2) return onboardingHotkeyCopy(opts?.revealGesture ?? null);
+  if (step === 2) return onboardingHotkeyCopy(opts?.revealGesture ?? null, platform);
   if (step === 6) return onboardingCoreDoneCopy();
   if (step === 11) {
     const name = opts?.hiddenWidgetName?.trim();
@@ -273,5 +308,5 @@ export function onboardingCopyForStep(
       };
     }
   }
-  return COPY[step];
+  return fixedCopy(platform)[step];
 }

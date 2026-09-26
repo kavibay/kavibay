@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { emit } from "@tauri-apps/api/event";
 import {
-  OPEN_MONITOR_OPTIONS,
+  openMonitorOptions,
   WIDGET_LAYOUT_MODE_OPTIONS,
   type OpenMonitor,
   type WidgetLayoutMode,
 } from "./appearanceLogic";
+import { doubleTapKeyLabel, keyPlatform } from "../host/shortcutHints";
 import { useAutostart } from "../onboarding/useAutostart";
 import { useOnboarding } from "../onboarding/useOnboarding";
 import { useAppearance } from "./useAppearance";
@@ -37,6 +38,10 @@ const {
 
 const { replay, continueTour } = useOnboarding();
 const { hide: hideSettings } = useSettingsModal();
+
+const platform = keyPlatform();
+const doubleTapKey = doubleTapKeyLabel(platform);
+const openMonitors = openMonitorOptions(platform);
 
 /**
  * Create or remove the autostart entry.
@@ -96,7 +101,7 @@ function onReplayOnboarding() {
         <span class="toggle-copy">
           <span class="toggle-title">Start Kavibay when I log in</span>
           <span class="toggle-hint">
-            Waits in the tray, out of the way, until you tap Ctrl twice
+            Waits in the tray, out of the way, until you tap {{ doubleTapKey }} twice
           </span>
         </span>
         <span class="switch">
@@ -158,12 +163,12 @@ function onReplayOnboarding() {
     <section class="behavior-block">
       <h3 class="behavior-block-title">Open on</h3>
       <p class="behavior-block-hint">
-        Which display a double tap on Ctrl covers when multiple screens are
+        Which display a double tap on {{ doubleTapKey }} covers when multiple screens are
         available. Shift+Ctrl+Space always opens on the screen under the mouse.
       </p>
       <div class="choice-row" role="listbox" aria-label="Open on">
         <button
-          v-for="opt in OPEN_MONITOR_OPTIONS"
+          v-for="opt in openMonitors"
           :key="opt.id"
           type="button"
           class="choice"
