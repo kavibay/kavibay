@@ -2287,10 +2287,10 @@ assert(
     credentialType: "anthropic", configured: true,
     effortLevels: ["low", "medium", "high", "xhigh", "max"],
   };
-  const sol = {
-    id: "gpt-5.6-sol", label: "Sol", note: "", provider: "openai",
+  const astra = {
+    id: "gpt-6-astra", label: "Astra", note: "", provider: "openai",
     credentialType: "openai", configured: true,
-    effortLevels: ["minimal", "low", "medium", "high", "xhigh", "max"],
+    effortLevels: ["low", "medium", "high", "xhigh", "max"],
   };
   const haiku = {
     id: "claude-haiku-4-5", label: "Haiku", note: "", provider: "anthropic",
@@ -2299,7 +2299,7 @@ assert(
 
   assertEq(effortForModel("max", opus), "max", "a level the model takes survives");
   assertEq(effortForModel("minimal", opus), undefined, "one it does not is dropped, not sent");
-  assertEq(effortForModel("low", sol), "low", "the levels they share carry across");
+  assertEq(effortForModel("low", astra), "low", "the levels they share carry across");
   // Some models error when the parameter is present at all, so "no list" has to
   // mean "send nothing" rather than "anything goes".
   assertEq(effortForModel("high", haiku), undefined, "a model with no levels gets none");

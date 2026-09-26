@@ -72,6 +72,20 @@ fn scalar_to_string(value: &Value) -> Option<String> {
 /// Validates one caller-supplied value against its declared parameter.
 fn check_value(name: &str, param: &Param, value: &Value) -> Result<(), String> {
     match param {
+        Param::Array {
+            items, max_items, ..
+        } => {
+            let values = value
+                .as_array()
+                .ok_or_else(|| format!("invalid_argument:{name}"))?;
+            if values.len() > *max_items {
+                return Err(format!("argument_too_long:{name}"));
+            }
+            for item in values {
+                check_value(name, items, item)?;
+            }
+            Ok(())
+        }
         Param::Text {
             max_length,
             charset,
@@ -226,10 +240,10 @@ pub fn bind(endpoint: &Endpoint, args: &Value) -> Result<BoundRequest, String> {
 
     let body = match (endpoint.method, endpoint.body_type) {
         (Method::Get, _) => None,
-        (Method::Post, BodyType::Json) => Some(BoundBody::Json(Value::Object(
+        (Method::Post | Method::Put, BodyType::Json) => Some(BoundBody::Json(Value::Object(
             body_values.into_iter().collect(),
         ))),
-        (Method::Post, BodyType::Form) => Some(BoundBody::Form(
+        (Method::Post | Method::Put, BodyType::Form) => Some(BoundBody::Form(
             body_values
                 .into_iter()
                 .map(|(name, value)| {
@@ -279,6 +293,113 @@ mod tests {
             .host_str()
             .unwrap()
             .to_string()
+    }
+
+    #[test]
+    fn binds_spotify_playback_put() {
+        let endpoint = endpoint_from(json!({
+            "method": "PUT",
+            "url": "https://api.spotify.com/v1/me/player/play",
+            "credential": "spotifyOAuth2",
+            "query": { "device_id": { "type": "string" } },
+            "body": { "context_uri": { "type": "string" } }
+        }));
+        let bound = bind(
+            &endpoint,
+            &json!({
+                "device_id": "device1",
+                "context_uri": "spotify:playlist:playlist1"
+            }),
+        )
+        .unwrap();
+        assert_eq!(bound.method, Method::Put);
+        assert_eq!(
+            bound.urls,
+            ["https://api.spotify.com/v1/me/player/play?device_id=device1"]
+        );
+        assert_eq!(
+            bound.body,
+            Some(BoundBody::Json(
+                json!({ "context_uri": "spotify:playlist:playlist1" })
+            ))
+        );
+
+        let resume = bind(&endpoint, &json!({})).unwrap();
+        assert_eq!(resume.urls, ["https://api.spotify.com/v1/me/player/play"]);
+        assert_eq!(resume.body, Some(BoundBody::Json(json!({}))));
+
+        let form = endpoint_from(json!({
+            "method": "PUT",
+            "bodyType": "form",
+            "body": { "text": { "type": "string", "required": true } }
+        }));
+        assert_eq!(
+            bind(&form, &json!({ "text": "hello" })).unwrap().body,
+            Some(BoundBody::Form(vec![("text".into(), "hello".into())]))
+        );
+    }
+
+    #[test]
+    fn binds_and_validates_array_bodies() {
+        for method in ["POST", "PUT"] {
+            let endpoint = endpoint_from(json!({
+                "method": method,
+                "url": "https://api.spotify.com/v1/me/player/play",
+                "credential": "spotifyOAuth2",
+                "body": {
+                    "uris": { "type": "array", "required": true, "maxItems": 2,
+                        "items": { "type": "string", "maxLength": 64, "charset": "alnumSymbol" } },
+                    "numbers": { "type": "array", "items": { "type": "number" } },
+                    "flags": { "type": "array", "items": { "type": "boolean" } },
+                    "choices": { "type": "array", "items": { "type": "enum", "values": ["a"] } }
+                }
+            }));
+            let args = json!({ "uris": ["spotify:track:t1", "spotify:track:t2"], "numbers": [1, 2.5], "flags": [true, false], "choices": ["a"] });
+            let bound = bind(&endpoint, &args).unwrap();
+            assert_eq!(bound.method.as_str(), method);
+            assert_eq!(bound.body, Some(BoundBody::Json(args)));
+            assert_eq!(
+                bind(&endpoint, &json!({ "uris": [] })).unwrap().body,
+                Some(BoundBody::Json(json!({ "uris": [] })))
+            );
+            for args in [json!({}), json!({ "uris": null })] {
+                assert_eq!(bind(&endpoint, &args).unwrap_err(), "missing_argument:uris");
+            }
+            for value in [
+                json!("[\"spotify:track:t1\"]"),
+                json!(["valid", 1]),
+                json!([null]),
+                json!([["nested"]]),
+                json!([{}]),
+            ] {
+                assert_eq!(
+                    bind(&endpoint, &json!({ "uris": value })).unwrap_err(),
+                    "invalid_argument:uris"
+                );
+            }
+            for value in [json!(["a", "b", "c"]), json!(["x".repeat(65)])] {
+                assert_eq!(
+                    bind(&endpoint, &json!({ "uris": value })).unwrap_err(),
+                    "argument_too_long:uris"
+                );
+            }
+            assert_eq!(
+                bind(&endpoint, &json!({ "uris": ["bad space"] })).unwrap_err(),
+                "argument_charset:uris"
+            );
+            for (name, value) in [
+                ("numbers", json!(["1"])),
+                ("flags", json!([1])),
+                ("choices", json!(["b"])),
+            ] {
+                let mut args = json!({ "uris": ["spotify:track:t1"] });
+                args[name] = value;
+                assert_eq!(
+                    bind(&endpoint, &args).unwrap_err(),
+                    format!("invalid_argument:{name}")
+                );
+            }
+        }
     }
 
     #[test]

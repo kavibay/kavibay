@@ -15,7 +15,7 @@ function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
-const KNOWN_CREDENTIALS = new Set(["githubPat", "cloudflareWorkersAi"]);
+const KNOWN_CREDENTIALS = new Set(["githubPat", "cloudflareWorkersAi", "spotifyOAuth2"]);
 
 function endpoint(extra: Record<string, unknown> = {}) {
   return {
@@ -214,15 +214,54 @@ assert(
   );
 }
 
-// --- bodies belong to POST ---
+// --- bodies belong to POST and PUT ---
 assert(errorOf({ body: { text: { type: "string" } } }) === "body_on_get", "no body on GET");
-{
+for (const method of ["POST", "PUT"]) {
   const ok = parseOne({
-    method: "POST",
+    method,
     body: { text: { type: "string", required: true } },
     bodyType: "form",
   });
   assert(ok.ok && ok.declaration.endpoints[0].bodyType === "form", "form body");
+}
+
+for (const body of [undefined, { context_uri: { type: "string" } }]) {
+  const result = parseOne({
+    method: "PUT",
+    url: "https://api.spotify.com/v1/me/player/play",
+    credential: "spotifyOAuth2",
+    query: { device_id: { type: "string" } },
+    body,
+  });
+  assert(result.ok && result.declaration.endpoints[0].method === "PUT", "Spotify playback validates");
+}
+for (const method of ["PATCH", "DELETE", "put"]) {
+  assert(errorOf({ method }) === "invalid_method", "unsupported methods stay rejected");
+}
+
+// --- bounded scalar arrays belong only to JSON bodies ---
+{
+  const array = { type: "array", items: { type: "string", maxLength: 64 }, required: true };
+  for (const method of ["POST", "PUT"]) {
+    const result = parseOne({ method, body: { uris: array } });
+    assert(result.ok, "JSON array body validates");
+    const param = result.declaration.endpoints[0].body.uris;
+    assert(param.kind === "array" && param.maxItems === 100 && param.required, "array defaults and required parsed");
+  }
+  for (const items of [{ type: "number" }, { type: "boolean" }, { type: "enum", values: ["a"] }]) {
+    assert(parseOne({ method: "PUT", body: { values: { ...array, items, maxItems: 1 } } }).ok, "scalar item types validate");
+  }
+  for (const maxItems of [0, -1, 101, 1.5, "2", null]) {
+    assert(errorOf({ method: "PUT", body: { uris: { ...array, maxItems } } }) === "invalid_array_max_items", "invalid array limit");
+  }
+  for (const items of [undefined, {}, { type: "object" }, { type: "array", items: { type: "string" } }, { type: "const", value: "a" }]) {
+    assert(errorOf({ method: "PUT", body: { uris: { ...array, items } } }) === "invalid_array_items", "unsupported item type");
+  }
+  assert(errorOf({ method: "PUT", body: { uris: { ...array, items: { type: "string", surprise: true } } } }) === "unknown_key:items.surprise", "item schema fails closed");
+  assert(errorOf({ method: "PUT", body: { uris: array }, bodyType: "form" }) === "array_on_form", "no arrays in forms");
+  assert(errorOf({ body: { uris: array } }) === "body_on_get", "no array body on GET");
+  assert(errorOf({ query: { uris: array } }) === "array_not_in_body", "no array query parameters");
+  assert(errorOf({ url: "https://api.example.com/{id}", path: { id: array } }) === "array_not_in_body", "no array path parameters");
 }
 
 // --- parameter types ---
