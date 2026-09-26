@@ -7,9 +7,9 @@ use serde::Serialize;
 
 // Everything below the scan itself — cache, merging, plist parsing — exists only
 // on the platforms that can enumerate apps at all.
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(windows)]
 use serde::Deserialize;
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(windows)]
 use std::collections::HashMap;
 #[cfg(any(windows, target_os = "macos"))]
 use std::path::{Path, PathBuf};
@@ -83,7 +83,7 @@ fn scan_installed_apps_macos() -> Result<Vec<InstalledApp>, String> {
     for dir in [PathBuf::from("/Applications"), home_applications_dir()] {
         collect_macos_apps_in_dir(&dir, &mut out);
     }
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|a| a.name.to_lowercase());
     Ok(dedupe_by_path(out))
 }
 

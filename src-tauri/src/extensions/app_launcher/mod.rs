@@ -53,7 +53,7 @@ pub fn launch_path(path: String) -> Result<(), String> {
     }
     #[cfg(target_os = "macos")]
     {
-        return launch_path_macos(&path);
+        launch_path_macos(&path)
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
@@ -68,7 +68,7 @@ pub fn open_windows_search(query: String) -> Result<(), String> {
     #[cfg(not(windows))]
     {
         let _ = query;
-        return Err("Windows Search is only supported on Windows".into());
+        Err("Windows Search is only supported on Windows".into())
     }
     #[cfg(windows)]
     {
@@ -98,7 +98,7 @@ pub fn extract_app_icon(app: AppHandle, path: String) -> Result<String, String> 
         if let Some(png) = decode_png_data_url(&url) {
             let _ = crate::palette_app_icons::write_cached_app_icon(&app, &path, &png);
         }
-        return Ok(url);
+        Ok(url)
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
@@ -174,7 +174,7 @@ pub fn send_virtual_key(key_id: String) -> Result<(), String> {
     #[cfg(not(windows))]
     {
         let _ = key_id;
-        return Err("Virtual keys are only supported on Windows".into());
+        Err("Virtual keys are only supported on Windows".into())
     }
     #[cfg(windows)]
     {
@@ -1024,7 +1024,7 @@ fn macos_bundle_icns_path(app_bundle: &Path) -> Option<std::path::PathBuf> {
 
     let icon_name = ["CFBundleIconFile", "CFBundleIconName"]
         .iter()
-        .find_map(|key| dict.get(*key))
+        .find_map(|key| dict.get(key))
         .and_then(|v| v.as_string())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())?;
