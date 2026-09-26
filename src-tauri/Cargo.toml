@@ -65,6 +65,13 @@ plist = "1.7"
 # `core-foundation` is already in the tree through tao; it builds the item data.
 security-framework = { version = "3.7", default-features = false }
 core-foundation = "0.10"
+# The Ctrl double tap (`ctrl_double_tap.rs`) watches Control through an NSEvent
+# global monitor, the one source that needs no permission, and reads the HID
+# key-down counter to learn whether another key went down in between. All three
+# are already in the tree through tao, so this pins no new download.
+block2 = { version = "0.6", default-features = false }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSEvent", "block2"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["CGEventSource", "CGEventTypes"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Global mouse button state for "Hide on outside click" (XQueryPointer). Already in
