@@ -12,6 +12,7 @@ import {
   onboardingHotkeyCopy,
   onboardingHotkeyFallbackCopy,
   onboardingRevealHintCopy,
+  waitingPlace,
 } from "./onboardingCopy";
 import {
   ONBOARDING_CORE_DONE_STEP,
@@ -224,5 +225,8 @@ assert(
     "That shortcut did not reach me; another program is most likely holding it. Two ways in that always work: click the Kavibay icon in the menu bar and choose Open, or hold Ctrl+Space for a peek at your widgets.",
   "the Mac accelerator fallback names the menu bar",
 );
+
+assert(waitingPlace("mac") === "the menu bar", "a Mac keeps Kavibay in the menu bar");
+assert(waitingPlace("pc") === "the tray", "Windows keeps it in the tray");
 
 console.log("onboardingCopy.assert.ts: ok");
