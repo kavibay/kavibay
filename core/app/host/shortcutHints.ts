@@ -13,10 +13,29 @@ export const SHORTCUT_HINT_TARGET_KEY: InjectionKey<
   Readonly<Ref<ShortcutHintTarget | null>>
 > = Symbol("kavibayShortcutHintTarget");
 
+/** Which keyboard the copy names keys for: a Mac's ⌘ and ⌃, or a PC's Ctrl. */
+export type KeyPlatform = "mac" | "pc";
+
+/** The keyboard behind this webview, read from its platform string. */
+export function keyPlatform(
+  platform = typeof navigator === "undefined"
+    ? ""
+    : navigator.platform || navigator.userAgent,
+): KeyPlatform {
+  return /Mac|iPhone|iPad/.test(platform) ? "mac" : "pc";
+}
+
 /** Platform modifier used in the visible chord label. */
-export function shortcutModifierLabel(): "Ctrl" | "⌘" {
-  if (typeof navigator === "undefined") return "Ctrl";
-  return /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
-    ? "⌘"
-    : "Ctrl";
+export function shortcutModifierLabel(platform?: string): "Ctrl" | "⌘" {
+  return keyPlatform(platform) === "mac" ? "⌘" : "Ctrl";
+}
+
+/**
+ * The key the double tap listens for, as its keycap reads.
+ *
+ * On a Mac that is Control, not the ⌘ every other chord maps to. A Mac user
+ * told "Ctrl" reaches for ⌘ first, so the label names the key in full.
+ */
+export function doubleTapKeyLabel(platform: KeyPlatform): "⌃ Control" | "Ctrl" {
+  return platform === "mac" ? "⌃ Control" : "Ctrl";
 }

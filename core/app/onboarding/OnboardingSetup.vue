@@ -26,9 +26,10 @@
 import { computed, onMounted, ref } from "vue";
 import { availableMonitors } from "@tauri-apps/api/window";
 import { syncInteractiveRegions } from "../system/clickThrough";
-import { OPEN_MONITOR_OPTIONS, type OpenMonitor } from "../settings/appearanceLogic";
+import { openMonitorOptions, type OpenMonitor } from "../settings/appearanceLogic";
 import { useAppearance } from "../settings/useAppearance";
 import { revealGesture } from "../host/revealGesture";
+import { doubleTapKeyLabel, keyPlatform } from "../host/shortcutHints";
 import { onboardingRevealHintCopy } from "./onboardingCopy";
 import { isSetupVisible, shouldOfferDisplayChoice } from "./setupLogic";
 import { finishSetup, setupState } from "./setupSession";
@@ -59,7 +60,10 @@ const offerDisplayChoice = computed(() => shouldOfferDisplayChoice(monitorCount.
  * teaching — because this is the only screen everybody sees, including the
  * people who skip the tour.
  */
-const revealHint = computed(() => onboardingRevealHintCopy(revealGesture.value));
+const platform = keyPlatform();
+const doubleTapKey = doubleTapKeyLabel(platform);
+const openMonitors = openMonitorOptions(platform);
+const revealHint = computed(() => onboardingRevealHintCopy(revealGesture.value, platform));
 
 const busy = ref(false);
 
@@ -76,7 +80,7 @@ onMounted(async () => {
   void syncInteractiveRegions();
 });
 
-/** Pick which display a double tap on Ctrl covers. Persists immediately. */
+/** Pick which display the double tap covers. Persists immediately. */
 function onOpenMonitor(target: OpenMonitor) {
   setOpenMonitor(target);
 }
@@ -149,12 +153,12 @@ async function commit(opts: { tour?: boolean } = {}) {
       <section v-if="offerDisplayChoice" class="setup-block">
         <p class="setup-block-title">Open on</p>
         <p class="setup-block-hint">
-          You have more than one screen. Which one should a double tap on Ctrl
-          cover?
+          You have more than one screen. Which one should a double tap on
+          {{ doubleTapKey }} cover?
         </p>
         <div class="choice-row" role="listbox" aria-label="Open on">
           <button
-            v-for="opt in OPEN_MONITOR_OPTIONS"
+            v-for="opt in openMonitors"
             :key="opt.id"
             type="button"
             class="choice"

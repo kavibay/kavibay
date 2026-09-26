@@ -1,3 +1,5 @@
+import { doubleTapKeyLabel, type KeyPlatform } from "../host/shortcutHints";
+
 export type FontId = "jakarta" | "manrope" | "jetbrains";
 
 export type ColorMode = "system" | "dark" | "light";
@@ -258,27 +260,31 @@ export const DESKTOP_FILL_MODE_OPTIONS: {
   },
 ];
 
-export const OPEN_MONITOR_OPTIONS: {
+/** The "Open on" choices, with hints that name this keyboard's double-tap key. */
+export function openMonitorOptions(platform: KeyPlatform): {
   id: OpenMonitor;
   name: string;
   hint: string;
-}[] = [
-  {
-    id: "primary",
-    name: "Main screen",
-    hint: "A double tap on Ctrl opens on the primary display (Shift+Ctrl+Space = mouse screen)",
-  },
-  {
-    id: "cursor",
-    name: "Screen with mouse",
-    hint: "A double tap on Ctrl opens on the display under the pointer",
-  },
-  {
-    id: "activeWindow",
-    name: "Active window",
-    hint: "A double tap on Ctrl opens on the display holding the focused window",
-  },
-];
+}[] {
+  const key = doubleTapKeyLabel(platform);
+  return [
+    {
+      id: "primary",
+      name: "Main screen",
+      hint: `A double tap on ${key} opens on the primary display (Shift+Ctrl+Space = mouse screen)`,
+    },
+    {
+      id: "cursor",
+      name: "Screen with mouse",
+      hint: `A double tap on ${key} opens on the display under the pointer`,
+    },
+    {
+      id: "activeWindow",
+      name: "Active window",
+      hint: `A double tap on ${key} opens on the display holding the focused window`,
+    },
+  ];
+}
 
 export const WIDGET_LAYOUT_MODE_OPTIONS: {
   id: WidgetLayoutMode;

@@ -9,6 +9,7 @@ import {
 } from "vue";
 import { kavibayCockpitOpen } from "../host/cockpitSession";
 import { revealGesture, revealGestureKnown } from "../host/revealGesture";
+import { keyPlatform } from "../host/shortcutHints";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { syncInteractiveRegions } from "../system/clickThrough";
 import {
@@ -63,12 +64,13 @@ const hotkeyRescued = ref(false);
 const visible = computed(
   () => state.value != null && isCoachVisible(state.value),
 );
+const platform = keyPlatform();
 const copy = computed(() => {
   if (state.value?.status !== "active") return null;
   if (state.value.step === ONBOARDING_HOTKEY_STEP && hotkeyRescued.value) {
-    return onboardingHotkeyFallbackCopy(revealGesture.value);
+    return onboardingHotkeyFallbackCopy(revealGesture.value, platform);
   }
-  return onboardingCopyForStep(state.value.step, {
+  return onboardingCopyForStep(state.value.step, platform, {
     hiddenWidgetName: lastHiddenWidgetName.value,
     revealGesture: revealGesture.value,
   });

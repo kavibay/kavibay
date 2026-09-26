@@ -4,8 +4,10 @@ Pick your platform and run it. Everything else is in
 [architecture.md](architecture.md) and [AGENTS.md](../AGENTS.md).
 
 **The window is invisible on purpose.** Kavibay starts hidden and lives in the
-tray — tap `Ctrl` twice or double-click the tray icon. On the very first start
-it opens by itself, asks whether to start at login, and then runs a short tour.
+tray — tap `Ctrl` twice or double-click the tray icon. On a Mac, tap the
+Control key (⌃) twice, not Command, or click the menu bar icon and choose Open.
+On the very first start it opens by itself, asks whether to start at login, and
+then runs a short tour.
 
 ## Run on Windows
 
@@ -100,9 +102,10 @@ The gear menu only appears once more than one session exists.
 **Builds and runs from source**, and `npm run verify:rust` passes on a Mac.
 Packaging is not set up.
 
-The `Ctrl` double tap needs no permission. Kavibay watches modifier keys through
-an `NSEvent` global monitor, which macOS serves without Input Monitoring or
-Accessibility access, so there is nothing to grant.
+On a Mac the double tap is on the Control key (⌃), not Command. It needs no
+permission. Kavibay watches modifier keys through an `NSEvent` global monitor,
+which macOS serves without Input Monitoring or Accessibility access, so there is
+nothing to grant.
 
 Pinning, click-through and the global hotkey should work — macOS supports all
 three, unlike Wayland. Quick actions, Now Playing, the colour picker and the
