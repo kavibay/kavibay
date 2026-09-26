@@ -1856,11 +1856,16 @@ watch(
   justify-content: center;
 }
 
+/*
+ * One line each. The menu is sized against the room left in the card, so in a
+ * narrow card a label would wrap, and a button centers its wrapped lines.
+ */
 .widget-menu-tool--labeled {
   width: auto;
   height: 30px;
   padding: 0 8px;
   gap: 8px;
+  white-space: nowrap;
   font-size: 13px;
   color: rgba(var(--fg-rgb), 0.9);
 }
