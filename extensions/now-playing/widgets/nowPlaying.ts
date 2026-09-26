@@ -8,6 +8,9 @@ import {
 import {
   emptyNowPlaying,
   normalizeNowPlaying,
+  PLAY_STATE_GRACE_MS,
+  settlePlayState,
+  type ExpectedPlayState,
   type NowPlayingInfo,
 } from "../nowPlayingLogic";
 
@@ -19,6 +22,7 @@ export interface NowPlayingModel {
   onPlayPause(): void;
   onNext(): void;
   onOpenSource(): void;
+  onConnect(): void;
 }
 
 const REFRESH_MS = 1_000;
@@ -39,6 +43,14 @@ export const nowPlayingWidget = defineWidget({
       const pending = ref(false);
       let request: Promise<void> | undefined;
       let alive = true;
+      let expected: ExpectedPlayState | null = null;
+
+      /** Every snapshot goes through here, so a sent play/pause is not undone by a stale one. */
+      const show = (snapshot: NowPlayingInfo) => {
+        const settled = settlePlayState(snapshot, expected, Date.now());
+        expected = settled.expected;
+        display.value = settled.info;
+      };
 
       const readSnapshot = async (): Promise<NowPlayingInfo> => {
         if (!ctx.nowPlaying) throw new Error("Now Playing capability unavailable");
@@ -52,7 +64,7 @@ export const nowPlayingWidget = defineWidget({
           try {
             const snapshot = await readSnapshot();
             if (!alive) return;
-            display.value = snapshot;
+            show(snapshot);
             error.value = null;
           } catch (cause) {
             if (alive) error.value = cause instanceof Error ? cause.message : String(cause);
@@ -65,15 +77,17 @@ export const nowPlayingWidget = defineWidget({
       };
 
       async function runControl(action: NowPlayingControl, optimistic?: Partial<NowPlayingInfo>) {
-        if (!display.value.has_session || !ctx.nowPlaying) return;
+        if (!ctx.nowPlaying) return;
+        if (action !== "connect" && !display.value.has_session) return;
         if (optimistic) display.value = { ...display.value, ...optimistic };
         pending.value = true;
         try {
           await ctx.nowPlaying.control(action);
-          display.value = await readSnapshot();
+          show(await readSnapshot());
           error.value = null;
         } catch (cause) {
           error.value = cause instanceof Error ? cause.message : String(cause);
+          expected = null;
           try {
             display.value = await readSnapshot();
           } catch {
@@ -86,10 +100,14 @@ export const nowPlayingWidget = defineWidget({
 
       const onPrev = () => { void runControl("previous"); };
       const onPlayPause = () => {
-        void runControl("playPause", { is_playing: !display.value.is_playing });
+        if (!display.value.has_session) return;
+        const isPlaying = !display.value.is_playing;
+        expected = { isPlaying, untilMs: Date.now() + PLAY_STATE_GRACE_MS };
+        void runControl("playPause", { is_playing: isPlaying });
       };
       const onNext = () => { void runControl("next"); };
       const onOpenSource = () => { void runControl("openSource"); };
+      const onConnect = () => { void runControl("connect"); };
 
       const timer = ctx.nowPlaying ? setInterval(() => void refresh(), REFRESH_MS) : undefined;
       onScopeDispose(() => {
@@ -106,6 +124,7 @@ export const nowPlayingWidget = defineWidget({
         onPlayPause,
         onNext,
         onOpenSource,
+        onConnect,
       };
     },
   },

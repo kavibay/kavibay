@@ -3,6 +3,7 @@
  */
 
 import type { Component } from "vue";
+import type { WidgetAppearance } from "../host/widgetAppearance";
 
 /** Built-in Vue extension vs AppData runtime package. */
 export type ExtensionOrigin = "builtin" | "runtime";
@@ -59,6 +60,10 @@ export interface HostExtensionRef {
   hugHeight: boolean;
   /** Card is drawn on an opaque ground rather than the shared glass. */
   opaque: boolean;
+  /** The card's own surface, from the manifest's `ui.appearance`. Bundled widgets only. */
+  appearance?: WidgetAppearance;
+  /** `ui.appearance.editable`: each instance may change it in its settings. */
+  appearanceEditable?: boolean;
   /** Keep the widget mounted while the cockpit is hidden. */
   keepAliveWhenHidden?: boolean;
   permissions: string[];

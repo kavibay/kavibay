@@ -80,6 +80,26 @@ Every first-party extension declares `ui.defaultSize: { w, h }` in `manifest.jso
 | `defaultHideTitle` | `false` | `true` opens without the title bar — the context menu still brings it back |
 | `defaultScale` | `1` | Content zoom, the same factor **Ctrl + mousewheel** writes. Clamped to `0.5`…`3`; out-of-range values clamp rather than fail the load |
 
+### Card appearance
+
+`ui.appearance` gives the card its own surface instead of the shared look from
+Settings › Appearance. Every field is optional, and an absent field keeps the
+shared value:
+
+| Field | Range | Effect |
+|-------|-------|--------|
+| `background` | `#rgb` / `#rrggbb` | Surface colour |
+| `opacity` | `0`…`1` | Alpha of that colour; `1` hides everything behind the card |
+| `blur` | `0`…`24` px | Backdrop blur; `0` turns it off |
+| `radius` | `0`…`64` px | Corner radius, drawn with the shared corner shape |
+| `editable` | `false` | `true` adds an Appearance section to the widget's settings, where each instance changes these four and can reset them |
+
+The host draws the section and stores each instance's values with its title in
+the layout, so a duplicate keeps them. The widget writes no code for any of it.
+Redacted is the example: its manifest makes a new cover black and opaque, and
+each cover can be turned into tinted, blurred glass. Like every `ui` field, this
+is read from bundled manifests only.
+
 Two more fields are not per-instance, because they are not starting states.
 
 `starter` sits beside `keywords` rather than under `ui` — it says which desk a

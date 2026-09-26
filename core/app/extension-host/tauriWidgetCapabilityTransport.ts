@@ -62,6 +62,11 @@ export const tauriWidgetCapabilityTransport: WidgetCapabilityTransport = {
   systemInfoSnapshot: () => invoke("widget_system_info"),
   nowPlayingSnapshot: () => invoke("widget_now_playing"),
   nowPlayingControl: (action: NowPlayingControl) => {
+    // The macOS consent dialog floats above the cockpit, so its buttons are
+    // held like every other native dialog here.
+    if (action === "connect") {
+      return withClickThroughPaused(() => invoke("now_playing_connect"));
+    }
     const command = {
       previous: "now_playing_prev",
       playPause: "now_playing_play_pause",

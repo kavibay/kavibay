@@ -619,48 +619,6 @@ const glassPreviewStyle = computed(
   color: rgba(var(--fg-rgb), 0.5);
 }
 
-.slider-input {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 4px;
-  border-radius: 99px;
-  background: linear-gradient(
-    to right,
-    rgba(var(--fg-rgb), 0.55) 0%,
-    rgba(var(--fg-rgb), 0.55) var(--fill, 0%),
-    rgba(var(--fg-rgb), 0.12) var(--fill, 0%)
-  );
-  cursor: pointer;
-}
-
-.slider-input::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 14px;
-  height: 14px;
-  border: 0;
-  border-radius: 50%;
-  background: rgb(var(--fg-rgb));
-  box-shadow: 0 0 0 1px rgba(var(--fg-rgb), 0.12), 0 1px 2px rgba(0, 0, 0, 0.35);
-  cursor: pointer;
-}
-
-.slider-input::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border: 0;
-  border-radius: 50%;
-  background: rgb(var(--fg-rgb));
-  box-shadow: 0 0 0 1px rgba(var(--fg-rgb), 0.12), 0 1px 2px rgba(0, 0, 0, 0.35);
-  cursor: pointer;
-}
-
-.slider-input::-moz-range-track {
-  height: 4px;
-  background: transparent;
-}
-
 .corner-row {
   display: grid;
   grid-template-columns: 1fr 1fr;

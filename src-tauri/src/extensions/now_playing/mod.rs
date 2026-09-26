@@ -1,4 +1,4 @@
-//! Now Playing widget: Windows SMTC snapshot + transport controls.
+//! Now Playing widget: Windows SMTC or macOS Music snapshot + transport controls.
 
 use super::ExtensionRust;
 
@@ -15,9 +15,18 @@ pub const EXTENSION: ExtensionRust = ExtensionRust {
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use serde::Serialize;
 
+#[cfg(target_os = "macos")]
+mod macos;
+
 #[derive(Serialize, Clone)]
 pub struct NowPlayingInfo {
     pub has_session: bool,
+    /// "ready", or on macOS "needsConsent" / "denied" while Kavibay may not
+    /// script Music. Only a ready source can have a session.
+    pub access: &'static str,
+    /// The one player this platform can read, for the empty state. None on
+    /// Windows, where any app that publishes a media session shows up.
+    pub player: Option<&'static str>,
     pub app_name: String,
     pub title: String,
     pub artist: String,
@@ -29,36 +38,62 @@ pub struct NowPlayingInfo {
 ///
 /// The cover only changes with the track, but reading it meant opening the
 /// thumbnail stream and base64-encoding up to 8 MB on every poll. A missing
-/// cover is not remembered: players often publish it a moment after the title.
-#[cfg_attr(not(windows), allow(dead_code))]
-struct CoverCache(std::sync::Mutex<Option<(String, String)>>);
+/// cover is read again after `retry_missing_after`: players often publish it a
+/// moment after the title, while a track without artwork never gets one.
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+struct CoverCache(std::sync::Mutex<Option<CoverRead>>);
 
-#[cfg_attr(not(windows), allow(dead_code))]
+struct CoverRead {
+    track: String,
+    cover: Option<String>,
+    at: std::time::Instant,
+}
+
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 impl CoverCache {
     const fn new() -> Self {
         Self(std::sync::Mutex::new(None))
     }
 
-    fn get_or_read(&self, track: &str, read: impl FnOnce() -> Option<String>) -> Option<String> {
-        if let Some((cached, cover)) = &*self.0.lock().unwrap() {
-            if cached == track {
-                return Some(cover.clone());
+    fn get_or_read(
+        &self,
+        track: &str,
+        retry_missing_after: std::time::Duration,
+        read: impl FnOnce() -> Option<String>,
+    ) -> Option<String> {
+        if let Some(last) = &*self.0.lock().unwrap() {
+            if last.track == track
+                && (last.cover.is_some() || last.at.elapsed() < retry_missing_after)
+            {
+                return last.cover.clone();
             }
         }
-        let cover = read()?;
-        *self.0.lock().unwrap() = Some((track.to_string(), cover.clone()));
-        Some(cover)
+        let cover = read();
+        *self.0.lock().unwrap() = Some(CoverRead {
+            track: track.to_string(),
+            cover: cover.clone(),
+            at: std::time::Instant::now(),
+        });
+        cover
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 static COVERS: CoverCache = CoverCache::new();
 
 impl NowPlayingInfo {
     /// Creates the quiet payload used when no usable SMTC session exists.
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     fn empty() -> Self {
+        Self::empty_for(None)
+    }
+
+    /// Nothing playing, ready to read `player` once something plays.
+    fn empty_for(player: Option<&'static str>) -> Self {
         Self {
             has_session: false,
+            access: "ready",
+            player,
             app_name: String::new(),
             title: String::new(),
             artist: String::new(),
@@ -68,68 +103,105 @@ impl NowPlayingInfo {
     }
 }
 
-/// Polls the current SMTC session for the widget host.
+/// Polls the current media session for the widget host.
 #[tauri::command(async)]
-pub async fn widget_now_playing() -> Result<NowPlayingInfo, String> {
+pub async fn widget_now_playing(app: tauri::AppHandle) -> Result<NowPlayingInfo, String> {
     #[cfg(windows)]
     {
+        let _ = app;
         tauri::async_runtime::spawn_blocking(|| snapshot_windows().map_err(|e| e.to_string()))
             .await
             .map_err(|e| e.to_string())?
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
     {
+        macos::snapshot(&app).await
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let _ = app;
         Ok(NowPlayingInfo::empty())
+    }
+}
+
+/// Asks macOS for consent to script Music. Nothing to ask for elsewhere.
+#[tauri::command(async)]
+pub async fn now_playing_connect() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::connect().await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(())
     }
 }
 
 /// Requests the previous track from the current SMTC session.
 #[tauri::command(async)]
-pub async fn now_playing_prev() -> Result<(), String> {
+pub async fn now_playing_prev(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(windows)]
     {
+        let _ = app;
         tauri::async_runtime::spawn_blocking(|| {
             control_windows(Control::Prev).map_err(|e| e.to_string())
         })
         .await
         .map_err(|e| e.to_string())?
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
     {
+        macos::control(&app, macos::Control::Previous).await
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let _ = app;
         Ok(())
     }
 }
 
 /// Toggles playback for the current SMTC session.
 #[tauri::command(async)]
-pub async fn now_playing_play_pause() -> Result<(), String> {
+pub async fn now_playing_play_pause(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(windows)]
     {
+        let _ = app;
         tauri::async_runtime::spawn_blocking(|| {
             control_windows(Control::PlayPause).map_err(|e| e.to_string())
         })
         .await
         .map_err(|e| e.to_string())?
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
     {
+        macos::control(&app, macos::Control::PlayPause).await
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let _ = app;
         Ok(())
     }
 }
 
 /// Requests the next track from the current SMTC session.
 #[tauri::command(async)]
-pub async fn now_playing_next() -> Result<(), String> {
+pub async fn now_playing_next(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(windows)]
     {
+        let _ = app;
         tauri::async_runtime::spawn_blocking(|| {
             control_windows(Control::Next).map_err(|e| e.to_string())
         })
         .await
         .map_err(|e| e.to_string())?
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
     {
+        macos::control(&app, macos::Control::Next).await
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let _ = app;
         Ok(())
     }
 }
@@ -143,7 +215,11 @@ pub async fn now_playing_open_source() -> Result<(), String> {
             .await
             .map_err(|e| e.to_string())?
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        macos::open_music()
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         Ok(())
     }
@@ -189,15 +265,17 @@ fn snapshot_windows() -> windows::core::Result<NowPlayingInfo> {
         .map(|value| value.to_string())
         .unwrap_or_default();
     let track = [app_name.as_str(), &title, &artist, &album].join("\0");
-    let album_art_data_url = COVERS.get_or_read(&track, || match properties.Thumbnail() {
-        Ok(thumbnail) => match thumbnail.OpenReadAsync() {
-            Ok(operation) => match operation.join() {
-                Ok(stream) => read_thumbnail_data_url(stream).ok(),
+    let album_art_data_url = COVERS.get_or_read(&track, std::time::Duration::ZERO, || {
+        match properties.Thumbnail() {
+            Ok(thumbnail) => match thumbnail.OpenReadAsync() {
+                Ok(operation) => match operation.join() {
+                    Ok(stream) => read_thumbnail_data_url(stream).ok(),
+                    Err(_) => None,
+                },
                 Err(_) => None,
             },
             Err(_) => None,
-        },
-        Err(_) => None,
+        }
     });
 
     let is_playing = session
@@ -328,6 +406,7 @@ fn open_source_windows() -> windows::core::Result<()> {
 mod tests {
     use super::CoverCache;
     use std::cell::Cell;
+    use std::time::Duration;
 
     #[test]
     fn a_cover_is_read_once_per_track() {
@@ -337,15 +416,16 @@ mod tests {
             reads.set(reads.get() + 1);
             cover.map(str::to_string)
         };
+        let every_poll = Duration::ZERO;
 
         // The player has not published the cover yet: ask again next poll.
-        assert_eq!(covers.get_or_read("a", || read(None)), None);
+        assert_eq!(covers.get_or_read("a", every_poll, || read(None)), None);
         assert_eq!(
-            covers.get_or_read("a", || read(Some("art-a"))),
+            covers.get_or_read("a", every_poll, || read(Some("art-a"))),
             Some("art-a".into())
         );
         assert_eq!(
-            covers.get_or_read("a", || read(Some("other"))),
+            covers.get_or_read("a", every_poll, || read(Some("other"))),
             Some("art-a".into())
         );
         assert_eq!(
@@ -355,9 +435,30 @@ mod tests {
         );
 
         assert_eq!(
-            covers.get_or_read("b", || read(Some("art-b"))),
+            covers.get_or_read("b", every_poll, || read(Some("art-b"))),
             Some("art-b".into())
         );
         assert_eq!(reads.get(), 3, "a new track reads its own cover");
+    }
+
+    #[test]
+    fn a_missing_cover_waits_before_the_next_read() {
+        let covers = CoverCache::new();
+        let reads = Cell::new(0);
+        let read = || {
+            reads.set(reads.get() + 1);
+            None
+        };
+        let later = Duration::from_secs(60);
+
+        assert_eq!(covers.get_or_read("a", later, read), None);
+        assert_eq!(covers.get_or_read("a", later, read), None);
+        assert_eq!(
+            reads.get(),
+            1,
+            "a track without artwork is not read every poll"
+        );
+        assert_eq!(covers.get_or_read("b", later, read), None);
+        assert_eq!(reads.get(), 2, "a new track reads its own cover");
     }
 }

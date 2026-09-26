@@ -112,7 +112,7 @@ pub fn exec_from_desktop_entry(text: &str) -> Option<&str> {
 /// False where this module has no mechanism, so the UI can leave the switch out
 /// rather than offer one that always fails.
 pub fn supported() -> bool {
-    cfg!(any(windows, target_os = "linux"))
+    cfg!(any(windows, target_os = "linux", target_os = "macos"))
 }
 
 #[cfg(windows)]
@@ -206,7 +206,101 @@ mod platform {
     }
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
+/// macOS registers the app itself as a login item through `SMAppService`
+/// (macOS 13, the bundle's minimum). The entry belongs to the app bundle rather
+/// than to a path, so there is no stale path to detect. It appears under System
+/// Settings › General › Login Items, where the user can also switch it off.
+#[cfg(target_os = "macos")]
+mod platform {
+    use objc2::msg_send;
+    use objc2::rc::Retained;
+    use objc2::runtime::{AnyClass, AnyObject};
+    use objc2_foundation::NSError;
+    use std::path::Path;
+    use tauri::AppHandle;
+
+    // Loads the framework; the class is then looked up at runtime.
+    #[link(name = "ServiceManagement", kind = "framework")]
+    extern "C" {}
+
+    // `SMAppServiceStatus` and the codes in `SMErrors.h`.
+    const STATUS_ENABLED: isize = 1;
+    const STATUS_REQUIRES_APPROVAL: isize = 2;
+    const ERROR_LAUNCH_DENIED_BY_USER: isize = 11;
+    const ERROR_ALREADY_REGISTERED: isize = 12;
+
+    const APPROVE: &str =
+        "Allow Kavibay under System Settings › General › Login Items, then switch this on again.";
+
+    /// Registering accepts a bare executable too (measured), and a dev build
+    /// started at login would open without the dev server behind it.
+    fn bundled(exe: &Path) -> bool {
+        exe.to_string_lossy().contains(".app/Contents/MacOS/")
+    }
+
+    fn class() -> Result<&'static AnyClass, String> {
+        AnyClass::get(c"SMAppService").ok_or_else(|| "ServiceManagement is unavailable".to_string())
+    }
+
+    fn main_app() -> Result<Retained<AnyObject>, String> {
+        // SAFETY: `mainAppService` is a class property returning an SMAppService.
+        let service: Option<Retained<AnyObject>> = unsafe { msg_send![class()?, mainAppService] };
+        service.ok_or_else(|| "macOS returned no login item for Kavibay".to_string())
+    }
+
+    fn status(service: &AnyObject) -> isize {
+        // SAFETY: `status` is an NSInteger property of SMAppService.
+        unsafe { msg_send![service, status] }
+    }
+
+    pub fn enabled(_app: &AppHandle, exe: &Path) -> Result<bool, String> {
+        if !bundled(exe) {
+            return Ok(false);
+        }
+        Ok(status(&*main_app()?) == STATUS_ENABLED)
+    }
+
+    pub fn set(_app: &AppHandle, exe: &Path, on: bool) -> Result<(), String> {
+        if !bundled(exe) {
+            return Err(
+                "only the built Kavibay.app can start at login, not a dev build".to_string(),
+            );
+        }
+        let service = main_app()?;
+        let registered = matches!(status(&service), STATUS_ENABLED | STATUS_REQUIRES_APPROVAL);
+        if !on && !registered {
+            return Ok(());
+        }
+        let mut error: Option<Retained<NSError>> = None;
+        // SAFETY: both methods take an optional NSError out-parameter and return BOOL.
+        let done: bool = unsafe {
+            if on {
+                msg_send![&*service, registerAndReturnError: Some(&mut error)]
+            } else {
+                msg_send![&*service, unregisterAndReturnError: Some(&mut error)]
+            }
+        };
+        if done {
+            return Ok(());
+        }
+        let Some(error) = error else {
+            return Err("macOS refused without saying why".to_string());
+        };
+        match error.code() {
+            ERROR_ALREADY_REGISTERED if on => Ok(()),
+            ERROR_LAUNCH_DENIED_BY_USER => {
+                if let Ok(class) = class() {
+                    // SAFETY: a class method without arguments or result.
+                    let () = unsafe { msg_send![class, openSystemSettingsLoginItems] };
+                }
+                Err(APPROVE.to_string())
+            }
+            _ => Err(error.localizedDescription().to_string()),
+        }
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 mod platform {
     use std::path::Path;
     use tauri::AppHandle;
