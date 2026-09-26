@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Merged into the bundle's Info.plist by Tauri, and embedded in dev builds.
+	     macOS shows it in the Automation consent dialog for Apple Music. -->
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Kavibay shows the current track from Music and sends play, pause, next and previous.</string>
+</dict>
+</plist>
