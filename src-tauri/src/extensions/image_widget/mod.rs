@@ -38,10 +38,13 @@ fn extension_ok(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+pub(crate) fn root_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(data_dir(app)?.join("image-widget"))
+}
+
 fn instance_dir(app: &AppHandle, instance_id: &str) -> Result<PathBuf, String> {
     let id = safe_instance_id(instance_id)?;
-    let base = data_dir(app)?.join("image-widget").join(id);
-    Ok(base)
+    Ok(root_dir(app)?.join(id))
 }
 
 /// Copy a local image into app data for this instance; replace any previous file.
