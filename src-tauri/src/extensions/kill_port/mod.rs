@@ -15,6 +15,7 @@ pub const EXTENSION: ExtensionRust = ExtensionRust {
 };
 
 use serde::Serialize;
+#[cfg(any(windows, target_os = "linux", test))]
 use std::collections::HashSet;
 
 /// One process that was listening on the requested port and was terminated.
@@ -61,6 +62,7 @@ pub fn network_port_to_host(raw: u32) -> u16 {
 }
 
 /// PIDs we must never terminate: idle/system/init and ourselves.
+#[cfg(any(windows, target_os = "linux", test))]
 pub fn is_protected_pid(pid: u32, self_pid: u32) -> bool {
     if pid == 0 || pid == self_pid {
         return true;
@@ -113,6 +115,7 @@ pub fn socket_inode_from_fd_target(target: &str) -> Option<u64> {
 }
 
 /// Deduplicate PIDs while keeping first-seen order.
+#[cfg(any(windows, target_os = "linux", test))]
 pub fn unique_pids(pids: &[u32]) -> Vec<u32> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();

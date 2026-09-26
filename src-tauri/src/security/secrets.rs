@@ -136,11 +136,10 @@ fn unprotect_bytes(_protected: &[u8]) -> Result<Vec<u8>, String> {
     Err("secure secret storage requires Windows DPAPI (Keychain backend pending)".into())
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 
-    #[cfg(windows)]
     #[test]
     fn protect_unprotect_roundtrip() {
         let secret = "some-oauth-refresh-token";
