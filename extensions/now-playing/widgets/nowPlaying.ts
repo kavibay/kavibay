@@ -19,6 +19,7 @@ export interface NowPlayingModel {
   onPlayPause(): void;
   onNext(): void;
   onOpenSource(): void;
+  onConnect(): void;
 }
 
 const REFRESH_MS = 1_000;
@@ -65,7 +66,8 @@ export const nowPlayingWidget = defineWidget({
       };
 
       async function runControl(action: NowPlayingControl, optimistic?: Partial<NowPlayingInfo>) {
-        if (!display.value.has_session || !ctx.nowPlaying) return;
+        if (!ctx.nowPlaying) return;
+        if (action !== "connect" && !display.value.has_session) return;
         if (optimistic) display.value = { ...display.value, ...optimistic };
         pending.value = true;
         try {
@@ -90,6 +92,7 @@ export const nowPlayingWidget = defineWidget({
       };
       const onNext = () => { void runControl("next"); };
       const onOpenSource = () => { void runControl("openSource"); };
+      const onConnect = () => { void runControl("connect"); };
 
       const timer = ctx.nowPlaying ? setInterval(() => void refresh(), REFRESH_MS) : undefined;
       onScopeDispose(() => {
@@ -106,6 +109,7 @@ export const nowPlayingWidget = defineWidget({
         onPlayPause,
         onNext,
         onOpenSource,
+        onConnect,
       };
     },
   },
