@@ -3,7 +3,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+#[cfg(any(windows, test))]
+use std::time::Duration;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use super::db::{self, FocusDb};
 

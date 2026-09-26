@@ -13,11 +13,11 @@ pub mod win_search;
 use serde::Serialize;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::AtomicBool;
 #[cfg(windows)]
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(windows)]
 use std::sync::mpsc;
+#[cfg(windows)]
 use std::time::Duration;
 
 const DEFAULT_LIMIT: usize = 20;
@@ -188,7 +188,7 @@ fn platform_search(dir: &Path, query: &str, limit: usize) -> Option<Vec<FileEntr
     {
         // macOS would hook Spotlight (`NSMetadataQuery` / `mdfind`) in here.
         let _ = (dir, query, limit);
-        return None;
+        None
     }
 
     #[cfg(windows)]
@@ -309,7 +309,7 @@ fn reveal_path(path: &str) -> Result<(), String> {
             .args(["-R", path])
             .spawn()
             .map_err(|e| format!("reveal_spawn:{e}"))?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
@@ -354,7 +354,7 @@ fn open_terminal_at(dir: &str) -> Result<(), String> {
             .args(["-a", "Terminal", dir])
             .spawn()
             .map_err(|e| format!("terminal_spawn:{e}"))?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
@@ -417,6 +417,16 @@ mod tests {
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    // Absolute on this platform: `C:\foo` is a single relative file name on Unix.
+    #[cfg(windows)]
+    const PARENT: &str = "C:\\foo\\..\\bar";
+    #[cfg(not(windows))]
+    const PARENT: &str = "/foo/../bar";
+    #[cfg(windows)]
+    const MISSING: &str = "C:\\kavibay_file_search_missing_zzz";
+    #[cfg(not(windows))]
+    const MISSING: &str = "/kavibay_file_search_missing_zzz";
+
     fn temp_dir() -> std::path::PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -430,16 +440,10 @@ mod tests {
     #[test]
     fn rejects_parent_and_relative() {
         assert_eq!(validate_list_dir("foo").unwrap_err(), "path_not_absolute");
-        assert_eq!(
-            validate_list_dir("C:\\foo\\..\\bar").unwrap_err(),
-            "path_parent"
-        );
+        assert_eq!(validate_list_dir(PARENT).unwrap_err(), "path_parent");
         assert_eq!(validate_list_dir("").unwrap_err(), "path_empty");
         // Revealing takes files too, but the same fail-closed rules apply.
-        assert_eq!(
-            validate_existing_path("C:\\foo\\..\\bar").unwrap_err(),
-            "path_parent"
-        );
+        assert_eq!(validate_existing_path(PARENT).unwrap_err(), "path_parent");
         assert_eq!(
             validate_existing_path("foo").unwrap_err(),
             "path_not_absolute"
@@ -486,8 +490,7 @@ mod tests {
 
     #[test]
     fn rejects_missing() {
-        let err = validate_list_dir("C:\\kavibay_file_search_missing_zzz").unwrap_err();
-        assert_eq!(err, "path_missing");
+        assert_eq!(validate_list_dir(MISSING).unwrap_err(), "path_missing");
     }
 
     #[test]

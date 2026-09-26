@@ -5,6 +5,7 @@ mod appearance_prefs;
 mod autostart;
 mod commands;
 mod credentials;
+#[cfg(any(windows, target_os = "macos", test))]
 mod ctrl_double_tap;
 mod extension_providers;
 mod extensions;
@@ -82,10 +83,10 @@ impl CockpitTrigger {
 /// The keystroke that can bring a hidden cockpit back on *this* machine.
 ///
 /// Not a constant, because two things it depends on are only known at start-up.
-/// The Ctrl double tap needs a `WH_KEYBOARD_LL` hook and therefore Windows; on
-/// every other platform the fallback is Shift+Ctrl+Space, which is an ordinary
-/// accelerator — and which another program may already own, in which case there
-/// is no keystroke at all and the tray icon is the only way in.
+/// The Ctrl double tap needs a way to watch the keyboard, and Kavibay has one
+/// on Windows and macOS only (see `ctrl_double_tap`). On Linux the fallback is
+/// Shift+Ctrl+Space, an ordinary accelerator that another program may already
+/// own. Then there is no keystroke at all and the tray icon is the only way in.
 ///
 /// The guided tour asks for this before it teaches the gesture. Teaching a key
 /// this machine cannot deliver is worse than teaching none: the user hides
@@ -396,6 +397,30 @@ pub fn run() {
                 .get_webview_window("main")
                 .expect("main window must exist (defined in tauri.conf.json)");
 
+            // macOS does not hand activation back when an accessory app's last
+            // window orders out. Kavibay stayed the active app with nothing on
+            // screen, so keys typed next went nowhere, and the double tap could
+            // not reopen it because the global monitor never sees keys sent to
+            // Kavibay itself. Hiding the app returns focus to the previous one.
+            // `NSApp.deactivate()` looks like the fix and does nothing
+            // (measured). Every hide while Kavibay has focus (Esc, double tap,
+            // palette) ends in an order-out that resigns key, so this one
+            // handler covers them all. A window that loses focus while still
+            // visible, to a click elsewhere or with pinned widgets up, is left
+            // alone; the click already gave focus to the app it landed in.
+            #[cfg(target_os = "macos")]
+            {
+                let app_handle = app.handle().clone();
+                let main_window = window.clone();
+                window.on_window_event(move |event| {
+                    if matches!(event, tauri::WindowEvent::Focused(false))
+                        && !main_window.is_visible().unwrap_or(true)
+                    {
+                        let _ = app_handle.hide();
+                    }
+                });
+            }
+
             // Open-monitor preference (synced from Settings). Default = cursor monitor.
             // Managed before first fit so placement can read it immediately.
             let open_monitor: SharedOpenMonitor = Arc::new(Mutex::new(OpenMonitor::default()));
@@ -417,13 +442,13 @@ pub fn run() {
 
             // The toggle itself is a double tap on Ctrl, which no global-shortcut
             // API can express: a bare modifier is not a hotkey on any platform, and
-            // none of them has a notion of "twice quickly". Only Windows gets it,
-            // through a keyboard hook — see `ctrl_double_tap`.
-            #[cfg(windows)]
+            // none of them has a notion of "twice quickly". Windows and macOS get
+            // it by watching the keyboard directly. See `ctrl_double_tap`.
+            #[cfg(any(windows, target_os = "macos"))]
             ctrl_double_tap::spawn(app.handle().clone());
-            #[cfg(not(windows))]
+            #[cfg(not(any(windows, target_os = "macos")))]
             eprintln!(
-                "[shortcut] Ctrl double tap is Windows-only - use the tray, Shift+Ctrl+Space or `kavibay --toggle`"
+                "[shortcut] Ctrl double tap is unavailable on Linux - use the tray, Shift+Ctrl+Space or `kavibay --toggle`"
             );
             if !cursor_toggle {
                 eprintln!(
@@ -433,7 +458,7 @@ pub fn run() {
             // Recorded rather than recomputed: whether Shift+Ctrl+Space is ours
             // is only knowable from the registration above, and the tour has to
             // ask the same question later.
-            app.manage(RevealGesture(if cfg!(windows) {
+            app.manage(RevealGesture(if cfg!(any(windows, target_os = "macos")) {
                 Some(CockpitTrigger::CtrlDoubleTap)
             } else if cursor_toggle {
                 Some(CockpitTrigger::CursorHotkey)
@@ -698,7 +723,7 @@ pub fn run() {
             runtime_extensions::http::extension_http_call,
         ])
         // build + run so we can join the focus-tracker poll thread on Exit.
-        .build(tauri::generate_context!())
+        .build(context())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if let RunEvent::Exit = event {
@@ -713,6 +738,14 @@ pub fn run() {
                 }
             }
         });
+}
+
+/// The one expansion of `generate_context!` in this crate.
+///
+/// On macOS the macro also embeds `Info.plist` under a fixed linker symbol, so a
+/// second expansion (the ACL test's) fails to link the test build.
+fn context() -> tauri::Context<tauri::Wry> {
+    tauri::generate_context!()
 }
 
 /// Show + focus the main window for tray Open (not a cockpit toggle).
@@ -1240,14 +1273,14 @@ impl MouseButtons {
     }
 }
 
-/// `CGEventSourceButtonState` from Quartz Event Services.
-///
-/// Deliberately not AppKit's `NSEvent.pressedMouseButtons`, even though objc2 binds
-/// it safely: AppKit is main-thread-bound and this is read from the watcher thread.
-/// The Quartz event-source queries carry no such restriction. Same reasoning that
-/// put a private X11 connection on Linux instead of a GDK call.
-///
-/// Needs no dependency — CoreGraphics is already linked into every macOS build.
+// `CGEventSourceButtonState` from Quartz Event Services.
+//
+// Deliberately not AppKit's `NSEvent.pressedMouseButtons`, even though objc2 binds
+// it safely: AppKit is main-thread-bound and this is read from the watcher thread.
+// The Quartz event-source queries carry no such restriction. Same reasoning that
+// put a private X11 connection on Linux instead of a GDK call.
+//
+// Needs no dependency — CoreGraphics is already linked into every macOS build.
 #[cfg(target_os = "macos")]
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
@@ -1367,8 +1400,9 @@ mod tests {
 }
 
 /// The ACL as the running app enforces it: `generate_context!` compiles in the
-/// capabilities and the permissions `build.rs` generates, so this asks the
-/// same authority an `invoke` does.
+/// capabilities and the permissions `build.rs` generates, and [`super::context`]
+/// is the same call `run` builds with, so this asks the same authority an
+/// `invoke` does.
 #[cfg(test)]
 mod acl_tests {
     use tauri::ipc::Origin;
@@ -1387,7 +1421,7 @@ mod acl_tests {
 
     #[test]
     fn each_window_reaches_exactly_its_commands() {
-        let mut context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+        let mut context = super::context();
         let acl = context.runtime_authority_mut();
         let allowed = |window: &str, command: &str| {
             acl.resolve_access(command, window, window, &Origin::Local)

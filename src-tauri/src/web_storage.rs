@@ -13,12 +13,12 @@
 //! # At rest
 //!
 //! The payload is wrapped with the same OS-backed protection as credentials
-//! (`security::secrets`, DPAPI on Windows), so a copy of this file cannot be
-//! read on another machine or under another Windows account. That is the only
+//! (`security::secrets`: DPAPI on Windows, a Keychain-held key on macOS), so a
+//! copy of this file cannot be read on another machine or under another account. That is the only
 //! threat it addresses: anything running as this user can still read it, and so
 //! can the WebView's own localStorage — see SECURITY.md.
 //!
-//! Where no secret backend exists (every non-Windows build today), the snapshot
+//! Where no secret backend exists (Linux today), the snapshot
 //! is written in plaintext rather than not at all. Credentials fail closed there
 //! because an unstored token is an inconvenience; this file is the *only* copy of
 //! the user's notes, and refusing to write it would reintroduce the data loss it
@@ -54,8 +54,8 @@ fn as_string_map(value: &Value) -> Option<&serde_json::Map<String, Value>> {
 
 /// Move an unusable file aside instead of letting the next save overwrite it.
 ///
-/// The data may still be recoverable — by hand, or on the machine whose DPAPI
-/// key it belongs to — and it never gets a second chance if the mirror writes
+/// The data may still be recoverable — by hand, or by the user and machine
+/// whose key it belongs to — and it never gets a second chance if the mirror writes
 /// over it first.
 fn quarantine(path: &PathBuf, reason: &str) -> Result<(), String> {
     let aside = path.with_extension("corrupt.json");

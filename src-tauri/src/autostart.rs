@@ -32,6 +32,7 @@ use std::path::Path;
 use tauri::AppHandle;
 
 /// Registry value name on Windows, and the `.desktop` file stem on Linux.
+#[cfg(any(windows, target_os = "linux", test))]
 const ENTRY_NAME: &str = "Kavibay";
 
 // The rules below are plain string handling, kept out of the platform modules so
