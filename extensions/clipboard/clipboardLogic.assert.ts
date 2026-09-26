@@ -39,6 +39,20 @@ assert(files.filePaths?.length === 2, "all copied file references are preserved"
 assert(displayText(files) === "report.pdf +1", "multiple files get a compact list summary");
 assert(fileName("C:\\Users\\Alex\\report.pdf") === "report.pdf", "Windows file names are extracted");
 
+const screenshot = normalizeEntry({
+  id: "entry-screenshot",
+  kind: "file",
+  filePaths: ["/Users/alex/Library/Application Support/CleanShot/media/CleanShot.png"],
+  imagePath: "/Users/alex/.kavibay/clipboard-widget/images/entry-screenshot.png",
+  hash: "screenshot-hash",
+  createdAt: 3,
+  revealed: true,
+});
+assert(
+  screenshot?.imagePath === "/Users/alex/.kavibay/clipboard-widget/images/entry-screenshot.png",
+  "a copied picture file keeps its preview",
+);
+
 const missingFiles = normalizeEntry({ ...base, kind: "file", imagePath: undefined, filePaths: [] });
 assert(missingFiles == null, "empty file-reference entries are rejected");
 

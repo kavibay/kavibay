@@ -92,10 +92,12 @@ export function normalizeEntry(raw: unknown): ClipboardEntry | null {
       .filter((path): path is string => typeof path === "string" && Boolean(path.trim()))
       .map((path) => path.trim());
     if (filePaths.length === 0) return null;
+    const imagePath = typeof o.imagePath === "string" ? o.imagePath.trim() : "";
     return {
       id: o.id,
       kind: "file",
       filePaths,
+      ...(imagePath ? { imagePath } : {}),
       hash: o.hash,
       createdAt: o.createdAt,
       revealed,
