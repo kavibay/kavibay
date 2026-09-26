@@ -2,7 +2,7 @@
 
 use std::{
     env, fs,
-    io::{Read, Seek, SeekFrom},
+    io::{self, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     time::{Duration, UNIX_EPOCH},
 };
@@ -22,7 +22,14 @@ pub const EXTENSION: ExtensionRust = ExtensionRust {
 
 const CODEX_TAIL_BYTES: u64 = 512 * 1024;
 const CLAUDE_CACHE_FILE: &str = "kavibay-usage.json";
+#[cfg(windows)]
 const CLAUDE_SCRIPT_FILE: &str = "kavibay-usage-statusline.ps1";
+#[cfg(unix)]
+const CLAUDE_SCRIPT_FILE: &str = "kavibay-usage-statusline.sh";
+/// The whole `statusLine` object the Unix wrapper replaced, kept so it can be
+/// restored and so enabling again regenerates the same wrapper.
+#[cfg(unix)]
+const CLAUDE_ORIGINAL_STATUS_LINE_FILE: &str = "kavibay-statusline-original.json";
 const CLAUDE_CREDENTIALS_FILE: &str = ".credentials.json";
 const CLAUDE_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const CLAUDE_OAUTH_TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
@@ -559,11 +566,17 @@ fn parse_claude_cache(content: &str) -> Option<UsageSource> {
     ))
 }
 
-fn claude_command(config_dir: &Path) -> Result<String, String> {
-    let path = config_dir.join(CLAUDE_SCRIPT_FILE);
-    let path = path
+fn claude_script_path(config_dir: &Path) -> Result<String, String> {
+    config_dir
+        .join(CLAUDE_SCRIPT_FILE)
         .to_str()
-        .ok_or_else(|| "Claude config path is not valid Unicode".to_string())?;
+        .map(str::to_string)
+        .ok_or_else(|| "Claude config path is not valid Unicode".to_string())
+}
+
+#[cfg(windows)]
+fn claude_command(config_dir: &Path) -> Result<String, String> {
+    let path = claude_script_path(config_dir)?;
     if path.contains('"') {
         return Err("Claude config path contains an unsupported quote".to_string());
     }
@@ -576,17 +589,24 @@ fn claude_command(config_dir: &Path) -> Result<String, String> {
     ))
 }
 
+#[cfg(windows)]
 fn legacy_claude_command(config_dir: &Path) -> Result<String, String> {
-    let path = config_dir.join(CLAUDE_SCRIPT_FILE);
-    let path = path
-        .to_str()
-        .ok_or_else(|| "Claude config path is not valid Unicode".to_string())?;
+    let path = claude_script_path(config_dir)?;
     if path.contains('"') {
         return Err("Claude config path contains an unsupported quote".to_string());
     }
     Ok(format!(
         "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{path}\""
     ))
+}
+
+#[cfg(unix)]
+fn claude_command(config_dir: &Path) -> Result<String, String> {
+    let path = claude_script_path(config_dir)?;
+    if path.contains('\'') {
+        return Err("Claude config path contains an unsupported quote".to_string());
+    }
+    Ok(format!("sh '{path}'"))
 }
 
 fn read_claude_settings(config_dir: &Path) -> Result<Value, String> {
@@ -608,11 +628,14 @@ fn read_claude_settings(config_dir: &Path) -> Result<Value, String> {
 enum StatusLine {
     Missing,
     /// Present, but Kavibay cannot safely take it over: not an object with a
-    /// string `command`.
+    /// string `command`, or on Unix a Kavibay wrapper under another path,
+    /// which wrapping again would make run itself.
     Unmanageable,
     Kavibay,
     /// Kavibay's command from before generated paths used forward slashes.
+    #[cfg(windows)]
     LegacyKavibay,
+    /// Someone else's status line: refused on Windows, wrapped on Unix.
     Foreign,
 }
 
@@ -622,6 +645,7 @@ fn status_line_command(status_line: &Value) -> Option<&str> {
 
 fn read_status_line(config_dir: &Path) -> Result<(Value, StatusLine), String> {
     let command = claude_command(config_dir)?;
+    #[cfg(windows)]
     let legacy_command = legacy_claude_command(config_dir)?;
     let settings = read_claude_settings(config_dir)?;
     let status_line = match settings.get("statusLine") {
@@ -629,27 +653,14 @@ fn read_status_line(config_dir: &Path) -> Result<(Value, StatusLine), String> {
         Some(value) => match status_line_command(value) {
             None => StatusLine::Unmanageable,
             Some(existing) if existing == command => StatusLine::Kavibay,
+            #[cfg(windows)]
             Some(existing) if existing == legacy_command => StatusLine::LegacyKavibay,
+            #[cfg(unix)]
+            Some(existing) if existing.contains(CLAUDE_SCRIPT_FILE) => StatusLine::Unmanageable,
             Some(_) => StatusLine::Foreign,
         },
     };
     Ok((settings, status_line))
-}
-
-#[cfg(windows)]
-fn claude_unconfigured() -> UsageSource {
-    UsageSource::state(
-        "notConfigured",
-        "Enable capture to add the Kavibay Claude Code status line.",
-    )
-}
-
-#[cfg(not(windows))]
-fn claude_unconfigured() -> UsageSource {
-    UsageSource::state(
-        "unsupported",
-        "Claude capture setup is currently available on Windows only.",
-    )
 }
 
 /// `state_file` is Claude's own `~/.claude.json`, which holds its last usage fetch.
@@ -660,18 +671,34 @@ fn claude_snapshot(config_dir: &Path, state_file: Option<&Path>) -> UsageSource 
     };
 
     match status_line {
-        StatusLine::Missing => claude_unconfigured(),
+        #[cfg(windows)]
+        StatusLine::Missing => UsageSource::state(
+            "notConfigured",
+            "Enable capture to add the Kavibay Claude Code status line.",
+        ),
+        #[cfg(unix)]
+        StatusLine::Missing => UsageSource::state(
+            "notConfigured",
+            "Enable capture to read usage through Claude Code's status line.",
+        ),
         StatusLine::Unmanageable => UsageSource::state(
             "conflict",
             "Claude has a status line Kavibay cannot safely update.",
         ),
+        #[cfg(windows)]
         StatusLine::LegacyKavibay => UsageSource::state(
             "notConfigured",
             "Claude capture needs a one-time path repair. Enable it again to repair the status line.",
         ),
+        #[cfg(windows)]
         StatusLine::Foreign => UsageSource::state(
             "conflict",
             "Claude already has a different status line. Kavibay left it unchanged.",
+        ),
+        #[cfg(unix)]
+        StatusLine::Foreign => UsageSource::state(
+            "notConfigured",
+            "Enable capture to read usage through your Claude Code status line. Kavibay keeps it and its output.",
         ),
         StatusLine::Kavibay => {
             let cache = config_dir.join(CLAUDE_CACHE_FILE);
@@ -759,17 +786,141 @@ fn enable_claude_capture(config_dir: &Path) -> Result<(), String> {
         "statusLine".to_string(),
         serde_json::json!({ "type": "command", "command": command, "refreshInterval": 60 }),
     );
-    let mut content = serde_json::to_string_pretty(&settings)
-        .map_err(|error| format!("Could not serialize Claude settings: {error}"))?;
-    content.push('\n');
-    fs::write(config_dir.join("settings.json"), content)
-        .map_err(|error| format!("Could not update Claude settings: {error}"))?;
-    Ok(())
+    write_claude_settings(config_dir, &settings)
 }
 
-#[cfg(not(windows))]
-fn enable_claude_capture(_config_dir: &Path) -> Result<(), String> {
-    Err("Claude capture setup is currently available on Windows only".to_string())
+/// The usage-recording part of the Unix wrapper; `claude_status_line_script`
+/// appends the line that runs the original status line. Only the `rate_limits`
+/// object reaches the cache, so paths and session ids never touch disk.
+#[cfg(unix)]
+const CLAUDE_STATUS_LINE_SCRIPT: &str = r#"#!/bin/sh
+# Generated by Kavibay. Records Claude Code's usage limits for the AI Usage
+# widget, then runs the status line configured before, with the same input.
+# That statusLine setting is saved in kavibay-statusline-original.json.
+input=$(cat; printf x)
+input=${input%x}
+dir=$(dirname "$0")
+tmp="$dir/kavibay-usage.json.$$.tmp"
+{
+  printf '%s' "$input" | LC_ALL=C awk -v now="$(date +%s)" '
+    { json = json $0 "\n" }
+    END {
+      if (now !~ /^[0-9]+$/) exit 1
+      key = "\"rate_limits\""
+      while ((at = index(json, key)) > 0) {
+        json = substr(json, at + length(key))
+        sub(/^[ \t\r\n]*/, "", json)
+        if (substr(json, 1, 1) != ":") continue
+        json = substr(json, 2)
+        sub(/^[ \t\r\n]*/, "", json)
+        if (substr(json, 1, 1) != "{") exit 1
+        for (i = 1; i <= length(json); i++) {
+          c = substr(json, i, 1)
+          if (quoted) {
+            if (escaped) escaped = 0
+            else if (c == "\\") escaped = 1
+            else if (c == "\"") quoted = 0
+          } else if (c == "\"") quoted = 1
+          else if (c == "{") depth++
+          else if (c == "}" && --depth == 0) {
+            printf "{\"captured_at\":%s,\"rate_limits\":%s}\n", now, substr(json, 1, i)
+            exit 0
+          }
+        }
+        exit 1
+      }
+      exit 1
+    }' > "$tmp" && mv -f "$tmp" "$dir/kavibay-usage.json" || rm -f "$tmp"
+} 2>/dev/null
+"#;
+
+/// Claude Code runs a status-line command with `/bin/sh -c`, so the wrapper
+/// does the same with the original command as one single-quoted literal.
+#[cfg(unix)]
+fn claude_status_line_script(original_command: Option<&str>) -> String {
+    let mut script = CLAUDE_STATUS_LINE_SCRIPT.to_string();
+    if let Some(command) = original_command {
+        let quoted = command.replace('\'', r"'\''");
+        script.push_str(&format!("printf '%s' \"$input\" | /bin/sh -c '{quoted}'\n"));
+    }
+    script
+}
+
+#[cfg(unix)]
+fn read_original_status_line(config_dir: &Path) -> Result<Option<Value>, String> {
+    let content = match fs::read_to_string(config_dir.join(CLAUDE_ORIGINAL_STATUS_LINE_FILE)) {
+        Ok(content) => content,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "Could not read the saved Claude status line: {error}"
+            ))
+        }
+    };
+    match serde_json::from_str::<Value>(&content) {
+        Ok(value) if status_line_command(&value).is_some() => Ok(Some(value)),
+        _ => Err(format!(
+            "{CLAUDE_ORIGINAL_STATUS_LINE_FILE} is not a Claude status line"
+        )),
+    }
+}
+
+#[cfg(unix)]
+fn save_original_status_line(config_dir: &Path, original: Option<&Value>) -> Result<(), String> {
+    let path = config_dir.join(CLAUDE_ORIGINAL_STATUS_LINE_FILE);
+    let result = match original {
+        Some(original) => write_json(&path, original),
+        None => fs::remove_file(&path).or_else(|error| match error.kind() {
+            io::ErrorKind::NotFound => Ok(()),
+            _ => Err(error),
+        }),
+    };
+    result.map_err(|error| format!("Could not save the original Claude status line: {error}"))
+}
+
+/// Wraps an existing status line instead of replacing it: the wrapper records
+/// usage and then runs the original command, so its output stays the same.
+#[cfg(unix)]
+fn enable_claude_capture(config_dir: &Path) -> Result<(), String> {
+    let command = claude_command(config_dir)?;
+    let (mut settings, status_line) = read_status_line(config_dir)?;
+    let original = match status_line {
+        StatusLine::Missing => None,
+        StatusLine::Unmanageable => {
+            return Err("Claude has a status line Kavibay cannot safely update".to_string())
+        }
+        StatusLine::Kavibay => read_original_status_line(config_dir)?,
+        StatusLine::Foreign => Some(settings["statusLine"].clone()),
+    };
+
+    fs::create_dir_all(config_dir)
+        .map_err(|error| format!("Could not create Claude config directory: {error}"))?;
+    save_original_status_line(config_dir, original.as_ref())?;
+    fs::write(
+        config_dir.join(CLAUDE_SCRIPT_FILE),
+        claude_status_line_script(original.as_ref().and_then(status_line_command)),
+    )
+    .map_err(|error| format!("Could not install Claude status-line script: {error}"))?;
+
+    // Keeps `type`, `padding` and any other field of the line being wrapped.
+    let mut status_line = settings
+        .get("statusLine")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({ "type": "command" }));
+    status_line["command"] = Value::String(command);
+    settings["statusLine"] = status_line;
+    write_claude_settings(config_dir, &settings)
+}
+
+fn write_json(path: &Path, value: &Value) -> io::Result<()> {
+    let mut content = serde_json::to_string_pretty(value)?;
+    content.push('\n');
+    fs::write(path, content)
+}
+
+fn write_claude_settings(config_dir: &Path, settings: &Value) -> Result<(), String> {
+    write_json(&config_dir.join("settings.json"), settings)
+        .map_err(|error| format!("Could not update Claude settings: {error}"))
 }
 
 /// Returns normalized, secret-free rate-limit snapshots for both providers.
@@ -896,6 +1047,7 @@ mod tests {
         assert_eq!(window_label(Some(45), "primary"), "45 minutes");
     }
 
+    #[cfg(windows)]
     #[test]
     fn claude_command_uses_git_bash_safe_forward_slashes() {
         let config_dir = Path::new(r"C:\Users\Alex\.claude");
@@ -903,5 +1055,338 @@ mod tests {
         assert!(command.starts_with("powershell "));
         assert!(command.contains("C:/Users/Alex/.claude/kavibay-usage-statusline.ps1"));
         assert!(!command.contains('\\'));
+    }
+
+    #[cfg(unix)]
+    mod unix_capture {
+        use super::*;
+        use serde_json::json;
+        use std::{
+            io::Write,
+            process::{Command, Stdio},
+            sync::atomic::{AtomicUsize, Ordering},
+            time::SystemTime,
+        };
+
+        /// Shaped like Claude Code's status-line input, including the trailing
+        /// newline it writes. Braces and escaped quotes sit inside strings,
+        /// also within `rate_limits`, and a string value "rate_limits" comes
+        /// before the real key.
+        const CLAUDE_INPUT: &str = concat!(
+            r#"{"session_id":"abc","cwd":"/work/a}b \"quoted\" {dir","#,
+            r#""output_style":{"name":"rate_limits"},"#,
+            r#""model":{"id":"claude-opus-4","display_name":"Opus"},"#,
+            r#""workspace":{"current_dir":"/work/a}b","project_dir":"/work"},"#,
+            r#""rate_limits" : {"five_hour":{"used_percentage":25,"resets_at":1790000000},"#,
+            r#""seven_day":{"used_percentage":4,"resets_at":1790500000},"#,
+            r#""spend_limit":{"label":"cap }} \"{\\\" "}},"#,
+            r#""version":"2.1.271"}"#,
+            "\n"
+        );
+
+        fn temp_config_dir() -> PathBuf {
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let dir = env::temp_dir().join(format!(
+                "kavibay_claude_{}_{nanos}_{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&dir).unwrap();
+            dir
+        }
+
+        fn wrapper_command(dir: &Path) -> String {
+            format!("sh '{}/kavibay-usage-statusline.sh'", dir.display())
+        }
+
+        fn enable_over(status_line: Option<Value>) -> PathBuf {
+            let dir = temp_config_dir();
+            let mut settings = json!({ "model": "opus" });
+            if let Some(status_line) = status_line {
+                settings["statusLine"] = status_line;
+            }
+            write_json(&dir.join("settings.json"), &settings).unwrap();
+            enable_claude_capture(&dir).unwrap();
+            dir
+        }
+
+        /// Runs the configured status line the way Claude Code does, with
+        /// `HOME` pointing at the temp dir so `~` is predictable.
+        fn run_status_line(dir: &Path, input: &str) -> String {
+            let settings = read_claude_settings(dir).unwrap();
+            let mut child = Command::new("/bin/sh")
+                .arg("-c")
+                .arg(settings["statusLine"]["command"].as_str().unwrap())
+                .env("HOME", dir)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(input.as_bytes())
+                .unwrap();
+            let output = child.wait_with_output().unwrap();
+            assert!(
+                output.status.success(),
+                "status line failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+            String::from_utf8(output.stdout).unwrap()
+        }
+
+        fn cached_windows(dir: &Path) -> Vec<(f64, Option<i64>)> {
+            let cache = fs::read_to_string(dir.join(CLAUDE_CACHE_FILE)).unwrap();
+            parse_claude_cache(&cache)
+                .unwrap()
+                .windows
+                .iter()
+                .map(|window| (window.used_percent, window.resets_at))
+                .collect()
+        }
+
+        fn file_names(dir: &Path) -> Vec<String> {
+            let mut names = fs::read_dir(dir)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+                .collect::<Vec<_>>();
+            names.sort();
+            names
+        }
+
+        #[test]
+        fn wrapper_passes_input_through_and_caches_only_rate_limits() {
+            let dir = enable_over(Some(
+                json!({ "type": "command", "command": "printf 'seen:'; cat" }),
+            ));
+
+            assert_eq!(
+                run_status_line(&dir, CLAUDE_INPUT),
+                format!("seen:{CLAUDE_INPUT}")
+            );
+
+            let cache: Value =
+                serde_json::from_str(&fs::read_to_string(dir.join(CLAUDE_CACHE_FILE)).unwrap())
+                    .unwrap();
+            let mut keys = cache.as_object().unwrap().keys().collect::<Vec<_>>();
+            keys.sort();
+            assert_eq!(keys, ["captured_at", "rate_limits"]);
+            assert_eq!(
+                cache["rate_limits"],
+                json!({
+                    "five_hour": { "used_percentage": 25, "resets_at": 1790000000 },
+                    "seven_day": { "used_percentage": 4, "resets_at": 1790500000 },
+                    "spend_limit": { "label": "cap }} \"{\\\" " }
+                })
+            );
+            assert_eq!(
+                cached_windows(&dir),
+                [(25.0, Some(1_790_000_000)), (4.0, Some(1_790_500_000))]
+            );
+            fs::remove_dir_all(dir).unwrap();
+        }
+
+        #[test]
+        fn wrapper_runs_an_original_with_single_quotes_and_tilde() {
+            let dir = enable_over(Some(json!({
+                "type": "command",
+                "command": "printf '%s %s' \"it's\" ~/statusline"
+            })));
+
+            assert_eq!(
+                run_status_line(&dir, CLAUDE_INPUT),
+                format!("it's {}/statusline", dir.display())
+            );
+            fs::remove_dir_all(dir).unwrap();
+        }
+
+        #[test]
+        fn input_without_rate_limits_keeps_the_previous_cache() {
+            let dir = enable_over(Some(json!({ "type": "command", "command": "cat" })));
+            let previous = r#"{"captured_at":1790000000,"rate_limits":{"five_hour":{"used_percentage":60,"resets_at":1790000000}}}"#;
+            fs::write(dir.join(CLAUDE_CACHE_FILE), previous).unwrap();
+            let input = "{\"model\":{\"id\":\"claude-opus-4\"},\"workspace\":{\"current_dir\":\"/work\"}}\n";
+
+            assert_eq!(run_status_line(&dir, input), input);
+            assert_eq!(
+                fs::read_to_string(dir.join(CLAUDE_CACHE_FILE)).unwrap(),
+                previous
+            );
+            assert_eq!(
+                file_names(&dir),
+                [
+                    "kavibay-statusline-original.json",
+                    "kavibay-usage-statusline.sh",
+                    "kavibay-usage.json",
+                    "settings.json"
+                ]
+            );
+            fs::remove_dir_all(dir).unwrap();
+        }
+
+        #[test]
+        fn enabling_wraps_a_foreign_status_line_and_is_idempotent() {
+            let original = json!({
+                "type": "command",
+                "command": "bash ~/.claude/statusline-command.sh",
+                "padding": 0
+            });
+            let dir = enable_over(Some(original.clone()));
+
+            assert_eq!(
+                read_claude_settings(&dir).unwrap(),
+                json!({
+                    "model": "opus",
+                    "statusLine": { "type": "command", "command": wrapper_command(&dir), "padding": 0 }
+                })
+            );
+            let sidecar = fs::read_to_string(dir.join("kavibay-statusline-original.json")).unwrap();
+            assert_eq!(serde_json::from_str::<Value>(&sidecar).unwrap(), original);
+
+            let files = [
+                "settings.json",
+                "kavibay-statusline-original.json",
+                "kavibay-usage-statusline.sh",
+            ];
+            let first = files.map(|name| fs::read(dir.join(name)).unwrap());
+            enable_claude_capture(&dir).unwrap();
+            assert_eq!(files.map(|name| fs::read(dir.join(name)).unwrap()), first);
+
+            fs::create_dir(dir.join(".claude")).unwrap();
+            fs::write(
+                dir.join(".claude/statusline-command.sh"),
+                "printf 'user line'\n",
+            )
+            .unwrap();
+            assert_eq!(run_status_line(&dir, CLAUDE_INPUT), "user line");
+            fs::remove_dir_all(dir).unwrap();
+        }
+
+        #[test]
+        fn enabling_without_a_status_line_adds_a_silent_wrapper() {
+            let dir = temp_config_dir();
+            fs::write(
+                dir.join("kavibay-statusline-original.json"),
+                r#"{"type":"command","command":"echo removed since"}"#,
+            )
+            .unwrap();
+            enable_claude_capture(&dir).unwrap();
+
+            assert_eq!(
+                read_claude_settings(&dir).unwrap(),
+                json!({ "statusLine": { "type": "command", "command": wrapper_command(&dir) } })
+            );
+            assert_eq!(
+                file_names(&dir),
+                ["kavibay-usage-statusline.sh", "settings.json"]
+            );
+            assert_eq!(run_status_line(&dir, CLAUDE_INPUT), "");
+            assert_eq!(
+                cached_windows(&dir),
+                [(25.0, Some(1_790_000_000)), (4.0, Some(1_790_500_000))]
+            );
+            fs::remove_dir_all(dir).unwrap();
+        }
+
+        #[test]
+        fn snapshot_moves_from_setup_to_waiting_to_available() {
+            let dir = temp_config_dir();
+            let state = |dir: &Path| {
+                let source = claude_snapshot(dir, None);
+                (source.status, source.detail.unwrap_or_default())
+            };
+
+            assert_eq!(
+                state(&dir),
+                (
+                    "notConfigured",
+                    "Enable capture to read usage through Claude Code's status line.".to_string()
+                )
+            );
+
+            write_json(
+                &dir.join("settings.json"),
+                &json!({ "statusLine": { "type": "command", "command": "echo mine" } }),
+            )
+            .unwrap();
+            assert_eq!(
+                state(&dir),
+                (
+                    "notConfigured",
+                    "Enable capture to read usage through your Claude Code status line. Kavibay keeps it and its output.".to_string()
+                )
+            );
+
+            enable_claude_capture(&dir).unwrap();
+            assert_eq!(state(&dir).0, "waiting");
+
+            assert_eq!(run_status_line(&dir, CLAUDE_INPUT), "mine\n");
+            let source = claude_snapshot(&dir, None);
+            assert_eq!(source.status, "available");
+            assert_eq!(
+                source
+                    .windows
+                    .iter()
+                    .map(|window| (window.label.as_str(), window.used_percent))
+                    .collect::<Vec<_>>(),
+                [("5 hours", 25.0), ("7 days", 4.0)]
+            );
+            fs::remove_dir_all(dir).unwrap();
+        }
+
+        #[test]
+        fn status_lines_kavibay_cannot_wrap_are_left_alone() {
+            for status_line in [
+                Value::Null,
+                json!("echo mine"),
+                json!({ "type": "command" }),
+                json!({ "type": "command", "command": "sh '/elsewhere/kavibay-usage-statusline.sh'" }),
+            ] {
+                let dir = temp_config_dir();
+                write_json(
+                    &dir.join("settings.json"),
+                    &json!({ "statusLine": status_line }),
+                )
+                .unwrap();
+                let before = fs::read(dir.join("settings.json")).unwrap();
+
+                let source = claude_snapshot(&dir, None);
+                assert_eq!(
+                    (source.status, source.detail.as_deref()),
+                    (
+                        "conflict",
+                        Some("Claude has a status line Kavibay cannot safely update.")
+                    ),
+                    "{status_line}"
+                );
+                assert_eq!(
+                    enable_claude_capture(&dir),
+                    Err("Claude has a status line Kavibay cannot safely update".to_string())
+                );
+                assert_eq!(fs::read(dir.join("settings.json")).unwrap(), before);
+                assert_eq!(file_names(&dir), ["settings.json"]);
+                fs::remove_dir_all(dir).unwrap();
+            }
+        }
+
+        #[test]
+        fn claude_command_single_quotes_the_script_path() {
+            assert_eq!(
+                claude_command(Path::new("/Users/alex/.claude")),
+                Ok("sh '/Users/alex/.claude/kavibay-usage-statusline.sh'".to_string())
+            );
+            assert_eq!(
+                claude_command(Path::new("/Users/alex/it's/.claude")),
+                Err("Claude config path contains an unsupported quote".to_string())
+            );
+        }
     }
 }

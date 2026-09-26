@@ -255,7 +255,8 @@ function resetLabel(window: PresentedUsageWindow): string {
             {{ enablingClaude ? "Enabling…" : "Enable Claude capture" }}
           </button>
           <small v-if="provider === 'claude' && displayData.claude.status === 'notConfigured'">
-            Adds a local Claude Code status line; the existing login is used only
+            Installs a local Claude Code status-line script that, on macOS and
+            Linux, also runs your existing one. The existing login is used only
             for a read-only usage check in the backend.
           </small>
         </div>
