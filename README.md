@@ -19,7 +19,8 @@
 [![Rust](https://img.shields.io/badge/Rust-stable-000000?logo=rust&logoColor=white)](https://rustup.rs)
 
 Tap `Ctrl` twice. A command palette opens in the middle of the screen and brings
-your widgets with it. Tap twice again and everything is gone.
+your widgets with it. Tap twice again and everything is gone. On a Mac, that is
+the Control key (⌃), not Command.
 
 <img src="https://kavibay.com/videos/launcher-poster.jpg" width="80%" alt="The Kavibay command palette over a desktop wallpaper" />
 
@@ -79,8 +80,10 @@ fast, and the Vue side hot-reloads.
 **3. Open it**
 
 Nothing appears on screen — that is correct. The window starts invisible. Tap
-`Ctrl` twice, or double-click the tray icon. On the very first start it opens by
-itself and asks two setup questions — start at login, and which screen to cover.
+`Ctrl` twice, or double-click the tray icon. On a Mac, tap Control (⌃) twice, not
+Command, or click the menu bar icon and choose Open. On the very first start it
+opens by itself and asks two setup questions — start at login, and which screen
+to cover.
 Answer them and the desk arrives with a clock and a to-do list already on it,
 then a short tour teaches the double tap, the launcher and the widget desk.
 It ends there and offers the six card gestures rather than insisting on them.
@@ -168,7 +171,7 @@ and permissions. → [docs/mcp-server.md](docs/mcp-server.md)
 
 | Key | Does |
 |---|---|
-| `Ctrl` `Ctrl` | Show / hide the cockpit (Windows and macOS) |
+| `Ctrl` `Ctrl` | Show / hide the cockpit (Windows and macOS). On a Mac this is Control (⌃), not Command |
 | `Shift+Ctrl+Space` | Show / hide on the screen under the mouse — and the way in on Linux |
 | `Ctrl+Space` (hold) | Peek at the widgets, no palette |
 | `Ctrl+Shift+Q` | Quick actions on text selected in **any** app — translate, fix grammar, rewrite |
