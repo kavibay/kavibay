@@ -397,6 +397,30 @@ pub fn run() {
                 .get_webview_window("main")
                 .expect("main window must exist (defined in tauri.conf.json)");
 
+            // macOS does not hand activation back when an accessory app's last
+            // window orders out. Kavibay stayed the active app with nothing on
+            // screen, so keys typed next went nowhere, and the double tap could
+            // not reopen it because the global monitor never sees keys sent to
+            // Kavibay itself. Hiding the app returns focus to the previous one.
+            // `NSApp.deactivate()` looks like the fix and does nothing
+            // (measured). Every hide while Kavibay has focus (Esc, double tap,
+            // palette) ends in an order-out that resigns key, so this one
+            // handler covers them all. A window that loses focus while still
+            // visible, to a click elsewhere or with pinned widgets up, is left
+            // alone; the click already gave focus to the app it landed in.
+            #[cfg(target_os = "macos")]
+            {
+                let app_handle = app.handle().clone();
+                let main_window = window.clone();
+                window.on_window_event(move |event| {
+                    if matches!(event, tauri::WindowEvent::Focused(false))
+                        && !main_window.is_visible().unwrap_or(true)
+                    {
+                        let _ = app_handle.hide();
+                    }
+                });
+            }
+
             // Open-monitor preference (synced from Settings). Default = cursor monitor.
             // Managed before first fit so placement can read it immediately.
             let open_monitor: SharedOpenMonitor = Arc::new(Mutex::new(OpenMonitor::default()));
