@@ -125,18 +125,26 @@ One window, `label: "main"`, created hidden and never destroyed
 - **The toggle is not a shortcut at all.** Two taps on `Ctrl` cannot be
   registered: every platform's hotkey API wants modifiers *plus* a key, so a bare
   modifier is not expressible and "twice quickly" is not a concept it has.
-  `src-tauri/src/ctrl_double_tap.rs` reads it from a `WH_KEYBOARD_LL` hook on
-  Windows — which is also why it is Windows-only, and why `Shift+Ctrl+Space`, the
-  tray and `kavibay --toggle` stay the way in everywhere else. The hook keeps two
-  timestamps and no key identity, and always calls `CallNextHookEx`, so it never
-  swallows a keystroke.
-- **…and it takes two halves to be one toggle.** Windows stops calling that hook
-  while our own webview has the keyboard focus, so it can open the cockpit but
-  never close it: the closing keys are delivered to the webview instead. The same
-  rule therefore runs again in `core/app/host/ctrlDoubleTap.ts`. The two cases are
-  disjoint by construction — the webview only receives these keys while it has the
-  focus, which is precisely when the hook is blind — and both end in
-  `toggle_cockpit`, so there is still exactly one toggle.
+  `src-tauri/src/ctrl_double_tap.rs` watches the keyboard directly, with one
+  event source per platform and one shared rule. On Windows the source is a
+  `WH_KEYBOARD_LL` hook. It keeps two timestamps and no key identity, and always
+  calls `CallNextHookEx`, so it never swallows a keystroke. On macOS it is an
+  `NSEvent` global monitor for modifier changes, the only source that works
+  without a permission prompt. A `CGEventTap` is the obvious choice and a trap.
+  It is created without an error and then receives nothing until the user grants
+  Input Monitoring. The monitor never sees ordinary keys, so the HID key-down
+  counter tells it whether one went down between two Control events, without
+  saying which. Kavibay has no source on Linux, so `Shift+Ctrl+Space`, the tray
+  and `kavibay --toggle` stay the way in there.
+- **…and it takes two halves to be one toggle.** Neither source sees the keys
+  that go to Kavibay itself. Windows stops calling the hook while our own webview
+  has the keyboard focus, and a macOS global monitor never receives events sent
+  to its own app. So Rust can open the cockpit but never close it. The closing
+  keys are delivered to the webview instead, and the same rule therefore runs
+  again in `core/app/host/ctrlDoubleTap.ts`. The two cases are disjoint by
+  construction — the webview only receives these keys while it has the focus,
+  which is precisely when Rust is blind — and both end in `toggle_cockpit`, so
+  there is still exactly one toggle.
   If a future change makes one side alone look sufficient, this is the paragraph
   that explains why it is not — the symptom is "opens fine, never closes", and it
   costs a day to rediscover.

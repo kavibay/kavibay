@@ -1358,14 +1358,15 @@ function onPaletteHotkey(revealedByRust = false) {
 /**
  * The closing half of the Ctrl double tap.
  *
- * Rust owns the opening half, but its keyboard hook is not called at all once our
- * own webview holds the keyboard focus — and focus is exactly when these events
- * reach us, so the two halves cover disjoint cases without needing to coordinate.
+ * Rust owns the opening half, but on Windows and macOS alike it sees no keys at
+ * all once our own webview holds the keyboard focus — and focus is exactly when
+ * these events reach us, so the two halves cover disjoint cases without needing
+ * to coordinate.
  * The condition is deliberately *not* `cockpitOpen`: a widget grabbed out of a
  * peek keeps the window up and focused with the cockpit closed, and the toggle
  * has to work there too.
  *
- * `onPaletteHotkey` is the same entry the hook uses, so both halves land on one
+ * `onPaletteHotkey` is the same entry Rust uses, so both halves land on one
  * toggle rather than two that can disagree.
  */
 let ctrlTap: CtrlTapState = emptyCtrlTapState();

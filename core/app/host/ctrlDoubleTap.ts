@@ -1,17 +1,20 @@
 /**
  * Double tap on Ctrl — the half of the toggle that Rust cannot see.
  *
- * The rule itself lives in `src-tauri/src/ctrl_double_tap.rs` and is enforced by
- * a `WH_KEYBOARD_LL` hook. That hook goes silent the moment Kavibay's own webview
- * holds the keyboard focus: the keys are delivered to the webview and the hook is
- * not called for them at all. Measured, not assumed — with the cockpit open, the
- * hook thread keeps servicing its message queue on schedule while no key event
- * ever reaches it, and events resume the instant the window hides again.
+ * The rule itself lives in `src-tauri/src/ctrl_double_tap.rs`, fed by a
+ * `WH_KEYBOARD_LL` hook on Windows and an `NSEvent` global monitor on macOS.
+ * Neither sees the keys that go to Kavibay itself. The hook goes silent the
+ * moment Kavibay's own webview holds the keyboard focus: the keys are delivered
+ * to the webview and the hook is not called for them at all. Measured, not
+ * assumed — with the cockpit open, the hook thread keeps servicing its message
+ * queue on schedule while no key event ever reaches it, and events resume the
+ * instant the window hides again. Apple documents the same for a global monitor,
+ * which never receives events sent to its own app.
  *
  * So the toggle needs both halves, and they never overlap:
  *
  * - cockpit hidden → the keys go to some other application, Rust sees them, and
- *   the hook opens the cockpit.
+ *   opens the cockpit.
  * - cockpit open and focused → the keys go here, and this module closes it.
  *
  * The rule is deliberately a copy rather than a shared abstraction — the two
