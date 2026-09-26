@@ -21,6 +21,10 @@ use super::{NowPlayingInfo, COVERS};
 
 pub const PLAYER: &str = "Music";
 const MUSIC_BUNDLE_ID: &str = "com.apple.Music";
+/// A track without artwork stays without it, but a streamed track's cover
+/// may still be loading. Without a pause, the artwork script ran on every
+/// poll, and each poll then held the main thread for about 95 ms (measured).
+const MISSING_COVER_RETRY: std::time::Duration = std::time::Duration::from_secs(10);
 const DENIED: &str = "Kavibay may not control Music. Allow it under System Settings › Privacy & Security › Automation.";
 
 /// Whether Kavibay may send Music Apple Events right now.
@@ -189,7 +193,7 @@ fn read_music() -> Result<NowPlayingInfo, String> {
         app_name: PLAYER.to_string(),
         title: text(2),
         artist: text(3),
-        album_art_data_url: COVERS.get_or_read(&track, read_artwork),
+        album_art_data_url: COVERS.get_or_read(&track, MISSING_COVER_RETRY, read_artwork),
         is_playing,
         ..NowPlayingInfo::empty_for(Some(PLAYER))
     })
