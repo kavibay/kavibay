@@ -110,6 +110,10 @@ export const DEFAULT_COLOR_MODE: ColorMode = "dark";
 
 export const DEFAULT_CORNER_SHAPE: CornerShape = "squircle";
 
+/** Whether this engine draws `corner-shape`. WebKit, the macOS webview, does not. */
+export const CORNER_SHAPE_SUPPORTED =
+  typeof CSS !== "undefined" && CSS.supports("corner-shape", "squircle");
+
 export const DEFAULT_DESKTOP_FILL_MODE: DesktopFillMode = "transparent";
 export const DEFAULT_DESKTOP_FILL_COLOR = "#000000";
 export const DEFAULT_DESKTOP_FILL_OPACITY = 0.35;
@@ -240,7 +244,11 @@ export const COLOR_MODE_OPTIONS: { id: ColorMode; name: string; hint: string }[]
 
 export const CORNER_SHAPE_OPTIONS: { id: CornerShape; name: string; hint: string }[] = [
   { id: "round", name: "Round", hint: "Classic circular corners" },
-  { id: "squircle", name: "Squircle", hint: "Smoother continuous curve" },
+  {
+    id: "squircle",
+    name: "Squircle",
+    hint: CORNER_SHAPE_SUPPORTED ? "Smoother continuous curve" : "Approximated on this system",
+  },
 ];
 
 export const DESKTOP_FILL_MODE_OPTIONS: {
@@ -621,21 +629,38 @@ export function applySurfaceShadowStyleToDocument(style: ShadowStyleId): void {
   document.documentElement.dataset.shadowStyle = id;
 }
 
-/** Apply shared border-radius (px) for widgets + palette. */
-export function applySurfaceRadiusToDocument(radiusPx: number): void {
-  const value = normalizeSurfaceRadius(radiusPx);
-  document.documentElement.style.setProperty("--surface-radius", `${value}px`);
+/**
+ * Scales a squircle radius to the round arc that cuts as deep into the corner,
+ * measured on the diagonal: r(1 − 2^(−1/4)) for `superellipse(2)` against
+ * r(1 − 1/√2) for a circle. An engine without `corner-shape` otherwise draws
+ * the squircle's full radius as a circle, which eats into the card's padding
+ * and crowds the widget title.
+ */
+const SQUIRCLE_AS_ROUND = (1 - 2 ** -0.25) / (1 - Math.SQRT1_2);
+
+/** Border radius and corner shape as the engine will actually draw them. */
+export function cornerGeometry(
+  radiusPx: number,
+  shape: CornerShape,
+  cornerShapeSupported: boolean,
+): { radiusPx: number; shape: CornerShape } {
+  if (shape === "round" || cornerShapeSupported) return { radiusPx, shape };
+  return { radiusPx: Math.round(radiusPx * SQUIRCLE_AS_ROUND), shape: "round" };
 }
 
 /**
- * Apply corner geometry. Uses CSS `corner-shape` (Chromium/WebView2);
- * unsupported engines keep classic round arcs from border-radius alone.
+ * Apply the shared corner geometry of widgets, palette and sandboxed guests.
+ * Radius and shape travel together: without `corner-shape` the shape sets the radius.
  */
-export function applyCornerShapeToDocument(shape: CornerShape): void {
-  const value = normalizeCornerShape(shape);
-  const root = document.documentElement;
-  root.style.setProperty("--surface-corner-shape", value);
-  root.dataset.cornerShape = value;
+export function applyCornerGeometryToDocument(radiusPx: number, shape: CornerShape): void {
+  const geometry = cornerGeometry(
+    normalizeSurfaceRadius(radiusPx),
+    normalizeCornerShape(shape),
+    CORNER_SHAPE_SUPPORTED,
+  );
+  const root = document.documentElement.style;
+  root.setProperty("--surface-radius", `${geometry.radiusPx}px`);
+  root.setProperty("--surface-corner-shape", geometry.shape);
 }
 
 /**
