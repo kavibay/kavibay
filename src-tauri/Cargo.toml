@@ -68,7 +68,9 @@ core-foundation = "0.10"
 # The Ctrl double tap (`ctrl_double_tap.rs`) watches Control through an NSEvent
 # global monitor, the one source that needs no permission, and reads the HID
 # key-down counter to learn whether another key went down in between. All three
-# are already in the tree through tao, so this pins no new download.
+# are already in the tree through tao, so this pins no new download. "Hide on
+# outside click" counts mouse presses through a second monitor (`MouseButtons`
+# in lib.rs).
 block2 = { version = "0.6", default-features = false }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["NSEvent", "block2"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["CGEventSource", "CGEventTypes"] }
