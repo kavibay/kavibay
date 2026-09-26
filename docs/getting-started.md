@@ -97,8 +97,12 @@ The gear menu only appears once more than one session exists.
 
 ## Run on macOS
 
-**Untested.** The code paths exist and were checked against the tao/tauri sources,
-but nothing has ever been compiled or run on a Mac. Packaging is not set up.
+**Builds and runs from source**, and `npm run verify:rust` passes on a Mac.
+Packaging is not set up.
+
+The `Ctrl` double tap needs no permission. Kavibay watches modifier keys through
+an `NSEvent` global monitor, which macOS serves without Input Monitoring or
+Accessibility access, so there is nothing to grant.
 
 Pinning, click-through and the global hotkey should work — macOS supports all
 three, unlike Wayland. Quick actions, Now Playing, the colour picker and the
@@ -122,7 +126,7 @@ APIs, which **rules out App Store distribution**.
 | `cargo` not found | Fresh rustup install, stale `PATH`. New terminal |
 | Link errors in the Rust build | Windows: MSVC build tools missing. Linux: the apt line above |
 | App runs, nothing visible | Working as designed — tap `Ctrl` twice |
-| The `Ctrl` double tap does nothing | It is Windows-only. Elsewhere use the tray, `Shift+Ctrl+Space` or `kavibay --toggle` |
+| The `Ctrl` double tap does nothing | It does not exist on Linux. Use the tray, `Shift+Ctrl+Space` or `kavibay --toggle` |
 | `Ctrl+Space` does not peek | Another app grabbed the hotkey, or you are on Wayland |
 | A new widget folder does not show up | Folder name must equal `manifest.id`; restart the dev command |
 
