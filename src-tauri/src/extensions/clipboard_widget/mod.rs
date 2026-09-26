@@ -35,6 +35,9 @@ pub const MAX_RAW_IMAGE_BYTES: usize = 200 * 1024 * 1024;
 /// Sanity bound on pixel count (width * height) to avoid attempting to
 /// encode absurdly large bitmaps that could OOM during PNG encoding.
 pub const MAX_IMAGE_PIXELS: usize = 50_000_000;
+/// Longest edge of the preview kept for a copied picture file: sharp at 2x in
+/// any widget size a desk leaves room for, and a fraction of a screenshot.
+const FILE_PREVIEW_EDGE: u32 = 1600;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -58,10 +61,13 @@ pub struct ClipboardEntry {
     pub kind: ClipboardKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// A PNG this history owns under `images/`: the payload of an `Image`
+    /// entry, or the preview of the one picture a `File` entry names.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_path: Option<String>,
     /// Existing filesystem paths from the OS file-list clipboard format.
-    /// These are references only; Kavibay never copies the file payloads.
+    /// These are references only; Kavibay never copies the file payloads,
+    /// only a downscaled preview of a single picture (`image_path`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_paths: Option<Vec<String>>,
     pub hash: String,
@@ -135,10 +141,8 @@ fn trim_to_max(entries: &mut Vec<ClipboardEntry>) -> Vec<String> {
     let mut orphan_paths = Vec::new();
     while entries.len() > MAX_ENTRIES {
         if let Some(removed) = entries.pop() {
-            if removed.kind == ClipboardKind::Image {
-                if let Some(path) = removed.image_path {
-                    orphan_paths.push(path);
-                }
+            if let Some(path) = removed.image_path {
+                orphan_paths.push(path);
             }
         }
     }
@@ -197,7 +201,7 @@ fn root_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(data_dir(app)?.join("clipboard-widget"))
 }
 
-fn images_dir(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn images_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(root_dir(app)?.join("images"))
 }
 
@@ -633,6 +637,28 @@ fn encode_png_rgba(width: usize, height: usize, bytes: &[u8]) -> Result<Vec<u8>,
     Ok(buf)
 }
 
+/// A downscaled PNG of a copied picture file, or `None` for anything this
+/// build cannot decode. Screenshot tools such as CleanShot copy a file
+/// reference rather than pixels, and without this the history showed a path.
+fn file_preview_png(path: &str) -> Option<Vec<u8>> {
+    let mut reader = image::ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(MAX_RAW_IMAGE_BYTES as u64);
+    reader.limits(limits);
+    let mut picture = reader.decode().ok()?;
+    if picture.width() > FILE_PREVIEW_EDGE || picture.height() > FILE_PREVIEW_EDGE {
+        picture = picture.thumbnail(FILE_PREVIEW_EDGE, FILE_PREVIEW_EDGE);
+    }
+    let mut png = Vec::new();
+    picture
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .ok()?;
+    Some(png)
+}
+
 fn persist_image(app: &AppHandle, id: &str, png: &[u8]) -> Result<String, String> {
     let dir = images_dir(app)?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -769,6 +795,9 @@ fn ingest_snapshot(
                     Ok(p) => Some(p),
                     Err(_) => return,
                 }
+            } else if let Some([path]) = file_paths.as_deref() {
+                // Without a preview the entry is still a working file reference.
+                file_preview_png(path).and_then(|png| persist_image(app, &id, &png).ok())
             } else {
                 None
             };
@@ -1149,10 +1178,42 @@ mod tests {
             revealed: true,
             source_app: None,
         });
+        entries.push(ClipboardEntry {
+            id: "screenshot".into(),
+            kind: ClipboardKind::File,
+            text: None,
+            image_path: Some("C:/tmp/screenshot-preview.png".into()),
+            file_paths: Some(vec!["C:/Users/a/CleanShot.png".into()]),
+            hash: "filehash".into(),
+            created_at: 0,
+            revealed: true,
+            source_app: None,
+        });
         // push over cap via apply
         let orphans = apply_new_entry(&mut entries, text_entry("new", "newhash", 1000));
         assert_eq!(entries.len(), MAX_ENTRIES);
         assert_eq!(entries[0].id, "new");
-        assert!(orphans.iter().any(|p| p.contains("x.png")));
+        assert_eq!(
+            orphans,
+            vec!["C:/tmp/screenshot-preview.png", "C:/tmp/x.png"]
+        );
+    }
+
+    #[test]
+    fn a_copied_picture_file_gets_a_bounded_preview() {
+        let dir = std::env::temp_dir().join(format!("kavibay-preview-{}", new_id()));
+        fs::create_dir_all(&dir).unwrap();
+        let picture = dir.join("CleanShot.png");
+        image::RgbaImage::new(3200, 800).save(&picture).unwrap();
+        let notes = dir.join("notes.txt");
+        fs::write(&notes, "not a picture").unwrap();
+
+        let png = file_preview_png(picture.to_str().unwrap()).expect("a PNG file previews");
+        let preview = image::load_from_memory(&png).unwrap();
+        assert_eq!((preview.width(), preview.height()), (1600, 400));
+        assert!(file_preview_png(notes.to_str().unwrap()).is_none());
+        assert!(file_preview_png(dir.join("gone.png").to_str().unwrap()).is_none());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

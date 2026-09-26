@@ -487,6 +487,25 @@ pub fn run() {
             app.manage(clipboard_state.clone());
             clipboard_widget::spawn_clipboard_watcher(app.handle().clone(), clipboard_state);
 
+            // The asset protocol serves the pictures widgets keep on disk. They
+            // live under `paths::data_dir`, which follows KAVIBAY_DATA_DIR, so no
+            // glob in tauri.conf.json can name them. Only these two folders: the
+            // rest of the data directory holds settings and credentials.
+            let asset_scope = app.asset_protocol_scope();
+            for (dir, recursive) in [
+                (clipboard_widget::images_dir(app.handle()), false),
+                (image_widget::root_dir(app.handle()), true),
+            ] {
+                let granted = dir.and_then(|dir| {
+                    asset_scope
+                        .allow_directory(dir, recursive)
+                        .map_err(|error| error.to_string())
+                });
+                if let Err(error) = granted {
+                    eprintln!("[assets] {error}; widget pictures will not load");
+                }
+            }
+
             // Quick-action popup: built now, hidden, so the first Ctrl+Shift+Q does
             // not pay for a webview start-up.
             app.manage(quick_action::QuickActionState::new());

@@ -24,7 +24,7 @@ const selectedEntry = computed(
 const brokenImages = reactive(new Set<string>());
 
 function imageSrc(entry: ClipboardEntry): string | null {
-  if (entry.kind !== "image" || !entry.imagePath || brokenImages.has(entry.id)) return null;
+  if (!entry.imagePath || brokenImages.has(entry.id)) return null;
   try {
     return model.imageUrl(entry.imagePath);
   } catch {
@@ -206,6 +206,13 @@ watch(entries, () => {
           <div v-else-if="!selectedEntry.revealed" class="clip-detail-mask">
             File references hidden
           </div>
+          <img
+            v-else-if="imageSrc(selectedEntry)"
+            class="clip-detail-image"
+            :src="imageSrc(selectedEntry)!"
+            :alt="model.displayText(selectedEntry)"
+            @error="onImageError(selectedEntry)"
+          />
           <ul v-else class="clip-detail-files">
             <li v-for="path in selectedEntry.filePaths ?? []" :key="path">
               <strong>{{ fileName(path) }}</strong>

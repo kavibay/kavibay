@@ -22,11 +22,10 @@ void hydrateDurableStorage({ mirror: false }).then(async () => {
   const { default: QuickActionMenu } = await import("./QuickActionMenu.vue");
   const {
     applyColorModeToDocument,
-    applyCornerShapeToDocument,
+    applyCornerGeometryToDocument,
     applyFontToDocument,
     applySurfaceBlurToDocument,
     applySurfaceOpacityToDocument,
-    applySurfaceRadiusToDocument,
     loadAppearance,
   } = await import("../settings/appearanceLogic");
 
@@ -39,8 +38,7 @@ void hydrateDurableStorage({ mirror: false }).then(async () => {
   applyFontToDocument(appearance.fontId);
   applySurfaceOpacityToDocument(appearance.surfaceOpacity);
   applySurfaceBlurToDocument(appearance.surfaceBlur);
-  applySurfaceRadiusToDocument(appearance.surfaceRadius);
-  applyCornerShapeToDocument(appearance.cornerShape);
+  applyCornerGeometryToDocument(appearance.surfaceRadius, appearance.cornerShape);
 
   createApp(QuickActionMenu).directive("tip", vTip).mount("#app");
 });

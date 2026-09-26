@@ -10,12 +10,11 @@ import {
   type ShadowStyleId,
   type WidgetLayoutMode,
   applyColorModeToDocument,
-  applyCornerShapeToDocument,
+  applyCornerGeometryToDocument,
   applyDesktopFillToDocument,
   applyFontToDocument,
   applySurfaceBlurToDocument,
   applySurfaceOpacityToDocument,
-  applySurfaceRadiusToDocument,
   applySurfaceShadowStyleToDocument,
   applySurfaceShadowToDocument,
   loadAppearance,
@@ -73,8 +72,7 @@ applySurfaceOpacityToDocument(surfaceOpacity.value);
 applySurfaceBlurToDocument(surfaceBlur.value);
 applySurfaceShadowToDocument(surfaceShadow.value);
 applySurfaceShadowStyleToDocument(surfaceShadowStyle.value);
-applySurfaceRadiusToDocument(surfaceRadius.value);
-applyCornerShapeToDocument(cornerShape.value);
+applyCornerGeometryToDocument(surfaceRadius.value, cornerShape.value);
 applyDesktopFillToDocument(
   desktopFillMode.value,
   desktopFillColor.value,
@@ -190,7 +188,7 @@ export function useAppearance() {
   function setSurfaceRadius(value: number) {
     const next = normalizeSurfaceRadius(value);
     surfaceRadius.value = next;
-    applySurfaceRadiusToDocument(next);
+    applyCornerGeometryToDocument(next, cornerShape.value);
     persist();
   }
 
@@ -198,7 +196,7 @@ export function useAppearance() {
   function setCornerShape(shape: CornerShape) {
     const next = normalizeCornerShape(shape);
     cornerShape.value = next;
-    applyCornerShapeToDocument(next);
+    applyCornerGeometryToDocument(surfaceRadius.value, next);
     persist();
   }
 

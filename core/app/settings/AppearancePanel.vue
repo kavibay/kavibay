@@ -3,6 +3,8 @@ import { computed, type CSSProperties } from "vue";
 import {
   COLOR_MODE_OPTIONS,
   CORNER_SHAPE_OPTIONS,
+  CORNER_SHAPE_SUPPORTED,
+  cornerGeometry,
   DESKTOP_FILL_MODE_OPTIONS,
   FONT_OPTIONS,
   MAX_DESKTOP_FILL_OPACITY,
@@ -90,12 +92,10 @@ function onCornerShape(shape: CornerShape) {
   setCornerShape(shape);
 }
 
-/** Preview styles for corner-shape cards (CSS corner-shape is not in CSSProperties yet). */
-function cornerPreviewStyle(id: CornerShape): CSSProperties {
-  return {
-    borderRadius: `${Math.max(surfaceRadius.value, 12)}px`,
-    "corner-shape": id,
-  } as CSSProperties;
+/** Corners as this engine draws them (CSS corner-shape is not in CSSProperties yet). */
+function cornerStyle(radiusPx: number, shape: CornerShape): CSSProperties {
+  const drawn = cornerGeometry(radiusPx, shape, CORNER_SHAPE_SUPPORTED);
+  return { borderRadius: `${drawn.radiusPx}px`, "corner-shape": drawn.shape } as CSSProperties;
 }
 
 /** Select desktop gap fill mode and live-apply. */
@@ -129,8 +129,7 @@ function rangeFill(value: number, min: number, max: number): string {
 const glassPreviewStyle = computed(
   (): CSSProperties =>
     ({
-      borderRadius: `${surfaceRadius.value}px`,
-      "corner-shape": cornerShape.value,
+      ...cornerStyle(surfaceRadius.value, cornerShape.value),
       boxShadow: shadowStyleCss(surfaceShadowStyle.value),
       background: `rgba(var(--surface-bg-rgb), ${surfaceOpacity.value})`,
       backdropFilter: surfaceBlur.value > 0 ? `blur(${surfaceBlur.value}px)` : "none",
@@ -278,7 +277,10 @@ const glassPreviewStyle = computed(
             :class="{ 'choice--active': cornerShape === opt.id }"
             @click="onCornerShape(opt.id)"
           >
-            <span class="corner-preview" :style="cornerPreviewStyle(opt.id)" />
+            <span
+              class="corner-preview"
+              :style="cornerStyle(Math.max(surfaceRadius, 12), opt.id)"
+            />
             <span class="choice-copy">
               <span class="choice-name">{{ opt.name }}</span>
               <span class="choice-hint">{{ opt.hint }}</span>
