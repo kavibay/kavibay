@@ -664,6 +664,7 @@ pub fn run() {
             clipboard_widget::clipboard_delete,
             clipboard_widget::clipboard_clear,
             now_playing::widget_now_playing,
+            now_playing::now_playing_connect,
             now_playing::now_playing_prev,
             now_playing::now_playing_play_pause,
             now_playing::now_playing_next,

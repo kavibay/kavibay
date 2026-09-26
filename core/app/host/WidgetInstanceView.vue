@@ -10,6 +10,15 @@ import { isGalleryWidget } from "./builtinWidgetIds";
 import { canEditInWizard } from "./wizardEditable";
 import { useWidgetData } from "@sdk/useWidgetData";
 import WidgetCard from "./WidgetCard.vue";
+import WidgetAppearanceSettings from "./WidgetAppearanceSettings.vue";
+import {
+  effectiveWidgetAppearance,
+  radiusStyle,
+  surfaceStyle,
+  type WidgetAppearance,
+} from "./widgetAppearance";
+import { CORNER_SHAPE_SUPPORTED } from "../settings/appearanceLogic";
+import { useAppearance } from "../settings/useAppearance";
 import { connectionEpoch } from "../settings/credentials/connections";
 
 const props = defineProps<{
@@ -27,6 +36,8 @@ const props = defineProps<{
 defineEmits<{
   rename: [title: string | undefined];
   "update:hideTitle": [hideTitle: boolean];
+  /** One changed field, or null to drop this instance's own look. */
+  "update:appearance": [patch: WidgetAppearance | null];
   duplicate: [];
   about: [];
   /** Reopen this widget's package in the Wizard; carries the package id. */
@@ -101,6 +112,25 @@ const widgetProps = computed<WidgetProps>(() => ({
 /** Prefer a custom instance title when set. */
 const displayTitle = computed(() => props.instance.title ?? props.def.title);
 
+const { cornerShape } = useAppearance();
+
+/** The instance's own look over the manifest's `ui.appearance`. */
+const appearance = computed(() =>
+  effectiveWidgetAppearance(props.def.appearance, props.instance.appearance),
+);
+const cardVars = computed(() =>
+  radiusStyle(appearance.value, cornerShape.value, CORNER_SHAPE_SUPPORTED),
+);
+const surfaceVars = computed(() => surfaceStyle(appearance.value));
+
+/** The gear opens for the widget's own settings, the Appearance section, or both. */
+const hasSettings = computed(
+  () =>
+    Boolean(props.def.settingsComponent) ||
+    Boolean(contractSettingsId.value) ||
+    Boolean(props.def.appearanceEditable),
+);
+
 /** Playground widgets stay square while resizing; keep normal card chrome (border). */
 const isPlayground = computed(() => props.def.playground === true);
 /** Dock-style: width from host, height hugs the icon row. */
@@ -112,7 +142,7 @@ const hugHeight = computed(() => props.def.hugHeight === true);
     :title="displayTitle"
     :hide-title="Boolean(instance.hideTitle)"
     :instance-id="instance.instanceId"
-    :has-settings="Boolean(def.settingsComponent) || Boolean(contractSettingsId)"
+    :has-settings="hasSettings"
     :has-about="true"
     :can-edit-in-wizard="wizardEditable"
     :flush="Boolean(def.flush)"
@@ -130,6 +160,8 @@ const hugHeight = computed(() => props.def.hugHeight === true);
     :hug-height="hugHeight"
     :full-drag="Boolean(def.fullDrag)"
     :opaque="Boolean(def.opaque)"
+    :card-vars="cardVars"
+    :surface-vars="surfaceVars"
     :multi-desk-remove="Boolean(multiDeskRemove)"
     :coach-targets="!isGalleryWidget(instance.typeId)"
     data-interactive
@@ -164,11 +196,15 @@ const hugHeight = computed(() => props.def.hugHeight === true);
     <template v-if="def.menuComponent" #menu>
       <component :is="def.menuComponent" />
     </template>
-    <template v-if="def.settingsComponent" #settings>
-      <component :is="def.settingsComponent" />
-    </template>
-    <template v-else-if="contractSettingsId" #settings>
-      <CockpitWidgetSettings :definition-id="contractSettingsId!" />
+    <template v-if="hasSettings" #settings>
+      <component v-if="def.settingsComponent" :is="def.settingsComponent" />
+      <CockpitWidgetSettings v-else-if="contractSettingsId" :definition-id="contractSettingsId" />
+      <WidgetAppearanceSettings
+        v-if="def.appearanceEditable"
+        :effective="appearance"
+        :own="instance.appearance"
+        @update="$emit('update:appearance', $event)"
+      />
     </template>
   </WidgetCard>
 </template>

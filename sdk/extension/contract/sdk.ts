@@ -142,12 +142,18 @@ export interface NotificationCapability {
   show(request: NotificationRequest): Promise<void>;
 }
 
-export type NowPlayingControl = "previous" | "playPause" | "next" | "openSource";
+/**
+ * `connect` asks for the consent the platform needs before the player can be
+ * read. Only macOS has one (Automation access to Music); elsewhere it does
+ * nothing.
+ */
+export type NowPlayingControl = "previous" | "playPause" | "next" | "openSource" | "connect";
 
 /**
- * Reviewed host capability for the active Windows media session. Controls are
- * named operations rather than an arbitrary command string, so a widget cannot
- * widen this surface by choosing another Tauri command name.
+ * Reviewed host capability for the active media session: any app on Windows,
+ * Apple Music on macOS. Controls are named operations rather than an arbitrary
+ * command string, so a widget cannot widen this surface by choosing another
+ * Tauri command name.
  */
 export interface NowPlayingCapability {
   snapshot<T = unknown>(): Promise<T>;

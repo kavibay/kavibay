@@ -20,6 +20,7 @@ import type {
   WidgetInstance,
   WidgetPosition,
 } from "./types";
+import { normalizeWidgetAppearance, type WidgetAppearance } from "./widgetAppearance";
 import {
   getExtension,
   listExtensions,
@@ -186,6 +187,7 @@ function instanceToCatalogEntry(instance: WidgetInstance): WidgetCatalogEntry {
     typeId: instance.typeId,
     ...(instance.title !== undefined ? { title: instance.title } : {}),
     ...(instance.hideTitle !== undefined ? { hideTitle: instance.hideTitle } : {}),
+    ...(instance.appearance !== undefined ? { appearance: { ...instance.appearance } } : {}),
   };
 }
 
@@ -209,7 +211,7 @@ function instanceToPlacement(instance: WidgetInstance): DeskPlacement {
   };
 }
 
-/** Copy title/hideTitle from a live instance into its catalog entry. */
+/** Copy title/hideTitle/appearance from a live instance into its catalog entry. */
 function syncCatalogFromInstance(instance: WidgetInstance): void {
   const entry = layoutDoc.catalog.find((row) => row.instanceId === instance.instanceId);
   if (!entry) return;
@@ -217,6 +219,8 @@ function syncCatalogFromInstance(instance: WidgetInstance): void {
   else entry.title = instance.title;
   if (instance.hideTitle === undefined) delete entry.hideTitle;
   else entry.hideTitle = instance.hideTitle;
+  if (instance.appearance === undefined) delete entry.appearance;
+  else entry.appearance = { ...instance.appearance };
 }
 
 /** Replace reactive layoutDoc fields from a pure helper result. */
@@ -1093,6 +1097,20 @@ function onHideTitle(instanceId: string, hideTitle: boolean) {
   }
   persist();
   scheduleRegionSync();
+}
+
+/**
+ * Merge one changed field into an instance's own surface, or drop it on null
+ * so the manifest's look applies again. Merged here, against what is stored,
+ * rather than in the form, whose props may not have caught up yet.
+ */
+function onAppearance(instanceId: string, patch: WidgetAppearance | null) {
+  const instance = instances.find((item) => item.instanceId === instanceId);
+  if (!instance) return;
+  const next = patch ? normalizeWidgetAppearance({ ...instance.appearance, ...patch }) : undefined;
+  if (next) instance.appearance = next;
+  else delete instance.appearance;
+  persist();
 }
 
 /**
@@ -3079,6 +3097,7 @@ provide("kavibayPaletteMovePointerdown", (event: PointerEvent) => {
           :multi-desk-remove="isMultiDeskInstance(instance.instanceId)"
           @rename="onRename(instance.instanceId, $event)"
           @update:hide-title="onHideTitle(instance.instanceId, $event)"
+          @update:appearance="onAppearance(instance.instanceId, $event)"
           @duplicate="onDuplicate(instance.instanceId)"
           @about="onAbout(instance)"
           @edit-in-wizard="onEditInWizard($event)"

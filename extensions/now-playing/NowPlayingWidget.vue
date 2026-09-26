@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { headerLabel } from "./nowPlayingLogic";
+import { headerLabel, idleHint, nowPlayingView } from "./nowPlayingLogic";
 import type { NowPlayingModel } from "./widgets/nowPlaying";
 
 const props = defineProps<{ model: NowPlayingModel }>();
-const { info, error, onPrev, onPlayPause, onNext, onOpenSource } = props.model;
+const { info, error, onPrev, onPlayPause, onNext, onOpenSource, onConnect } = props.model;
 const label = computed(() => headerLabel(info.value));
-const active = computed(() => info.value.has_session);
+const view = computed(() => nowPlayingView(info.value));
+const active = computed(() => view.value === "session");
 </script>
 
 <template>
@@ -31,13 +32,30 @@ const active = computed(() => info.value.has_session);
 
     <div class="np-main">
       <div class="np-meta">
-        <template v-if="active">
+        <template v-if="view === 'session'">
           <p class="np-title">{{ info.title || "Unknown title" }}</p>
           <p class="np-artist">{{ info.artist || "Unknown artist" }}</p>
         </template>
+        <template v-else-if="view === 'needsConsent'">
+          <p class="np-title np-title--muted">{{ info.player }} is open</p>
+          <button
+            type="button"
+            class="np-connect"
+            @pointerdown.stop
+            @click.stop="onConnect"
+          >
+            Connect {{ info.player }}
+          </button>
+        </template>
+        <template v-else-if="view === 'denied'">
+          <p class="np-title np-title--muted">No access to {{ info.player }}</p>
+          <p class="np-artist">
+            Allow Kavibay under System Settings › Privacy &amp; Security › Automation.
+          </p>
+        </template>
         <template v-else>
           <p class="np-title np-title--muted">Nothing playing</p>
-          <p class="np-artist">Start media on this PC</p>
+          <p class="np-artist">{{ idleHint(info) }}</p>
         </template>
       </div>
       <div class="np-art" aria-hidden="true">
@@ -168,6 +186,27 @@ const active = computed(() => info.value.has_session);
 .np-chevron:disabled {
   color: rgba(var(--fg-rgb), 0.35);
   cursor: default;
+}
+
+.np-connect {
+  margin-top: 8px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 8px;
+  background: #3a3a3a;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform 0.08s ease, background 0.12s ease;
+}
+
+.np-connect:hover {
+  background: #454545;
+}
+
+.np-connect:active {
+  transform: scale(0.96);
 }
 
 .np-main {

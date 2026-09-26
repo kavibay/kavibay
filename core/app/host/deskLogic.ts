@@ -9,6 +9,7 @@ import type {
   WidgetPosition,
 } from "./types";
 import { currentViewportSize, normalizeViewport } from "./viewportLayout";
+import { normalizeWidgetAppearance } from "./widgetAppearance";
 
 /** Default palette center for a new desk (viewport center when available). */
 function defaultPalettePosition(): WidgetPosition {
@@ -42,6 +43,8 @@ export function normalizeCatalogEntry(e: WidgetCatalogEntry): WidgetCatalogEntry
   };
   if (typeof e.title === "string") next.title = e.title;
   if (typeof e.hideTitle === "boolean") next.hideTitle = e.hideTitle;
+  const appearance = normalizeWidgetAppearance(e.appearance);
+  if (appearance) next.appearance = appearance;
   return next;
 }
 
@@ -165,6 +168,7 @@ export function instancesForDesk(layout: SavedLayoutV4, deskId: string): WidgetI
       offset: { ...placement.offset },
       ...(entry.title !== undefined ? { title: entry.title } : {}),
       ...(entry.hideTitle !== undefined ? { hideTitle: entry.hideTitle } : {}),
+      ...(entry.appearance !== undefined ? { appearance: { ...entry.appearance } } : {}),
       ...(placement.hidden === true ? { hidden: true } : {}),
       ...(placement.hidden === true &&
       typeof placement.hiddenAt === "number" &&

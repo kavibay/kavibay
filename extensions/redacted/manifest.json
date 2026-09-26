@@ -17,7 +17,14 @@
         "allowDuplicate": true,
         "flush": true,
         "defaultHideTitle": true,
-        "fullDrag": true
+        "fullDrag": true,
+        "appearance": {
+          "background": "#000000",
+          "opacity": 1,
+          "blur": 0,
+          "radius": 16,
+          "editable": true
+        }
       }
     }
   }

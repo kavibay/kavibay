@@ -7,6 +7,7 @@ import {
   type WidgetLayoutMode,
 } from "./appearanceLogic";
 import { doubleTapKeyLabel, keyPlatform } from "../host/shortcutHints";
+import { waitingPlace } from "../onboarding/onboardingCopy";
 import { useAutostart } from "../onboarding/useAutostart";
 import { useOnboarding } from "../onboarding/useOnboarding";
 import { useAppearance } from "./useAppearance";
@@ -101,7 +102,8 @@ function onReplayOnboarding() {
         <span class="toggle-copy">
           <span class="toggle-title">Start Kavibay when I log in</span>
           <span class="toggle-hint">
-            Waits in the tray, out of the way, until you tap {{ doubleTapKey }} twice
+            Waits in {{ waitingPlace(platform) }}, out of the way, until you tap
+            {{ doubleTapKey }} twice
           </span>
         </span>
         <span class="switch">
