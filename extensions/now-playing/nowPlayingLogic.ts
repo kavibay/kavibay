@@ -70,6 +70,40 @@ export function idleHint(info: NowPlayingInfo): string {
   return info.player ? `Play something in ${info.player}` : "Start media on this PC";
 }
 
+/** A play/pause the widget sent, held until the player reports it. */
+export interface ExpectedPlayState {
+  isPlaying: boolean;
+  untilMs: number;
+}
+
+/**
+ * How long a sent play/pause outranks what the player reports. Music reported
+ * "playing" for up to about half a second after a pause (measured), and
+ * showing that made the button flick back.
+ */
+export const PLAY_STATE_GRACE_MS = 2_000;
+
+/**
+ * Applies a play/pause still in flight to a fresh snapshot. The expectation
+ * ends when the player confirms it, when the session ends, or at `untilMs`,
+ * after which the player is right even if the command did not take.
+ */
+export function settlePlayState(
+  snapshot: NowPlayingInfo,
+  expected: ExpectedPlayState | null,
+  nowMs: number,
+): { info: NowPlayingInfo; expected: ExpectedPlayState | null } {
+  if (
+    !expected ||
+    !snapshot.has_session ||
+    snapshot.is_playing === expected.isPlaying ||
+    nowMs >= expected.untilMs
+  ) {
+    return { info: snapshot, expected: null };
+  }
+  return { info: { ...snapshot, is_playing: expected.isPlaying }, expected };
+}
+
 const ACCESS: readonly NowPlayingAccess[] = ["ready", "needsConsent", "denied"];
 
 /** Normalize backend JSON into a safe NowPlayingInfo. */
