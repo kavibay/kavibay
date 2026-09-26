@@ -156,8 +156,8 @@ rationale: `docs/superpowers/plans/2026-08-08-ci-cd-open-source.md`.
 4. Manifest/permission validation is mirrored in FE
    (`core/app/runtime/manifestValidate.ts`) and Rust
    (`src-tauri/src/runtime_extensions/`) — change both or neither.
-5. Secrets only via `src-tauri/src/security/secrets.rs` (DPAPI; Keychain backend
-   pending). Never plaintext at rest, never in localStorage, never returned to the
+5. Secrets only via `src-tauri/src/security/secrets.rs` (DPAPI on Windows, an
+   AES key in the login Keychain on macOS). Never plaintext at rest, never in localStorage, never returned to the
    frontend. Integration credentials go through `src-tauri/src/credentials/`
    (type registry + one encrypted store + `resolve_for_owner` / `resolve_for_connection`)
    — no per-integration credential tables, commands, or settings panels. A runtime

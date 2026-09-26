@@ -19,6 +19,7 @@ use std::thread::JoinHandle;
 #[cfg(windows)]
 use std::time::Duration;
 
+#[cfg(windows)]
 use serde::Serialize;
 #[cfg(windows)]
 use tauri::Manager;
@@ -106,7 +107,7 @@ pub fn color_picker_start(
     #[cfg(not(windows))]
     {
         let _ = (&app, &session, &click_through);
-        return Err("Color picker is only supported on Windows".into());
+        Err("Color picker is only supported on Windows".into())
     }
 
     #[cfg(windows)]

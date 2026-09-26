@@ -39,6 +39,9 @@ Cloudflare API tokens sit in plaintext SQLite** (`tado/db.rs`, `cloudflare_ai/db
   (`api_token`) now protect-on-save with lazy migration in `load_*`. 105 lib tests green
   incl. `tokens_are_not_plaintext_at_rest` + `legacy_plaintext_row_migrates_on_load`.
   Real DBs migrate on next app restart once a widget/settings read loads the row.
+- macOS backend done 2026-09-26: AES-256-GCM under one random key in the login
+  keychain ("Kavibay Safe Storage"), behind the same two functions, so credentials
+  and `web-storage.json` are protected on macOS too. Linux still fails closed.
 
 ### P0.2 Prove iframe ↔ IPC isolation (MEDIUM) — ✅ done 2026-07-23
 

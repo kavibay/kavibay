@@ -294,6 +294,7 @@ pub(crate) fn clipboard_sequence() -> Option<u32> {
     None
 }
 
+#[cfg(any(windows, test))]
 fn source_name_from_path(path: &str) -> Option<String> {
     let file_name = path
         .rsplit(['\\', '/'])

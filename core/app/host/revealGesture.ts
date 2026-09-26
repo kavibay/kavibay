@@ -6,11 +6,11 @@ import type { CockpitTrigger } from "./cockpitSession";
  * Which keystroke can bring a hidden cockpit back on this machine.
  *
  * Asked of the host rather than derived from the user agent, because two of the
- * facts behind it are only known at start-up: the Ctrl double tap needs a
- * `WH_KEYBOARD_LL` hook and so exists on Windows alone, and the fallback —
- * Shift+Ctrl+Space — is an ordinary accelerator that another program may already
- * own. `RevealGesture` in `src-tauri/src/lib.rs` records the answer while it
- * registers them.
+ * facts behind it are only known at start-up. The Ctrl double tap needs a way to
+ * watch the keyboard, which Kavibay has on Windows and macOS and not on Linux.
+ * The fallback, Shift+Ctrl+Space, is an ordinary accelerator that another
+ * program may already own. `RevealGesture` in `src-tauri/src/lib.rs` records the
+ * answer while it registers them.
  *
  * `null` means no keystroke reveals the window here and the tray icon is the
  * only way in. The guided tour is the caller that cares: teaching a key the

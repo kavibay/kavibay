@@ -1,6 +1,6 @@
 //! System Info widget backend: CPU, memory, uptime, and battery snapshots.
 
-use std::{thread, time::Duration};
+use std::time::Duration;
 
 use serde::Serialize;
 use starship_battery::{
@@ -61,12 +61,16 @@ fn battery_info() -> Option<BatteryInfo> {
 }
 
 /// Delivers a live system snapshot to the contract host.
+///
+/// Async because of the sample window: CPU usage is the difference between two
+/// reads, and a synchronous command runs on the UI thread — the 200 ms between
+/// them froze the whole app on every refresh the widget asked for.
 #[tauri::command]
-pub fn widget_system_info() -> Result<SystemInfo, String> {
+pub async fn widget_system_info() -> Result<SystemInfo, String> {
     let mut sys = System::new();
     sys.refresh_memory();
     sys.refresh_cpu_all();
-    thread::sleep(Duration::from_millis(200));
+    tokio::time::sleep(Duration::from_millis(200)).await;
     sys.refresh_cpu_all();
 
     Ok(SystemInfo {

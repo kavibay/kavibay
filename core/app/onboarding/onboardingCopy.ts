@@ -227,11 +227,13 @@ export function onboardingRevealHintCopy(gesture: RevealGesture | null): Onboard
  *
  * Reached when the tour brought the window back by itself: the user pressed to
  * hide Kavibay — which the webview handles on its own and always works — and
- * then nothing came back, because the shortcut never arrived. On Windows that
- * is the `WH_KEYBOARD_LL` hook going uncalled behind an elevated window, an RDP
- * session or some game overlays; elsewhere it is a global accelerator that
- * another program is holding. Either way the copy does not repeat the gesture,
- * it names the ways in that do not depend on it.
+ * then nothing came back, because the shortcut never arrived. For the double
+ * tap on Windows that is the `WH_KEYBOARD_LL` hook going uncalled behind an
+ * elevated window, an RDP session or some game overlays. The same copy covers
+ * macOS, where the double tap comes from an `NSEvent` global monitor instead,
+ * although the causes it names are the Windows ones. For Shift+Ctrl+Space it is
+ * a global accelerator that another program is holding. Either way the copy
+ * does not repeat the gesture, it names the ways in that do not depend on it.
  */
 export function onboardingHotkeyFallbackCopy(gesture: RevealGesture | null): OnboardingCopy {
   const cause =
