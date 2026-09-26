@@ -189,7 +189,7 @@ pub fn x11_pointer_button_held(mask: u16) -> bool {
 /// | Platform        | global button read      | hit test | gap clicks come from |
 /// |-----------------|-------------------------|----------|----------------------|
 /// | Windows         | `GetAsyncKeyState`      | yes      | Rust (`cockpit:outside-click`) |
-/// | macOS           | `CGEventSourceButtonState` | yes   | Rust (`cockpit:outside-click`) |
+/// | macOS           | `NSEvent` global monitor | yes     | Rust (`cockpit:outside-click`) |
 /// | Linux + X11     | `QueryPointer`          | yes      | Rust (`cockpit:outside-click`) |
 /// | Linux + Wayland | none                    | no       | the DOM catcher |
 ///
