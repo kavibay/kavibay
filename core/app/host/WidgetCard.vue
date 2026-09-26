@@ -90,6 +90,13 @@ const props = withDefaults(
      * showing through whatever it is drawing.
      */
     opaque?: boolean;
+    /**
+     * The widget's own look as CSS variables: `cardVars` on the card (corner
+     * radius, which the chrome derives from too), `surfaceVars` on the glass
+     * layer only, so the menu and settings inside keep the shared colours.
+     */
+    cardVars?: Record<string, string>;
+    surfaceVars?: Record<string, string>;
     /** When true, Delete asks first: remove from this desk vs delete everywhere. */
     multiDeskRemove?: boolean;
     /** Expose drag/resize/pin targets for the guided tour (non-gallery). */
@@ -815,7 +822,7 @@ watch(
       'widget-card--full-drag': fullDrag,
       'widget-card--opaque': opaque,
     }"
-    :style="sizedStyle"
+    :style="[sizedStyle, cardVars]"
     @pointerenter="onCardPointerMove"
     @pointermove="onCardPointerMove"
     @pointerleave="headerHovered = false"
@@ -823,7 +830,7 @@ watch(
     @contextmenu="onCardContextMenu"
   >
     <!-- Glass layer only — keeps backdrop-filter from clipping outside chrome. -->
-    <div class="widget-card-surface" aria-hidden="true" />
+    <div class="widget-card-surface" :style="surfaceVars" aria-hidden="true" />
     <ResizeEdges
       v-if="resizable"
       :width="width"

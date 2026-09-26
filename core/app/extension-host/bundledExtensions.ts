@@ -3,6 +3,7 @@ import type { ExtensionViews, WidgetView } from "@sdk/contract/sdk-vue";
 import type { ExtensionActionDeclaration, ExtensionManifest } from "@sdk/contract/sdk";
 import { toActionDeclarations, type WidgetActionDeclaration } from "./widgetActions";
 import { isSafeExtensionIconPath } from "../extensions/extensionIcon";
+import { normalizeWidgetAppearance, type WidgetAppearance } from "../host/widgetAppearance";
 
 /**
  * Discovers bundled contract extensions under `extensions/<id>/`, the same
@@ -51,6 +52,8 @@ export interface ContractCatalogMetadata {
   hugHeight?: boolean;
   opaque?: boolean;
   keepAliveWhenHidden?: boolean;
+  appearance?: WidgetAppearance;
+  appearanceEditable?: boolean;
 }
 
 export type { WidgetActionDeclaration };
@@ -183,6 +186,8 @@ function toCatalogMetadata(entry: Record<string, unknown>): ContractCatalogMetad
     hugHeight: asBool(ui.hugHeight),
     opaque: asBool(ui.opaque),
     keepAliveWhenHidden: asBool(ui.keepAliveWhenHidden),
+    appearance: normalizeWidgetAppearance(ui.appearance),
+    appearanceEditable: asBool(asRecord(ui.appearance).editable),
   };
 }
 

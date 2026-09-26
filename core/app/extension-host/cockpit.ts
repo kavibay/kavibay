@@ -516,6 +516,8 @@ function toRegistered(definitionId: string): RegisteredExtension | undefined {
     hugHeight: metadata.hugHeight ?? false,
     opaque: metadata.opaque ?? false,
     keepAliveWhenHidden: metadata.keepAliveWhenHidden ?? false,
+    ...(metadata.appearance ? { appearance: metadata.appearance } : {}),
+    ...(metadata.appearanceEditable ? { appearanceEditable: true } : {}),
     permissions: [],
     commands: [],
     actions,

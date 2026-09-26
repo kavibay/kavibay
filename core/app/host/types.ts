@@ -3,6 +3,7 @@
  */
 
 import type { WidgetPosition, WidgetProps } from "@sdk/types";
+import type { WidgetAppearance } from "./widgetAppearance";
 
 // Both belong to the extension contract and live in the MIT SDK; re-exported here so
 // host modules can keep importing their layout types from one place.
@@ -17,6 +18,8 @@ export interface WidgetInstance {
   title?: string;
   /** When true, the card title row is hidden. */
   hideTitle?: boolean;
+  /** This instance's own surface, over the manifest's `ui.appearance`. */
+  appearance?: WidgetAppearance;
   /**
    * Persisted Hidden: not mounted; settings/offset kept; can be shown again
    * from the palette. Distinct from session cockpit close (Ctrl double tap / outside click).
@@ -90,6 +93,7 @@ export interface WidgetCatalogEntry {
   typeId: string;
   title?: string;
   hideTitle?: boolean;
+  appearance?: WidgetAppearance;
 }
 
 /** Persisted layout for layout-v4 (catalog + per-desk placements). */

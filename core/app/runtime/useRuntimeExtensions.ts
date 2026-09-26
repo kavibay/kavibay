@@ -166,6 +166,8 @@ export function builtinToHostRef(ext: RegisteredExtension): HostExtensionRef {
     hugHeight: ext.hugHeight,
     opaque: ext.opaque,
     keepAliveWhenHidden: ext.keepAliveWhenHidden,
+    ...(ext.appearance ? { appearance: { ...ext.appearance } } : {}),
+    ...(ext.appearanceEditable ? { appearanceEditable: true } : {}),
     permissions: [...ext.permissions],
     commands: [...ext.commands],
     backendCommand: ext.backendCommand,
