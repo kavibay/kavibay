@@ -3,6 +3,7 @@
  * (run: npx tsx src/settings/appearanceLogic.assert.ts).
  */
 import {
+  cornerGeometry,
   DEFAULT_APPEARANCE,
   normalizeAppearance,
   normalizeColorMode,
@@ -107,6 +108,30 @@ assert(
 assert(
   normalizeAppearance({ openMonitor: "activeWindow" }).openMonitor === "activeWindow",
   "preserve activeWindow through normalizeAppearance",
+);
+
+// --- corner geometry --------------------------------------------------------------
+const drawn = (radiusPx: number, shape: "round" | "squircle", supported: boolean) =>
+  JSON.stringify(cornerGeometry(radiusPx, shape, supported));
+assert(
+  drawn(32, "squircle", true) === '{"radiusPx":32,"shape":"squircle"}',
+  "an engine with corner-shape draws the squircle as asked",
+);
+assert(
+  drawn(32, "squircle", false) === '{"radiusPx":17,"shape":"round"}',
+  "without corner-shape the default squircle becomes a round arc of the same depth",
+);
+assert(
+  drawn(20, "squircle", false) === '{"radiusPx":11,"shape":"round"}',
+  "the fallback scales with the slider",
+);
+assert(
+  drawn(32, "round", false) === '{"radiusPx":32,"shape":"round"}',
+  "round corners are native everywhere and keep their radius",
+);
+assert(
+  drawn(0, "squircle", false) === '{"radiusPx":0,"shape":"round"}',
+  "sharp stays sharp",
 );
 
 console.log("appearanceLogic.assert.ts: all passed");
