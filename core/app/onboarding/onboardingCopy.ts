@@ -110,6 +110,11 @@ const fixedCopy = (
   },
 });
 
+/** Where a started Kavibay waits: the Windows tray or the macOS menu bar. */
+export function waitingPlace(platform: KeyPlatform): string {
+  return platform === "mac" ? "the menu bar" : "the tray";
+}
+
 /**
  * The tray route when no keystroke exists, in the click this platform's icon
  * answers to. The Windows tray icon opens on a double click; the macOS menu bar

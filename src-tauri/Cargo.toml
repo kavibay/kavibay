@@ -74,10 +74,11 @@ core-foundation = "0.10"
 block2 = { version = "0.6", default-features = false }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["NSEvent", "block2"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["CGEventSource", "CGEventTypes"] }
-# The Now Playing widget scripts Apple Music (`extensions/now_playing/macos.rs`).
-# Both crates are already in the tree through tao.
+# The Now Playing widget scripts Apple Music (`extensions/now_playing/macos.rs`),
+# and autostart registers the login item (`autostart.rs`). Both crates are
+# already in the tree through tao.
 objc2 = { version = "0.6", default-features = false, features = ["std"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleScript", "NSData", "NSDictionary", "NSString"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleScript", "NSData", "NSDictionary", "NSError", "NSString"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Global mouse button state for "Hide on outside click" (XQueryPointer). Already in

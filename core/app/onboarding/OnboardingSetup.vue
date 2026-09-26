@@ -30,7 +30,7 @@ import { openMonitorOptions, type OpenMonitor } from "../settings/appearanceLogi
 import { useAppearance } from "../settings/useAppearance";
 import { revealGesture } from "../host/revealGesture";
 import { doubleTapKeyLabel, keyPlatform } from "../host/shortcutHints";
-import { onboardingRevealHintCopy } from "./onboardingCopy";
+import { onboardingRevealHintCopy, waitingPlace } from "./onboardingCopy";
 import { isSetupVisible, shouldOfferDisplayChoice } from "./setupLogic";
 import { finishSetup, setupState } from "./setupSession";
 import { useAutostart } from "./useAutostart";
@@ -142,7 +142,7 @@ async function commit(opts: { tour?: boolean } = {}) {
       <label v-if="autostartSupported" class="toggle">
         <span class="toggle-copy">
           <span class="toggle-title">Start Kavibay when I log in</span>
-          <span class="toggle-hint">Waits in the tray, out of the way.</span>
+          <span class="toggle-hint">Waits in {{ waitingPlace(platform) }}, out of the way.</span>
         </span>
         <span class="switch">
           <input type="checkbox" v-model="wantsAutostart" />
