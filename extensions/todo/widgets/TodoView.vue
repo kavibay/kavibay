@@ -13,6 +13,8 @@ const dropTargetId = ref<string | null>(null);
 const dropPlacement = ref<DropPlacement | null>(null);
 const dragPointerId = ref<number | null>(null);
 const dragHandle = ref<HTMLElement | null>(null);
+// A flat list has nothing to collapse, so it does not reserve the chevron column.
+const hasNesting = computed(() => props.model.rows.value.some((row) => row.hasChildren));
 
 const rootStyle = computed(() =>
   hostSized.value
@@ -197,7 +199,7 @@ onBeforeUnmount(() => {
             <path d="m4 6 4 4 4-4" />
           </svg>
         </button>
-        <span v-else class="todo-chevron-spacer" aria-hidden="true" />
+        <span v-else-if="hasNesting" class="todo-chevron-spacer" aria-hidden="true" />
         <button type="button" class="todo-check" :aria-pressed="model.itemById.value.get(row.id)?.done === true" @click="model.setDoneToggle(row.id)">
           <span class="todo-check-box" :class="{ checked: model.itemById.value.get(row.id)?.done }" />
         </button>
@@ -220,28 +222,32 @@ onBeforeUnmount(() => {
 <style scoped>
 .todo-widget { display: flex; flex-direction: column; min-width: 0; min-height: 0; box-sizing: border-box; color: rgba(var(--fg-rgb), 0.92); --todo-rail: 0px; }
 .todo-widget--inline { --todo-rail: 21px; }
-.todo-list { list-style: none; margin: 0; padding: 4px; flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
-.todo-row { position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; padding: 3px 4px 3px calc(var(--todo-rail) + var(--todo-depth, 0) * 14px); border-radius: 6px; }
+.todo-list { list-style: none; margin: 0; padding: 0; flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 1px; }
+.todo-row { position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px 2px calc(var(--todo-rail) + var(--todo-depth, 0) * 14px); border-radius: 6px; }
 .todo-row:hover, .todo-row:focus-within { background: rgba(var(--fg-rgb), 0.05); }
 .todo-row--dragging { opacity: 0.45; }
-.todo-row--drop-target { outline: 1px solid rgba(var(--fg-rgb), 0.25); background: rgba(var(--fg-rgb), 0.08); }
+.todo-row--drop-target { outline: 1px solid rgba(var(--fg-rgb), 0.25); outline-offset: -1px; background: rgba(var(--fg-rgb), 0.08); }
 .todo-widget--dragging, .todo-widget--dragging * { cursor: grabbing !important; }
-.todo-grip { width: 14px; color: rgba(var(--fg-rgb), 0.38); cursor: grab; user-select: none; touch-action: none; }
+.todo-grip { flex-shrink: 0; width: 10px; line-height: 1; text-align: center; color: rgba(var(--fg-rgb), 0.38); cursor: grab; user-select: none; touch-action: none; opacity: 0; transition: opacity 0.12s ease; }
+.todo-row:hover .todo-grip, .todo-row--dragging .todo-grip { opacity: 1; }
+.todo-grip:hover { color: rgba(var(--fg-rgb), 0.7); }
 .todo-grip:active { cursor: grabbing; }
-.todo-chevron, .todo-chevron-spacer { width: 18px; height: 20px; flex-shrink: 0; }
+@media (hover: none) { .todo-grip { opacity: 1; } }
+.todo-chevron, .todo-chevron-spacer { width: 16px; height: 20px; flex-shrink: 0; }
 .todo-chevron { display: grid; place-items: center; padding: 0; border: 0; border-radius: 4px; background: transparent; color: rgba(var(--fg-rgb), 0.58); cursor: pointer; }
 .todo-chevron-icon { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s ease, color 0.15s ease; }
 .todo-chevron--collapsed .todo-chevron-icon { transform: rotate(-90deg); }
 .todo-chevron:hover { background: rgba(var(--fg-rgb), 0.08); }
 .todo-chevron:hover .todo-chevron-icon { color: rgba(var(--fg-rgb), 0.9); }
 .todo-chevron:focus-visible { outline: 1px solid rgba(var(--fg-rgb), 0.55); outline-offset: 1px; }
-.todo-check { border: 0; background: transparent; padding: 2px; cursor: pointer; }
+.todo-check { flex-shrink: 0; display: grid; place-items: center; border: 0; background: transparent; padding: 2px; cursor: pointer; }
 .todo-check-box { display: block; width: 14px; height: 14px; border: 1.5px solid rgba(var(--fg-rgb), 0.35); border-radius: 4px; }
 .todo-check-box.checked { background: rgba(var(--fg-rgb), 0.75); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.35); }
-.todo-input { flex: 1; min-width: 0; border: 0; outline: 0; padding: 3px 2px; background: transparent; color: inherit; font: inherit; font-size: 13px; }
+.todo-input { flex: 1; min-width: 0; border: 0; outline: 0; padding: 3px 0; background: transparent; color: inherit; font: inherit; font-size: 13px; }
 .todo-row--done .todo-input { color: rgba(var(--fg-rgb), 0.4); text-decoration: line-through; }
 .todo-input::placeholder { color: rgba(var(--fg-rgb), 0.3); }
-.todo-delete { border: 0; background: transparent; color: rgba(var(--fg-rgb), 0.35); font-size: 18px; cursor: pointer; opacity: 0; }
+.todo-delete { flex-shrink: 0; display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: rgba(var(--fg-rgb), 0.35); font-size: 16px; line-height: 1; cursor: pointer; opacity: 0; transition: opacity 0.12s ease; }
 .todo-row:hover .todo-delete, .todo-row:focus-within .todo-delete { opacity: 1; }
-.todo-delete:hover { color: rgba(var(--fg-rgb), 0.85); }
+.todo-delete:hover { color: rgba(var(--fg-rgb), 0.85); background: rgba(var(--fg-rgb), 0.08); }
+.todo-delete:focus-visible { outline: 1px solid rgba(var(--fg-rgb), 0.55); outline-offset: 1px; }
 </style>
