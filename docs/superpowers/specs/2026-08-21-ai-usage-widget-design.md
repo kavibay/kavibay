@@ -4,8 +4,8 @@
 
 Add one first-party `ai-usage` widget that shows the consumed rolling usage
 windows reported by Codex and Claude Code. The widget must not return
-credentials, make model/inference requests, or overwrite an existing Claude
-Code status-line customization.
+credentials, make model/inference requests, or change what an existing Claude
+Code status line prints.
 
 ## Data sources
 
@@ -27,29 +27,56 @@ request used by its plan-usage UI. After the user enables Claude support, the
 backend makes a fixed, read-only request to Claude's usage endpoint. If the
 access token is expired, Rust refreshes it through Claude's OAuth token endpoint
 and updates Claude's own credentials file, including a rotated refresh token.
-If that request is unavailable, the widget falls back to the newest local
-cache. The explicit setup action also:
+The backend reads the token only from `.credentials.json` in the Claude config
+directory. Claude Code on macOS keeps its credentials in the Keychain, so the
+live request does not run there and the status-line cache is the source.
+If the live request is unavailable, the widget falls back to the newest local
+cache.
 
-1. installs a small PowerShell status-line script under the Claude config
-   directory;
+The explicit setup action installs a status-line script under the Claude config
+directory. On every platform the script stores only `captured_at` and
+`rate_limits` in a separate local cache, `kavibay-usage.json`. What else it
+does depends on the platform.
+
+On Windows, the setup action:
+
+1. installs a small PowerShell status-line script;
 2. adds that script to `settings.json` only when no status line exists, or when
-   the existing status line is already the Kavibay script;
-3. stores only `captured_at` and `rate_limits` in a separate local cache; and
-4. prints a compact Claude Code status line while capturing the data.
+   the existing status line is already the Kavibay script; and
+3. prints a compact Claude Code status line while capturing the data.
+
+On Windows, an unrelated existing status line is reported as a conflict and is
+never replaced. Generated Windows commands use forward-slash paths because
+Claude Code may route status-line commands through Git Bash, where backslashes
+are escape characters. A previously generated Kavibay command with backslashes
+is recognized as a safe one-time migration.
+
+On macOS and Linux, the setup action wraps an existing status line instead of
+refusing it. Claude Code runs a status-line command with `/bin/sh -c` and writes
+its JSON input, followed by a newline, to stdin. The generated POSIX `sh`
+script, `kavibay-usage-statusline.sh`:
+
+1. reads the whole input;
+2. copies the object after the first `"rate_limits"` key into the cache with
+   `awk`, and leaves the cache untouched when the input has no such key; and
+3. runs the original command through `/bin/sh -c` with the same input, so the
+   user's status line prints exactly what it printed before. Without an
+   original command, the script prints nothing.
+
+The setup action keeps the whole original `statusLine` object in
+`kavibay-statusline-original.json` in the Claude config directory. The new
+`statusLine` is that object with only `command` replaced, so fields such as
+`padding` stay. The saved copy is what a later restore action would put back.
+It also lets setup regenerate the same wrapper when `settings.json` already
+points at it, so running setup twice leaves the same files.
 
 The live response is normalized immediately; neither the token nor provider
 response headers are returned to the extension. The endpoint is not a general
 model API: errors, rate limits, or endpoint changes fall back to the newest
 local cache.
 
-An unrelated existing status line is reported as a conflict and is never
-replaced. If the live request is unavailable, fallback rate-limit fields appear
-after Claude Code supplies them, normally after the next assistant response.
-This integration is Windows-first because
-the installed command is PowerShell. Generated Windows commands use
-forward-slash paths because Claude Code may route status-line commands through
-Git Bash, where backslashes are escape characters; a previously generated
-Kavibay command with backslashes is recognized as a safe one-time migration.
+If the live request is unavailable, fallback rate-limit fields appear after
+Claude Code supplies them, normally after the next assistant response.
 
 ## Contract and security boundary
 
@@ -83,7 +110,16 @@ clear.
 - Missing or malformed session/cache files are skipped; the newest valid event
   wins.
 - Invalid Claude `settings.json` fails closed and is not rewritten.
-- A pre-existing foreign Claude status line fails closed and is not rewritten.
+- On Windows, a pre-existing foreign Claude status line fails closed and is not
+  rewritten. On macOS and Linux, Kavibay wraps it and its output does not
+  change.
+- A `statusLine` that is not an object with a string `command` fails closed on
+  every platform. On macOS and Linux, so does a command that already runs a
+  Kavibay wrapper from another path, because wrapping it again would make the
+  wrapper run itself.
+- The Unix wrapper sends its own errors to `/dev/null` and writes the cache
+  through a per-process temporary file, so a failed capture never changes the
+  status-line output and leaves the previous cache in place.
 - Setup or read errors remain provider-local so Codex data can still render.
 - Live Claude usage errors or rate limits fall back to the newest local
   `.claude.json` or Kavibay status-line snapshot.
