@@ -35,7 +35,7 @@ flowchart TB
         rtx["runtime_extensions/<br/>scan, validate, protocol, http"]
         authoring["runtime_extensions/drafts.rs<br/>shared revisioned authoring service"]
         mcp["mcp/<br/>loopback Streamable HTTP adapter"]
-        sec["security/secrets.rs<br/>DPAPI"]
+        sec["security/secrets.rs<br/>DPAPI / Keychain"]
     end
 
     app --> pal
@@ -388,7 +388,7 @@ sequenceDiagram
     participant W as Widget
     participant Set as Settings → Credentials
     participant Reg as credentials/registry.rs
-    participant Store as Encrypted store (DPAPI)
+    participant Store as Encrypted store (DPAPI / Keychain)
     participant P as Contract provider
     participant Mod as Provider transport (Rust)
     participant API as External API

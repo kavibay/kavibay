@@ -17,7 +17,8 @@
 //!
 //! The override is a development and test switch, **not** a portable mode.
 //! `web-storage.json` and the credential store are wrapped with the OS secret
-//! backend (DPAPI on Windows), which binds them to this user on this machine.
+//! backend (DPAPI on Windows, the Keychain on macOS), which binds them to this
+//! user on this machine.
 //! A data directory copied elsewhere is unreadable there whatever the path
 //! says, so pointing this at a USB stick buys a broken profile, not a portable
 //! one. See SECURITY.md.

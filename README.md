@@ -236,15 +236,16 @@ outside the Windows roaming profile.
 | Regenerable caches — safe to delete | `~/.kavibay/cache/` |
 
 **How secrets are stored.** Every field of a credential is bundled into one JSON
-blob, wrapped with Windows **DPAPI** and written to `credentials.db`; a test
-asserts that neither the value nor the field name survives in what lands on disk.
-The blob is bound to your Windows account, so a copied file is unreadable
-elsewhere. Listing a credential reports the *names* of the fields that hold a
+blob, encrypted and written to `credentials.db`; a test asserts that neither the
+value nor the field name survives in what lands on disk. Windows wraps the blob
+with **DPAPI**; macOS seals it with AES-256-GCM under a key kept in your login
+**Keychain** as "Kavibay Safe Storage". Either way it is bound to your account,
+so a copied file is unreadable elsewhere. Listing a credential reports the *names* of the fields that hold a
 value, never the values. A key leaves Rust only towards its provider.
 
-Where the protection stops: DPAPI defends against someone taking the file, not
-against code running as you. Non-Windows builds fail closed — nothing is stored
-at all until a Keychain backend lands. Details in [SECURITY.md](SECURITY.md).
+Where the protection stops: encryption at rest defends against someone taking
+the file, not against code running as you. Other platforms fail closed and store
+nothing at all. Details in [SECURITY.md](SECURITY.md).
 
 ## Repo map
 
