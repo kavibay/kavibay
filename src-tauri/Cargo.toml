@@ -52,9 +52,26 @@ tokio = { version = "1", features = ["time", "net", "io-util", "rt"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 rand = "0.10"
 open = "5"
+# AES-256-GCM for the macOS secret backend (`security/secrets.rs`). Already in
+# the tree through rustls, so this pins no new download; it is not macOS-only so
+# the sealed format stays under test on the Windows CI job too.
+ring = "0.17"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 plist = "1.7"
+# The login keychain holds the key `security/secrets.rs` seals with. The one new
+# download of the macOS secret backend: the CoreFoundation ownership rules and
+# OSStatus mapping are exactly what hand-written FFI would get wrong.
+# `core-foundation` is already in the tree through tao; it builds the item data.
+security-framework = { version = "3.7", default-features = false }
+core-foundation = "0.10"
+# The Ctrl double tap (`ctrl_double_tap.rs`) watches Control through an NSEvent
+# global monitor, the one source that needs no permission, and reads the HID
+# key-down counter to learn whether another key went down in between. All three
+# are already in the tree through tao, so this pins no new download.
+block2 = { version = "0.6", default-features = false }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSEvent", "block2"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["CGEventSource", "CGEventTypes"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Global mouse button state for "Hide on outside click" (XQueryPointer). Already in
@@ -70,6 +87,8 @@ windows = { version = "0.62", features = [
   "Win32_Graphics_Gdi",
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_Input_KeyboardAndMouse",
+  # The click-through watcher reads the window's DPI without a UI-thread round trip.
+  "Win32_UI_HiDpi",
   # Quick actions ask UI Automation whether the focused control is read-only.
   "Win32_UI_Accessibility",
   "Win32_UI_Shell",

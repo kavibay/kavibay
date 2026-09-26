@@ -5,6 +5,7 @@ mod appearance_prefs;
 mod autostart;
 mod commands;
 mod credentials;
+#[cfg(any(windows, target_os = "macos", test))]
 mod ctrl_double_tap;
 mod extension_providers;
 mod extensions;
@@ -82,10 +83,10 @@ impl CockpitTrigger {
 /// The keystroke that can bring a hidden cockpit back on *this* machine.
 ///
 /// Not a constant, because two things it depends on are only known at start-up.
-/// The Ctrl double tap needs a `WH_KEYBOARD_LL` hook and therefore Windows; on
-/// every other platform the fallback is Shift+Ctrl+Space, which is an ordinary
-/// accelerator — and which another program may already own, in which case there
-/// is no keystroke at all and the tray icon is the only way in.
+/// The Ctrl double tap needs a way to watch the keyboard, and Kavibay has one
+/// on Windows and macOS only (see `ctrl_double_tap`). On Linux the fallback is
+/// Shift+Ctrl+Space, an ordinary accelerator that another program may already
+/// own. Then there is no keystroke at all and the tray icon is the only way in.
 ///
 /// The guided tour asks for this before it teaches the gesture. Teaching a key
 /// this machine cannot deliver is worse than teaching none: the user hides
@@ -396,6 +397,30 @@ pub fn run() {
                 .get_webview_window("main")
                 .expect("main window must exist (defined in tauri.conf.json)");
 
+            // macOS does not hand activation back when an accessory app's last
+            // window orders out. Kavibay stayed the active app with nothing on
+            // screen, so keys typed next went nowhere, and the double tap could
+            // not reopen it because the global monitor never sees keys sent to
+            // Kavibay itself. Hiding the app returns focus to the previous one.
+            // `NSApp.deactivate()` looks like the fix and does nothing
+            // (measured). Every hide while Kavibay has focus (Esc, double tap,
+            // palette) ends in an order-out that resigns key, so this one
+            // handler covers them all. A window that loses focus while still
+            // visible, to a click elsewhere or with pinned widgets up, is left
+            // alone; the click already gave focus to the app it landed in.
+            #[cfg(target_os = "macos")]
+            {
+                let app_handle = app.handle().clone();
+                let main_window = window.clone();
+                window.on_window_event(move |event| {
+                    if matches!(event, tauri::WindowEvent::Focused(false))
+                        && !main_window.is_visible().unwrap_or(true)
+                    {
+                        let _ = app_handle.hide();
+                    }
+                });
+            }
+
             // Open-monitor preference (synced from Settings). Default = cursor monitor.
             // Managed before first fit so placement can read it immediately.
             let open_monitor: SharedOpenMonitor = Arc::new(Mutex::new(OpenMonitor::default()));
@@ -417,13 +442,13 @@ pub fn run() {
 
             // The toggle itself is a double tap on Ctrl, which no global-shortcut
             // API can express: a bare modifier is not a hotkey on any platform, and
-            // none of them has a notion of "twice quickly". Only Windows gets it,
-            // through a keyboard hook — see `ctrl_double_tap`.
-            #[cfg(windows)]
+            // none of them has a notion of "twice quickly". Windows and macOS get
+            // it by watching the keyboard directly. See `ctrl_double_tap`.
+            #[cfg(any(windows, target_os = "macos"))]
             ctrl_double_tap::spawn(app.handle().clone());
-            #[cfg(not(windows))]
+            #[cfg(not(any(windows, target_os = "macos")))]
             eprintln!(
-                "[shortcut] Ctrl double tap is Windows-only - use the tray, Shift+Ctrl+Space or `kavibay --toggle`"
+                "[shortcut] Ctrl double tap is unavailable on Linux - use the tray, Shift+Ctrl+Space or `kavibay --toggle`"
             );
             if !cursor_toggle {
                 eprintln!(
@@ -433,7 +458,7 @@ pub fn run() {
             // Recorded rather than recomputed: whether Shift+Ctrl+Space is ours
             // is only knowable from the registration above, and the tour has to
             // ask the same question later.
-            app.manage(RevealGesture(if cfg!(windows) {
+            app.manage(RevealGesture(if cfg!(any(windows, target_os = "macos")) {
                 Some(CockpitTrigger::CtrlDoubleTap)
             } else if cursor_toggle {
                 Some(CockpitTrigger::CursorHotkey)
@@ -521,14 +546,21 @@ pub fn run() {
                     ],
                 )?;
 
-                let Some(icon) = app.default_window_icon().cloned() else {
-                    eprintln!("[tray] no default window icon; skipping tray");
-                    return Ok(());
+                // The menu bar wants a monochrome glyph macOS can tint, not the app icon.
+                #[cfg(target_os = "macos")]
+                let tray = TrayIconBuilder::new()
+                    .icon(tauri::include_image!("icons/tray-template.png"))
+                    .icon_as_template(true);
+                #[cfg(not(target_os = "macos"))]
+                let tray = {
+                    let Some(icon) = app.default_window_icon().cloned() else {
+                        eprintln!("[tray] no default window icon; skipping tray");
+                        return Ok(());
+                    };
+                    TrayIconBuilder::new().icon(icon)
                 };
 
-                TrayIconBuilder::new()
-                    .icon(icon)
-                    .tooltip("Kavibay")
+                tray.tooltip("Kavibay")
                     .menu(&menu)
                     .show_menu_on_left_click(true)
                     .on_menu_event(|app, event| match event.id().as_ref() {
@@ -691,7 +723,7 @@ pub fn run() {
             runtime_extensions::http::extension_http_call,
         ])
         // build + run so we can join the focus-tracker poll thread on Exit.
-        .build(tauri::generate_context!())
+        .build(context())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if let RunEvent::Exit = event {
@@ -706,6 +738,14 @@ pub fn run() {
                 }
             }
         });
+}
+
+/// The one expansion of `generate_context!` in this crate.
+///
+/// On macOS the macro also embeds `Info.plist` under a fixed linker symbol, so a
+/// second expansion (the ACL test's) fails to link the test build.
+fn context() -> tauri::Context<tauri::Wry> {
+    tauri::generate_context!()
 }
 
 /// Show + focus the main window for tray Open (not a cockpit toggle).
@@ -958,6 +998,7 @@ fn spawn_click_through_watcher(
         }
         // Shares the gate: the pointer read is only trustworthy where the hit test is.
         let buttons = MouseButtons::new(hit_test_usable);
+        let mut probe: Option<WindowProbe> = None;
 
         loop {
             std::thread::sleep(Duration::from_millis(tick_ms));
@@ -971,16 +1012,22 @@ fn spawn_click_through_watcher(
             let Some(window) = app.get_webview_window("main") else {
                 continue;
             };
+            if probe.is_none() {
+                probe = WindowProbe::new(&window);
+            }
+            let Some(probe) = probe.as_ref() else {
+                continue;
+            };
 
             // Track which window the user is actually working in. Must happen before
             // the visibility gate: while Kavibay is hidden the foreground window IS
             // the answer we want to remember for the next "Active window" open.
-            remember_active_window(&window, &active_window);
+            remember_active_window(probe.own_handle(), &active_window);
 
             // While hidden, force click-through off. Otherwise the last `ignore=true`
             // sticks across hide/show and the reopened window never receives clicks
             // (the toggle then only flips a ghost overlay).
-            if !window.is_visible().unwrap_or(false) {
+            if !probe.is_visible(&window) {
                 // No boundary to maintain while hidden — idle right down.
                 tick_ms = WATCH_HIDDEN_TICK_MS;
                 last_cursor = None;
@@ -994,14 +1041,7 @@ fn spawn_click_through_watcher(
             // Sample all window geometry before taking the lock, so the critical
             // section below stays pure arithmetic and never holds the mutex
             // across a Win32 call while the frontend may be writing rects.
-            let geometry = match (
-                window.cursor_position(),
-                window.outer_position(),
-                window.scale_factor(),
-            ) {
-                (Ok(cursor), Ok(origin), Ok(scale)) => Some((cursor, origin, scale)),
-                _ => None,
-            };
+            let geometry = probe.geometry(&window);
 
             let cursor_now = geometry.as_ref().map(|(c, _, _)| (c.x, c.y));
             let moved = cursor_now != last_cursor;
@@ -1062,19 +1102,102 @@ fn spawn_click_through_watcher(
 /// means "the window I was working in", which is exactly what we were before we
 /// stole focus.
 #[cfg(windows)]
-fn remember_active_window(window: &tauri::WebviewWindow, state: &SharedActiveWindow) {
+fn remember_active_window(ours: Option<isize>, state: &SharedActiveWindow) {
     use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
     let foreground = unsafe { GetForegroundWindow() };
     let foreground = (!foreground.is_invalid()).then_some(foreground.0 as isize);
-    let ours = window.hwnd().ok().map(|h| h.0 as isize);
     if let Ok(mut slot) = state.lock() {
         *slot = commands::next_active_window(*slot, foreground, ours);
     }
 }
 
 #[cfg(not(windows))]
-fn remember_active_window(_window: &tauri::WebviewWindow, _state: &SharedActiveWindow) {}
+fn remember_active_window(_ours: Option<isize>, _state: &SharedActiveWindow) {}
+
+/// What the watcher reads about the main window every tick: whether it is shown,
+/// where the pointer is, where the window sits and at what scale.
+///
+/// Through Tauri each of those — and `hwnd()` as well — posts a message to the
+/// event loop and blocks until the UI thread answers. That was five round trips
+/// a tick, about 300 a second at the 16 ms cadence, all from a thread that only
+/// reads. On Windows the calls tao answers them with (`IsWindowVisible`,
+/// `GetCursorPos`, `GetWindowRect`, `GetDpiForWindow`) are safe from any thread,
+/// so the watcher makes them itself and the UI thread is left alone.
+#[cfg(windows)]
+struct WindowProbe(windows::Win32::Foundation::HWND);
+
+type WindowGeometry = (PhysicalPosition<f64>, PhysicalPosition<i32>, f64);
+
+#[cfg(windows)]
+impl WindowProbe {
+    /// The one Tauri round trip: the handle does not change for the window's life.
+    fn new(window: &tauri::WebviewWindow) -> Option<Self> {
+        let hwnd = window.hwnd().ok()?;
+        Some(Self(windows::Win32::Foundation::HWND(hwnd.0)))
+    }
+
+    fn own_handle(&self) -> Option<isize> {
+        Some(self.0 .0 as isize)
+    }
+
+    fn is_visible(&self, _window: &tauri::WebviewWindow) -> bool {
+        unsafe { windows::Win32::UI::WindowsAndMessaging::IsWindowVisible(self.0) }.as_bool()
+    }
+
+    fn geometry(&self, _window: &tauri::WebviewWindow) -> Option<WindowGeometry> {
+        use windows::Win32::Foundation::{POINT, RECT};
+        use windows::Win32::UI::HiDpi::GetDpiForWindow;
+        use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, GetWindowRect};
+
+        let mut cursor = POINT::default();
+        let mut rect = RECT::default();
+        unsafe {
+            GetCursorPos(&mut cursor).ok()?;
+            GetWindowRect(self.0, &mut rect).ok()?;
+        }
+        // 0 means an invalid handle, which would divide the hit test into nonsense.
+        let dpi = unsafe { GetDpiForWindow(self.0) };
+        if dpi == 0 {
+            return None;
+        }
+        Some((
+            PhysicalPosition::new(cursor.x as f64, cursor.y as f64),
+            PhysicalPosition::new(rect.left, rect.top),
+            dpi as f64 / 96.0,
+        ))
+    }
+}
+
+/// Elsewhere the Tauri getters are the only portable answer.
+#[cfg(not(windows))]
+struct WindowProbe;
+
+#[cfg(not(windows))]
+impl WindowProbe {
+    fn new(_window: &tauri::WebviewWindow) -> Option<Self> {
+        Some(Self)
+    }
+
+    fn own_handle(&self) -> Option<isize> {
+        None
+    }
+
+    fn is_visible(&self, window: &tauri::WebviewWindow) -> bool {
+        window.is_visible().unwrap_or(false)
+    }
+
+    fn geometry(&self, window: &tauri::WebviewWindow) -> Option<WindowGeometry> {
+        match (
+            window.cursor_position(),
+            window.outer_position(),
+            window.scale_factor(),
+        ) {
+            (Ok(cursor), Ok(origin), Ok(scale)) => Some((cursor, origin, scale)),
+            _ => None,
+        }
+    }
+}
 
 /// Global mouse state — left or right down. Both dismiss, matching the `pointerdown`
 /// the frontend catcher used to see.
@@ -1150,14 +1273,14 @@ impl MouseButtons {
     }
 }
 
-/// `CGEventSourceButtonState` from Quartz Event Services.
-///
-/// Deliberately not AppKit's `NSEvent.pressedMouseButtons`, even though objc2 binds
-/// it safely: AppKit is main-thread-bound and this is read from the watcher thread.
-/// The Quartz event-source queries carry no such restriction. Same reasoning that
-/// put a private X11 connection on Linux instead of a GDK call.
-///
-/// Needs no dependency — CoreGraphics is already linked into every macOS build.
+// `CGEventSourceButtonState` from Quartz Event Services.
+//
+// Deliberately not AppKit's `NSEvent.pressedMouseButtons`, even though objc2 binds
+// it safely: AppKit is main-thread-bound and this is read from the watcher thread.
+// The Quartz event-source queries carry no such restriction. Same reasoning that
+// put a private X11 connection on Linux instead of a GDK call.
+//
+// Needs no dependency — CoreGraphics is already linked into every macOS build.
 #[cfg(target_os = "macos")]
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
@@ -1277,8 +1400,9 @@ mod tests {
 }
 
 /// The ACL as the running app enforces it: `generate_context!` compiles in the
-/// capabilities and the permissions `build.rs` generates, so this asks the
-/// same authority an `invoke` does.
+/// capabilities and the permissions `build.rs` generates, and [`super::context`]
+/// is the same call `run` builds with, so this asks the same authority an
+/// `invoke` does.
 #[cfg(test)]
 mod acl_tests {
     use tauri::ipc::Origin;
@@ -1297,7 +1421,7 @@ mod acl_tests {
 
     #[test]
     fn each_window_reaches_exactly_its_commands() {
-        let mut context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+        let mut context = super::context();
         let acl = context.runtime_authority_mut();
         let allowed = |window: &str, command: &str| {
             acl.resolve_access(command, window, window, &Origin::Local)

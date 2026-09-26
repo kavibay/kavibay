@@ -4,7 +4,7 @@
  *
  * The durable mirror writes two files (see `durableStorage.ts`). Settings go to
  * a plain, hand-editable `settings.json`; everything else — notes, timers, desk
- * layout, palette history — goes to the DPAPI-protected `web-storage.json`,
+ * layout, palette history — goes to the encrypted `web-storage.json`,
  * because that file is the only copy of the user's content and must not become
  * something a text editor opens. This module is the line between the two.
  *

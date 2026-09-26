@@ -99,15 +99,15 @@ export function useOnboarding() {
    *
    * Gated on both facts Rust reports, and on which gesture this machine has.
    * `revealed` alone would count a toggle that only closed the cockpit; the
-   * trigger alone would count the tray icon, and on Windows also
+   * trigger alone would count the tray icon, and on Windows and macOS also
    * Shift+Ctrl+Space — all of which reach Kavibay, none of which is the gesture
    * the card asked for. A machine with no keystroke at all (`revealGesture`
    * null) can never pass this way, which is why the card there offers a plain
    * acknowledgement instead of waiting.
    *
-   * There is nothing to check on the closing half: on Windows the keyboard hook
-   * is not called while our own webview has focus, so the only way to be
-   * revealed by a double tap is to have been hidden first.
+   * There is nothing to check on the closing half. Neither the Windows hook nor
+   * the macOS monitor sees keys while our own webview has focus, so the only way
+   * to be revealed by a double tap is to have been hidden first.
    */
   function notifyCockpitRevealed(trigger: CockpitTrigger, revealed: boolean) {
     if (!revealed || revealGesture.value == null || trigger !== revealGesture.value) return;
@@ -123,13 +123,13 @@ export function useOnboarding() {
   /**
    * Give up on the keystroke and move on.
    *
-   * Two ways to get here. On Windows the gesture needs a `WH_KEYBOARD_LL` hook,
-   * and there are places it is not called: an RDP session, a window running
-   * elevated while we are not, some game overlays. Elsewhere the fallback is an
-   * ordinary accelerator that another program may hold — or there is none free
-   * at all, and then the card never asks the user to press anything. Holding the
-   * tour hostage to a keystroke the machine may never deliver would strand
-   * exactly the users who most need the rest of it.
+   * Two ways to get here. On Windows and macOS the gesture needs Rust to watch
+   * the keyboard, and on Windows there are places the hook is not called: an RDP
+   * session, a window running elevated while we are not, some game overlays. On
+   * Linux the fallback is an ordinary accelerator that another program may
+   * hold. If none is free at all, the card never asks the user to press
+   * anything. Holding the tour hostage to a keystroke the machine may never
+   * deliver would strand exactly the users who most need the rest of it.
    */
   function skipHotkeyStep() {
     const s = onboardingState.value;
