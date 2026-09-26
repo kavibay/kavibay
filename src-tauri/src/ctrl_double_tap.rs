@@ -113,12 +113,47 @@ impl CtrlTapDetector {
 #[cfg(windows)]
 pub use win::spawn;
 
+/// Set once at start-up; the OS callback has no other way to reach the app.
+#[cfg(windows)]
+static APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+
+// The callback only ever runs on the thread that installed it, so the detector
+// can be thread-local and never takes a lock on the key path.
+#[cfg(windows)]
+thread_local! {
+    static DETECTOR: std::cell::RefCell<CtrlTapDetector> =
+        std::cell::RefCell::new(CtrlTapDetector::default());
+}
+
+/// Run one classified event through the rule, and toggle on a double tap.
+#[cfg(windows)]
+fn feed(event: KeyEvent) {
+    let tap = DETECTOR.with(|detector| detector.borrow_mut().observe(event, Instant::now()));
+    if tap == Tap::Double {
+        toggle_cockpit_soon();
+    }
+}
+
+/// Hand the toggle to the main thread and return immediately.
+///
+/// Windows drops a low-level hook that misses its deadline
+/// (`LowLevelHooksTimeout`, 300ms by default) and does not say so — the keys
+/// simply stop arriving. Showing a fullscreen window from inside the
+/// callback would flirt with that budget for no reason.
+#[cfg(windows)]
+fn toggle_cockpit_soon() {
+    let Some(app) = APP.get() else {
+        return;
+    };
+    let app = app.clone();
+    let _ = app.clone().run_on_main_thread(move || {
+        crate::toggle_cockpit(&app, false, crate::CockpitTrigger::CtrlDoubleTap)
+    });
+}
+
 #[cfg(windows)]
 mod win {
-    use super::{CtrlTapDetector, KeyEvent, Tap};
-    use std::cell::RefCell;
-    use std::sync::OnceLock;
-    use std::time::Instant;
+    use super::{feed, KeyEvent, APP};
     use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
     use windows::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL, VK_LCONTROL, VK_RCONTROL};
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -126,15 +161,6 @@ mod win {
         UnhookWindowsHookEx, KBDLLHOOKSTRUCT, MSG, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP,
         WM_SYSKEYDOWN, WM_SYSKEYUP,
     };
-
-    /// Set once at start-up; the hook callback has no other way to reach the app.
-    static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
-
-    // The callback only ever runs on the thread that installed the hook, so the
-    // detector can be thread-local and never takes a lock on the key path.
-    thread_local! {
-        static DETECTOR: RefCell<CtrlTapDetector> = RefCell::new(CtrlTapDetector::default());
-    }
 
     /// Install the hook on a thread of its own and keep it alive.
     ///
@@ -196,33 +222,13 @@ mod win {
                 _ => None,
             };
             if let Some(observed) = observed {
-                let tap = DETECTOR
-                    .with(|detector| detector.borrow_mut().observe(observed, Instant::now()));
-                if tap == Tap::Double {
-                    toggle_cockpit_soon();
-                }
+                feed(observed);
             }
         }
 
         // SAFETY: forwarding is required of every hook; None lets the OS find
         // the next hook in the chain itself.
         unsafe { CallNextHookEx(None, code, wparam, lparam) }
-    }
-
-    /// Hand the toggle to the main thread and return immediately.
-    ///
-    /// Windows drops a low-level hook that misses its deadline
-    /// (`LowLevelHooksTimeout`, 300ms by default) and does not say so — the keys
-    /// simply stop arriving. Showing a fullscreen window from inside the
-    /// callback would flirt with that budget for no reason.
-    fn toggle_cockpit_soon() {
-        let Some(app) = APP.get() else {
-            return;
-        };
-        let app = app.clone();
-        let _ = app.clone().run_on_main_thread(move || {
-            crate::toggle_cockpit(&app, false, crate::CockpitTrigger::CtrlDoubleTap)
-        });
     }
 }
 
