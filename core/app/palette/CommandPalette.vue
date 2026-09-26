@@ -315,6 +315,8 @@ const listOverlay = reactive({
 });
 let listOverlayRo: ResizeObserver | undefined;
 const paletteMenuOpen = ref(false);
+/** Where a right-click opened the menu, relative to the palette; null for the ⋯ button. */
+const paletteMenuAt = ref<{ x: number; y: number } | null>(null);
 const paletteMenuEl = ref<HTMLElement | null>(null);
 const paletteMenuTriggerEl = ref<HTMLElement | null>(null);
 const paletteHovered = ref(false);
@@ -2412,7 +2414,22 @@ async function onExitApp() {
 
 /** Toggle the palette context menu (Settings / Exit). */
 function togglePaletteMenu() {
+  paletteMenuAt.value = null;
   paletteMenuOpen.value = !paletteMenuOpen.value;
+}
+
+/**
+ * Right-click in the palette opens its menu at the cursor, with Settings only.
+ * The desk tabs handle their own right-click first.
+ */
+function onPaletteContextMenu(event: MouseEvent) {
+  if (event.defaultPrevented) return;
+  event.preventDefault();
+  const root = paletteRootEl.value?.getBoundingClientRect();
+  if (!root) return;
+  paletteMenuAt.value = { x: event.clientX - root.left, y: event.clientY - root.top };
+  paletteMenuOpen.value = true;
+  closeOnboardingMenu();
 }
 
 /** Return keyboard focus to the search input from the host's Ctrl+Tab loop. */
@@ -3192,6 +3209,7 @@ onUnmounted(() => {
     @pointerenter="paletteHovered = true"
     @pointerleave="paletteHovered = false"
     @pointerup="onPalettePointerUp"
+    @contextmenu="onPaletteContextMenu"
   >
     <!-- Glass layer — keeps backdrop-filter from clipping the drag overhang. -->
     <div class="palette-surface" aria-hidden="true" />
@@ -3286,6 +3304,11 @@ onUnmounted(() => {
       v-if="paletteMenuOpen"
       ref="paletteMenuEl"
       class="palette-context-menu"
+      :style="
+        paletteMenuAt
+          ? { top: `${paletteMenuAt.y}px`, left: `${paletteMenuAt.x}px`, right: 'auto' }
+          : undefined
+      "
       data-interactive
       role="menu"
       @pointerdown.stop
@@ -3310,6 +3333,7 @@ onUnmounted(() => {
         Settings
       </button>
       <button
+        v-if="!paletteMenuAt"
         type="button"
         role="menuitem"
         class="palette-context-menu-item"
