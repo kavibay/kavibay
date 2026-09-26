@@ -604,12 +604,36 @@ fn read_claude_settings(config_dir: &Path) -> Result<Value, String> {
     Ok(value)
 }
 
-fn configured_status_line(settings: &Value) -> Option<&str> {
-    settings
-        .get("statusLine")
-        .and_then(Value::as_object)
-        .and_then(|value| value.get("command"))
-        .and_then(Value::as_str)
+/// What Claude's `statusLine` setting holds, from Kavibay's point of view.
+enum StatusLine {
+    Missing,
+    /// Present, but Kavibay cannot safely take it over: not an object with a
+    /// string `command`.
+    Unmanageable,
+    Kavibay,
+    /// Kavibay's command from before generated paths used forward slashes.
+    LegacyKavibay,
+    Foreign,
+}
+
+fn status_line_command(status_line: &Value) -> Option<&str> {
+    status_line.as_object()?.get("command")?.as_str()
+}
+
+fn read_status_line(config_dir: &Path) -> Result<(Value, StatusLine), String> {
+    let command = claude_command(config_dir)?;
+    let legacy_command = legacy_claude_command(config_dir)?;
+    let settings = read_claude_settings(config_dir)?;
+    let status_line = match settings.get("statusLine") {
+        None => StatusLine::Missing,
+        Some(value) => match status_line_command(value) {
+            None => StatusLine::Unmanageable,
+            Some(existing) if existing == command => StatusLine::Kavibay,
+            Some(existing) if existing == legacy_command => StatusLine::LegacyKavibay,
+            Some(_) => StatusLine::Foreign,
+        },
+    };
+    Ok((settings, status_line))
 }
 
 #[cfg(windows)]
@@ -628,41 +652,30 @@ fn claude_unconfigured() -> UsageSource {
     )
 }
 
-fn claude_snapshot() -> UsageSource {
-    let Some(config_dir) = claude_dir() else {
-        return UsageSource::state("notFound", "Could not locate the Claude config directory.");
-    };
-    let command = match claude_command(&config_dir) {
-        Ok(command) => command,
-        Err(error) => return UsageSource::state("error", error),
-    };
-    let legacy_command = match legacy_claude_command(&config_dir) {
-        Ok(command) => command,
-        Err(error) => return UsageSource::state("error", error),
-    };
-    let settings = match read_claude_settings(&config_dir) {
-        Ok(settings) => settings,
+/// `state_file` is Claude's own `~/.claude.json`, which holds its last usage fetch.
+fn claude_snapshot(config_dir: &Path, state_file: Option<&Path>) -> UsageSource {
+    let status_line = match read_status_line(config_dir) {
+        Ok((_, status_line)) => status_line,
         Err(error) => return UsageSource::state("error", error),
     };
 
-    match configured_status_line(&settings) {
-        None if settings.get("statusLine").is_some() => UsageSource::state(
+    match status_line {
+        StatusLine::Missing => claude_unconfigured(),
+        StatusLine::Unmanageable => UsageSource::state(
             "conflict",
             "Claude has a status line Kavibay cannot safely update.",
         ),
-        None => claude_unconfigured(),
-        Some(existing) if existing == legacy_command => UsageSource::state(
+        StatusLine::LegacyKavibay => UsageSource::state(
             "notConfigured",
             "Claude capture needs a one-time path repair. Enable it again to repair the status line.",
         ),
-        Some(existing) if existing != command => UsageSource::state(
+        StatusLine::Foreign => UsageSource::state(
             "conflict",
             "Claude already has a different status line. Kavibay left it unchanged.",
         ),
-        Some(_) => {
+        StatusLine::Kavibay => {
             let cache = config_dir.join(CLAUDE_CACHE_FILE);
-            let state = home_dir()
-                .map(|home| home.join(".claude.json"))
+            let state = state_file
                 .and_then(|path| fs::read_to_string(path).ok())
                 .and_then(|value| parse_claude_usage_state(&value));
             let status_line = fs::read_to_string(cache)
@@ -684,7 +697,11 @@ fn claude_snapshot() -> UsageSource {
 }
 
 async fn claude_snapshot_live() -> UsageSource {
-    let local = claude_snapshot();
+    let Some(config_dir) = claude_dir() else {
+        return UsageSource::state("notFound", "Could not locate the Claude config directory.");
+    };
+    let state_file = home_dir().map(|home| home.join(".claude.json"));
+    let local = claude_snapshot(&config_dir, state_file.as_deref());
     if !matches!(local.status, "available" | "waiting") {
         return local;
     }
@@ -718,28 +735,19 @@ try {
 "#;
 
 #[cfg(windows)]
-fn enable_claude_capture() -> Result<(), String> {
-    let config_dir =
-        claude_dir().ok_or_else(|| "Could not locate the Claude config directory".to_string())?;
-    let command = claude_command(&config_dir)?;
-    let legacy_command = legacy_claude_command(&config_dir)?;
-    let mut settings = read_claude_settings(&config_dir)?;
+fn enable_claude_capture(config_dir: &Path) -> Result<(), String> {
+    let command = claude_command(config_dir)?;
+    let (mut settings, status_line) = read_status_line(config_dir)?;
 
-    if let Some(existing) = settings.get("statusLine") {
-        let existing_command = configured_status_line(&settings);
-        if existing_command != Some(command.as_str())
-            && existing_command != Some(legacy_command.as_str())
-        {
-            return Err(if existing.is_null() {
-                "Claude statusLine is null; remove it before enabling Kavibay capture".to_string()
-            } else {
-                "Claude already has a different status line; Kavibay did not overwrite it"
-                    .to_string()
-            });
-        }
+    if matches!(status_line, StatusLine::Unmanageable | StatusLine::Foreign) {
+        return Err(if settings["statusLine"].is_null() {
+            "Claude statusLine is null; remove it before enabling Kavibay capture".to_string()
+        } else {
+            "Claude already has a different status line; Kavibay did not overwrite it".to_string()
+        });
     }
 
-    fs::create_dir_all(&config_dir)
+    fs::create_dir_all(config_dir)
         .map_err(|error| format!("Could not create Claude config directory: {error}"))?;
     fs::write(
         config_dir.join(CLAUDE_SCRIPT_FILE),
@@ -760,7 +768,7 @@ fn enable_claude_capture() -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-fn enable_claude_capture() -> Result<(), String> {
+fn enable_claude_capture(_config_dir: &Path) -> Result<(), String> {
     Err("Claude capture setup is currently available on Windows only".to_string())
 }
 
@@ -776,7 +784,9 @@ pub async fn widget_ai_usage() -> AiUsageSnapshot {
 /// Installs the opt-in Claude Code status-line capture and returns its new state.
 #[tauri::command]
 pub async fn widget_ai_usage_enable_claude() -> Result<AiUsageSnapshot, String> {
-    enable_claude_capture()?;
+    let config_dir =
+        claude_dir().ok_or_else(|| "Could not locate the Claude config directory".to_string())?;
+    enable_claude_capture(&config_dir)?;
     Ok(widget_ai_usage().await)
 }
 
