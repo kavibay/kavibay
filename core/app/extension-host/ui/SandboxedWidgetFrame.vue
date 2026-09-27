@@ -23,6 +23,7 @@
  */
 import { forwardFrameZoom } from "../../host/contentZoom";
 import "../../runtime/frameViewport.css";
+import { packageFrameUrl } from "../../runtime/packageFrameUrl";
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import type { ProviderError, QueryState, WidgetInstance } from "@sdk/contract/sdk";
 import type { JsonBridge } from "../bridge";
@@ -48,6 +49,9 @@ const props = defineProps<{
 }>();
 
 const iframeRef = ref<HTMLIFrameElement | null>(null);
+const runId = ref(crypto.randomUUID());
+const frameUrl = computed(() => packageFrameUrl(props.entryUrl, runId.value));
+watch(() => props.entryUrl, () => { runId.value = crypto.randomUUID(); });
 let port: SandboxHostPort | undefined;
 
 /**
@@ -137,6 +141,7 @@ function onMessage(event: MessageEvent) {
   if (failure) {
     setupFailure.value = failure;
     mounting.value = false;
+    props.bridge.onFault?.(props.instance.id, { source: "error", message: failure.message });
     return;
   }
   /**
@@ -184,10 +189,11 @@ function open() {
  * component for this; here the document is the unit, so the frame reloads.
  */
 function retry() {
-  open();
-  const frame = iframeRef.value;
-  if (frame) frame.src = props.entryUrl;
+  runId.value = crypto.randomUUID();
 }
+
+// A new document needs a new bridge connection, even when the instance stays.
+watch(frameUrl, open);
 
 // A configuration change remounts the widget in-process; here it reloads the
 // frame, which is the same decision — `ctx.config` is read once by setup.
@@ -195,8 +201,7 @@ watch(
   () => JSON.stringify(props.instance.configuration ?? {}),
   (next, previous) => {
     if (next === previous) return;
-    open();
-    if (iframeRef.value) iframeRef.value.src = props.entryUrl;
+    retry();
   },
 );
 
@@ -241,7 +246,7 @@ onBeforeUnmount(() => {
       <iframe
         ref="iframeRef"
         class="sandboxed-widget-frame"
-        :src="entryUrl"
+        :src="frameUrl"
         :title="`Widget ${instance.definitionId}`"
         sandbox="allow-scripts"
         referrerpolicy="no-referrer"

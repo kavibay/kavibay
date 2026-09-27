@@ -90,6 +90,7 @@ fn file_response(bytes: Vec<u8>, content_type: &'static str) -> Response<Vec<u8>
         .header(header::CONTENT_TYPE, content_type)
         .header(header::CONTENT_SECURITY_POLICY, EXTENSION_FRAME_CSP)
         .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+        .header(header::CACHE_CONTROL, "no-store")
         .body(bytes)
         .unwrap_or_else(|_| status_response(StatusCode::INTERNAL_SERVER_ERROR))
 }
@@ -275,7 +276,7 @@ pub fn parse_kavibay_ext_uri(uri: &Uri) -> Result<KavibayExtTarget, String> {
         .decode_utf8()
         .map_err(|_| "path_not_utf8".to_string())?;
 
-    let (ext_id, relative_path) =
+    let (ext_id, mut relative_path) =
         if host.is_empty() || host.eq_ignore_ascii_case("localhost") || is_scheme_localhost(host) {
             // `kavibay-ext://localhost/<extId>/…` or `http://kavibay-ext.localhost/<extId>/…`
             split_ext_and_path(decoded_path.trim_start_matches('/'))?
@@ -289,6 +290,20 @@ pub fn parse_kavibay_ext_uri(uri: &Uri) -> Result<KavibayExtTarget, String> {
         };
 
     validate_ext_id(&ext_id)?;
+    // A host-minted directory changes every relative asset URL on a remount.
+    // It is not a filesystem path or a permission; safe_join still checks the rest.
+    if let Some(rest) = relative_path.strip_prefix("@run/") {
+        let (run_id, path) = rest.split_once('/').ok_or("invalid_frame_run")?;
+        if run_id.is_empty()
+            || run_id.len() > 64
+            || !run_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        {
+            return Err("invalid_frame_run".into());
+        }
+        relative_path = path.to_string();
+    }
     // Relative path still goes through safe_join (traversal / absolute / empty segments).
     if relative_path.is_empty() {
         return Err("missing_relative_path".into());
@@ -373,12 +388,60 @@ fn status_response(status: StatusCode) -> Response<Vec<u8>> {
     Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header(header::CACHE_CONTROL, "no-store")
         .body(Vec::new())
         .unwrap_or_else(|_| Response::new(Vec::new()))
 }
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn reload_directories_resolve_the_same_package_files() {
+        for origin in [
+            "kavibay-ext://localhost/demo",
+            "http://kavibay-ext.localhost/demo",
+            "kavibay-ext://demo",
+        ] {
+            for file in [
+                "ui/index.html",
+                "ui/widget.js",
+                "style.css",
+                "ui/@kavibay/contract.js",
+            ] {
+                for run in ["first-run", "second-run"] {
+                    let target =
+                        parse(&format!("{origin}/@run/{run}/{file}?published=42")).unwrap();
+                    assert_eq!(target.ext_id, "demo");
+                    assert_eq!(target.relative_path, file);
+                }
+            }
+        }
+        let draft = parse("kavibay-ext://localhost/__draft__demo/@run/new-run/widget.js").unwrap();
+        assert_eq!(draft.ext_id, "__draft__demo");
+        assert_eq!(draft.relative_path, "widget.js");
+        for suffix in ["", "/widget.js", "bad_token/widget.js", "../widget.js"] {
+            assert!(parse(&format!("kavibay-ext://localhost/demo/@run/{suffix}")).is_err());
+        }
+        let target = parse("kavibay-ext://localhost/demo/@run/valid/../secret").unwrap();
+        assert!(safe_join(&PathBuf::from("/packages/demo"), &target.relative_path).is_err());
+    }
+
+    #[test]
+    fn package_files_and_misses_are_never_cached() {
+        for response in [
+            super::file_response(b"script".to_vec(), "text/javascript"),
+            super::status_response(tauri::http::StatusCode::NOT_FOUND),
+        ] {
+            assert_eq!(
+                response
+                    .headers()
+                    .get(tauri::http::header::CACHE_CONTROL)
+                    .unwrap(),
+                "no-store"
+            );
+        }
+    }
 
     /// Every file a frame can navigate to carries the frame CSP — an SVG is a
     /// scripted document too, and without it `connect-src 'none'` was one
