@@ -60,8 +60,9 @@ to a question that has one.
 
 **A dot before the name, and nothing else.** It answers one question: can the
 palette run this yet. A filled green dot is a saved package you can add from the
-palette; amber is a saved package with newer unsaved changes; a hollow white
-ring is a draft that has never been published.
+palette; amber is a saved package with newer unsaved changes; a hollow ring is
+a draft that has never been published. The ring is drawn in the theme's
+foreground, so it stays visible on the light sidebar.
 
 Every row used to carry a second line — what changed, who changed it, how long
 ago — which answered questions nobody asks while scanning a list, and cost every
@@ -69,18 +70,25 @@ row twice its height to do it. Eight projects took 470 pixels; they now take
 324. None of it is deleted, it is moved: the dot's tooltip still says which of
 the two states the project is in and when it last changed.
 
-**The open project's conversations sit on a ground of their own** — one flat
-grey, no sheen, no rim, no shadow — so the group reads as belonging to the row
-above it rather than as more rows in the same list. Deliberately not the hover
-fill and not the selected treatment: both of those mean "this row, right now",
-and reusing either would say that about a whole group. It is also lighter than
-both, so a conversation lying on it still has its own two states to move
-between. The left rail is dropped where the panel applies, because the panel
-already groups what the rail was drawn to group.
+**The sidebar reads like a harness's thread list.** Codex and Claude Code were
+the reference: no box around the list, a flat **New project** entry at the top
+with the sidebar toggle beside it, a quiet **Projects** label, and rows set close
+together. The list used to sit in a framed panel and the open project's
+conversations on a grey ground of their own. Both are gone, because the rows'
+own hover and selection fills already structure the list.
 
-Over the page at `28,28,32`, the four grounds land at `38,38,42` for the panel,
-`46,46,50` for a hovered row, `51,51,54` for the selected one, and higher again
-for rows on the panel — one scale, in the order the states matter.
+**Conversations hang off their project by indentation alone.** Their text starts
+in the project name's column, they carry no status dot, and they are set
+lighter, which is what keeps six conversations from reading as six projects. An
+unfolded project gets a little air after its conversations. The status dot sits
+in a column as wide as the New project icon, so every name starts where that
+label starts.
+
+**Only one row reads as open.** The project line carries the selection until its
+conversation has a row of its own; once the project is unfolded, the selection
+moves down to that conversation. While the Wizard is working, a small spinner
+marks the same row at its end, in place of the conversation's age, the way a
+harness marks a running thread.
 
 **The selected row uses the app's own selected-row treatment** — the same
 `--row-selected-*` tokens the command palette draws its current row with: a
@@ -114,6 +122,11 @@ widget: if Codex or Claude changed the widget after that transcript was saved,
 the current draft wins and appears in the files and preview. The same
 reconciliation runs when the Wizard mounts, so an MCP event missed while the
 card or app was closed does not leave the visible project on stale files.
+
+A row's controls (**+**, the reorder handle and **×**) appear on hover and lie
+over the end of the row, where the text fades out beneath them. They take no
+width at rest: when they sat beside the name, invisible but still laid out,
+every name was cut off after a few letters next to an empty stretch of row.
 
 **+** on the row starts a new conversation in that project, without opening
 anything first. It only appears where there is a project to start one in: a row
@@ -237,7 +250,7 @@ one way out, which is why it cannot be conditional on anything.
 The fold is deliberately *not* stored. Whether this card's sidebar is collapsed
 is a preference living in its `ctx.data`, and it has to survive being briefly
 overruled — so the palette's fold is a separate flag that goes away again. The
-sidebar's own **+ New project** button does not fold anything: it is the same
+sidebar's own **New project** entry does not fold anything: it is the same
 act arrived at from a place that just used the sidebar.
 
 The action is declared **`needsInstance: false`**, which is what gives it a row
@@ -285,6 +298,10 @@ The middle column switches between **Conversation** and **Files**; the preview
 is its own column on the right and never moves.
 
 Both dividers are draggable, and arrow keys on a focused divider move them too.
+The left divider only resizes. Hiding the sidebar is the panel icon beside
+**New project**; folded away, the same icon sits at the top left, level with the
+header, because the divider track is the one place still on screen when the
+header is hidden while composing.
 Widths live in the widget's own `ctx.data`, so they belong to this Wizard on
 this desk rather than to whichever conversation was open when you dragged them.
 Below about 620px the side columns fold away on their own and the conversation

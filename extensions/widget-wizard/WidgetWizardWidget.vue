@@ -25,7 +25,7 @@ import {
   watch,
 } from "vue";
 import type { DraftChanged, DraftPresence, WizardCapability } from "@sdk/contract/sdk";
-import { BrainIcon, ServerPlusIcon, UnplugIcon } from "@sdk/icons";
+import { BrainIcon, PanelLeftIcon, ServerPlusIcon, SquarePenIcon, UnplugIcon } from "@sdk/icons";
 import { BrandMark, McpClientMark } from "@sdk/brand";
 import KavibaySelect from "@sdk/KavibaySelect.vue";
 import WizardModelMenu from "./WizardModelMenu.vue";
@@ -375,6 +375,7 @@ function toggleSidebar() {
  * inverted.
  */
 function startDrag(which: "side" | "preview", event: PointerEvent) {
+  if (which === "side" && sidebarHidden.value) return;
   const handle = event.currentTarget as HTMLElement;
   const startX = event.clientX;
   const startWidth = which === "side" ? sideWidth.value : previewWidth.value;
@@ -396,7 +397,6 @@ function startDrag(which: "side" | "preview", event: PointerEvent) {
     handle.removeEventListener("pointermove", move);
     handle.removeEventListener("pointerup", end);
     handle.removeEventListener("pointercancel", end);
-    if (!moved && which === "side") toggleSidebar();
     saveLayout();
   };
 
@@ -749,6 +749,11 @@ function describeProjectStatus(row: ProjectRow): string {
 function isActiveRow(row: ProjectRow): boolean {
   if (row.packageId && row.packageId === session.value.packageId) return true;
   return row.conversationIds.includes(session.value.id);
+}
+
+/** Whether the conversation on screen has a row of its own, unfolded under this project. */
+function showsActiveConversation(row: ProjectRow): boolean {
+  return isExpanded(row) && row.conversationIds.includes(session.value.id);
 }
 
 function conversationHeaderFor(id: string): ConversationHeader | undefined {
@@ -3775,9 +3780,23 @@ async function enablePackage(
   >
     <!-- Left: what you have already made or asked -->
     <aside v-show="!tooNarrow" class="wiz-side wiz-c1">
-      <button type="button" class="wiz-new" :disabled="busy" @click="newConversation">
-        + New project
-      </button>
+      <div class="wiz-side-top">
+        <button type="button" class="wiz-new" :disabled="busy" @click="newConversation">
+          <SquarePenIcon :size="14" />
+          <span>New project</span>
+        </button>
+        <button
+          type="button"
+          class="wiz-side-toggle"
+          aria-label="Hide sidebar"
+          v-tip="'Hide sidebar'"
+          @click="toggleSidebar"
+        >
+          <PanelLeftIcon :size="15" />
+        </button>
+      </div>
+
+      <p class="wiz-side-heading">Projects</p>
 
       <div class="wiz-side-sections">
         <!--
@@ -3803,12 +3822,14 @@ async function enablePackage(
               <!--
                 The highlight sits on the line, not on the project block: on the
                 block it tinted the conversations inside it too, so an open
-                project and its contents were one grey slab.
+                project and its contents were one grey slab. It moves down to the
+                conversation once that has a row of its own, so only one row on
+                screen ever reads as open.
               -->
               <div
                 class="wiz-side-line"
                 :class="{
-                  'wiz-side-sel': isActiveRow(row),
+                  'wiz-side-sel': isActiveRow(row) && !showsActiveConversation(row),
                   'wiz-side-line--bare': !row.packageId,
                   'wiz-side-line--armed': pendingDelete === row.key,
                 }"
@@ -3918,6 +3939,12 @@ async function enablePackage(
                         />
                       </svg>
                     </span>
+                    <span
+                      v-if="busy && isActiveRow(row) && !showsActiveConversation(row)"
+                      class="wiz-side-spinner"
+                      role="status"
+                      aria-label="Working"
+                    ></span>
                   </span>
                 </button>
                 <!--
@@ -3972,16 +3999,7 @@ async function enablePackage(
                 </span>
               </div>
 
-              <!--
-                The open project's conversations get a ground of their own, so
-                the group reads as belonging to the row above it rather than as
-                more rows in the same list.
-              -->
-              <div
-                v-if="isExpanded(row)"
-                class="wiz-side-history"
-                :class="{ 'wiz-side-history--on': isActiveRow(row) }"
-              >
+              <div v-if="isExpanded(row)" class="wiz-side-history">
                 <div
                   v-for="conversation in row.conversationIds"
                   :key="conversation"
@@ -4002,7 +4020,13 @@ async function enablePackage(
                     @click="openConversation(conversation)"
                   >
                     <span class="wiz-side-name">{{ conversationTitleFor(conversation) }}</span>
-                    <small class="wiz-side-when">{{ conversationAgeFor(conversation) }}</small>
+                    <span
+                      v-if="busy && conversation === session.id"
+                      class="wiz-side-spinner"
+                      role="status"
+                      aria-label="Working"
+                    ></span>
+                    <small v-else class="wiz-side-when">{{ conversationAgeFor(conversation) }}</small>
                   </button>
                   <span class="wiz-side-actions">
                     <button
@@ -4040,20 +4064,22 @@ async function enablePackage(
       @keydown.left.prevent="nudge('side', -1)"
       @keydown.right.prevent="nudge('side', 1)"
     >
+      <!--
+        In the divider's track because that is the one place left on screen when
+        the sidebar is folded: the header above the conversation is hidden while
+        composing, which is exactly when the sidebar is tucked away.
+      -->
       <button
+        v-if="sidebarHidden"
         type="button"
-        class="wiz-side-toggle"
-        :aria-expanded="!sidebarHidden"
-        :aria-label="sidebarHidden ? 'Expand sidebar' : 'Collapse sidebar'"
-        :title="sidebarHidden ? 'Expand sidebar' : 'Collapse sidebar'"
+        class="wiz-side-expand"
+        aria-label="Show sidebar"
+        v-tip="'Show sidebar'"
         @pointerdown.stop
         @keydown.stop
         @click.stop="toggleSidebar"
       >
-        <span class="wiz-side-toggle-title">
-          {{ sidebarHidden ? "Click to expand" : "Click to collapse" }}
-        </span>
-        <span class="wiz-side-toggle-hint">Drag to resize</span>
+        <PanelLeftIcon :size="15" />
       </button>
     </div>
 
@@ -4988,16 +5014,6 @@ async function enablePackage(
   grid-column: 3;
 }
 
-/*
-  Hidden grid tracks still retain their gaps. Pull the main panel across those
-  two gaps and the small handle track so its left breathing room matches the
-  ordinary outer padding on the preview side.
-*/
-.wiz--sidebar-collapsed .wiz-main {
-  width: calc(100% + 26px);
-  margin-left: -26px;
-}
-
 .wiz-c4 {
   grid-column: 4;
 }
@@ -5058,13 +5074,14 @@ async function enablePackage(
 }
 
 /*
-  A project is a heading with things under it, so it is spaced like one: air
-  above each project, none between a project and its own conversations. The
-  screenshot that prompted this had the same gap everywhere, which made six
-  conversations read as six projects.
+  Projects sit close, the way a harness lists its threads. What keeps six
+  conversations from reading as six projects is no longer air above every
+  project, which made a folded list twice as tall as its names: conversations
+  are indented to the name column, carry no status dot, and are set lighter.
+  An unfolded project still gets air after its conversations.
 */
 .wiz-side-item--stacked + .wiz-side-item--stacked {
-  margin-top: 9px;
+  margin-top: 1px;
 }
 
 /*
@@ -5159,7 +5176,7 @@ async function enablePackage(
 
 .wiz-side-item--stacked > .wiz-side-line > .wiz-side-row .wiz-side-name {
   flex: 0 1 auto;
-  font-weight: 550;
+  font-weight: 500;
 }
 
 /*
@@ -5167,10 +5184,13 @@ async function enablePackage(
   is still runnable from the palette but a newer draft is waiting to be saved;
   a hollow ring is a draft that has never been published.
 */
+/* Centred in a 14px column, the width of the New project icon above it, so
+   the names start where that label starts. */
 .wiz-side-dot {
   flex: 0 0 auto;
   width: 7px;
   height: 7px;
+  margin: 0 3px 0 4px;
   border-radius: 50%;
 }
 
@@ -5232,7 +5252,7 @@ async function enablePackage(
   /* Centred, not baseline: a caret has no baseline worth aligning to, and on
      one it sat below the text and read as having slipped. */
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   /* The constraint the name needs to be able to shorten itself. Without a width
      here the row shrink-wraps its content, overflows the button and is cut by
      its `overflow: hidden` — the title lost its last letters *and* its ellipsis,
@@ -5398,34 +5418,15 @@ async function enablePackage(
 }
 
 /*
-  The conversations hang off the project rather than sitting beside it: one
-  rail, indented under the name, so the eye can tell a project from its own
-  contents without reading either.
+  The conversations hang off the project by indentation alone: their text
+  starts in the project name's column, so the eye can tell a project from its
+  own contents without a rail or a panel drawn around them.
 */
 .wiz-side-history {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin: 3px 0 2px 11px;
-  padding: 0 0 0 9px;
-  border-left: 1px solid rgba(var(--fg-rgb), 0.09);
-}
-
-/*
-  Deliberately *not* the hover fill and not the selected treatment.
-
-  Both of those mean "this row, right now" — one because the pointer is on it,
-  one because it is open — and reusing either here would say that about a whole
-  group. This is a ground: one flat colour, no sheen, no rim, no shadow, and
-  lighter than both so a row lying on it still has its own two states to move
-  between. The rail is dropped where it applies, because a panel already groups
-  what the rail was drawn to group.
-*/
-.wiz-side-history--on {
-  padding: 4px 4px 5px 9px;
-  border-left-color: transparent;
-  border-radius: 8px;
-  background: rgba(var(--fg-rgb), 0.045);
+  gap: 1px;
+  margin: 1px 0 6px 20px;
 }
 
 /*
@@ -5449,8 +5450,31 @@ async function enablePackage(
 
 .wiz-side-when {
   flex: 0 0 auto;
+  margin-left: auto;
   font-size: 10px;
   opacity: 0.6;
+}
+
+/*
+  The row whose conversation is being worked on, marked where a harness marks
+  a running thread: at the end of the row, in place of its age.
+*/
+.wiz-side-spinner {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 9px;
+  height: 9px;
+  margin-left: auto;
+  border: 1.5px solid rgba(var(--fg-rgb), 0.2);
+  border-top-color: rgba(var(--fg-rgb), 0.8);
+  border-radius: 50%;
+  animation: wiz-side-spin 0.8s linear infinite;
+}
+
+@keyframes wiz-side-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .wiz-side-del {
@@ -5480,14 +5504,93 @@ async function enablePackage(
   opacity: 1;
 }
 
+/*
+  The sidebar's own actions are rows like the projects under them, not a
+  button the width of the column: the list is what this column is for.
+*/
+.wiz-side-top {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
 .wiz-new {
-  padding: 7px 10px;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: none;
   border-radius: 8px;
-  border: 1px solid rgba(var(--fg-rgb), 0.16);
-  background: rgba(var(--fg-rgb), 0.08);
+  background: none;
   color: inherit;
   font: inherit;
+  font-weight: 500;
+  text-align: left;
   cursor: pointer;
+  transition: background-color 100ms ease;
+}
+
+.wiz-new:hover:not(:disabled) {
+  background: var(--fill, rgba(var(--fg-rgb), 0.08));
+}
+
+.wiz-new:focus-visible {
+  outline: 1px solid rgba(var(--fg-rgb), 0.45);
+  outline-offset: -1px;
+}
+
+.wiz-new:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.wiz-new > .lmi {
+  flex: 0 0 auto;
+  opacity: 0.75;
+}
+
+.wiz-side-toggle,
+.wiz-side-expand {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  opacity: 0.55;
+  cursor: pointer;
+  transition:
+    opacity 120ms ease,
+    background-color 120ms ease;
+}
+
+.wiz-side-toggle:hover,
+.wiz-side-expand:hover {
+  background: var(--fill, rgba(var(--fg-rgb), 0.08));
+  opacity: 1;
+}
+
+.wiz-side-toggle:focus-visible,
+.wiz-side-expand:focus-visible {
+  outline: 1px solid rgba(var(--fg-rgb), 0.45);
+  outline-offset: -1px;
+  opacity: 1;
+}
+
+.wiz-side-heading {
+  flex: 0 0 auto;
+  margin: 6px 0 0;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(var(--fg-rgb), 0.45);
 }
 
 .wiz-head {
@@ -6889,102 +6992,22 @@ button:disabled {
   outline: none;
 }
 
-.wiz-side-toggle {
-  position: absolute;
-  top: 50%;
-  left: 8px;
-  display: flex;
-  align-items: flex-start;
-  flex-direction: column;
-  min-width: 132px;
-  padding: 7px 10px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 7px;
-  background: rgba(12, 12, 14, 0.96);
-  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.32);
-  color: rgba(255, 255, 255, 0.95);
-  font: inherit;
-  font-size: 12px;
-  line-height: 1.25;
-  cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-50%);
-  transition: background-color 120ms, opacity 120ms;
-  z-index: 5;
-}
-
-.wiz-c2:hover .wiz-side-toggle,
-.wiz-c2:focus-within .wiz-side-toggle,
-.wiz-side-toggle:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.wiz-side-toggle-title {
-  font-weight: 600;
-}
-
-.wiz-side-toggle-hint {
-  margin-top: 3px;
-  color: rgba(255, 255, 255, 0.65);
-}
-
-.wiz-side-toggle:hover {
-  background: rgba(24, 24, 27, 0.98);
-  opacity: 1;
-}
-
-.wiz-side-toggle:focus-visible {
-  outline: 1px solid rgba(255, 255, 255, 0.5);
-  outline-offset: 1px;
-  opacity: 1;
-}
-
-/* A collapsed sidebar leaves a small, quiet handle rather than a full-height
-   highlighted rail. Its native title still explains how to expand it. */
+/*
+  Folded away, the divider has no width to set. It only holds the way back,
+  level with the header rather than halfway down the edge where it used to be
+  a tab nobody looked for.
+*/
 .wiz-grip.wiz-c2--sidebar-collapsed,
 .wiz-grip.wiz-c2--sidebar-collapsed:hover,
 .wiz-grip.wiz-c2--sidebar-collapsed:focus-visible {
   background: transparent;
+  cursor: default;
 }
 
-.wiz-c2--sidebar-collapsed .wiz-side-toggle {
-  top: 50%;
-  left: -16px;
-  min-width: 14px;
-  width: 14px;
-  height: 28px;
-  padding: 0;
-  border-color: rgba(var(--fg-rgb), 0.1);
-  border-radius: 4px;
-  background: rgba(var(--fg-rgb), 0.06);
-  color: inherit;
-  font-size: 0;
-  opacity: 0.55;
-  pointer-events: auto;
-  transform: translateY(-50%);
-  box-shadow: none;
-  display: grid;
-  place-items: center;
-}
-
-.wiz-c2--sidebar-collapsed .wiz-side-toggle::before {
-  content: "›";
-  font-size: 14px;
-  line-height: 1;
-}
-
-.wiz-c2--sidebar-collapsed .wiz-side-toggle-title,
-.wiz-c2--sidebar-collapsed .wiz-side-toggle-hint {
-  display: none;
-}
-
-.wiz-c2--sidebar-collapsed .wiz-side-toggle:hover,
-.wiz-c2--sidebar-collapsed:focus-within .wiz-side-toggle {
-  background: rgba(var(--fg-rgb), 0.1);
-  border-color: rgba(var(--fg-rgb), 0.16);
-  opacity: 1;
+.wiz-side-expand {
+  position: absolute;
+  top: 2px;
+  left: -13px;
 }
 
 </style>
