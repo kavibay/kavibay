@@ -3,6 +3,8 @@
 
 mod appearance_prefs;
 mod autostart;
+#[cfg(target_os = "macos")]
+mod behind_window_blur;
 mod commands;
 mod credentials;
 #[cfg(any(windows, target_os = "macos", test))]
@@ -484,6 +486,8 @@ pub fn run() {
             let active_window: SharedActiveWindow = Arc::new(Mutex::new(None));
             app.manage(active_window.clone());
             spawn_click_through_watcher(app.handle().clone(), click_through, active_window);
+            #[cfg(target_os = "macos")]
+            behind_window_blur::spawn(app.handle().clone());
 
             let clipboard_state = clipboard_widget::ClipboardState::default();
             app.manage(clipboard_state.clone());
