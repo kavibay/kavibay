@@ -92,7 +92,8 @@ shared value:
 | `opacity` | `0`…`1` | Alpha of that colour; `1` hides everything behind the card |
 | `blur` | `0`…`24` px | Backdrop blur; `0` turns it off |
 | `radius` | `0`…`64` px | Corner radius, drawn with the shared corner shape |
-| `editable` | `false` | `true` adds an Appearance section to the widget's settings, where each instance changes these four and can reset them |
+| `shadow` | `true` / `false` | `false` drops the card's drop shadow; absent keeps the shared one |
+| `editable` | `false` | `true` adds an Appearance section to the widget's settings, where each instance changes these five and can reset them |
 
 The host draws the section and stores each instance's values with its title in
 the layout, so a duplicate keeps them. The widget writes no code for any of it.
