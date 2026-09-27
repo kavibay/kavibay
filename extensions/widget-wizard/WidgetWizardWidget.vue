@@ -3805,7 +3805,14 @@ async function enablePackage(
                 block it tinted the conversations inside it too, so an open
                 project and its contents were one grey slab.
               -->
-              <div class="wiz-side-line" :class="{ 'wiz-side-sel': isActiveRow(row) }">
+              <div
+                class="wiz-side-line"
+                :class="{
+                  'wiz-side-sel': isActiveRow(row),
+                  'wiz-side-line--bare': !row.packageId,
+                  'wiz-side-line--armed': pendingDelete === row.key,
+                }"
+              >
                 <!--
                   One control for the project.
 
@@ -3914,48 +3921,55 @@ async function enablePackage(
                   </span>
                 </button>
                 <!--
-                  Start a conversation in this project without opening anything
-                  first. Only where there is a project to start one in: a row
-                  that is itself nothing but a conversation has no second one to
-                  offer, and a + there would make a new project under the wrong
-                  name.
+                  Laid over the end of the row instead of beside it. Beside it,
+                  the hidden buttons kept their width at rest and every name was
+                  cut off after a few letters next to an empty stretch of row.
                 -->
-                <button
-                  v-if="row.packageId"
-                  type="button"
-                  class="wiz-side-add"
-                  v-tip="'New conversation in this project'"
-                  aria-label="New conversation"
-                  :disabled="busy"
-                  @click.stop="newConversationIn(row)"
-                >+</button>
-                <!--
-                  Pointer events, not HTML5 drag-and-drop.
+                <span class="wiz-side-actions">
+                  <!--
+                    Start a conversation in this project without opening anything
+                    first. Only where there is a project to start one in: a row
+                    that is itself nothing but a conversation has no second one to
+                    offer, and a + there would make a new project under the wrong
+                    name.
+                  -->
+                  <button
+                    v-if="row.packageId"
+                    type="button"
+                    class="wiz-side-add"
+                    v-tip="'New conversation in this project'"
+                    aria-label="New conversation"
+                    :disabled="busy"
+                    @click.stop="newConversationIn(row)"
+                  >+</button>
+                  <!--
+                    Pointer events, not HTML5 drag-and-drop.
 
-                  The webview this runs in hands OS-level drag to the host
-                  window, and in-page `dragstart` is not reliably delivered — a
-                  handle that works everywhere except in the app it is for is
-                  worse than no handle. Alt+arrows on the row do the same thing
-                  without a pointer at all.
-                -->
-                <span
-                  class="wiz-side-grip"
-                  v-tip="'Drag to reorder — or Alt+↑ / Alt+↓ on the row'"
-                  aria-hidden="true"
-                  @pointerdown="startReorder(row.key, $event)"
-                >⠿</span>
-                <button
-                  type="button"
-                  class="wiz-side-del"
-                  :class="{ 'wiz-side-del--armed': pendingDelete === row.key }"
-                  v-tip="
-                    pendingDelete === row.key ? 'Click again — there is no undo' : rowDeleteTip(row)
-                  "
-                  :disabled="busy"
-                  @click="deleteRow(row)"
-                >
-                  {{ pendingDelete === row.key ? "Sure?" : "×" }}
-                </button>
+                    The webview this runs in hands OS-level drag to the host
+                    window, and in-page `dragstart` is not reliably delivered — a
+                    handle that works everywhere except in the app it is for is
+                    worse than no handle. Alt+arrows on the row do the same thing
+                    without a pointer at all.
+                  -->
+                  <span
+                    class="wiz-side-grip"
+                    v-tip="'Drag to reorder — or Alt+↑ / Alt+↓ on the row'"
+                    aria-hidden="true"
+                    @pointerdown="startReorder(row.key, $event)"
+                  >⠿</span>
+                  <button
+                    type="button"
+                    class="wiz-side-del"
+                    :class="{ 'wiz-side-del--armed': pendingDelete === row.key }"
+                    v-tip="
+                      pendingDelete === row.key ? 'Click again — there is no undo' : rowDeleteTip(row)
+                    "
+                    :disabled="busy"
+                    @click="deleteRow(row)"
+                  >
+                    {{ pendingDelete === row.key ? "Sure?" : "×" }}
+                  </button>
+                </span>
               </div>
 
               <!--
@@ -3990,15 +4004,17 @@ async function enablePackage(
                     <span class="wiz-side-name">{{ conversationTitleFor(conversation) }}</span>
                     <small class="wiz-side-when">{{ conversationAgeFor(conversation) }}</small>
                   </button>
-                  <button
-                    type="button"
-                    class="wiz-side-del"
-                    v-tip="'Delete this conversation'"
-                    :disabled="busy"
-                    @click="deleteConversation(conversation)"
-                  >
-                    ×
-                  </button>
+                  <span class="wiz-side-actions">
+                    <button
+                      type="button"
+                      class="wiz-side-del"
+                      v-tip="'Delete this conversation'"
+                      :disabled="busy"
+                      @click="deleteConversation(conversation)"
+                    >
+                      ×
+                    </button>
+                  </span>
                 </div>
                 <p v-if="!row.conversationIds.length" class="wiz-hint">
                   No conversation yet — press + to start one.
@@ -5107,6 +5123,7 @@ async function enablePackage(
 */
 .wiz-side-line,
 .wiz-side-history > .wiz-side-item {
+  position: relative;
   border-radius: 8px;
   transition: background-color 100ms ease;
 }
@@ -5291,27 +5308,108 @@ async function enablePackage(
 }
 
 /*
+  The row's actions sit on top of the end of the row and take no width from it,
+  so a name uses the whole row until the pointer arrives.
+
+  The text under them fades out instead of being covered. A cover would need an
+  opaque colour, and the row is a tint over a card whose opacity the person
+  sets, so no colour matches it in both themes. The fade is as wide as the
+  buttons that are showing: 20px each, plus the inset.
+*/
+.wiz-side-line {
+  --wiz-side-actions: 64px;
+}
+
+.wiz-side-line--bare {
+  --wiz-side-actions: 44px;
+}
+
+.wiz-side-line--armed {
+  --wiz-side-actions: 84px;
+}
+
+.wiz-side-line--bare.wiz-side-line--armed {
+  --wiz-side-actions: 64px;
+}
+
+.wiz-side-history > .wiz-side-item {
+  --wiz-side-actions: 24px;
+}
+
+.wiz-side-actions {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+/*
+  Each row reveals its own actions, and only its own.
+
+  A project *is* an item and its conversations are items inside it, so a
+  descendant combinator on the item matched every nested delete button the
+  moment the pointer entered the project block. Child combinators keep each
+  reveal to the row that owns it.
+*/
+.wiz-side-line:hover > .wiz-side-actions,
+.wiz-side-line:has(:focus-visible) > .wiz-side-actions,
+.wiz-side-line--armed > .wiz-side-actions,
+.wiz-side-item--dragging > .wiz-side-line > .wiz-side-actions,
+.wiz-side-history > .wiz-side-item:hover > .wiz-side-actions,
+.wiz-side-history > .wiz-side-item:has(:focus-visible) > .wiz-side-actions {
+  opacity: 1;
+}
+
+.wiz-side-line:hover > .wiz-side-row,
+.wiz-side-line:has(:focus-visible) > .wiz-side-row,
+.wiz-side-line--armed > .wiz-side-row,
+.wiz-side-item--dragging > .wiz-side-line > .wiz-side-row,
+.wiz-side-history > .wiz-side-item:hover > .wiz-side-row,
+.wiz-side-history > .wiz-side-item:has(:focus-visible) > .wiz-side-row {
+  -webkit-mask-image: linear-gradient(
+    to left,
+    transparent var(--wiz-side-actions),
+    #000 calc(var(--wiz-side-actions) + 16px)
+  );
+  mask-image: linear-gradient(
+    to left,
+    transparent var(--wiz-side-actions),
+    #000 calc(var(--wiz-side-actions) + 16px)
+  );
+}
+
+.wiz-side-add,
+.wiz-side-grip,
+.wiz-side-del {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    opacity 120ms ease,
+    background-color 120ms ease;
+}
+
+/*
   Starting a conversation is an action on the project, so it is on the project's
   row rather than a line inside it that only exists once the project is open.
 */
 .wiz-side-add {
-  flex: 0 0 auto;
-  padding: 2px 6px;
-  border: none;
-  background: none;
-  color: inherit;
-  font: inherit;
   font-size: 15px;
-  line-height: 1;
-  opacity: 0;
-  cursor: pointer;
-  border-radius: 5px;
-  transition: opacity 120ms ease;
-}
-
-.wiz-side-line:hover > .wiz-side-add,
-.wiz-side-line:focus-within > .wiz-side-add {
-  opacity: 0.45;
+  opacity: 0.55;
 }
 
 .wiz-side-add:hover:not(:disabled) {
@@ -5325,31 +5423,17 @@ async function enablePackage(
   outline-offset: -1px;
 }
 
-/*
-  Visible on hover like the delete button: a handle on every row at rest is
-  forty pieces of furniture in a list that is read far more often than it is
-  rearranged.
-*/
 .wiz-side-grip {
-  flex: 0 0 auto;
-  padding: 2px;
   font-size: 11px;
-  line-height: 1;
-  opacity: 0;
+  opacity: 0.4;
   cursor: grab;
   /* The pointer must not be able to select text out from under a drag. */
   touch-action: none;
   user-select: none;
-  transition: opacity 120ms ease;
 }
 
 .wiz-side-item--dragging .wiz-side-grip {
   cursor: grabbing;
-}
-
-.wiz-side-line:hover > .wiz-side-grip,
-.wiz-side-line:focus-within > .wiz-side-grip {
-  opacity: 0.35;
 }
 
 .wiz-side-item--dragging {
@@ -5413,37 +5497,14 @@ async function enablePackage(
 }
 
 .wiz-side-del {
-  border: none;
-  background: none;
-  color: inherit;
-  opacity: 0;
-  cursor: pointer;
-  padding: 2px 6px;
   font-size: 14px;
-  line-height: 1;
-  transition: opacity 120ms ease;
-}
-
-/*
-  Each row reveals its own chrome, and only its own.
-
-  `.wiz-side-item:hover .wiz-side-del` looked right and was not: a project *is*
-  an item and its conversations are items inside it, so a descendant combinator
-  matched every nested delete button the moment the pointer entered the project
-  block. Eight conversations then showed eight × at once, which reads as a
-  column of buttons rather than as an action on the row under the pointer.
-  Child combinators keep each reveal to the row that owns it.
-*/
-.wiz-side-line:hover > .wiz-side-del,
-.wiz-side-line:focus-within > .wiz-side-del,
-.wiz-side-history > .wiz-side-item:hover > .wiz-side-del,
-.wiz-side-history > .wiz-side-item:focus-within > .wiz-side-del {
-  opacity: 0.35;
+  opacity: 0.45;
 }
 
 .wiz-side-del:hover:not(:disabled),
 .wiz-side-del:focus-visible {
   opacity: 0.9;
+  background: rgba(var(--fg-rgb), 0.12);
 }
 
 .wiz-side-del:focus-visible {
@@ -5451,18 +5512,14 @@ async function enablePackage(
   outline-offset: -1px;
 }
 
-.wiz-side-del--armed {
-  opacity: 1;
-  font-size: 10px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: rgba(255, 120, 120, 0.2);
-  color: rgba(255, 157, 157, 0.95);
-}
-
 /* Armed is a state, not a hover: it stays visible until it is used or times out. */
 .wiz-side-del--armed,
 .wiz-side-del--armed:hover:not(:disabled) {
+  width: 40px;
+  font-size: 10px;
+  border-radius: 999px;
+  background: rgba(255, 120, 120, 0.2);
+  color: rgba(255, 157, 157, 0.95);
   opacity: 1;
 }
 
