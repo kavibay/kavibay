@@ -5233,7 +5233,7 @@ async function enablePackage(
 */
 .wiz-side-dot--draft {
   background: none;
-  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.85);
+  box-shadow: inset 0 0 0 1.5px rgba(var(--fg-rgb), 0.85);
 }
 
 .wiz-side-presence {
