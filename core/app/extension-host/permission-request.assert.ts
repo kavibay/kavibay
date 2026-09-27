@@ -179,7 +179,7 @@ const onlyTado = {
     ...asking,
     widget: {
       ...asking.widget,
-      requires: { providers: [TADO], actions: { [TADO]: ["setTemperature", "boost"] } },
+      requires: { providers: [{ id: TADO, actions: ["setTemperature", "boost"] }] },
     },
   };
 
@@ -221,7 +221,7 @@ const onlyTado = {
   const all = buildPermissionRequest(onlyTado, reg).choices[0]!.summary;
   const reads = {
     ...onlyTado,
-    widget: { ...onlyTado.widget, requires: { providers: [TADO], queries: { [TADO]: ["roomState", "typo"] } } },
+    widget: { ...onlyTado.widget, requires: { providers: [{ id: TADO, queries: ["roomState", "typo"] }] } },
   };
   const request = buildPermissionRequest(reads, reg);
   assert(all.includes("rooms"), `without a declaration the account is summarised: ${all}`);

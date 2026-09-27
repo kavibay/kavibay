@@ -387,7 +387,7 @@ console.log("widget-package.assert.ts: ok");
 {
   const writes = {
     ...greedy,
-    widget: { ...greedy.widget, requires: { providers: [TADO], actions: { [TADO]: ["setTemperature"] } } },
+    widget: { ...greedy.widget, requires: { providers: [{ id: TADO, actions: ["setTemperature"] }] } },
   };
   assert(
     JSON.stringify(requestedPermissions(writes).actions) === JSON.stringify({ [TADO]: ["setTemperature"] }),
@@ -415,16 +415,42 @@ console.log("widget-package.assert.ts: ok");
     "a change on an account the approval does not let it read",
   );
   refuses(
-    () => requestedPermissions({ ...greedy, widget: { ...greedy.widget, requires: { providers: [TADO], actions: ["setTemperature"] } } }),
-    "a bare list of actions, with no provider they belong to",
-  );
-  refuses(
     () =>
       requestedPermissions({
         ...greedy,
-        widget: { ...greedy.widget, requires: { providers: [TADO], actions: { "kavibay.other/x": ["go"] } } },
+        widget: { ...greedy.widget, requires: { providers: [TADO], actions: { [TADO]: ["setTemperature"] } } },
       }),
-    "a change on a provider the package does not read",
+    "the first spelling, a map beside the list, with the shape that replaced it",
+  );
+  refuses(
+    () => requestedPermissions({ ...greedy, widget: { ...greedy.widget, requires: { providers: [{ actions: ["go"] }] } } }),
+    "a provider entry without an id",
+  );
+}
+
+// --- a provider entry is a bare id or an object, and both read the same ---
+{
+  const bare = requestedPermissions(greedy);
+  const object = requestedPermissions({
+    ...greedy,
+    widget: { ...greedy.widget, requires: { providers: [{ id: TADO }] } },
+  });
+  assert(
+    JSON.stringify(bare) === JSON.stringify(object) &&
+      JSON.stringify(bare) === JSON.stringify({ providers: [TADO], actions: {}, queries: {} }),
+    "a bare id and an object with nothing but an id ask for the same thing",
+  );
+  const detailed = requestedPermissions({
+    ...greedy,
+    widget: {
+      ...greedy.widget,
+      requires: { providers: [{ id: TADO, queries: ["rooms", "roomState"], actions: ["setTemperature"] }] },
+    },
+  });
+  assert(
+    JSON.stringify(detailed) ===
+      JSON.stringify({ providers: [TADO], actions: { [TADO]: ["setTemperature"] }, queries: { [TADO]: ["rooms", "roomState"] } }),
+    "an entry's lists come back per provider",
   );
 }
 

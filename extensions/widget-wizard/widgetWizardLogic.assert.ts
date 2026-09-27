@@ -1263,8 +1263,7 @@ assert(
   const manifest = {
     widget: {
       requires: {
-        providers: ["kavibay.spotify/spotify"],
-        actions: { "kavibay.spotify/spotify": ["play", "rewind"] },
+        providers: [{ id: "kavibay.spotify/spotify", actions: ["play", "rewind"] }],
       },
     },
   };
@@ -1349,8 +1348,16 @@ assert(
     ],
   };
   const manifest = (queries: string[]) => ({
-    widget: { requires: { providers: [weather.id], queries: { [weather.id]: queries } } },
+    widget: { requires: { providers: [{ id: weather.id, queries }] } },
   });
+  assertEq(
+    providersUsedBy(
+      [{ path: "manifest.json", contents: JSON.stringify({ widget: { requires: { providers: [weather.id] } } }) }],
+      [weather],
+    ).map((use) => [use.id, use.declaredQueries]),
+    [[weather.id, []]],
+    "a bare id still names the provider, and states nothing about what it reads",
+  );
   assertEq(
     buildWizardPermissionRequest(manifest(["current", "nope"]), [weather]).choices[0]?.summary,
     "Current conditions",

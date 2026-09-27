@@ -653,8 +653,9 @@ host capability, and the calls the preview makes are already listed under
 **Debug** beside it. `providersUsedBy` in `widgetWizardLogic.ts` reads the
 manifest and matches it against the catalog.
 
-**What the manifest says against what the code does.** `requires.queries` names
-the queries a widget reads and `requires.actions` the actions it calls.
+**What the manifest says against what the code does.** Each provider entry in
+`requires.providers` names the `queries` a widget reads there and the `actions`
+it calls.
 `providerCallsIn` finds every `.query("…")`, `.subscribe("…")` and `.action("…")`
 with a literal name in the package's scripts and inline HTML, and each card
 marks the difference. Under **Reads**: declared, declared but not called, not
@@ -858,7 +859,7 @@ and does nothing. Without Developer Extensions the switch is not offered at all.
 
 **It grants exactly what the package asked for** (`autoApprovedGrant`) — every
 provider the manifest declared that this machine actually has, the changes it
-declared on them in `requires.actions`, and nothing else. An action the provider
+declared on them in each entry's `actions`, and nothing else. An action the provider
 does not have lands in `refused`, so the dialog is shown instead.
 A bypass that reached past the request would be granting access the widget never
 declared, which is a different and much larger thing than skipping a click.

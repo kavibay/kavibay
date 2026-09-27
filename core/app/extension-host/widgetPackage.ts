@@ -84,54 +84,80 @@ export interface PackageRequest extends ApprovedGrant {
 export function requestedPermissions(raw: unknown): PackageRequest {
   const manifest = record(raw, "manifest");
   const widget = record(manifest.widget, "manifest.widget");
-  const providers = declaredProviders(widget);
+  const entries = declaredEntries(widget);
   return {
-    providers,
-    actions: declaredNames(widget, providers, "actions"),
-    queries: declaredNames(widget, providers, "queries"),
+    providers: entries.map((entry) => entry.id),
+    actions: namesBy(entries, "actions"),
+    queries: namesBy(entries, "queries"),
   };
+}
+
+/** One entry of `widget.requires.providers`, whichever way it was written. */
+interface ProviderEntry {
+  id: ProviderId;
+  queries: string[];
+  actions: string[];
 }
 
 /**
  * `widget.requires.providers`, from JSON.
  *
- * Only the plural spelling is read, and the singular one is refused rather than
- * ignored — see `refuseSingular`.
+ * An entry is a bare provider id, which reads the account and says nothing
+ * more, or `{ "id", "queries", "actions" }`, which also says what the widget
+ * reads there and what it changes. Both are read; the Wizard writes the second.
+ * Keeping each provider's lists inside its own entry makes a list for a
+ * provider the widget does not name impossible to write, where two maps beside
+ * the list needed a check to catch it.
+ *
+ * The singular spelling and the two separate maps are refused rather than
+ * ignored — see `refuseSingular` and `refuseSeparateLists`.
  */
-function declaredProviders(widget: Record<string, unknown>): ProviderId[] {
+function declaredEntries(widget: Record<string, unknown>): ProviderEntry[] {
   if (widget.requires === undefined) return [];
   const requires = record(widget.requires, "widget.requires");
   refuseSingular(requires);
-  return strings(requires.providers) as ProviderId[];
+  refuseSeparateLists(requires);
+  if (!Array.isArray(requires.providers)) return [];
+  return requires.providers.map((entry, index): ProviderEntry => {
+    if (typeof entry === "string") return { id: entry, queries: [], actions: [] };
+    const what = `widget.requires.providers[${index}]`;
+    const object = record(entry, what);
+    return {
+      id: str(object.id, `${what}.id`),
+      queries: strings(object.queries),
+      actions: strings(object.actions),
+    };
+  });
+}
+
+function declaredProviders(widget: Record<string, unknown>): ProviderId[] {
+  return declaredEntries(widget).map((entry) => entry.id);
+}
+
+/** The entries' `queries` or `actions` as the map the rest of the host reads. */
+function namesBy(
+  entries: readonly ProviderEntry[],
+  field: "queries" | "actions",
+): Partial<Record<ProviderId, string[]>> {
+  return Object.fromEntries(
+    entries.filter((entry) => entry[field].length > 0).map((entry) => [entry.id, [...entry[field]]]),
+  );
 }
 
 /**
- * `widget.requires.actions` or `widget.requires.queries`, from JSON: provider
- * id to names.
- *
- * An array is refused with the shape spelled out, because `["createEvent"]` is
- * the natural first guess and it names nothing it belongs to (FINDINGS §25). A
- * key outside `requires.providers` is refused for the same reason the registry
- * refuses it on a bundled widget.
+ * `requires.queries` and `requires.actions` as maps beside the list were the
+ * first spelling, for a day. A package still using it is refused with the
+ * shape that replaced it: reading nothing would load it with every action
+ * refused and nothing said about why.
  */
-function declaredNames(
-  widget: Record<string, unknown>,
-  providers: readonly ProviderId[],
-  field: "actions" | "queries",
-): Partial<Record<ProviderId, string[]>> {
-  const requires = widget.requires === undefined ? {} : record(widget.requires, "widget.requires");
-  if (requires[field] === undefined) return {};
-  if (Array.isArray(requires[field])) {
-    fail(`widget.requires.${field} is keyed by provider: { "<provider id>": ["<name>"] }`);
-  }
-  const named: Partial<Record<ProviderId, string[]>> = {};
-  for (const [pid, names] of Object.entries(record(requires[field], `widget.requires.${field}`))) {
-    if (!providers.includes(pid)) {
-      fail(`widget.requires.${field} names ${pid}, which is not in requires.providers`);
+function refuseSeparateLists(requires: Record<string, unknown>): void {
+  for (const field of ["queries", "actions"] as const) {
+    if (requires[field] !== undefined) {
+      fail(
+        `widget.requires.${field} belongs in the provider's entry: "providers": [{ "id": "<provider id>", "${field}": ["<name>"] }]`,
+      );
     }
-    named[pid] = strings(names);
   }
-  return named;
 }
 
 /**
@@ -182,7 +208,7 @@ export function widgetPackageManifest(raw: unknown, approved: ApprovedGrant): Ex
    * asked for was an answer to a different question, so it is refused rather
    * than quietly narrowed.
    */
-  const asked = declaredNames(widget, declared, "actions");
+  const asked = namesBy(declaredEntries(widget), "actions");
   const actions: ProviderActions = {};
   for (const [pid, names] of Object.entries(approved.actions)) {
     if (!names?.length) continue;
