@@ -311,6 +311,9 @@ The rules for your reply:
   `ctx.providers[id].action` — **declare every one you call in its provider
   entry's `actions`**. The person decides separately whether you may change
   things, and the host refuses an action you did not declare.
+- **Storage is asynchronous.** Use `await ctx.data.get(key)` before reading
+  saved fields or selecting defaults. Await writes and handle failures. Never
+  replace saved state with defaults before its read completes or if it fails.
 - **Write each provider as an entry: `{{ "id", "queries", "actions" }}`.** List
   every query you call with `query` or `subscribe` in `queries`, and nothing
   you do not: it is what the person is shown when they approve the widget.

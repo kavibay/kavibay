@@ -54,6 +54,7 @@ import {
   type WidgetFocusRequestDetail,
 } from "@sdk/widgetFocusRequest";
 import { tokenize, type CodeToken } from "./highlight";
+import { storageReadProblems } from "./storageReadProblems";
 import {
   REPAIR_BUDGET,
   NO_USAGE,
@@ -3257,6 +3258,12 @@ interface DraftOutcome {
  * left, and this is the one place that knows what the problems are.
  */
 async function writeDraft(id: string, files: GeneratedFile[]): Promise<DraftOutcome> {
+  const storageProblems = storageReadProblems(files);
+  if (storageProblems.length) {
+    // Reject before previewing: merely running this code could erase saved data.
+    session.value.draftError = storageProblems.join("\n");
+    return { written: false, problems: storageProblems };
+  }
   let summary: DraftSummary;
   try {
     summary = await writeDraftFiles(id, files);
@@ -3280,6 +3287,7 @@ async function writeDraft(id: string, files: GeneratedFile[]): Promise<DraftOutc
   }
 
   session.value.previewEntry = uiEntryOf(files);
+  session.value.draftError = undefined;
   session.value.previewPermissions = previewPermissionsFor(files);
   session.value.draftFiles = files;
   rememberVersion(files, "Generated");

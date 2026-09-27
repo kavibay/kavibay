@@ -468,9 +468,9 @@ declares one does not load at all.
 
 ```js
 ctx.config                       // this instance's settings, read once
-ctx.data.get(key)                // persisted, scoped to this instance
-ctx.data.set(key, value)
-ctx.data.delete(key)
+await ctx.data.get(key)           // persisted, scoped to this instance
+await ctx.data.set(key, value)
+await ctx.data.delete(key)
 
 ctx.providers[id].query(name, args)   // one read, cached by the host
 ctx.providers[id].action(name, args)  // write through the provider; declared in its entry's actions
@@ -483,6 +483,21 @@ ctx.openExternal.open(url)       // open one provider url in the person's browse
 // There is no `ctx.provider`: a widget that grows a second provider would keep
 // working and start reading the wrong one.
 ```
+
+**All storage operations are asynchronous.** In `async setup(ctx)`, read
+`const saved = await ctx.data.get("state")` before inspecting any saved fields
+or choosing defaults. Without `await`, `saved` is a Promise, not your data.
+Never overwrite stored state with defaults while its read is still pending,
+or after a failed read. Save changes from user actions, await writes, and show
+write failures. Serialize rapid changes so an older write cannot replace a
+newer one. A successful reload must restore the last saved value.
+
+**Instance storage needs no extra permission.** `ctx.data` is already available
+to an approved contract widget. Do not add `storage.instance` to its manifest;
+that permission belongs to the other package format. A successful `data.set`
+in the host debug log confirms that the write was accepted. Check the matching
+read and instance before changing permissions. The Wizard preview retains its
+own data across edits and saves; each widget placed on a desk has separate data.
 
 ### Links
 
