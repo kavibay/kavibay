@@ -3,12 +3,26 @@
 //!
 //! Windows has no "give me the selected text of the focused control" call that
 //! works everywhere, so this does what every text expander does: remember the
-//! foreground window, synthesise Ctrl+C, and read the clipboard. Everything
-//! non-Windows is stubbed out — the macOS port needs a different mechanism
-//! (Accessibility API), not a different shape of this file.
+//! foreground window, synthesise Ctrl+C, and read the clipboard. macOS reads
+//! the selection through the Accessibility API instead (`mac.rs`). Everything
+//! else is stubbed out.
+//!
+//! A "window" here is whatever the platform can bring back to the front later:
+//! an `HWND` on Windows, the process id of the frontmost app on macOS.
 
 use super::editability::{UiaProbe, WindowProbe};
 use super::placement::{Anchor, Rect};
+
+/// Whether Kavibay may read selections in other apps and type into them.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Access {
+    Granted,
+    /// Missing, and the system's own dialog asking for it was just shown.
+    Requested,
+    /// Missing, and already asked for since Kavibay started.
+    Missing,
+}
 
 // Timings for the synthesised Ctrl+C / Ctrl+V dance below — the `imp` module that
 // performs it is Windows-only, so these travel with it.
@@ -365,6 +379,17 @@ mod imp {
         result
     }
 
+    /// Windows asks for no permission to read or type into other windows.
+    pub fn access() -> Access {
+        Access::Granted
+    }
+    pub fn open_access_settings() {}
+
+    /// Tauri's monitor lookup takes physical pixels here and answers this.
+    pub fn scale_at(_x: i32, _y: i32) -> Option<f64> {
+        None
+    }
+
     /// Work area (screen minus taskbar) of the monitor holding `x, y`.
     pub fn work_area_at(x: i32, y: i32) -> Option<Rect> {
         let monitor = unsafe { MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST) };
@@ -385,9 +410,21 @@ mod imp {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+#[path = "mac.rs"]
+mod imp;
+
+#[cfg(not(any(windows, target_os = "macos")))]
 mod imp {
     use super::*;
+
+    pub fn access() -> Access {
+        Access::Granted
+    }
+    pub fn open_access_settings() {}
+    pub fn scale_at(_x: i32, _y: i32) -> Option<f64> {
+        None
+    }
 
     pub fn foreground_window(_own_hwnds: &[isize]) -> Option<isize> {
         None

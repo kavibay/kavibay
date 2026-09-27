@@ -3,11 +3,16 @@
 //! The whole feature is one borrowed clipboard round-trip:
 //!
 //! 1. remember the foreground window and what is on the clipboard,
-//! 2. synthesise Ctrl+C and read the selection back,
+//! 2. synthesise Ctrl+C and read the selection back (macOS asks the
+//!    Accessibility API first and only falls back to Cmd+C),
 //! 3. show a small menu at the caret (see `placement`),
 //! 4. hand the text to the extension the user picked,
-//! 5. write the answer, refocus the remembered window, synthesise Ctrl+V,
+//! 5. write the answer, refocus the remembered window, synthesise Ctrl+V
+//!    (Cmd+V on macOS),
 //! 6. put the original clipboard back.
+//!
+//! macOS needs the Accessibility permission for both reading and typing; see
+//! `platform::Access`.
 //!
 //! Steps 1–3 run here, step 4 in the popup webview (`quickaction.html`), steps
 //! 5–6 in `quick_action_apply`. The popup is its own window on purpose: the
@@ -21,7 +26,7 @@
 
 mod editability;
 mod placement;
-mod win;
+mod platform;
 
 use std::time::{Duration, Instant};
 use std::{
@@ -38,6 +43,7 @@ use crate::extensions::clipboard_widget::{
 };
 use editability::decide;
 use placement::{place_popup, Anchor, Rect};
+use platform::Access;
 
 /// Window label of the popup; also its entry point (`quickaction.html`).
 pub const POPUP_LABEL: &str = "quickaction";
@@ -117,6 +123,9 @@ pub fn register_shortcut(app: &AppHandle) {
         return;
     });
 }
+
+/// Shown in the popup when the platform refuses to let us read or type.
+const ACCESS_MISSING: &str = "Kavibay needs Accessibility access to read the selected text and paste the result. Switch Kavibay on under Privacy & Security › Accessibility, then press the shortcut again.";
 
 /// Longest selection we act on. Quick actions rewrite a sentence or a
 /// paragraph; a whole document is a job for the widget, where the user can see
@@ -396,6 +405,9 @@ struct QuickActionOpenPayload {
     /// front rather than confirmed afterwards: a menu that quietly does
     /// something else than the last time is worse than one that says so.
     can_replace: bool,
+    /// The platform permission is missing: the popup offers to open the
+    /// settings that grant it, in place of any actions.
+    needs_access: bool,
 }
 
 /// A declared widget action requested from the quick-action popup.
@@ -483,11 +495,22 @@ fn capture_selection(app: &AppHandle) {
         return;
     }
 
-    let Some(target) = win::foreground_window(&own_window_handles(app)) else {
+    let Some(target) = platform::foreground_window(&own_window_handles(app)) else {
         return;
     };
 
-    win::wait_for_modifier_release();
+    match platform::access() {
+        Access::Granted => {}
+        // The system's own dialog is up and says what to do. A popup on top of
+        // it would lose focus to it at once and dismiss itself.
+        Access::Requested => return,
+        Access::Missing => {
+            show_access_help(app, &state, target);
+            return;
+        }
+    }
+
+    platform::wait_for_modifier_release();
 
     let clipboard = app.try_state::<ClipboardState>();
     if let Some(clipboard) = clipboard.as_ref() {
@@ -495,7 +518,7 @@ fn capture_selection(app: &AppHandle) {
     }
 
     let saved_clipboard = crate::extensions::clipboard_widget::clipboard_text();
-    let selection = win::copy_selection();
+    let selection = platform::copy_selection();
 
     let Some(text) = selection.filter(|text| !text.trim().is_empty()) else {
         // Nothing selected, or a non-text selection. Deliberately silent: the
@@ -518,8 +541,8 @@ fn capture_selection(app: &AppHandle) {
         (text, String::new())
     };
 
-    let anchor = win::caret_anchor(target)
-        .or_else(win::cursor_anchor)
+    let anchor = platform::caret_anchor(target)
+        .or_else(platform::cursor_anchor)
         .unwrap_or(Anchor {
             x: 0,
             y: 0,
@@ -528,10 +551,10 @@ fn capture_selection(app: &AppHandle) {
 
     // Probed here, not at paste time: the answer is part of what the popup
     // shows, and by the time the model replies the focus may have moved.
-    let window_probe = win::window_probe(target);
+    let window_probe = platform::window_probe(target);
     let target_kind = match window_probe {
         // Only pay for UI Automation when the cheap probe has no answer.
-        editability::WindowProbe::Unknown => decide(window_probe, win::uia_probe()),
+        editability::WindowProbe::Unknown => decide(window_probe, platform::uia_probe()),
         resolved => decide(resolved, editability::UiaProbe::Unknown),
     };
     let can_replace = target_kind.can_replace();
@@ -555,6 +578,37 @@ fn capture_selection(app: &AppHandle) {
             text,
             error,
             can_replace,
+            needs_access: false,
+        },
+    );
+}
+
+/// Open the popup at the pointer to explain the missing permission.
+///
+/// Registered as a pending like any other run, so Escape, a click elsewhere
+/// and the settings button all go through the same cancel path, which hands
+/// focus back to `target`.
+fn show_access_help(app: &AppHandle, state: &QuickActionState, target: isize) {
+    state.set(Pending {
+        started: Instant::now(),
+        text: String::new(),
+        target,
+        saved_clipboard: None,
+        anchor: platform::cursor_anchor().unwrap_or(Anchor {
+            x: 0,
+            y: 0,
+            height: 0,
+        }),
+        can_replace: false,
+    });
+    let _ = app.emit_to(
+        POPUP_LABEL,
+        "quickaction:open",
+        QuickActionOpenPayload {
+            text: String::new(),
+            error: ACCESS_MISSING.to_string(),
+            can_replace: false,
+            needs_access: true,
         },
     );
 }
@@ -578,18 +632,24 @@ pub fn quick_action_ready(
         .get_webview_window(POPUP_LABEL)
         .ok_or_else(|| "quick action window is missing".to_string())?;
 
-    let scale = window
-        .monitor_from_point(anchor.x as f64, anchor.y as f64)
-        .ok()
-        .flatten()
-        .map(|monitor| monitor.scale_factor())
+    // The platform answers first where Tauri cannot: on a Retina Mac its
+    // monitor lookup found no monitor for this physical point (measured), and
+    // a scale of 1 halved the popup and cut its contents off.
+    let scale = platform::scale_at(anchor.x, anchor.y)
+        .or_else(|| {
+            window
+                .monitor_from_point(anchor.x as f64, anchor.y as f64)
+                .ok()
+                .flatten()
+                .map(|monitor| monitor.scale_factor())
+        })
         .unwrap_or(1.0);
 
     let size = (
         (width * scale).round() as i32,
         (height * scale).round() as i32,
     );
-    let work = win::work_area_at(anchor.x, anchor.y).unwrap_or(Rect {
+    let work = platform::work_area_at(anchor.x, anchor.y).unwrap_or(Rect {
         x: anchor.x,
         y: anchor.y,
         width: size.0,
@@ -634,12 +694,12 @@ pub fn quick_action_apply(app: AppHandle, text: String) -> Result<(), String> {
     // they wanted is exactly what the history is for.
     if !pending.can_replace {
         write_text_clipboard(&text)?;
-        win::focus_window(pending.target);
+        platform::focus_window(pending.target);
         finish(&app, None, true);
         return Ok(());
     }
 
-    if !win::is_window(pending.target) {
+    if !platform::is_window(pending.target) {
         // The user closed the source window while the model was working.
         finish(&app, pending.saved_clipboard, false);
         return Err("the window the text came from is gone".into());
@@ -655,9 +715,9 @@ pub fn quick_action_apply(app: AppHandle, text: String) -> Result<(), String> {
             finish(&app_for_thread, pending.saved_clipboard, false);
             return;
         }
-        win::focus_window(pending.target);
+        platform::focus_window(pending.target);
         std::thread::sleep(Duration::from_millis(REFOCUS_SETTLE_MS));
-        if let Err(error) = win::paste() {
+        if let Err(error) = platform::paste() {
             eprintln!("[quick_action] paste failed: {error}");
         }
         std::thread::sleep(Duration::from_millis(PASTE_SETTLE_MS));
@@ -708,9 +768,17 @@ pub fn quick_action_cancel(app: AppHandle) -> Result<(), String> {
     if let Some(pending) = state.take() {
         // Focus goes back even on a cancel: the user was typing somewhere, and
         // the popup took that away to show a menu they did not want.
-        win::focus_window(pending.target);
+        platform::focus_window(pending.target);
         finish(&app, pending.saved_clipboard, false);
     }
+    Ok(())
+}
+
+/// Dismiss the popup and open the settings that grant the missing permission.
+#[tauri::command]
+pub fn quick_action_open_access_settings(app: AppHandle) -> Result<(), String> {
+    quick_action_cancel(app)?;
+    platform::open_access_settings();
     Ok(())
 }
 

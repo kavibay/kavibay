@@ -684,6 +684,7 @@ pub fn run() {
             quick_action::quick_action_apply,
             quick_action::quick_action_open_widget,
             quick_action::quick_action_cancel,
+            quick_action::quick_action_open_access_settings,
             quick_action::quick_action_shortcut,
             quick_action::quick_action_shortcut_set,
             quick_action::quick_action_shortcut_capture,

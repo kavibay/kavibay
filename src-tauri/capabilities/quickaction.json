@@ -10,6 +10,7 @@
     "allow-quick-action-apply",
     "allow-quick-action-open-widget",
     "allow-quick-action-cancel",
+    "allow-quick-action-open-access-settings",
     "allow-llm-quick-model",
     "allow-llm-models",
     "allow-llm-chat-stream",
