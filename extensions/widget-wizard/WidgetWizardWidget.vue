@@ -28,11 +28,13 @@ import type { DraftChanged, DraftPresence, WizardCapability } from "@sdk/contrac
 import {
   BracesIcon,
   BrainIcon,
+  ClipboardCopyIcon,
   CodeXmlIcon,
   FileCodeIcon,
   FileIcon,
   FolderIcon,
   HashIcon,
+  IconBase,
   ImageIcon,
   MessageSquareIcon,
   PanelLeftIcon,
@@ -41,7 +43,7 @@ import {
   SquarePenIcon,
   UnplugIcon,
 } from "@sdk/icons";
-import { BrandMark, McpClientMark } from "@sdk/brand";
+import { BrandMark, McpClientMark, brandMarkFor } from "@sdk/brand";
 import KavibaySelect from "@sdk/KavibaySelect.vue";
 import WizardModelMenu from "./WizardModelMenu.vue";
 import WizardMcpHelp from "./WizardMcpHelp.vue";
@@ -2562,6 +2564,7 @@ async function runTurn(mine: number, id: string, repairsLeft: number, repairFile
     text: parsed.prose || describeReply(parsed, before),
     usage: spent,
     model: ranOn?.label ?? reply.model,
+    modelCredentialType: ranOn?.credentialType,
     cost,
   };
   session.value.bubbles.push(answer);
@@ -3146,6 +3149,23 @@ function costLabel(cost: WizardCost | null | undefined): string {
   return cost ? `~${formatCost(cost.amount, cost.currency)}` : "";
 }
 
+/** Older conversations resolve their saved model name against the catalog. */
+function usageBrand(bubble: WizardBubble): string | undefined {
+  const credentialType = bubble.modelCredentialType ?? models.value.find(
+    (model) => model.id === bubble.model || model.label === bubble.model,
+  )?.credentialType;
+  return brandMarkFor(credentialType) ? credentialType : undefined;
+}
+
+/** Keep the answer's model, token counts and cost together in its tooltip. */
+function usageTooltip(bubble: WizardBubble): string {
+  return [
+    bubble.model,
+    bubble.usage ? usageLine(bubble.usage) : "",
+    costLabel(bubble.cost),
+  ].filter(Boolean).join("\n");
+}
+
 /**
  * The conversation's running total.
  *
@@ -3158,6 +3178,33 @@ const sessionTokens = computed(() => {
   const u = sessionUsage.value;
   return u.input + u.cached + u.cacheWrite + u.output;
 });
+
+const transcriptCopyState = ref<"idle" | "copying" | "copied" | "error">("idle");
+let transcriptCopyTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Feedback belongs to the conversation that was copied. */
+function resetTranscriptCopy() {
+  clearTimeout(transcriptCopyTimer);
+  transcriptCopyState.value = "idle";
+}
+watch(() => session.value.id, resetTranscriptCopy);
+onUnmounted(() => clearTimeout(transcriptCopyTimer));
+
+/** Copy the current transcript and acknowledge only a successful clipboard write. */
+async function copyTranscript() {
+  if (transcriptCopyState.value === "copying") return;
+  resetTranscriptCopy();
+  const conversation = session.value;
+  transcriptCopyState.value = "copying";
+  try {
+    await props.model.copyTranscript();
+    if (session.value !== conversation) return;
+    transcriptCopyState.value = "copied";
+    transcriptCopyTimer = setTimeout(resetTranscriptCopy, 1500);
+  } catch {
+    if (session.value === conversation) transcriptCopyState.value = "error";
+  }
+}
 
 /** `14:32` — the day is never in question inside one conversation. */
 const timeOfDay = (at: number) =>
@@ -4894,13 +4941,17 @@ async function enablePackage(
               the number belongs to the thing that produced it, and a running
               total nobody can attribute to a turn is a number nobody acts on.
             -->
-            <p v-if="bubble.usage" class="wiz-usage" :title="usageDetail(bubble.usage)">
-              {{ usageLine(bubble.usage) }}
-              <span v-if="bubble.model" class="wiz-usage-model">· {{ bubble.model }}</span>
-              <span v-if="costLabel(bubble.cost)" class="wiz-usage-cost">
-                {{ costLabel(bubble.cost) }}
-              </span>
-            </p>
+            <span
+              v-if="bubble.usage"
+              class="wiz-usage-mark"
+              tabindex="0"
+              role="img"
+              :aria-label="usageTooltip(bubble)"
+              v-tip="usageTooltip(bubble)"
+            >
+              <BrandMark v-if="usageBrand(bubble)" :provider="usageBrand(bubble)" :size="14" />
+              <BrainIcon v-else :size="14" />
+            </span>
 
             <!--
               The checkpoint, where the change it belongs to was made.
@@ -4926,7 +4977,10 @@ async function enablePackage(
                 :disabled="busy"
                 @click="goBackTo(bubble.version)"
               >
-                ↩ Back to this version
+                <IconBase :size="14" class="wiz-cp-icon">
+                  <path d="m9 10-5 5 5 5M4 15h11a5 5 0 0 0 0-10h-3" />
+                </IconBase>
+                <span>Back to this version</span>
               </button>
             </div>
           </div>
@@ -4949,15 +5003,32 @@ async function enablePackage(
       <p
         v-if="middleTab === 'chat' && sessionTokens > 0"
         class="wiz-usage wiz-usage--total"
-        :title="usageDetail(sessionUsage)"
       >
-        This conversation: {{ formatTokens(sessionTokens) }} tokens
-        <template v-if="sessionUsage.cached > 0">
-          ({{ formatTokens(sessionUsage.cached) }} from cache)
-        </template>
-        <span v-if="costLabel(sessionCost)" class="wiz-usage-cost">
-          {{ costLabel(sessionCost) }}
+        <span class="wiz-copy-feedback" role="status">
+          {{ transcriptCopyState === 'copied' ? 'Copied' : transcriptCopyState === 'error' ? 'Could not copy. Try again.' : '' }}
         </span>
+        <span class="wiz-usage-summary" :title="usageDetail(sessionUsage)">
+          This conversation: {{ formatTokens(sessionTokens) }} tokens
+          <template v-if="sessionUsage.cached > 0">
+            ({{ formatTokens(sessionUsage.cached) }} from cache)
+          </template>
+          <span v-if="costLabel(sessionCost)" class="wiz-usage-cost">
+            {{ costLabel(sessionCost) }}
+          </span>
+        </span>
+        <button
+          type="button"
+          class="wiz-copy-transcript"
+          :disabled="transcriptCopyState === 'copying'"
+          :aria-label="transcriptCopyState === 'copied' ? 'Transcript copied' : 'Copy transcript'"
+          v-tip="transcriptCopyState === 'copied' ? 'Copied' : 'Copy transcript'"
+          @click="copyTranscript"
+        >
+          <svg v-if="transcriptCopyState === 'copied'" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="m5 12 4 4L19 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <ClipboardCopyIcon v-else :size="14" />
+        </button>
       </p>
 
       <!-- Part of the conversation, so it goes with it. -->
@@ -7224,6 +7295,9 @@ button:disabled {
  * focusability), so tabbing to it reveals the row it lives in.
  */
 .wiz-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-top: 4px;
   opacity: 0;
   pointer-events: none;
@@ -7251,13 +7325,76 @@ button:disabled {
 }
 
 .wiz-usage--total {
+  display: flex;
+  align-items: center;
+  align-self: flex-end;
+  gap: 6px;
+  max-width: 100%;
   flex: 0 0 auto;
   margin: 0 0 2px;
   text-align: right;
+  opacity: 1;
 }
 
-.wiz-usage-model {
-  margin-left: 4px;
+.wiz-usage-summary { opacity: 0.45; }
+.wiz-copy-feedback { color: rgba(var(--fg-rgb), 0.65); }
+.wiz-copy-feedback:empty { display: none; }
+
+.wiz-copy-transcript {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(var(--fg-rgb), 0.7);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.wiz-usage--total:hover .wiz-copy-transcript,
+.wiz-usage--total:focus-within .wiz-copy-transcript {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.wiz-copy-transcript:hover { background: rgba(var(--fg-rgb), 0.08); }
+.wiz-copy-transcript:focus-visible { outline: 1px solid currentColor; outline-offset: 2px; }
+.wiz-copy-transcript:disabled { cursor: default; }
+
+@media (hover: none) {
+  .wiz-copy-transcript { opacity: 1; pointer-events: auto; }
+}
+
+.wiz-usage-mark,
+.wiz-cp-btn {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 22px;
+}
+
+.wiz-usage-mark {
+  flex: 0 0 auto;
+  justify-content: center;
+  width: 22px;
+  border-radius: 4px;
+  opacity: 0.6;
+  cursor: help;
+}
+
+.wiz-usage-mark:hover,
+.wiz-usage-mark:focus-visible {
+  opacity: 1;
+}
+
+.wiz-usage-mark:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
 }
 
 .wiz-usage-cost {
@@ -7270,7 +7407,6 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 5px;
-  margin-top: 2px;
   font-size: 10px;
   opacity: 0.6;
 }
@@ -7283,9 +7419,16 @@ button:disabled {
 }
 
 .wiz-cp-btn {
-  padding: 1px 7px;
+  gap: 5px;
+  padding: 0 7px;
   font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
   border-radius: 999px;
+}
+
+.wiz-cp-icon {
+  flex: 0 0 auto;
 }
 
 .wiz-versions {

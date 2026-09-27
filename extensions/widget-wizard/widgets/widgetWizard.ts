@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 import { defineWidget, type WizardCapability, type WidgetContext } from "@sdk/contract/sdk";
 import { useWizardConversations } from "../useWizardConversations";
+import { formatWizardTranscript } from "../widgetWizardLogic";
 
 export interface WidgetWizardModel {
   wizard: WizardCapability;
   conversations: ReturnType<typeof useWizardConversations>;
+  copyTranscript(): Promise<void>;
   /**
    * The instance's own store, for chrome the person arranges.
    *
@@ -79,7 +81,7 @@ export const widgetWizardWidget = defineWidget<Record<string, never>>({
   defaultSize: { w: 8, h: 6 },
   minSize: { w: 5, h: 4 },
   mode: "expanded",
-  capabilities: { wizard: true },
+  capabilities: { wizard: true, clipboard: true },
   actions: { "new-widget": runNewWidgetAction },
   component: {
     async setup(ctx: WidgetContext<Record<string, never>>): Promise<WidgetWizardModel> {
@@ -89,6 +91,12 @@ export const widgetWizardWidget = defineWidget<Record<string, never>>({
       return {
         wizard: ctx.wizard,
         conversations,
+        /** Copy the active conversation through the host's clipboard capability. */
+        async copyTranscript() {
+          if (!ctx.clipboard) throw new Error("Clipboard capability unavailable");
+          const text = formatWizardTranscript(conversations.active.value.bubbles);
+          if (text) await ctx.clipboard.writeText(text);
+        },
         data: ctx.data,
         shared: ctx.sharedData,
         instanceId: ctx.instanceId,

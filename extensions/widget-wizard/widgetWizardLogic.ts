@@ -2341,7 +2341,7 @@ export interface WizardBubble {
    * bubble offers it directly instead of describing a route to it.
    */
   run?: { id: string; done?: boolean };
-  /** What this answer cost, for the line under it. */
+  /** What this answer cost, shown in its model logo's tooltip. */
   usage?: WizardUsage;
   /**
    * The model that produced it, and what it cost on that model.
@@ -2352,6 +2352,8 @@ export interface WizardBubble {
    * price", which is not the same as "free".
    */
   model?: string;
+  /** Retain the answer's brand even if its model later leaves the catalog. */
+  modelCredentialType?: string;
   cost?: WizardCost | null;
   /**
    * The package state this message produced, if it produced one.
@@ -2420,6 +2422,19 @@ export interface WizardBubble {
     /** Came from Save & Run: open it on the desk once it is approved. */
     run?: boolean;
   };
+}
+
+/** Plain-text transcript of the visible turns, with images represented as attachment notes. */
+export function formatWizardTranscript(bubbles: readonly WizardBubble[]): string {
+  const labels = { user: "You", assistant: "Assistant", system: "System" };
+  return bubbles.map((bubble) => {
+    const content = [
+      bubble.text,
+      ...(bubble.images ?? []).map((image, index) => `[Attached image ${index + 1}: ${image.mediaType}]`),
+      ...(bubble.enable && !bubble.enable.preApproved ? bubble.enable.lines : []).map((line) => `- ${line}`),
+    ].filter(Boolean).join("\n\n");
+    return content ? `## ${labels[bubble.role]}\n\n${content}` : "";
+  }).filter(Boolean).join("\n\n");
 }
 
 /**
