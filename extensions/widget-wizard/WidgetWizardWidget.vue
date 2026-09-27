@@ -1150,12 +1150,8 @@ function onComposerInput(): void {
 }
 
 function onComposerKeydown(event: KeyboardEvent): void {
-  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-    event.preventDefault();
-    syncComposerDraft();
-    void send();
-    return;
-  }
+  // Enter can confirm an IME candidate; WebKit may only report keyCode 229.
+  if (event.isComposing || event.keyCode === 229) return;
   if (integrationMenuOpen.value) {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -1164,7 +1160,7 @@ function onComposerKeydown(event: KeyboardEvent): void {
       integrationMenuIndex.value = (integrationMenuIndex.value + direction + length) % length;
       return;
     }
-    if (event.key === "Enter" || event.key === "Tab") {
+    if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
       event.preventDefault();
       const option = filteredIntegrationOptions.value[integrationMenuIndex.value];
       if (option) chooseIntegration(option);
@@ -1178,9 +1174,15 @@ function onComposerKeydown(event: KeyboardEvent): void {
   }
   if (event.key === "Enter") {
     event.preventDefault();
-    document.execCommand("insertLineBreak");
+    event.stopPropagation();
+    if (event.shiftKey) {
+      document.execCommand("insertLineBreak");
+      syncComposerDraft();
+      updateIntegrationMenu();
+      return;
+    }
     syncComposerDraft();
-    updateIntegrationMenu();
+    void send();
   }
 }
 
@@ -5152,7 +5154,7 @@ async function enablePackage(
             type="button"
             class="wiz-send"
             :disabled="!canSend"
-            title="Ctrl+Enter"
+            title="Send (Enter) · New line (Shift+Enter)"
             aria-label="Send"
             @click="send"
           >
