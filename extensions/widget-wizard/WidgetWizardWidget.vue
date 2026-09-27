@@ -230,6 +230,9 @@ interface ScannedRuntimeExtension {
 
 const props = defineProps<{ model: WidgetWizardModel }>();
 const wizard: WizardCapability = props.model.wizard;
+const saveShortcutTip = /Mac|iPhone|iPad/.test(
+  typeof navigator === "undefined" ? "" : navigator.platform || navigator.userAgent,
+) ? "Save (⌘S)" : "Save (Ctrl+S)";
 const {
   headers,
   active: session,
@@ -3632,7 +3635,7 @@ async function keepMyVersion(): Promise<void> {
   }
 }
 
-// --- keep / discard --------------------------------------------------------
+// --- save / export ---------------------------------------------------------
 
 /**
  * Move the draft into the custom root and turn it on.
@@ -3815,12 +3818,64 @@ async function keep(runAfterSave = false) {
   }
 }
 
+let saveShortcutActive = false;
+
+/** Include the host's focusable card/shell, which sits outside the Wizard root. */
+function saveShortcutScope(): HTMLElement | null {
+  const root = wizEl.value;
+  return root?.closest<HTMLElement>(".widget-card, .inline-widget-shell") ?? root;
+}
+
+/** Retain ownership when a busy editor loses focus, but relinquish it on other interactions. */
+function onSaveShortcutInteraction(event: Event) {
+  const target = event.target;
+  if (event.type === "focusin" && (target === document.body || target === document.documentElement)) return;
+  saveShortcutActive = target instanceof Node && !!saveShortcutScope()?.contains(target);
+}
+
+/** Save from the active Wizard, including edits that have not blurred yet. */
+async function onSaveKeydown(event: KeyboardEvent) {
+  if (
+    event.defaultPrevented ||
+    !(event.metaKey || event.ctrlKey) ||
+    event.altKey || event.shiftKey || event.isComposing ||
+    event.key.toLowerCase() !== "s"
+  ) return;
+
+  const root = wizEl.value;
+  if (!root || root.getClientRects().length === 0) return;
+  const target = event.target;
+  const focusOnPage = target === document.body || target === document.documentElement;
+  if (!(target instanceof Node && saveShortcutScope()?.contains(target)) &&
+      !(focusOnPage && saveShortcutActive)) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.repeat || busy.value || (!canSave.value && !draftEditorDirty.value)) return;
+
+  const targetSession = session.value;
+  if (draftEditorDirty.value) await applyFile();
+  // A failed edit must not silently save the previous file contents.
+  if (session.value !== targetSession || draftEditorDirty.value || !canSave.value) return;
+  await keep();
+}
+
+onMounted(() => {
+  window.addEventListener("pointerdown", onSaveShortcutInteraction, true);
+  window.addEventListener("focusin", onSaveShortcutInteraction, true);
+  window.addEventListener("keydown", onSaveKeydown, true);
+});
+onUnmounted(() => {
+  window.removeEventListener("pointerdown", onSaveShortcutInteraction, true);
+  window.removeEventListener("focusin", onSaveShortcutInteraction, true);
+  window.removeEventListener("keydown", onSaveKeydown, true);
+});
+
 /** Save the package and immediately add/focus its enabled runtime widget. */
 function saveAndRun() {
   return keep(true);
 }
 
-/** Throw the draft away. An edited widget itself is never touched. */
 /**
  * Write this widget to a zip somewhere outside the app.
  *
@@ -3847,26 +3902,6 @@ async function exportWidget() {
     note(`Exported ${what} — ${report.files} files — to ${report.path}`, "success");
   } catch (error) {
     note(describeExportError(String(error)));
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function discard() {
-  const id = session.value.packageId;
-  if (!id || busy.value) return;
-  const wasEditing = session.value.editing === id;
-  busy.value = true;
-  try {
-    await wizard.draftDiscard(id);
-    session.value.hasDraft = false;
-    session.value.draftRevision = undefined;
-    session.value.draftError = undefined;
-    session.value.previewEntry = null;
-    note(wasEditing ? `Discarded the changes. "${id}" is unchanged.` : `Discarded "${id}".`);
-    await Promise.all([save(session.value), refreshDrafts()]);
-  } catch (error) {
-    note(describeDraftError(String(error)));
   } finally {
     busy.value = false;
   }
@@ -5258,12 +5293,38 @@ async function enablePackage(
     />
 
     <section v-show="!tooNarrow" class="wiz-preview wiz-c5">
-      <!--
-        Grows so the Save row is pushed to the foot of this column — the same
-        baseline as the conversation's compose bar. A Vue child advertising
-        `flex: 1` on its own root was not enough: the stage sized to its
-        widget and the buttons sat up beside the textarea.
-      -->
+      <div class="wiz-actions" role="group" aria-label="Widget actions">
+        <button
+          type="button"
+          :disabled="!canExport"
+          v-tip="'Save this widget as a .zip — the whole folder, ready to hand on'"
+          @click="exportWidget"
+        >
+          <IconBase :size="13">
+            <path d="M12 16V3m-4 4 4-4 4 4M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4" />
+          </IconBase>
+          Export
+        </button>
+        <button
+          type="button"
+          :disabled="!canSave"
+          v-tip="'Save this widget and open it on the desk'"
+          @click="saveAndRun"
+        >
+          <IconBase :size="13"><path d="m8 5 11 7-11 7Z" /></IconBase>
+          Run on desk
+        </button>
+        <button
+          type="button"
+          class="wiz-action--primary"
+          :disabled="!canSave"
+          v-tip="saveShortcutTip"
+          aria-keyshortcuts="Meta+S Control+S"
+          @click="() => keep()"
+        >
+          Save
+        </button>
+      </div>
       <div class="wiz-preview-body">
         <div v-if="showFirstVersionGeneration" class="wiz-empty">
           <WizardGenerationStatus />
@@ -5286,21 +5347,6 @@ async function enablePackage(
         <div v-else class="wiz-empty">
           Your widget will appear here.
         </div>
-      </div>
-      <div class="wiz-actions">
-        <button type="button" :disabled="!canSave" @click="() => keep()">Save</button>
-        <button type="button" :disabled="!canSave" @click="saveAndRun">Save &amp; Run</button>
-        <button
-          type="button"
-          :disabled="!canExport"
-          v-tip="'Save this widget as a .zip — the whole folder, ready to hand on'"
-          @click="exportWidget"
-        >
-          Export
-        </button>
-        <button type="button" :disabled="busy || !session.hasDraft" @click="discard">
-          Discard
-        </button>
       </div>
     </section>
   </div>
@@ -6427,8 +6473,7 @@ async function enablePackage(
   opacity: 0.7;
 }
 
-.wiz-consent-btn,
-.wiz-actions button {
+.wiz-consent-btn {
   padding: 4px 12px;
   border-radius: 8px;
   border: 1px solid rgba(var(--fg-rgb), 0.22);
@@ -6438,13 +6483,11 @@ async function enablePackage(
   cursor: pointer;
 }
 
-.wiz-consent-btn:hover:not(:disabled),
-.wiz-actions button:hover:not(:disabled) {
+.wiz-consent-btn:hover:not(:disabled) {
   background: rgba(var(--fg-rgb), 0.18);
 }
 
-.wiz-consent-btn:disabled,
-.wiz-actions button:disabled {
+.wiz-consent-btn:disabled {
   opacity: 0.55;
   cursor: default;
 }
@@ -6716,7 +6759,8 @@ async function enablePackage(
   The open one is lifted with the app's selected-row treatment, the same one
   the sidebar uses for the open project.
 */
-.wiz-tabs {
+.wiz-tabs,
+.wiz-actions {
   display: flex;
   flex: 0 0 auto;
   gap: 2px;
@@ -6725,7 +6769,8 @@ async function enablePackage(
   background: rgba(var(--fg-rgb), 0.06);
 }
 
-.wiz-tab {
+.wiz-tab,
+.wiz-actions button {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -6746,16 +6791,19 @@ async function enablePackage(
     background-color 120ms ease;
 }
 
-.wiz-tab:hover:not(:disabled) {
+.wiz-tab:hover:not(:disabled),
+.wiz-actions button:hover:not(:disabled) {
   opacity: 1;
 }
 
-.wiz-tab:focus-visible {
+.wiz-tab:focus-visible,
+.wiz-actions button:focus-visible {
   outline: 1px solid rgba(var(--fg-rgb), 0.45);
   outline-offset: -1px;
 }
 
-.wiz-tab--on {
+.wiz-tab--on,
+.wiz-actions .wiz-action--primary {
   background-color: var(--row-selected-bg, rgba(var(--fg-rgb), 0.1));
   background-image: var(--row-selected-sheen, none);
   box-shadow:
@@ -7097,11 +7145,11 @@ async function enablePackage(
 }
 
 /*
-  Fills the column above the Save row. Every child stretches so the stage
-  (or the empty grid) owns the leftover height instead of sitting at its
-  content size.
+  Fills the column behind the floating actions. Keep the stage's stacking
+  context below the toolbar, including its iframe and backdrop layers.
 */
 .wiz-preview-body {
+  isolation: isolate;
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -7113,18 +7161,17 @@ async function enablePackage(
   min-height: 0;
 }
 
-/*
-  Same line as `.wiz-compose-bar`: that bar is 28px plus the compose box's
-  7px padding-bottom. Matching both keeps Save / Save & Run / Discard on
-  the send-button baseline rather than floating up beside the textarea.
-*/
+/* Flush with the column top, the same line the Chat/Code tabs sit on. */
 .wiz-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 0 auto;
-  min-height: 28px;
-  padding-bottom: 7px;
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  max-width: 100%;
+  box-sizing: border-box;
+  backdrop-filter: blur(12px);
 }
 
 button {
@@ -7653,7 +7700,8 @@ button:disabled {
   box-sizing: border-box;
 }
 
-.wiz-tab:disabled {
+.wiz-tab:disabled,
+.wiz-actions button:disabled {
   opacity: 0.3;
   cursor: default;
 }
