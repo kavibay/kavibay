@@ -2510,7 +2510,7 @@ async function autoSaveContractPreview(): Promise<void> {
  * waiting, which is the whole reason the retry is automatic rather than a
  * button: it costs them a second of a wait they were in anyway.
  */
-async function runTurn(mine: number, id: string, repairsLeft: number): Promise<void> {
+async function runTurn(mine: number, id: string, repairsLeft: number, repairFiles?: GeneratedFile[]): Promise<void> {
   const reply = await wizard.complete<{ text: string; model?: string; usage?: unknown }>({
     model: session.value.model,
     messages: session.value.turns,
@@ -2549,7 +2549,7 @@ async function runTurn(mine: number, id: string, repairsLeft: number): Promise<v
   session.value.cost = addCost(session.value.cost, cost);
 
   const parsed = parseGeneratedFiles(reply.text);
-  const before = session.value.draftFiles ?? [];
+  const before = repairFiles ?? session.value.draftFiles ?? [];
   // Held rather than pushed and forgotten: the version it produces does not
   // exist until the write below succeeds, and it is marked on this bubble.
   const answer: WizardBubble = {
@@ -2636,6 +2636,7 @@ async function runTurn(mine: number, id: string, repairsLeft: number): Promise<v
       outcome.problems.length === 1
         ? `That package has a problem — asking for a fix: ${outcome.problems[0]}`
         : `That package has ${outcome.problems.length} problems — asking for a fix.`,
+      files,
     );
     return;
   }
@@ -2663,11 +2664,14 @@ async function askForRepair(
   problems: string[],
   repairsLeft: number,
   announcement: string,
+  repairFiles?: GeneratedFile[],
 ) {
   session.value.bubbles.push({ role: "system", text: announcement });
   session.value.turns.push({ role: "user", content: repairTurnFor(problems) });
   scrollDown();
-  await runTurn(mine, id, repairsLeft);
+  // Rejected files never become the live draft. Keep their complete set here
+  // so a repair returning only widget.js still retains its HTML and manifest.
+  await runTurn(mine, id, repairsLeft, repairFiles);
 }
 
 /**
