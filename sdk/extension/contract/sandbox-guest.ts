@@ -585,7 +585,7 @@ export function sandboxContext<T>(
     instanceId: instance.id,
     config: instance.configuration,
     data: {
-      get: (key) => call({ type: "data.get", key }),
+      get: (key) => storageReadPromise(call({ type: "data.get", key }), "ctx.data.get(key)"),
       set: (key, value) => call({ type: "data.set", key, value }),
       delete: (key) => call({ type: "data.delete", key }),
     },
@@ -600,6 +600,21 @@ export function sandboxContext<T>(
     },
     providers,
   };
+}
+
+/** Fail before a forgotten await turns saved fields into undefined/defaults. */
+export function storageReadPromise<T>(promise: Promise<T>, expression: string): Promise<T> {
+  const misuse = () => {
+    throw new Error(`${expression} returns a Promise. Use await ${expression} before reading saved fields.`);
+  };
+  return new Proxy(promise, {
+    get(target, key) {
+      if (key === "then" || key === "catch" || key === "finally") return target[key].bind(target);
+      if (Reflect.has(target, key)) return Reflect.get(target, key, target);
+      return misuse();
+    },
+    ownKeys: misuse,
+  });
 }
 
 // === LINKS ==================================================================
