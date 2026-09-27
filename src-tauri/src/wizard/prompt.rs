@@ -307,8 +307,11 @@ The rules for your reply:
   not get — and one they have not connected puts a prompt in front of your
   widget.
 - **No provider of your own, no commands, no palette actions.** Provider
-  actions listed for this account are allowed — call them with
-  `ctx.providers[id].action`.
+  actions listed for this account may be called with
+  `ctx.providers[id].action` — **declare every one you call in
+  `requires.actions`, keyed by provider**. The person decides separately
+  whether you may change things, and the host refuses an action you did not
+  declare.
 - **Never draw a spinner, an error, a retry or a connect screen.** The host
   draws all of those around your widget. Yours would be the second one.
 
@@ -412,6 +415,10 @@ mod tests {
             prompt.contains("ctx.providers[id].action"),
             "and the model must be told it can call provider actions, or a playlist widget \
              opens a URL instead of playing",
+        );
+        assert!(
+            prompt.contains("`requires.actions`, keyed by provider"),
+            "and that each one is declared, or the host refuses the first button it draws",
         );
     }
 

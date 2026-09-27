@@ -845,7 +845,9 @@ a request it refuses shows as refused instead of leaving a control that looks on
 and does nothing. Without Developer Extensions the switch is not offered at all.
 
 **It grants exactly what the package asked for** (`autoApprovedGrant`) — every
-provider the manifest declared that this machine actually has, and nothing else.
+provider the manifest declared that this machine actually has, the changes it
+declared on them in `requires.actions`, and nothing else. An action the provider
+does not have lands in `refused`, so the dialog is shown instead.
 A bypass that reached past the request would be granting access the widget never
 declared, which is a different and much larger thing than skipping a click.
 
