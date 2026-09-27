@@ -5,6 +5,8 @@ import { APPEARANCE_STORAGE_KEY } from "../settings/appearanceLogic";
 import { DEVELOPER_PREFS_KEY } from "../settings/developerPrefsLogic";
 import { EXTENSIONS_PREFS_KEY } from "../settings/extensionsPrefsLogic";
 import { FOLDER_PREFS_KEY } from "../settings/folderPrefsLogic";
+import { SEARCH_PREFS_KEY } from "../settings/searchPrefsLogic";
+import { PALETTE_WIDGET_PREFS_KEY } from "../settings/paletteWidgetPrefsLogic";
 import { SETTINGS_SECTIONS, fromSections, isSettingsKey, toSections } from "./settingsSections";
 
 function assert(cond: boolean, msg: string) {
@@ -30,14 +32,16 @@ for (const key of [
   DEVELOPER_PREFS_KEY,
   EXTENSIONS_PREFS_KEY,
   FOLDER_PREFS_KEY,
+  SEARCH_PREFS_KEY,
+  PALETTE_WIDGET_PREFS_KEY,
 ]) {
   assert(isSettingsKey(key), `${key} is owned by a settings module but not mapped`);
 }
 
 equal(
   Object.keys(SETTINGS_SECTIONS).sort(),
-  [APPEARANCE_STORAGE_KEY, DEVELOPER_PREFS_KEY, EXTENSIONS_PREFS_KEY, FOLDER_PREFS_KEY].sort(),
-  "the map holds exactly the four settings keys — no more, no fewer",
+  [APPEARANCE_STORAGE_KEY, DEVELOPER_PREFS_KEY, EXTENSIONS_PREFS_KEY, FOLDER_PREFS_KEY, SEARCH_PREFS_KEY, PALETTE_WIDGET_PREFS_KEY].sort(),
+  "the map holds exactly the settings keys — no more, no fewer",
 );
 
 // Section names reach a JSON document that also carries its own fields; a
