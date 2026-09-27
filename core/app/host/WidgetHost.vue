@@ -63,6 +63,7 @@ import {
   consumeFirstOpen,
   createInstance,
   duplicateInstance,
+  instanceHoldsData,
   loadLayout,
   renameWidgetType,
   saveLayout,
@@ -1507,6 +1508,7 @@ function disposePurgedHidden(typeId: string) {
   flushToDoc();
   const { layout, removedInstanceIds } = purgeRedundantHiddenInstances(
     cloneLayoutDoc(),
+    instanceHoldsData,
     typeId,
   );
   if (removedInstanceIds.length === 0) return;

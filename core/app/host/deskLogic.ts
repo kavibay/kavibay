@@ -415,9 +415,13 @@ export function fullyHiddenInstanceIds(
 /**
  * Drop soft-hidden-only instances when the same type already has a visible
  * placement (or `forceTypeId` was just removed/shown). Returns removed ids.
+ *
+ * A hidden copy that `holdsData` stays: it is a card somebody filled and
+ * closed, not an orphan, and removing it threw its values away unasked.
  */
 export function purgeRedundantHiddenInstances(
   layout: SavedLayoutV4,
+  holdsData: (instanceId: string) => boolean,
   forceTypeId?: string,
 ): { layout: SavedLayoutV4; removedInstanceIds: string[] } {
   const typeHasVisible = new Set<string>();
@@ -434,6 +438,7 @@ export function purgeRedundantHiddenInstances(
   let next = layout;
   for (const typeId of typeHasVisible) {
     for (const id of fullyHiddenInstanceIds(next, typeId)) {
+      if (holdsData(id)) continue;
       next = removeEverywhere(next, id);
       removedInstanceIds.push(id);
     }

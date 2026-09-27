@@ -213,7 +213,7 @@ function assertThrows(fn: () => void, msg: string) {
     fullyHiddenInstanceIds(layout, "snake").includes("hid"),
     "hid is fully hidden",
   );
-  const purged = purgeRedundantHiddenInstances(layout);
+  const purged = purgeRedundantHiddenInstances(layout, () => false);
   layout = purged.layout;
   assert(purged.removedInstanceIds.includes("hid"), "orphan hidden removed");
   assert(!layout.catalog.some((c) => c.instanceId === "hid"), "hid catalog gone");
@@ -226,9 +226,18 @@ function assertThrows(fn: () => void, msg: string) {
     { instanceId: "ghost", offset: { x: 1, y: 1 }, hidden: true },
   );
   layout = removeEverywhere(layout, "vis");
-  const forced = purgeRedundantHiddenInstances(layout, "snake");
+  const forced = purgeRedundantHiddenInstances(layout, () => false, "snake");
   assert(forced.removedInstanceIds.includes("ghost"), "forceTypeId clears ghost");
   assert(forced.layout.catalog.length === 0, "no snake leftovers");
+
+  const filled = addCatalogInstance(
+    forced.layout,
+    { instanceId: "kept", typeId: "snake" },
+    { instanceId: "kept", offset: { x: 2, y: 2 }, hidden: true },
+  );
+  const spared = purgeRedundantHiddenInstances(filled, (id) => id === "kept", "snake");
+  assert(spared.removedInstanceIds.length === 0, "a hidden copy with data is not an orphan");
+  assert(spared.layout.catalog.some((c) => c.instanceId === "kept"), "its card stays in Hidden");
 }
 
 // restoreRemovedInstance puts catalog + full placement back after removeEverywhere
