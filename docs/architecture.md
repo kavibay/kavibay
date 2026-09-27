@@ -110,7 +110,9 @@ One window, `label: "main"`, created hidden and never destroyed
 
 - **Not `fullscreen: true`.** Exclusive fullscreen fights with transparency.
   Rust reads `current_monitor()` in `setup` and applies `set_size` +
-  `set_position` in physical pixels.
+  `set_position` in physical pixels. On macOS the window uses the monitor's
+  native work area, excluding the menu bar and Dock, so widget coordinates
+  and drag limits stay inside the usable desktop.
 - **`shadow: false`** matters on Windows: otherwise DWM draws a drop shadow
   around the invisible fullscreen rectangle.
 - **Hidden, not closed.** The hotkeys and the tray only call `show()` / `hide()`,

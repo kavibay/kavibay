@@ -3,6 +3,7 @@
  * Run: npx tsx src/core/host/viewportLayout.assert.ts
  */
 import {
+  clampCardCenter,
   resolveDeskViewport,
   scaleDeskToViewport,
   scalePosition,
@@ -31,6 +32,26 @@ assert(
   viewportEdgeMargin({ width: 8000, height: 4000 }) === 56,
   "ceiling 56",
 );
+
+// Window coordinates now start at macOS's native work area, below the menu bar.
+const workArea = { width: 1440, height: 850 };
+const card = { width: 320, height: 200 };
+const edge = viewportEdgeMargin(workArea);
+const recovered = clampCardCenter({ x: 720, y: -80 }, card, workArea);
+assert(recovered.y - card.height / 2 === edge, "recover a saved card above the work area");
+assert(recovered.x === 720, "top recovery keeps its horizontal position");
+const nudged = clampCardCenter({ x: recovered.x, y: recovered.y - 10 }, card, workArea);
+assert(nudged.y === recovered.y, "keyboard nudge cannot hide the drag strip");
+const resized = clampCardCenter(recovered, { ...card, height: 500 }, workArea);
+assert(resized.y - 250 === edge, "growing a card keeps its top reachable");
+const huge = clampCardCenter({ x: -100, y: -200 }, { width: 2000, height: 1200 }, workArea);
+assert(huge.x - 1000 === edge && huge.y - 600 === edge, "oversized cards keep top/left reachable");
+const group = clampCardCenter({ x: 500, y: -20 }, card, workArea, 380);
+assert(group.y - 380 === edge, "group drag stops at the highest card, not the grabbed card");
+const inside = clampCardCenter({ x: 600, y: 400 }, card, workArea);
+assert(inside.x === 600 && inside.y === 400, "valid positions stay unchanged");
+const again = clampCardCenter(recovered, card, workArea);
+assert(again.x === recovered.x && again.y === recovered.y, "recovery is idempotent");
 
 const mid = scalePosition({ x: 1920, y: 1080 }, uhd, fhd);
 assert(Math.abs(mid.x - 960) < 0.01 && Math.abs(mid.y - 540) < 0.01, "center scales");

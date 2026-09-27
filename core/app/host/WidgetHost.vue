@@ -82,6 +82,7 @@ import {
   type LayoutGeometrySnapshot,
 } from "./layoutHistory";
 import {
+  clampCardCenter,
   currentViewportSize,
   resolveDeskViewport,
   viewportEdgeMargin,
@@ -306,6 +307,7 @@ function scaleLiveLayout(from: ViewportSize, to: ViewportSize): void {
  * on resize, and when the hotkey may have moved us to another monitor.
  */
 function ensureViewportAdaptation(persistAfter = false): void {
+  void nextTick(recoverLayoutIntoViewport);
   const to = currentViewportSize();
   if (to.width < 1 || to.height < 1) return;
 
@@ -565,6 +567,7 @@ function restoreGeometry(snapshot: LayoutGeometrySnapshot): void {
     snapshot,
   );
   persist();
+  void nextTick(recoverLayoutIntoViewport);
   scheduleRegionSync();
 }
 
@@ -825,6 +828,8 @@ let drag:
       /** Cached at pointerdown — avoid layout thrash on every move. */
       width: number;
       height: number;
+      /** Distance from the grabbed center to the highest card in this gesture. */
+      topExtent: number;
       captureEl: HTMLElement;
       /**
        * Ctrl/Cmd+drag: translate the whole layout (palette + widgets).
@@ -850,6 +855,17 @@ function centerOf(target: DragTarget): WidgetPosition {
   return { x: palettePos.x + offset.x, y: palettePos.y + offset.y };
 }
 
+/** A group must stop when its highest visible card reaches the viewport edge. */
+function dragTopExtent(centerY: number, height: number, moveGroup: boolean): number {
+  if (!moveGroup) return height / 2;
+  let top = centerY - height / 2;
+  for (const el of document.querySelectorAll<HTMLElement>(".widget-anchor, .palette-anchor")) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) top = Math.min(top, rect.top);
+  }
+  return centerY - top;
+}
+
 /** Start dragging the palette (capture/measure on the full palette anchor). */
 function onPointerDown(event: PointerEvent, target: DragTarget) {
   if (event.button !== 0) return;
@@ -861,14 +877,16 @@ function onPointerDown(event: PointerEvent, target: DragTarget) {
   const measureEl = captureEl;
   const center = centerOf(target);
   const { width, height } = measureEl.getBoundingClientRect();
+  const moveGroup = event.ctrlKey || event.metaKey;
   drag = {
     target,
     grabX: event.clientX - center.x,
     grabY: event.clientY - center.y,
     width,
     height,
+    topExtent: dragTopExtent(center.y, height, moveGroup),
     captureEl,
-    moveGroup: event.ctrlKey || event.metaKey,
+    moveGroup,
   };
 
   beginLayoutGesture();
@@ -891,14 +909,16 @@ function onWidgetMovePointerDown(event: PointerEvent, instanceId: string) {
 
   const center = centerOf({ kind: "widget", instanceId });
   const { width, height } = anchor.getBoundingClientRect();
+  const moveGroup = event.ctrlKey || event.metaKey;
   drag = {
     target: { kind: "widget", instanceId },
     grabX: event.clientX - center.x,
     grabY: event.clientY - center.y,
     width,
     height,
+    topExtent: dragTopExtent(center.y, height, moveGroup),
     captureEl: anchor,
-    moveGroup: event.ctrlKey || event.metaKey,
+    moveGroup,
     startOffset: { ...(instances.find((i) => i.instanceId === instanceId)?.offset ?? { x: 0, y: 0 }) },
   };
   beginLayoutGesture();
@@ -935,15 +955,11 @@ function onPointerMove(event: PointerEvent) {
     width: window.innerWidth,
     height: window.innerHeight,
   });
-  let cx = clamp(
-    event.clientX - drag.grabX,
-    width / 2 + margin,
-    window.innerWidth - width / 2 - margin,
-  );
-  let cy = clamp(
-    event.clientY - drag.grabY,
-    height / 2 + margin,
-    window.innerHeight - height / 2 - margin,
+  let { x: cx, y: cy } = clampCardCenter(
+    { x: event.clientX - drag.grabX, y: event.clientY - drag.grabY },
+    { width, height },
+    currentViewportSize(),
+    drag.topExtent,
   );
 
   // Grid mode: snap inside the margin inset so left/right edge gaps stay even.
@@ -959,7 +975,7 @@ function onPointerMove(event: PointerEvent) {
       },
     );
     cx = snapped.x;
-    cy = snapped.y;
+    cy = Math.max(snapped.y, drag.topExtent + margin);
   }
 
   if (drag.target.kind === "palette") {
@@ -1044,11 +1060,6 @@ function onPointerUp(event: PointerEvent) {
     const moved = instances.find((item) => item.instanceId === movedWidgetId);
     if (moved) onboarding.notifyWidgetMoved(moved.typeId);
   }
-}
-
-/** Constrain a coordinate to the available viewport range. */
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), Math.max(min, max));
 }
 
 /** Duplicate one instance on the active desk and run onDuplicate. */
@@ -1650,6 +1661,7 @@ function onNudgeKeydown(event: KeyboardEvent) {
     x: instance.offset.x + dx,
     y: instance.offset.y + dy,
   };
+  ensureInstanceOnScreen(instance);
   endLayoutGesture();
   persist();
   scheduleRegionSync();
@@ -1708,7 +1720,10 @@ function onGapMoveKeydown(event: KeyboardEvent) {
       x: target.offset.x + dx,
       y: target.offset.y + dy,
     };
+    ensureInstanceOnScreen(target);
   }
+
+  if (paletteActive) ensurePaletteOnScreen();
 
   endLayoutGesture();
   persist();
@@ -1956,37 +1971,75 @@ async function onFocusWidget(instanceId: string, openPackageId?: string) {
 }
 
 /**
- * If a widget center is outside the viewport, nudge its offset so the card
- * sits fully on-screen with the same edge inset on every side. Returns true
- * when the offset changed.
+ * Keep the card inside the viewport, measuring auto-height widgets instead of
+ * guessing their height. Returns true when its offset changed.
  */
-function ensureInstanceOnScreen(instance: WidgetInstance): boolean {
+function ensureInstanceOnScreen(instance: WidgetInstance, measuredSize?: ViewportSize): boolean {
+  const rect = measuredSize ?? document.querySelector<HTMLElement>(
+    `[data-widget-instance="${CSS.escape(instance.instanceId)}"]`,
+  )?.getBoundingClientRect();
   const w =
     typeof instance.width === "number" && Number.isFinite(instance.width)
       ? instance.width
-      : 340;
+      : (rect?.width || 340);
   const h =
     typeof instance.height === "number" && Number.isFinite(instance.height)
       ? instance.height
-      : 220;
-  const margin = viewportEdgeMargin({
-    width: window.innerWidth,
-    height: window.innerHeight,
-  });
+      : (rect?.height || 220);
   const cx = palettePos.x + instance.offset.x;
   const cy = palettePos.y + instance.offset.y;
-  const minX = w / 2 + margin;
-  const maxX = Math.max(minX, window.innerWidth - w / 2 - margin);
-  const minY = h / 2 + margin;
-  const maxY = Math.max(minY, window.innerHeight - h / 2 - margin);
-  const nx = Math.min(maxX, Math.max(minX, cx));
-  const ny = Math.min(maxY, Math.max(minY, cy));
+  const { x: nx, y: ny } = clampCardCenter(
+    { x: cx, y: cy },
+    measuredSize ?? { width: w, height: h },
+    currentViewportSize(),
+  );
   if (nx === cx && ny === cy) return false;
   instance.offset = {
     x: nx - palettePos.x,
     y: ny - palettePos.y,
   };
   return true;
+}
+
+/** Correct the palette alone, preserving the absolute positions of its widgets. */
+function ensurePaletteOnScreen(): boolean {
+  const rect = paletteAnchorEl.value?.getBoundingClientRect();
+  if (!rect || rect.width === 0 || rect.height === 0) return false;
+  const next = clampCardCenter(palettePos, rect, currentViewportSize());
+  const dx = next.x - palettePos.x;
+  const dy = next.y - palettePos.y;
+  if (dx === 0 && dy === 0) return false;
+  palettePos.x = next.x;
+  palettePos.y = next.y;
+  for (const instance of instances) {
+    instance.offset = { x: instance.offset.x - dx, y: instance.offset.y - dy };
+  }
+  return true;
+}
+
+/** Recover old layouts after mount, reveal, undo, or a change of work area. */
+function recoverLayoutIntoViewport(): void {
+  let changed = ensurePaletteOnScreen();
+  for (const instance of instances) {
+    const rect = document.querySelector<HTMLElement>(
+      `[data-widget-instance="${CSS.escape(instance.instanceId)}"]`,
+    )?.getBoundingClientRect();
+    if (rect && rect.width > 0 && rect.height > 0) {
+      changed = ensureInstanceOnScreen(instance, rect) || changed;
+    }
+  }
+  if (changed) persist();
+  scheduleRegionSync();
+}
+
+let layoutBoundsObserver: ResizeObserver | undefined;
+
+/** Auto-height content and font loading can move a centered card's top edge too. */
+function observeLayoutBounds(): void {
+  layoutBoundsObserver?.disconnect();
+  document.querySelectorAll(".palette-anchor, .widget-anchor").forEach((el) => {
+    layoutBoundsObserver?.observe(el);
+  });
 }
 
 /** Handle extension-driven reveal requests (e.g. alarm fired while hidden). */
@@ -2084,6 +2137,8 @@ function onEditInWizard(packageId: string) {
 }
 
 onMounted(async () => {
+  layoutBoundsObserver = new ResizeObserver(recoverLayoutIntoViewport);
+  observeLayoutBounds();
   // Pinch needs zoomHotkeysEnabled, which also turns on browser zoom — cancel it.
   startBrowserZoomGuard();
   void rescanRuntimeExtensions();
@@ -2230,6 +2285,7 @@ function onViewportResize() {
 }
 
 onUnmounted(() => {
+  layoutBoundsObserver?.disconnect();
   if (highlightClearTimer !== undefined) clearTimeout(highlightClearTimer);
   if (focusPopClearTimer !== undefined) clearTimeout(focusPopClearTimer);
   if (focusPopFrame !== undefined) cancelAnimationFrame(focusPopFrame);
@@ -2266,7 +2322,8 @@ onUnmounted(() => {
 // Keep native click-through rects aligned when cockpit / palette visibility change.
 watch([hideOnOutsideClick, paletteVisible, mountedInstances], async () => {
   await nextTick();
-  scheduleRegionSync();
+  observeLayoutBounds();
+  recoverLayoutIntoViewport();
 });
 
 // Arm native outside-click detection exactly while the cockpit should dismiss on it.
@@ -2418,6 +2475,7 @@ function onResizeInstance(
     instance.contentScale = payload.contentScale;
   }
   instance.offset = nextOffset;
+  ensureInstanceOnScreen(instance);
   persist();
 }
 
@@ -2427,6 +2485,7 @@ function onResizeInstanceEnd() {
   resizeStartOffset = null;
   resizeStartInstanceId = null;
   endLayoutGesture();
+  void nextTick(recoverLayoutIntoViewport);
   scheduleRegionSync();
   if (resizedId) {
     const resized = instances.find((item) => item.instanceId === resizedId);
@@ -2509,6 +2568,7 @@ function onResizePalette(payload: {
 function onResizePaletteEnd() {
   paletteResizeStart = null;
   endLayoutGesture();
+  void nextTick(recoverLayoutIntoViewport);
   scheduleRegionSync();
 }
 
