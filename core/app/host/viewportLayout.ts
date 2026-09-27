@@ -42,6 +42,25 @@ export function viewportEdgeMargin(viewport: ViewportSize): number {
   );
 }
 
+/** Keep a card reachable, prioritizing its top/left edges when it is oversized. */
+export function clampCardCenter(
+  center: WidgetPosition,
+  size: ViewportSize,
+  viewport: ViewportSize,
+  /** Distance to the highest card when moving a group; otherwise half the card height. */
+  topExtent = size.height / 2,
+): WidgetPosition {
+  const margin = viewportEdgeMargin(viewport);
+  const minX = size.width / 2 + margin;
+  const minY = topExtent + margin;
+  const maxX = Math.max(minX, viewport.width - size.width / 2 - margin);
+  const maxY = Math.max(minY, viewport.height - size.height / 2 - margin);
+  return {
+    x: Math.min(maxX, Math.max(minX, center.x)),
+    y: Math.min(maxY, Math.max(minY, center.y)),
+  };
+}
+
 /** Normalize a raw viewport; invalid → null. */
 export function normalizeViewport(raw: unknown): ViewportSize | null {
   if (!raw || typeof raw !== "object") return null;

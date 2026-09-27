@@ -44,7 +44,7 @@ use serde::Serialize;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager, PhysicalPosition, PhysicalSize, RunEvent,
+    Emitter, Manager, PhysicalPosition, RunEvent,
 };
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, ShortcutState};
 
@@ -827,7 +827,7 @@ fn fit_window_to_monitor(window: &tauri::WebviewWindow, target: OpenMonitor) -> 
     fit_window_to_monitor_tauri(window, target)
 }
 
-/// Tauri fallback: move onto the target monitor, then size to its physical bounds.
+/// Tauri fallback: fit the target monitor, respecting the macOS work area.
 fn fit_window_to_monitor_tauri(
     window: &tauri::WebviewWindow,
     target: OpenMonitor,
@@ -847,15 +847,17 @@ fn fit_window_to_monitor_tauri(
     };
 
     if let Some(monitor) = monitor {
+        // The macOS menu bar intercepts input even above our always-on-top window.
+        // Use the native work area (also excluding the Dock), so webview coordinates
+        // and every widget's drag boundary start below it, including on other displays.
+        #[cfg(target_os = "macos")]
+        let (position, size) = (monitor.work_area().position, monitor.work_area().size);
+        #[cfg(not(target_os = "macos"))]
+        let (position, size) = (*monitor.position(), *monitor.size());
+
         // Position first so the window enters the target DPI context before resize.
-        window.set_position(PhysicalPosition::new(
-            monitor.position().x,
-            monitor.position().y,
-        ))?;
-        window.set_size(PhysicalSize::new(
-            monitor.size().width,
-            monitor.size().height,
-        ))?;
+        window.set_position(position)?;
+        window.set_size(size)?;
     }
     Ok(())
 }
