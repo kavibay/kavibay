@@ -52,6 +52,8 @@ const copiedResult = ref(false);
  * confirmed after it, so the user is never surprised by where the answer went.
  */
 const canReplace = ref(true);
+/** The platform refused to let Kavibay read the selection (macOS Accessibility). */
+const needsAccess = ref(false);
 
 /** Aborts the in-flight handler when the user dismisses the popup. */
 let inFlight: AbortController | null = null;
@@ -111,7 +113,8 @@ async function refreshActions() {
   }
 }
 
-async function onOpen(text: string, error: string, replaceable: boolean) {
+async function onOpen(text: string, error: string, replaceable: boolean, access: boolean) {
+  needsAccess.value = access;
   selection.value = text;
   highlighted.value = 0;
   openingWidget.value = false;
@@ -125,6 +128,11 @@ async function onOpen(text: string, error: string, replaceable: boolean) {
   await refreshActions();
   await refreshDisabledTemplates();
   await announceSize();
+}
+
+/** Rust closes the popup, hands focus back and opens System Settings. */
+function openAccessSettings() {
+  void invoke("quick_action_open_access_settings").catch(() => {});
 }
 
 /** Run one action and hand the result to Rust, which pastes it. */
@@ -286,16 +294,19 @@ function armBlurDismiss() {
 onMounted(async () => {
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("focus", armBlurDismiss, { once: true });
-  unlistenOpen = await listen<{ text: string; error?: string; canReplace?: boolean }>(
-    "quickaction:open",
-    (event) => {
-      void onOpen(
-        event.payload?.text ?? "",
-        event.payload?.error ?? "",
-        event.payload?.canReplace !== false,
-      );
-    },
-  );
+  unlistenOpen = await listen<{
+    text: string;
+    error?: string;
+    canReplace?: boolean;
+    needsAccess?: boolean;
+  }>("quickaction:open", (event) => {
+    void onOpen(
+      event.payload?.text ?? "",
+      event.payload?.error ?? "",
+      event.payload?.canReplace !== false,
+      event.payload?.needsAccess === true,
+    );
+  });
 });
 
 onUnmounted(() => {
@@ -317,7 +328,7 @@ onUnmounted(() => {
       </button>
       <p class="qa-result-action">{{ resultActionTitle }}</p>
     </div>
-    <p class="qa-preview" :title="selection">{{ preview }}</p>
+    <p v-if="selection" class="qa-preview" :title="selection">{{ preview }}</p>
 
     <div
       v-show="!showingOutput"
@@ -407,7 +418,12 @@ onUnmounted(() => {
     <p v-if="!showingOutput && !blocked && visibleActions.length === 0" class="qa-empty">
       No quick actions installed
     </p>
-    <p v-if="errorText" class="qa-error" role="alert">{{ errorText }}</p>
+    <p v-if="errorText" :class="needsAccess ? 'qa-access-text' : 'qa-error'" role="alert">
+      {{ errorText }}
+    </p>
+    <button v-if="needsAccess" type="button" class="qa-access" @click="openAccessSettings">
+      Open Accessibility Settings
+    </button>
   </div>
   <FloatingTipHost />
 </template>
@@ -743,5 +759,30 @@ onUnmounted(() => {
 .qa-error {
   color: #e0796f;
   border-top: 1px solid rgba(var(--fg-rgb), 0.08);
+}
+
+/* An explanation, not a failure: no red, and nothing above it to separate from. */
+.qa-access-text {
+  margin: 0;
+  padding: 6px 8px 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(var(--fg-rgb), 0.85);
+}
+
+.qa-access {
+  margin: 4px 8px 6px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(var(--fg-rgb), 0.12);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.qa-access:hover {
+  background: rgba(var(--fg-rgb), 0.18);
 }
 </style>
