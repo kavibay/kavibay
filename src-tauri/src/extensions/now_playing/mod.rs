@@ -297,6 +297,7 @@ fn snapshot_windows() -> windows::core::Result<NowPlayingInfo> {
         artist,
         album_art_data_url,
         is_playing,
+        ..NowPlayingInfo::empty()
     })
 }
 
