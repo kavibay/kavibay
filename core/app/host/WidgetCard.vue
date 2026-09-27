@@ -1403,15 +1403,24 @@ watch(
 }
 
 /* Pin + ⋯ + Hide (eye-off) inside the card (top-right). Narrow cards: ⋯ only. */
+/*
+ * The controls get their own ground in the shared surface colour. On a card
+ * drawn in that colour it disappears; on one recoloured under Appearance, see-
+ * through or over a light desktop, it keeps the icons readable. Offset by its
+ * padding so the buttons stay where they were.
+ */
 .widget-card-chrome {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 6px;
+  right: 6px;
   z-index: 3;
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  background: rgba(var(--surface-bg-rgb), 0.85);
 }
 
 /* In DOM for coach targeting, but not interactive/visible until hover or tour. */

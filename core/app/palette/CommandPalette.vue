@@ -4483,15 +4483,19 @@ onUnmounted(() => {
   cursor: grabbing;
 }
 
+/* Own ground behind the controls, as on widget cards (see .widget-card-chrome). */
 .palette-card-chrome {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 8px;
+  right: 8px;
   z-index: 3;
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgba(var(--surface-bg-rgb), 0.85);
 }
 
 /* Same control as .palette-bar-btn, so same shape — leaving these square while
