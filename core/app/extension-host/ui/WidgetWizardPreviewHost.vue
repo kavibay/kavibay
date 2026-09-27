@@ -296,12 +296,7 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
 </script>
 
 <template>
-  <!--
-    The stage and the panel are siblings in a column. Inside the stage they were
-    flex siblings of a centred, draggable card, so the panel sat beside it and
-    moved when the card did — a debug view that has to be chased is one nobody
-    opens.
-  -->
+  <!-- The debug overlay stays anchored to the canvas while the card moves. -->
   <div class="preview">
     <div ref="stageEl" class="stage">
     <!--
@@ -371,11 +366,7 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
       </div>
     </div>
 
-    <!--
-      Under the stage rather than inside the card: the card is what the widget
-      will look like on the desk, and a debug drawer in it would be part of the
-      thing being judged.
-    -->
+    <!-- Floating over the stage, outside the widget being previewed. -->
     <!--
       `open` bound and `toggle` listened to rather than `v-model`: `<details>`
       has no value to model, and a failed call must be able to open the panel
@@ -457,6 +448,7 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
 
 <style scoped>
 .preview {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -465,6 +457,7 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
 
 .stage {
   position: relative;
+  isolation: isolate;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -508,10 +501,15 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
   color: rgba(var(--fg-rgb), 0.5);
 }
 .dbg {
-  margin-top: 8px;
-  flex: 0 0 auto;
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* Match the composer bar's bottom inset: 7px padding plus its 1px border. */
+  bottom: 8px;
+  z-index: 1;
   font-size: 11px;
   max-width: 100%;
+  pointer-events: none;
   /*
    * The host sets `user-select: none` on the widget anchor so a drag never
    * turns into a text selection. That is right for a clock and wrong for a
@@ -523,8 +521,37 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
 }
 
 .dbg > summary {
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 9px;
+  border-radius: 9px;
+  background: rgba(var(--fg-rgb), 0.06);
+  backdrop-filter: blur(12px);
+  font-size: 12px;
+  line-height: 28px;
+  list-style-position: inside;
+  pointer-events: auto;
   cursor: pointer;
   opacity: 0.8;
+}
+
+.dbg > .dbg-empty,
+.dbg > .dbg-list {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid rgba(var(--fg-rgb), 0.1);
+  border-radius: 9px;
+  background: rgba(var(--surface-bg-rgb), var(--surface-alpha, 0.72));
+  backdrop-filter: blur(12px);
+  max-height: 220px;
+  overflow: auto;
+  pointer-events: auto;
 }
 
 .dbg-bad {
@@ -538,11 +565,7 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
 }
 
 .dbg-list {
-  margin: 6px 0 0;
-  padding: 0;
   list-style: none;
-  max-height: 220px;
-  overflow: auto;
 }
 
 .dbg-list li {
