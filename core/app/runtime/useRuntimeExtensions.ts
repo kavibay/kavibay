@@ -101,7 +101,10 @@ export function scannedToHostRef(
     description: row.description ?? "",
     origin: "runtime",
     settingsComponent: { setup: () => () => h(RuntimeConnectionSettings, { packageId: row.id }) },
-    runtimeEntryUrl: runtimeEntryUrlFor(row.id, row.uiEntry),
+    // Publishing replaces the directory, even for a script-only edit. Changing
+    // the entry reloads mounted widgets as well as the Wizard preview.
+    runtimeEntryUrl: runtimeEntryUrlFor(row.id, row.uiEntry) +
+      (row.updatedAt == null ? "" : `?published=${row.updatedAt}`),
     // Carried, not inferred. The frame that embeds this package is chosen from
     // it, and the two frames speak different protocols.
     packageFormat: row.format,

@@ -17,7 +17,8 @@
  */
 import { forwardFrameZoom } from "../host/contentZoom";
 import "./frameViewport.css";
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { packageFrameUrl } from "./packageFrameUrl";
 import { invoke } from "@tauri-apps/api/core";
 import {
   faultSourceOf,
@@ -39,6 +40,9 @@ const props = defineProps<{
 }>();
 
 const iframeRef = ref<HTMLIFrameElement | null>(null);
+const runId = ref(crypto.randomUUID());
+const frameUrl = computed(() => packageFrameUrl(props.entryUrl, runId.value));
+watch(() => props.entryUrl, () => { runId.value = crypto.randomUUID(); });
 
 /** Post a host→ext reply into the iframe (only if still mounted). */
 function postToExt(msg: HostToExt) {
@@ -56,6 +60,7 @@ function postToExt(msg: HostToExt) {
  * only saves a round trip and gives the same code either way.
  */
 async function runHttpCall(requestId: string, endpointId: string, args: unknown) {
+  const requestedRun = runId.value;
   if (!props.grantedPermissions.includes(NETWORK_DECLARED_PERM)) {
     postToExt(httpFailure(requestId, "permission_denied"));
     return;
@@ -67,10 +72,11 @@ async function runHttpCall(requestId: string, endpointId: string, args: unknown)
       endpointId,
       args: args ?? null,
     });
-    postToExt({ type: "kavibay.ext.http.result", requestId, result });
+    // Request ids restart in a new document. A late answer belongs to the old run.
+    if (runId.value === requestedRun) postToExt({ type: "kavibay.ext.http.result", requestId, result });
   } catch {
     // An invoke that throws is a host-side fault, not a provider answer.
-    postToExt(httpFailure(requestId, "network_error"));
+    if (runId.value === requestedRun) postToExt(httpFailure(requestId, "network_error"));
   }
 }
 
@@ -146,7 +152,7 @@ onBeforeUnmount(() => {
     <iframe
       ref="iframeRef"
       class="runtime-ext-frame"
-      :src="entryUrl"
+      :src="frameUrl"
       :title="`Runtime extension ${extId}`"
       sandbox="allow-scripts"
       referrerpolicy="no-referrer"
