@@ -102,6 +102,13 @@ The gear menu only appears once more than one session exists.
 **Builds and runs from source**, and `npm run verify:rust` passes on a Mac.
 Packaging is not set up.
 
+After changing the runtime package protocol or its CSP, run
+`npm run verify:webkit` on macOS. It opens an ephemeral WebKit instance and checks
+button clicks, storage across an iframe reload, gesture forwarding, rendered
+iframe sizes after live zoom changes, local assets and sandbox restrictions.
+It does not read or change your Kavibay profile. This catches
+WebKit-specific failures that the TypeScript and Rust suites cannot reproduce.
+
 On a Mac the double tap is on the Control key (⌃), not Command. It needs no
 permission. Kavibay watches modifier keys through an `NSEvent` global monitor,
 which macOS serves without Input Monitoring or Accessibility access, so there is
@@ -115,8 +122,10 @@ Credentials and `web-storage.json` are encrypted with a key kept in your login
 keychain as "Kavibay Safe Storage". A debug build is ad-hoc signed, so every
 rebuild has a new signature the keychain has not seen, and macOS asks once per
 build whether `kavibay` may use that item. Allow it; *Always Allow* covers only
-that one build. Deny it and that session runs without the key: credentials
-cannot be read and `web-storage.json` is written unencrypted until the next start.
+that one build. Deny it and that session runs without the key. Settings →
+Credentials shows the refusal, and **Try again** asks once more. Widget content
+is saved unencrypted to `web-storage.pending.json` next to the untouched
+`web-storage.json`, and the first start or save with the key folds it back in.
 
 One decision is already baked in: the transparent window needs Apple's private
 APIs, which **rules out App Store distribution**.

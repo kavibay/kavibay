@@ -7,6 +7,9 @@
  *   npx tsx extensions/widget-wizard/widgetWizardLogic.assert.ts
  */
 
+import type { ArgSpec, ResultSchema } from "@sdk/contract/sdk";
+import type { Language } from "./highlight";
+
 /** Consent-facing endpoint shape returned by the host package scanner. */
 export interface ConsentEndpoint {
   description: string;
@@ -22,14 +25,33 @@ export interface WizardProviderSchema {
   requiresCredential: boolean;
   /** Registry type id, so "not connected" can open Settings on that row. */
   credentialType?: string;
-  queries: Array<{ name: string; description?: string }>;
+  queries: Array<{
+    name: string;
+    description?: string;
+    args?: Record<string, ArgSpec>;
+    result?: ResultSchema;
+  }>;
+  /** Writes. A widget calls one only after declaring it in its provider entry's `actions`. */
+  actions?: Array<{
+    name: string;
+    effect?: "write" | "destructive" | "sensitive";
+    description?: string;
+    args?: Record<string, ArgSpec>;
+  }>;
 }
 
 export interface WizardPermissionChoice {
   provider: string;
   /** "tado°", not "kavibay.tado/tado". */
   providerName: string;
+  /** What reading from it gets the widget, in the provider's own words. */
+  summary: string;
   granted: boolean;
+  /**
+   * The changes the package asks to make on this account. The same shape as the
+   * host dialog's `ActionChoice`, because that dialog is what renders it.
+   */
+  actions?: { names: string[]; summary: string; granted: boolean };
 }
 
 export interface WizardPermissionRequest {
@@ -40,7 +62,11 @@ export interface WizardPermissionRequest {
 
 export interface WizardApprovedGrant {
   providers: string[];
+  /** Per approved provider, the actions it may call. Empty means none. */
+  actions: Partial<Record<string, readonly string[]>>;
 }
+
+const NO_GRANT: WizardApprovedGrant = { providers: [], actions: {} };
 
 /**
  * What "approve automatically" grants: exactly what the package asked for.
@@ -53,7 +79,14 @@ export interface WizardApprovedGrant {
  * that this machine does not have, so there is nothing to grant.
  */
 export function autoApprovedGrant(request: WizardPermissionRequest): WizardApprovedGrant {
-  return { providers: request.choices.map((choice) => choice.provider) };
+  return {
+    providers: request.choices.map((choice) => choice.provider),
+    actions: Object.fromEntries(
+      request.choices
+        .filter((choice) => choice.actions)
+        .map((choice) => [choice.provider, [...(choice.actions?.names ?? [])]]),
+    ),
+  };
 }
 
 /**
@@ -142,12 +175,36 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+/**
+ * `widget.requires.providers` as the manifest states it: each entry a bare id,
+ * or `{ id, queries, actions }`. Read leniently, because this only decides what
+ * the Wizard shows; anything malformed reads as nothing, and the host's own
+ * reader is the one that refuses it.
+ */
+function requestedContractEntries(raw: unknown): { id: string; queries: string[]; actions: string[] }[] {
+  const value = asRecord(asRecord(asRecord(raw)?.widget)?.requires)?.providers;
+  if (!Array.isArray(value)) return [];
+  const strings = (list: unknown) =>
+    Array.isArray(list) ? list.filter((name): name is string => typeof name === "string") : [];
+  return value.flatMap((entry) => {
+    if (typeof entry === "string") return [{ id: entry, queries: [], actions: [] }];
+    const object = asRecord(entry);
+    return typeof object?.id === "string"
+      ? [{ id: object.id, queries: strings(object.queries), actions: strings(object.actions) }]
+      : [];
+  });
+}
+
+function requestedContractNames(raw: unknown, field: "actions" | "queries"): Record<string, string[]> {
+  return Object.fromEntries(
+    requestedContractEntries(raw)
+      .filter((entry) => entry[field].length > 0)
+      .map((entry) => [entry.id, entry[field]]),
+  );
+}
+
 function requestedContractProviders(raw: unknown): string[] {
-  const manifest = asRecord(raw);
-  const widget = asRecord(manifest?.widget);
-  const requires = asRecord(widget?.requires);
-  const value = requires?.providers;
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+  return requestedContractEntries(raw).map((entry) => entry.id);
 }
 
 /**
@@ -159,10 +216,12 @@ function requestedContractProviders(raw: unknown): string[] {
 export function buildWizardPermissionRequest(
   raw: unknown,
   providers: readonly WizardProviderSchema[],
-  alreadyGranted: readonly string[] = [],
+  alreadyGranted: WizardApprovedGrant = NO_GRANT,
 ): WizardPermissionRequest {
   const choices: WizardPermissionChoice[] = [];
   const refused: string[] = [];
+  const asked = requestedContractNames(raw, "actions");
+  const reads = requestedContractNames(raw, "queries");
 
   for (const pid of requestedContractProviders(raw)) {
     const provider = providers.find((entry) => entry.id === pid);
@@ -170,22 +229,224 @@ export function buildWizardPermissionRequest(
       refused.push(pid);
       continue;
     }
+    const has = (name: string) => provider.actions?.some((action) => action.name === name) ?? false;
+    const declared = asked[pid] ?? [];
+    const names = declared.filter(has);
+    refused.push(...declared.filter((name) => !has(name)).map((name) => `${pid}.${name}`));
+    const approved = alreadyGranted.actions[pid] ?? [];
     choices.push({
       provider: pid,
       providerName: provider.displayName,
-      granted: alreadyGranted.includes(pid),
+      summary: readSummary(provider, reads[pid] ?? []),
+      granted: alreadyGranted.providers.includes(pid),
+      ...(names.length > 0
+        ? {
+            actions: {
+              names,
+              summary: names
+                .map((name) => provider.actions?.find((action) => action.name === name)?.description ?? name)
+                .join("; "),
+              granted: names.every((name) => approved.includes(name)),
+            },
+          }
+        : {}),
     });
   }
 
   return { choices, refused };
 }
 
+/**
+ * The host dialog's sentence under an account, built the same way: the declared
+ * queries when the package names them, else the first two of the account's.
+ */
+function readSummary(provider: WizardProviderSchema, declared: readonly string[]): string {
+  const describe = (name: string) =>
+    provider.queries.find((query) => query.name === name)?.description ?? name;
+  const known = declared.filter((name) => provider.queries.some((query) => query.name === name));
+  if (known.length > 0) return known.map(describe).join("; ");
+  const sentences = provider.queries.map((query) => query.description ?? query.name);
+  if (sentences.length === 0) return "Reads nothing yet";
+  if (sentences.length <= 2) return sentences.join("; ");
+  return `${sentences.slice(0, 2).join("; ")}, and ${sentences.length - 2} more`;
+}
+
+/** A provider the package reads from. `schema` is null when this Kavibay has none by that id. */
+export interface ProviderUse {
+  id: string;
+  schema: WizardProviderSchema | null;
+  /** What this provider's entry lists under `actions`. */
+  declaredActions: string[];
+  /** What this provider's entry lists under `queries`. */
+  declaredQueries: string[];
+}
+
+/** The providers `manifest.json` asks for, matched against what the host offers. */
+export function providersUsedBy(
+  files: readonly GeneratedFile[],
+  providers: readonly WizardProviderSchema[],
+): ProviderUse[] {
+  const manifest = files.find((file) => file.path === "manifest.json");
+  if (!manifest) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(manifest.contents);
+  } catch {
+    return [];
+  }
+  const actions = requestedContractNames(parsed, "actions");
+  const queries = requestedContractNames(parsed, "queries");
+  return requestedContractProviders(parsed).map((id) => ({
+    id,
+    schema: providers.find((provider) => provider.id === id) ?? null,
+    declaredActions: actions[id] ?? [],
+    declaredQueries: queries[id] ?? [],
+  }));
+}
+
+/** The provider queries and actions a package's code names, by name. */
+export interface ProviderCalls {
+  queries: string[];
+  actions: string[];
+}
+
+const PROVIDER_CALL = /\.(query|subscribe|action)\(\s*(["'`])([\w-]+)\2/g;
+const SCRIPT_FILE = /\.(m?js|html?)$/i;
+
+/**
+ * What the code calls, read off the source rather than off a run.
+ *
+ * A literal first argument is the only form counted: `ctx.providers[id]
+ * .query("forecast", …)` is, a name built at runtime is not. That is enough for
+ * what the API tab shows, which is transparency about a package somebody is
+ * about to approve — and a call it cannot see is simply not marked, never
+ * marked wrongly.
+ */
+export function providerCallsIn(files: readonly GeneratedFile[]): ProviderCalls {
+  const queries = new Set<string>();
+  const actions = new Set<string>();
+  for (const file of files) {
+    if (!SCRIPT_FILE.test(file.path)) continue;
+    for (const match of file.contents.matchAll(PROVIDER_CALL)) {
+      (match[1] === "action" ? actions : queries).add(match[3]!);
+    }
+  }
+  return { queries: [...queries].sort(), actions: [...actions].sort() };
+}
+
+/** One provider query as the API tab lists it. */
+export interface QueryUse {
+  name: string;
+  description?: string;
+  args?: Record<string, ArgSpec>;
+  result?: ResultSchema;
+  declared: boolean;
+  called: boolean;
+  /** False for a declared name the provider does not have: a false statement. */
+  known: boolean;
+}
+
+/**
+ * Every query the provider offers, plus any declared name it does not have.
+ *
+ * All of them rather than only the used ones: the tab is where somebody reads
+ * what the account could give the widget, and the marks say which part this
+ * widget takes. Nothing here is enforced — reading is the account's grant —
+ * so an undeclared read is a gap in what the person was told, not a failure.
+ */
+export function queryUses(use: ProviderUse, calls: ProviderCalls): QueryUse[] {
+  const offered = use.schema?.queries ?? [];
+  const unknown = use.declaredQueries.filter((name) => !offered.some((query) => query.name === name));
+  return [
+    ...offered.map((query) => ({
+      name: query.name,
+      ...(query.description ? { description: query.description } : {}),
+      ...(query.args ? { args: query.args } : {}),
+      ...(query.result ? { result: query.result } : {}),
+      declared: use.declaredQueries.includes(query.name),
+      called: calls.queries.includes(query.name),
+      known: true,
+    })),
+    ...unknown.map((name) => ({ name, declared: true, called: calls.queries.includes(name), known: false })),
+  ];
+}
+
+/** One provider action as the API tab lists it. */
+export interface ActionUse {
+  name: string;
+  description?: string;
+  args?: Record<string, ArgSpec>;
+  declared: boolean;
+  called: boolean;
+}
+
+/**
+ * The actions worth showing for one provider: the declared ones, and any the
+ * code calls that the provider has. A called one that is not declared is the
+ * case to flag, because the host will refuse it the first time it runs.
+ */
+export function actionUses(use: ProviderUse, calls: ProviderCalls): ActionUse[] {
+  const known = use.schema?.actions ?? [];
+  const names = [
+    ...use.declaredActions,
+    ...calls.actions.filter(
+      (name) => !use.declaredActions.includes(name) && known.some((action) => action.name === name),
+    ),
+  ];
+  return names.map((name) => {
+    const action = known.find((entry) => entry.name === name);
+    return {
+      name,
+      ...(action?.description ? { description: action.description } : {}),
+      ...(action?.args ? { args: action.args } : {}),
+      declared: use.declaredActions.includes(name),
+      called: calls.actions.includes(name),
+    };
+  });
+}
+
+export type ProviderUseState = "missing" | "free" | "connected" | "disconnected";
+
+export function providerUseState(use: ProviderUse, connected: boolean): ProviderUseState {
+  if (!use.schema) return "missing";
+  if (!use.schema.requiresCredential) return "free";
+  return connected ? "connected" : "disconnected";
+}
+
+/** `location, days?`: the arguments a query takes, optional ones marked. */
+export function argSignature(args: Record<string, ArgSpec> | undefined): string {
+  return Object.entries(args ?? {})
+    .map(([name, spec]) => (spec.required ? name : `${name}?`))
+    .join(", ");
+}
+
+/**
+ * What a query answers with, one level deep: `list of { id, name }`.
+ *
+ * Field names rather than the whole tree, because the question here is what
+ * to write `data.` against, and a nested schema printed in full is a second
+ * file to read.
+ */
+export function describeResultShape(result: ResultSchema): string {
+  const shape =
+    result.type === "list"
+      ? `list of ${describeResultShape(result.of)}`
+      : result.type === "object"
+        ? `{ ${Object.keys(result.fields).join(", ")} }`
+        : result.type;
+  return result.nullable ? `${shape} or null` : shape;
+}
+
 export function askedNothingNew(
   request: WizardPermissionRequest,
-  granted: readonly string[] | null | undefined,
+  granted: WizardApprovedGrant | null | undefined,
 ): boolean {
   if (!granted) return false;
-  return request.choices.every((choice) => granted.includes(choice.provider));
+  return request.choices.every(
+    (choice) =>
+      granted.providers.includes(choice.provider) &&
+      (choice.actions?.names ?? []).every((name) => (granted.actions[choice.provider] ?? []).includes(name)),
+  );
 }
 
 /** One file of a generated package. */
@@ -996,6 +1257,54 @@ export function mergeGeneratedFiles(
     if (!seen.has(file.path)) merged.push(file);
   }
   return merged;
+}
+
+/** The format a manifest is written in, by the host's rule: a `widget` object. */
+function manifestFormat(files: GeneratedFile[]): WidgetFormat | null {
+  const manifest = files.find((file) => file.path === "manifest.json");
+  if (!manifest) return null;
+  try {
+    const widget = (JSON.parse(manifest.contents) as Record<string, unknown>).widget;
+    return widget !== null && typeof widget === "object" ? "contract-package" : "runtime-package";
+  } catch {
+    return null;
+  }
+}
+
+/** Read by both formats, so never left over from one of them. */
+const SHARED_FILES = new Set(["manifest.json", "api.json"]);
+
+/**
+ * The merged package without what only the other format reads.
+ *
+ * A file the answer does not mention is kept, which is right within a format
+ * and wrong across one. A water tracker moved to the contract format kept its
+ * `ui/` folder next to the new `index.html` and `widget.js`: never loaded,
+ * still in the Files tab, still offered to the model to edit. When the
+ * manifest changed format, files of the old package that the answer did not
+ * write go. A contract manifest also loses the `ui` block, which it ignores.
+ */
+export function withoutOtherFormat(
+  before: GeneratedFile[],
+  merged: GeneratedFile[],
+): GeneratedFile[] {
+  const from = manifestFormat(before);
+  const to = manifestFormat(merged);
+  const previous = new Map(before.map((file) => [file.path, file]));
+  const kept =
+    from === null || to === null || from === to
+      ? merged
+      : merged.filter(
+          (file) => SHARED_FILES.has(file.path) || previous.get(file.path) !== file,
+        );
+  if (to !== "contract-package") return kept;
+  return kept.map((file) => {
+    if (file.path !== "manifest.json") return file;
+    const parsed = JSON.parse(file.contents) as Record<string, unknown>;
+    if (!("ui" in parsed)) return file;
+    delete parsed.ui;
+    return { ...file, contents: `${JSON.stringify(parsed, null, 2)}\n` };
+  });
 }
 
 /**
@@ -1974,6 +2283,28 @@ export function isPlainNote(bubble: WizardBubble): boolean {
   return !bubble.approve && !bubble.enable && !(bubble.images && bubble.images.length > 0);
 }
 
+/**
+ * Add a status note to the transcript without piling it up.
+ *
+ * Opening a project again with nothing said since wrote another "Continuing
+ * your unsaved changes" under the last one, and three in a row read as three
+ * events. An opening note replaces one directly above it, and a plain note the
+ * same as the one above is written once. A note with a button is always kept.
+ */
+export function appendNote(bubbles: WizardBubble[], bubble: WizardBubble): void {
+  const last = bubbles[bubbles.length - 1];
+  const replaces =
+    last !== undefined &&
+    isPlainNote(last) &&
+    isPlainNote(bubble) &&
+    !last.run &&
+    !bubble.run &&
+    ((last.opened === true && bubble.opened === true) ||
+      (last.text === bubble.text && last.tone === bubble.tone));
+  if (replaces) bubbles.splice(bubbles.length - 1, 1, bubble);
+  else bubbles.push(bubble);
+}
+
 export interface WizardBubble {
   role: "user" | "assistant" | "system";
   text: string;
@@ -1990,6 +2321,8 @@ export interface WizardBubble {
    * warning sitting in the transcript.
    */
   tone?: "success";
+  /** Reports that a project was opened; the next opening replaces it. */
+  opened?: boolean;
   /**
    * A package this bubble offers to enable, with the consent lines to show
    * first. Present only on the system note that reports a kept package still
@@ -2008,7 +2341,7 @@ export interface WizardBubble {
    * bubble offers it directly instead of describing a route to it.
    */
   run?: { id: string; done?: boolean };
-  /** What this answer cost, for the line under it. */
+  /** What this answer cost, shown in its model logo's tooltip. */
   usage?: WizardUsage;
   /**
    * The model that produced it, and what it cost on that model.
@@ -2019,6 +2352,8 @@ export interface WizardBubble {
    * price", which is not the same as "free".
    */
   model?: string;
+  /** Retain the answer's brand even if its model later leaves the catalog. */
+  modelCredentialType?: string;
   cost?: WizardCost | null;
   /**
    * The package state this message produced, if it produced one.
@@ -2087,6 +2422,19 @@ export interface WizardBubble {
     /** Came from Save & Run: open it on the desk once it is approved. */
     run?: boolean;
   };
+}
+
+/** Plain-text transcript of the visible turns, with images represented as attachment notes. */
+export function formatWizardTranscript(bubbles: readonly WizardBubble[]): string {
+  const labels = { user: "You", assistant: "Assistant", system: "System" };
+  return bubbles.map((bubble) => {
+    const content = [
+      bubble.text,
+      ...(bubble.images ?? []).map((image, index) => `[Attached image ${index + 1}: ${image.mediaType}]`),
+      ...(bubble.enable && !bubble.enable.preApproved ? bubble.enable.lines : []).map((line) => `- ${line}`),
+    ].filter(Boolean).join("\n\n");
+    return content ? `## ${labels[bubble.role]}\n\n${content}` : "";
+  }).filter(Boolean).join("\n\n");
 }
 
 /**
@@ -3224,4 +3572,81 @@ export function splitProviderMentions(
     cursor = at + hit.marker.length;
   }
   return segments;
+}
+
+/** What a package file is, as far as the file list's icon is concerned. */
+export type FileKind = "json" | "markup" | "script" | "style" | "image" | "text";
+
+const FILE_KINDS: readonly (readonly [RegExp, FileKind])[] = [
+  [/\.json$/i, "json"],
+  [/\.html?$/i, "markup"],
+  [/\.[mc]?[jt]s$/i, "script"],
+  [/\.css$/i, "style"],
+  [/\.(svg|png|jpe?g|gif|webp|ico)$/i, "image"],
+];
+
+export function fileKind(path: string): FileKind {
+  return FILE_KINDS.find(([pattern]) => pattern.test(path))?.[1] ?? "text";
+}
+
+/** Only SVG among the images is text, and it is markup. */
+const HIGHLIGHT_AS: Record<FileKind, Language | null> = {
+  json: "script",
+  script: "script",
+  markup: "markup",
+  style: "style",
+  image: "markup",
+  text: null,
+};
+
+/** Which scanner colours a file in the editor, or null to show it plain. */
+export function highlightLanguage(path: string): Language | null {
+  return HIGHLIGHT_AS[fileKind(path)];
+}
+
+/** One line of the file list: a folder, or a file inside the folder above it. */
+export type FileTreeRow =
+  | { kind: "folder"; key: string; name: string; depth: number }
+  | { kind: "file"; key: string; name: string; depth: number; path: string };
+
+interface FileTreeDir {
+  dirs: Map<string, FileTreeDir>;
+  files: string[];
+}
+
+/**
+ * The package's files as a tree, folders before files at every level.
+ *
+ * Flat rows with a depth rather than nested nodes: the list draws one row per
+ * line and never folds, so nesting would only be something to walk back out of.
+ */
+export function fileTreeRows(paths: readonly string[]): FileTreeRow[] {
+  const root: FileTreeDir = { dirs: new Map(), files: [] };
+  for (const path of paths) {
+    let dir = root;
+    for (const part of path.split("/").slice(0, -1).filter(Boolean)) {
+      let next = dir.dirs.get(part);
+      if (!next) {
+        next = { dirs: new Map(), files: [] };
+        dir.dirs.set(part, next);
+      }
+      dir = next;
+    }
+    dir.files.push(path);
+  }
+
+  const rows: FileTreeRow[] = [];
+  const byName = (a: string, b: string) => a.localeCompare(b);
+  const walk = (dir: FileTreeDir, prefix: string, depth: number): void => {
+    for (const [name, child] of [...dir.dirs].sort(([a], [b]) => byName(a, b))) {
+      const key = `${prefix}${name}/`;
+      rows.push({ kind: "folder", key, name, depth });
+      walk(child, key, depth + 1);
+    }
+    for (const path of [...dir.files].sort(byName)) {
+      rows.push({ kind: "file", key: path, name: path.slice(path.lastIndexOf("/") + 1), depth, path });
+    }
+  };
+  walk(root, "", 0);
+  return rows;
 }

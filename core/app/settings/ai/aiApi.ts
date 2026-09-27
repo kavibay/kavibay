@@ -63,6 +63,12 @@ export function getQuickActionModel(): Promise<QuickActionModel> {
   return invoke<QuickActionModel>("llm_quick_model");
 }
 
+/** Resolve the shared quick-action selection to its catalog model and provider logo. */
+export async function getQuickActionModelDefinition(): Promise<LlmModelOption | null> {
+  const [selection, catalog] = await Promise.all([getQuickActionModel(), listLlmCatalog()]);
+  return catalog.find((model) => model.id === selection.resolved) ?? null;
+}
+
 /** Stores the quick-action model; "" returns to automatic selection. */
 export function setQuickActionModel(modelId: string): Promise<void> {
   return invoke<void>("llm_quick_model_set", { modelId });

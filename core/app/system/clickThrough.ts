@@ -100,10 +100,22 @@ export function scheduleRegionSync() {
   frame = requestAnimationFrame(syncInteractiveRegions);
 }
 
+/** `[data-interactive]` elements in `node`, `node` itself included. */
+function interactiveIn(node: Node): Element[] {
+  if (!(node instanceof Element)) return [];
+  const inside = [...node.querySelectorAll("[data-interactive]")];
+  return node.matches("[data-interactive]") ? [node, ...inside] : inside;
+}
+
 /**
  * Call once from the root component. Keeps reported rectangles current when the window or
  * interactive element sizes change, for example when System Info loads data or the palette
- * result list grows.
+ * result list grows, and when interactive elements appear or go away.
+ *
+ * The last part is what a surface mounted later relies on: the launcher's Add dialog is
+ * teleported to `<body>` and calls nothing itself. Without a sync its rectangle never
+ * reached Rust, the dialog stayed click-through, and every click on it went to the app
+ * underneath and closed the cockpit as an outside click.
  */
 export function useRegionSync() {
   // Rust's pause outlives the page. A reload mid-pause (a menu open, a drag, the
@@ -113,7 +125,35 @@ export function useRegionSync() {
   setClickThroughPaused(false);
 
   let observer: ResizeObserver | undefined;
+  let mutations: MutationObserver | undefined;
   const onResize = () => scheduleRegionSync();
+
+  // Only interactive elements count, so a ticking clock or a streaming answer, which
+  // change text rather than add elements, never start a scan.
+  const onMutation = (records: MutationRecord[]) => {
+    let changed = false;
+    for (const record of records) {
+      if (record.type === "attributes") {
+        const target = record.target as Element;
+        if (target.hasAttribute("data-interactive")) observer?.observe(target);
+        else observer?.unobserve(target);
+        changed = true;
+      }
+      for (const node of record.addedNodes) {
+        for (const el of interactiveIn(node)) {
+          observer?.observe(el);
+          changed = true;
+        }
+      }
+      for (const node of record.removedNodes) {
+        for (const el of interactiveIn(node)) {
+          observer?.unobserve(el);
+          changed = true;
+        }
+      }
+    }
+    if (changed) scheduleRegionSync();
+  };
 
   onMounted(async () => {
     await nextTick();
@@ -123,10 +163,18 @@ export function useRegionSync() {
     document
       .querySelectorAll("[data-interactive]")
       .forEach((el) => observer!.observe(el));
+    mutations = new MutationObserver(onMutation);
+    mutations.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-interactive"],
+    });
   });
 
   onUnmounted(() => {
     window.removeEventListener("resize", onResize);
     observer?.disconnect();
+    mutations?.disconnect();
   });
 }

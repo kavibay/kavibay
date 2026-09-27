@@ -26,10 +26,23 @@ const emit = defineEmits<{
   cancel: [];
 }>();
 
-/** Local copy, so cancelling leaves the caller's object untouched. */
-const choices = ref(props.request.choices.map((c) => ({ ...c })));
+/**
+ * Local copy, so cancelling leaves the caller's object untouched. `actions` is
+ * an object of its own, so it is copied too, or ticking it would write into
+ * the caller's request.
+ */
+const choices = ref(
+  props.request.choices.map((c) => ({ ...c, ...(c.actions ? { actions: { ...c.actions } } : {}) })),
+);
 
-const granted = computed(() => choices.value.filter((c) => c.granted).length);
+/** Each ticked account counts, and so does each change allowed on one. */
+const granted = computed(
+  () =>
+    choices.value.filter((c) => c.granted).length +
+    choices.value.filter((c) => c.granted && c.actions?.granted).length,
+);
+
+const asksForChanges = computed(() => choices.value.some((c) => c.actions));
 
 function approve() {
   emit("approve", grantFrom({ ...props.request, choices: choices.value }));
@@ -42,7 +55,8 @@ function approve() {
       <h2 class="title">Add {{ displayName }}?</h2>
       <p class="sub">
         <template v-if="choices.length">
-          Choose which accounts it may read from.
+          Choose which accounts it may read from<template v-if="asksForChanges">,
+          and where it may also make changes</template>.
         </template>
         <template v-else>This widget asks for nothing.</template>
       </p>
@@ -57,6 +71,18 @@ function approve() {
             {{ choice.providerName }}
             <em v-if="choice.note">{{ choice.note }}</em>
             <small>{{ choice.summary }}</small>
+          </span>
+        </label>
+        <!--
+          A second answer on the same account, never a pre-ticked one, and only
+          once the account itself is ticked: a change on something the widget
+          may not read is not a state this dialog can hand back.
+        -->
+        <label v-if="choice.actions" class="row changes" :class="{ off: !choice.granted }">
+          <input v-model="choice.actions.granted" type="checkbox" :disabled="!choice.granted" />
+          <span class="label">
+            May also make changes
+            <small>{{ choice.actions.summary }}</small>
           </span>
         </label>
       </li>
@@ -132,6 +158,17 @@ function approve() {
 }
 
 .label { flex: 1 1 auto; }
+
+/* Indented under the account it belongs to: the mark's width plus the gap. */
+.changes {
+  margin-top: 6px;
+  padding-left: 25px;
+}
+
+.changes.off {
+  opacity: 0.45;
+  cursor: default;
+}
 
 .mark { margin-top: 1px; }
 

@@ -23,14 +23,15 @@
 
 /// What stage 1 could tell from the window itself.
 ///
-/// Only the Win32 probe produces anything but `Unknown`, so off Windows the other
-/// variants are never constructed outside the tests. They stay in the enum rather
-/// than behind a `cfg`: `decide` matches on all of them, and the decision table is
+/// Only the Win32 and macOS probes produce anything but `Unknown`, and only
+/// Windows reports `ReadOnlyEdit`. The variants stay in the enum rather than
+/// behind a `cfg`: `decide` matches on all of them, and the decision table is
 /// the part worth testing on every platform.
 #[cfg_attr(not(windows), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WindowProbe {
-    /// A system caret is blinking in it.
+    /// A system caret is blinking in it (Windows), or the focused element has a
+    /// text role or a writable selection (macOS).
     HasCaret,
     /// Focused control is an edit with `ES_READONLY`.
     ReadOnlyEdit,

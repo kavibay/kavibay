@@ -18,6 +18,7 @@
     "lint": "oxlint .",
     "test:assert": "node scripts/runAsserts.mjs",
     "verify": "node scripts/verify.mjs",
+    "verify:webkit": "swift scripts/runtimeWebKitSmoke.swift",
     "verify:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target/check --all-targets -- -D warnings && cargo test --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target/check --lib",
     "build:guest": "vite build --config vite.guest.config.ts && node scripts/guestHeader.mjs",
     "build:embed": "vite build --config vite.embed.config.ts",

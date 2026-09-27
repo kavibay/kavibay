@@ -331,53 +331,6 @@ function onReplayOnboarding() {
   color: rgba(var(--fg-rgb), 0.45);
 }
 
-.switch {
-  position: relative;
-  display: inline-flex;
-  flex: none;
-  margin-top: 1px;
-}
-
-.switch input {
-  position: absolute;
-  width: 0;
-  height: 0;
-  opacity: 0;
-}
-
-.switch-ui {
-  position: relative;
-  width: 36px;
-  height: 20px;
-  border-radius: 999px;
-  background: rgba(var(--fg-rgb), 0.15);
-}
-
-.switch-ui::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: rgba(var(--fg-rgb), 0.85);
-}
-
-.switch input:checked + .switch-ui {
-  background: rgba(var(--fg-rgb), 0.82);
-}
-
-.switch input:checked + .switch-ui::after {
-  background: rgb(var(--surface-bg-rgb));
-  transform: translateX(16px);
-}
-
-.switch input:focus-visible + .switch-ui {
-  outline: 2px solid rgba(var(--fg-rgb), 0.55);
-  outline-offset: 2px;
-}
-
 .choice-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

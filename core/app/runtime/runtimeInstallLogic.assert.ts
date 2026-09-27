@@ -3,6 +3,7 @@
  */
 import {
   canEnableRuntimeExt,
+  contractGrantFrom,
   consentLinesFor,
   needsReconsent,
   needsReviewBeforeEnable,
@@ -249,5 +250,19 @@ assert(
   "every reachable host appears",
 );
 assertEq(consentLinesFor({}), [], "nothing declared, nothing claimed");
+
+assertEq(
+  contractGrantFrom({ providers: ["kavibay.tado/tado"], actions: {} }),
+  { approved: ["kavibay.tado/tado"] },
+  "a grant to read only stores no actions key, like records written before actions existed",
+);
+assertEq(
+  contractGrantFrom({
+    providers: ["kavibay.tado/tado"],
+    actions: { "kavibay.tado/tado": ["setTemperature"], "kavibay.linear/linear": [] },
+  }),
+  { approved: ["kavibay.tado/tado"], actions: { "kavibay.tado/tado": ["setTemperature"] } },
+  "approved actions are stored, and a provider with none is left out",
+);
 
 console.log("runtimeInstallLogic.assert.ts: ok");

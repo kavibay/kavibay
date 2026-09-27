@@ -28,6 +28,7 @@ import {
 import AiPanel from "./ai/AiPanel.vue";
 import AppearancePanel from "./AppearancePanel.vue";
 import BehaviorPanel from "./BehaviorPanel.vue";
+import SearchPanel from "./SearchPanel.vue";
 import CredentialsPanel from "./credentials/CredentialsPanel.vue";
 import ExtensionsPanel from "./ExtensionsPanel.vue";
 import FilesFoldersPanel from "./FilesFoldersPanel.vue";
@@ -58,6 +59,7 @@ const navQuery = ref("");
 const sectionIcons: Record<SettingsSectionId, Component> = {
   appearance: PaletteIcon,
   behavior: MousePointerClickIcon,
+  search: SearchIcon,
   files: FolderIcon,
   extensions: BlocksIcon,
   ai: SparklesIcon,
@@ -336,6 +338,7 @@ onUnmounted(() => {
           <div class="settings-body">
             <AppearancePanel v-if="activeSection === 'appearance'" />
             <BehaviorPanel v-else-if="activeSection === 'behavior'" />
+            <SearchPanel v-else-if="activeSection === 'search'" />
             <FilesFoldersPanel v-else-if="activeSection === 'files'" />
             <ExtensionsPanel v-else-if="activeSection === 'extensions'" />
             <AiPanel v-else-if="activeSection === 'ai'" />

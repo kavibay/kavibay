@@ -21,6 +21,7 @@ import {
   ICON_FACE_PX,
   ICON_SIZE_PX,
   isGifIconDataUrl,
+  launcherDesktop,
   newAppId,
   normalizeUrl,
   shouldRefreshExtractedIcon,
@@ -149,6 +150,7 @@ const frozenGifBySrc = ref<Record<string, string>>({});
 const freezeJobs = new Map<string, Promise<string>>();
 
 const keyCatalog = LAUNCHER_KEYS;
+const desktop = launcherDesktop();
 
 /** Normalize dialog return into a path list. */
 function asPaths(selected: string | string[] | null): string[] {
@@ -181,7 +183,7 @@ async function ingestPaths(paths: string[], isDirectory: boolean) {
   setError(null);
 }
 
-/** Open multi file picker for .exe / .lnk (from the Add modal Files section). */
+/** Open multi file picker for app files (from the Add modal Files section). */
 async function pickFiles() {
   const paths = asPaths(await pick("file"));
   if (paths.length === 0) return;
@@ -886,6 +888,7 @@ onUnmounted(() => {
               URL
             </button>
             <button
+              v-if="desktop.keys"
               type="button"
               class="installed-modal-nav-item"
               :class="{ 'installed-modal-nav-item--active': addModalSection === 'key' }"
@@ -920,7 +923,7 @@ onUnmounted(() => {
                     }}
                   </template>
                   <template v-else-if="addModalSection === 'files'">
-                    Choose .exe or .lnk files from disk
+                    Choose {{ desktop.appFiles.join(" or ") }} files from disk
                   </template>
                   <template v-else-if="addModalSection === 'folders'">
                     Choose folders to open from the dock
@@ -1058,10 +1061,12 @@ onUnmounted(() => {
             <!-- Files -->
             <div v-else-if="addModalSection === 'files'" class="installed-modal-panel">
               <div class="installed-modal-hero">
-                <div class="installed-modal-hero-mark" aria-hidden="true">EXE</div>
+                <div class="installed-modal-hero-mark" aria-hidden="true">{{ desktop.appFileBadge }}</div>
                 <h3 class="installed-modal-hero-title">Add files</h3>
                 <p class="installed-modal-hero-text">
-                  Pick one or more <strong>.exe</strong> or <strong>.lnk</strong> files from your computer.
+                  Pick one or more
+                  <template v-for="(type, i) in desktop.appFiles" :key="type">{{ i > 0 ? " or " : "" }}<strong>{{ type }}</strong></template>
+                  files from {{ desktop.computer }}.
                 </p>
                 <button type="button" class="installed-modal-btn installed-modal-btn--primary" @click="pickFiles">
                   Choose files…
@@ -1075,7 +1080,7 @@ onUnmounted(() => {
                 <div class="installed-modal-hero-mark" aria-hidden="true">DIR</div>
                 <h3 class="installed-modal-hero-title">Add folders</h3>
                 <p class="installed-modal-hero-text">
-                  Pick folders to open in Explorer from the dock.
+                  Pick folders to open in {{ desktop.fileManager }} from the dock.
                 </p>
                 <button type="button" class="installed-modal-btn installed-modal-btn--primary" @click="pickFolders">
                   Choose folders…

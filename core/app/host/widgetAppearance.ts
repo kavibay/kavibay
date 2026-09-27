@@ -1,5 +1,5 @@
 /**
- * A widget's own surface: background, opacity, blur and corner radius.
+ * A widget's own surface: background, opacity, blur, corner radius and shadow.
  *
  * Every field is optional, and an absent field keeps the shared appearance from
  * Settings › Appearance. A bundled widget sets its defaults under `ui.appearance`
@@ -20,7 +20,7 @@ export type { WidgetAppearance };
 export const MAX_WIDGET_RADIUS = 64;
 export const MAX_WIDGET_BLUR = MAX_SURFACE_BLUR;
 
-const APPEARANCE_KEYS = ["background", "opacity", "blur", "radius"] as const;
+const APPEARANCE_KEYS = ["background", "opacity", "blur", "radius", "shadow"] as const;
 
 function hexColor(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;
@@ -52,6 +52,7 @@ export function normalizeWidgetAppearance(raw: unknown): WidgetAppearance | unde
   if (opacity !== undefined) next.opacity = opacity;
   if (blur !== undefined) next.blur = blur;
   if (radius !== undefined) next.radius = radius;
+  if (typeof value.shadow === "boolean") next.shadow = value.shadow;
   return APPEARANCE_KEYS.some((key) => next[key] !== undefined) ? next : undefined;
 }
 
@@ -78,6 +79,11 @@ export function surfaceStyle(appearance: WidgetAppearance): Record<string, strin
   if (appearance.blur !== undefined) {
     style["--surface-backdrop-filter"] =
       appearance.blur > 0 ? `blur(${appearance.blur}px) saturate(var(--surface-saturate, 1))` : "none";
+  }
+  // A transparent shadow rather than `none`: the variable sits in a
+  // comma-separated list with the inner highlight, which `none` would invalidate.
+  if (appearance.shadow === false) {
+    style["--surface-box-shadow"] = "0 0 transparent";
   }
   return style;
 }

@@ -57,13 +57,19 @@ cannot use falls back to its own default instead of failing the package.
 one, the host reuses that size for every later one, so treat the manifest value
 as an opening guess rather than the size people will see.
 
+The host provides the same content zoom as for built-in widgets: pinch or
+Ctrl/Cmd+wheel inside the widget, and hold Ctrl while dragging a resize handle
+to scale its contents with the card. The host remembers that scale. Do not
+implement these gestures in the package; they also work in the Wizard preview.
+
 The folder name **must** equal `manifest.id`. Then: enable **Settings → Behavior
 → Developer Extensions**, open **Settings → Extensions → Runtime packages**,
 **Rescan**, and enable your package.
 
 ## What the sandbox forbids
 
-Your HTML runs under `script-src 'self'`, so:
+Your HTML's content security policy allows scripts only from the local package
+protocol, so:
 
 - **No inline `<script>`.** Put your code in a `.js` file next to the HTML and
   load it with `<script src="app.js"></script>`.

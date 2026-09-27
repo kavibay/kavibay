@@ -13,6 +13,7 @@
  * intended — extension state lives in per-instance stores (`createInstanceStore`),
  * so both views are the same widget and stay in sync.
  */
+import { installContentZoom } from "./contentZoom";
 import {
   computed,
   nextTick,
@@ -27,7 +28,6 @@ import ContractPackageWidget from "../extension-host/ui/ContractPackageWidget.vu
 import type { HostExtensionRef } from "../runtime/runtimeTypes";
 import {
   clampContentScale,
-  contentScaleFromWheel,
   DEFAULT_CONTENT_SCALE,
 } from "./resizeLogic";
 import type { WidgetInstance, WidgetProps } from "./types";
@@ -50,6 +50,8 @@ const props = defineProps<{
    * provide tree, and a popover mounted in the header would inject nothing.
    */
   menuOpen?: boolean;
+  /** Shortcut previews keep focus on the icon until Enter moves into the widget. */
+  autoFocus?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -88,25 +90,7 @@ const resolvedContentScale = computed(() =>
   )
 );
 
-/**
- * Ctrl/Cmd + wheel zooms the content, exactly as on a card — and that covers a
- * trackpad pinch too, which Chromium reports as a wheel with `ctrlKey` set.
- *
- * Capture + non-passive so it beats both the widget's own scrolling and the
- * browser's page zoom, which is what the card's handler does for the same reason.
- */
-function onContentWheel(event: WheelEvent) {
-  if (!(event.ctrlKey || event.metaKey)) return;
-  event.preventDefault();
-  event.stopPropagation();
-  const next = contentScaleFromWheel(
-    resolvedContentScale.value,
-    event.deltaY,
-    event.deltaMode
-  );
-  if (next === resolvedContentScale.value) return;
-  emit("update:contentScale", next);
-}
+let stopContentZoom: (() => void) | undefined;
 
 const bodyStyle = computed(() => ({
   "--widget-content-scale": String(resolvedContentScale.value),
@@ -165,26 +149,36 @@ function focusRuntimeFrame() {
 
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
+function focusEntry(fallbackToBody = true) {
+  if (retryTimer !== undefined) clearTimeout(retryTimer);
+  if (isRuntime.value && !isContractPackage.value) {
+    focusRuntimeFrame();
+    return;
+  }
+  if (fallbackToBody) rootEl.value?.focus();
+  requestEntryFocus();
+  retryTimer = setTimeout(requestEntryFocus, 60);
+}
+defineExpose({ focusEntry });
+
 onMounted(() => {
   void nextTick().then(() => {
-    rootEl.value?.addEventListener("wheel", onContentWheel, {
-      passive: false,
-      capture: true,
-    });
-    if (isRuntime.value) {
-      focusRuntimeFrame();
-      return;
+    if (rootEl.value) {
+      stopContentZoom = installContentZoom(
+        rootEl.value,
+        () => resolvedContentScale.value,
+        (scale) => emit("update:contentScale", scale),
+      );
     }
-    requestEntryFocus();
     // A widget without an entry point ignores this and focus stays in the
     // search field, which is the right place to keep typing from.
-    retryTimer = setTimeout(requestEntryFocus, 60);
+    if (props.autoFocus !== false) focusEntry(false);
   });
 });
 
 onBeforeUnmount(() => {
   if (retryTimer !== undefined) clearTimeout(retryTimer);
-  rootEl.value?.removeEventListener("wheel", onContentWheel, { capture: true });
+  stopContentZoom?.();
 });
 </script>
 
@@ -194,7 +188,7 @@ onBeforeUnmount(() => {
        popover would only mean "no further scaling", so a zoomed-in widget used
        to render its menu at the same multiple. Cards solve it the same way, by
        keeping title and chrome outside `.widget-card-body`. -->
-  <div ref="rootEl" class="inline-widget-shell">
+  <div ref="rootEl" class="inline-widget-shell" tabindex="-1">
     <div
       class="inline-widget-body"
       :class="{

@@ -4,12 +4,24 @@
 import {
   attachmentProblem,
   autoApprovedGrant,
+  buildWizardPermissionRequest,
+  askedNothingNew as wizardAskedNothingNew,
   canAutoApprove,
   unmetProviders,
   applyDraftPresence,
   base64FromDataUrl,
   consentPreviewFor,
   buildProjectRows,
+  fileKind,
+  fileTreeRows,
+  highlightLanguage,
+  argSignature,
+  describeResultShape,
+  providersUsedBy,
+  providerCallsIn,
+  actionUses,
+  queryUses,
+  providerUseState,
   conversationIsWorthKeeping,
   conversationLabel,
   declaredDisplayName,
@@ -66,6 +78,8 @@ import {
   formatTokens,
   freshInput,
   mergeGeneratedFiles,
+  appendNote,
+  withoutOtherFormat,
   readCost,
   readUsage,
   recordVersion,
@@ -96,6 +110,7 @@ import {
   wizardPlatforms,
   wizardHasAnyKey,
 } from "./widgetWizardLogic";
+import type { WizardBubble } from "./widgetWizardLogic";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -1181,8 +1196,8 @@ assert(
   // Skipping the click grants what was asked for, not more.
   const request = {
     choices: [
-      { provider: "kavibay.github/github", providerName: "GitHub", granted: false },
-      { provider: "kavibay.tado/tado", providerName: "tado°", granted: true },
+      { provider: "kavibay.github/github", providerName: "GitHub", summary: "", granted: false },
+      { provider: "kavibay.tado/tado", providerName: "tado°", summary: "", granted: true },
     ],
     refused: ["kavibay.spotify/spotify"],
   };
@@ -1201,7 +1216,7 @@ assert(
 {
   // Skipping the click must reach the same result as answering the dialog.
   const ask = (choices: string[], refused: string[] = []) => ({
-    choices: choices.map((provider) => ({ provider, providerName: provider, granted: false })),
+    choices: choices.map((provider) => ({ provider, providerName: provider, summary: "", granted: false })),
     refused,
   });
 
@@ -1222,8 +1237,8 @@ assert(
 {
   const request = {
     choices: [
-      { provider: "gh", providerName: "GitHub", granted: false },
-      { provider: "tado", providerName: "tado°", granted: true },
+      { provider: "gh", providerName: "GitHub", summary: "", granted: false },
+      { provider: "tado", providerName: "tado°", summary: "", granted: true },
     ],
     refused: ["kavibay.spotify/spotify"],
   };
@@ -1236,6 +1251,145 @@ assert(
     unmetProviders({ choices: request.choices, refused: [] }, ["gh", "tado"]),
     [],
     "and a fully granted widget has nothing outstanding",
+  );
+}
+
+{
+  // Changes are asked per account, only for actions the provider has.
+  const spotify = {
+    id: "kavibay.spotify/spotify",
+    displayName: "Spotify",
+    requiresCredential: true,
+    queries: [],
+    actions: [{ name: "play", effect: "write" as const, description: "Start playing a playlist" }],
+  };
+  const manifest = {
+    widget: {
+      requires: {
+        providers: [{ id: "kavibay.spotify/spotify", actions: ["play", "rewind"] }],
+      },
+    },
+  };
+
+  const request = buildWizardPermissionRequest(manifest, [spotify]);
+  assertEq(
+    request.choices[0]?.actions,
+    { names: ["play"], summary: "Start playing a playlist", granted: false },
+    "a declared action is offered in the provider's words, never pre-ticked",
+  );
+  assertEq(request.refused, ["kavibay.spotify/spotify.rewind"], "and one the provider lacks is refused");
+  assertEq(
+    autoApprovedGrant(request),
+    { providers: ["kavibay.spotify/spotify"], actions: { "kavibay.spotify/spotify": ["play"] } },
+    "skipping the click grants the changes it asked for, and no others",
+  );
+
+  const reading = { providers: ["kavibay.spotify/spotify"], actions: {} };
+  assertEq(wizardAskedNothingNew(buildWizardPermissionRequest(manifest, [spotify], reading), reading), false,
+    "reading approved earlier does not settle a change");
+  const both = { providers: ["kavibay.spotify/spotify"], actions: { "kavibay.spotify/spotify": ["play"] } };
+  const carried = buildWizardPermissionRequest(manifest, [spotify], both);
+  assertEq(carried.choices[0]?.actions?.granted, true, "an approved change comes back ticked");
+  assertEq(wizardAskedNothingNew(carried, both), true, "and asks nothing new");
+}
+
+{
+  const files = [
+    {
+      path: "widget.js",
+      contents: [
+        'const el = document.querySelector("div");',
+        'const now = await ctx.providers[W].query("current", { location });',
+        "ctx.providers[W].subscribe('forecast', {}, render);",
+        "button.onclick = () => ctx.providers[S].action(`play`, { id });",
+        "const dynamic = ctx.providers[W].query(name, {});",
+      ].join("\n"),
+    },
+    { path: "ui/index.html", contents: '<script>ctx.providers[S].action("pause", {})</script>' },
+    { path: "notes.md", contents: 'ctx.providers[S].action("skip", {})' },
+  ];
+  assertEq(
+    providerCallsIn(files),
+    { queries: ["current", "forecast"], actions: ["pause", "play"] },
+    "literal names in scripts and inline html count; querySelector, runtime names and prose do not",
+  );
+
+  const spotify = {
+    id: "kavibay.spotify/spotify",
+    displayName: "Spotify",
+    requiresCredential: true,
+    queries: [],
+    actions: [
+      { name: "play", description: "Start playing a playlist" },
+      { name: "pause" },
+      { name: "next" },
+    ],
+  };
+  assertEq(
+    actionUses(
+      { id: spotify.id, schema: spotify, declaredActions: ["play", "next"], declaredQueries: [] },
+      { queries: [], actions: ["play", "pause", "rewind"] },
+    ).map((use) => [use.name, use.declared, use.called]),
+    [
+      ["play", true, true],
+      ["next", true, false],
+      ["pause", false, true],
+    ],
+    "declared ones first, then a called one the provider has but the manifest does not declare",
+  );
+}
+
+{
+  const weather = {
+    id: "kavibay.weather/weather",
+    displayName: "Weather",
+    requiresCredential: false,
+    queries: [
+      { name: "current", description: "Current conditions" },
+      { name: "forecast", description: "The next days" },
+      { name: "places", description: "Places by name" },
+    ],
+  };
+  const manifest = (queries: string[]) => ({
+    widget: { requires: { providers: [{ id: weather.id, queries }] } },
+  });
+  assertEq(
+    providersUsedBy(
+      [{ path: "manifest.json", contents: JSON.stringify({ widget: { requires: { providers: [weather.id] } } }) }],
+      [weather],
+    ).map((use) => [use.id, use.declaredQueries]),
+    [[weather.id, []]],
+    "a bare id still names the provider, and states nothing about what it reads",
+  );
+  assertEq(
+    buildWizardPermissionRequest(manifest(["current", "nope"]), [weather]).choices[0]?.summary,
+    "Current conditions",
+    "the dialog describes the declared queries the provider has",
+  );
+  assertEq(
+    buildWizardPermissionRequest(manifest([]), [weather]).choices[0]?.summary,
+    "Current conditions; The next days, and 1 more",
+    "and the account, the way the host dialog does, without a declaration",
+  );
+
+  const [use] = providersUsedBy(
+    [{ path: "manifest.json", contents: JSON.stringify(manifest(["current", "places", "nope"])) }],
+    [weather],
+  );
+  assertEq(
+    queryUses(use!, { queries: ["current", "forecast"], actions: [] }).map((query) => [
+      query.name,
+      query.declared,
+      query.called,
+      query.known,
+    ]),
+    [
+      ["current", true, true, true],
+      ["forecast", false, true, true],
+      ["places", true, false, true],
+      ["nope", true, false, false],
+    ],
+    "every offered query with its marks, then a declared name the provider does not have",
   );
 }
 
@@ -2577,6 +2731,174 @@ assert(
     wizardHasAnyKey([...catalog, model({ id: "an-3", configured: true })]),
     "one configured model is a key",
   );
+}
+
+{
+  assertEq(
+    fileTreeRows(["manifest.json", "ui/index.html", "api.json", "ui/icons/sun.svg"]).map((row) => [
+      row.kind,
+      row.name,
+      row.depth,
+    ]),
+    [
+      ["folder", "ui", 0],
+      ["folder", "icons", 1],
+      ["file", "sun.svg", 2],
+      ["file", "index.html", 1],
+      ["file", "api.json", 0],
+      ["file", "manifest.json", 0],
+    ],
+    "folders come first at every level, and files sit under their folder",
+  );
+  assertEq(
+    fileTreeRows(["ui/index.html"])[1],
+    { kind: "file", key: "ui/index.html", name: "index.html", depth: 1, path: "ui/index.html" },
+    "a nested file shows its name and keeps its full path for opening",
+  );
+  assertEq(fileTreeRows([]), [], "no files, no rows");
+  assertEq(
+    ["manifest.json", "ui/index.html", "widget.js", "ui/style.css", "icon.SVG", "README.md"].map(fileKind),
+    ["json", "markup", "script", "style", "image", "text"],
+    "a file's kind follows its extension, whatever its case",
+  );
+  assertEq(
+    ["manifest.json", "ui/index.html", "widget.js", "ui/style.css", "icon.svg", "README.md"].map(
+      highlightLanguage,
+    ),
+    ["script", "markup", "script", "style", "markup", null],
+    "json and scripts share a scanner, svg is markup, and text stays plain",
+  );
+}
+
+{
+  const weather = {
+    id: "kavibay.weather/weather",
+    displayName: "Weather (Open-Meteo)",
+    requiresCredential: false,
+    queries: [],
+  };
+  const tado = {
+    id: "kavibay.tado/tado",
+    displayName: "tado°",
+    requiresCredential: true,
+    credentialType: "tadoOAuth2",
+    queries: [],
+  };
+  const manifest = (providers: string[]) => ({
+    path: "manifest.json",
+    contents: JSON.stringify({ widget: { requires: { providers } } }),
+  });
+
+  const uses = providersUsedBy(
+    [manifest(["kavibay.weather/weather", "kavibay.tado/tado", "someone.else/gone"])],
+    [weather, tado],
+  );
+  assertEq(
+    uses.map((use) => [use.id, use.schema?.displayName ?? null]),
+    [
+      ["kavibay.weather/weather", "Weather (Open-Meteo)"],
+      ["kavibay.tado/tado", "tado°"],
+      ["someone.else/gone", null],
+    ],
+    "the manifest's providers, in its order, with the host's schema or none",
+  );
+  assertEq(providersUsedBy([], [weather]), [], "no manifest, no providers");
+  assertEq(
+    providersUsedBy([{ path: "manifest.json", contents: "{ half" }], [weather]),
+    [],
+    "a manifest that does not parse names no providers",
+  );
+  assertEq(
+    uses.map((use) => providerUseState(use, false)),
+    ["free", "disconnected", "missing"],
+    "a provider without an account is free, one with an account needs it, an unknown one is missing",
+  );
+  assertEq(providerUseState(uses[1]!, true), "connected", "a connected account");
+
+  assertEq(
+    argSignature({
+      location: { type: "string", label: "Place", required: true },
+      days: { type: "number", label: "Days" },
+    }),
+    "location, days?",
+    "optional arguments are marked",
+  );
+  assertEq(argSignature(undefined), "", "a query without arguments");
+  assertEq(
+    describeResultShape({
+      type: "list",
+      of: { type: "object", fields: { id: { type: "string" }, name: { type: "string" } } },
+    }),
+    "list of { id, name }",
+    "a list of objects names the fields",
+  );
+  assertEq(describeResultShape({ type: "number", nullable: true }), "number or null", "a nullable value");
+}
+
+// --- a package that changed format ------------------------------------------
+// A water tracker moved to the contract format to read a provider. The answer
+// wrote index.html and widget.js and kept ui/, which nothing loaded any more.
+{
+  const runtime = [
+    file("manifest.json", '{"id":"water-tracker","ui":{"entry":"ui/index.html"}}'),
+    file("ui/index.html", "<script src=\"app.js\"></script>"),
+    file("ui/app.js", "kavibay.storage.get();"),
+    file("api.json", '{"endpoints":[]}'),
+  ];
+  const toContract = parseGeneratedFiles(
+    "```json path=manifest.json\n" +
+      '{\n  "name": "water-tracker",\n  "widget": { "name": "tile" },\n  "ui": { "defaultScale": 1 }\n}\n' +
+      "```\n```html path=index.html\n<div id=\"kavibay-widget\"></div>\n```\n" +
+      "```js path=widget.js\nexport default {};\n```",
+  );
+  const switched = withoutOtherFormat(runtime, mergeGeneratedFiles(runtime, toContract));
+  assertEq(
+    switched.map((f) => f.path).join(","),
+    "manifest.json,api.json,index.html,widget.js",
+    "the old format's files go; manifest and api.json are read by both",
+  );
+  assertEq(
+    switched[0].contents,
+    '{\n  "name": "water-tracker",\n  "widget": {\n    "name": "tile"\n  }\n}\n',
+    "the contract manifest loses the ui block nothing reads",
+  );
+
+  const partial = parseGeneratedFiles("```js path=ui/app.js\nkavibay.storage.set(1);\n```");
+  const sameFormat = withoutOtherFormat(runtime, mergeGeneratedFiles(runtime, partial));
+  assertEq(sameFormat.length, 4, "an answer inside one format keeps what it did not mention");
+
+  const back = parseGeneratedFiles(
+    '```json path=manifest.json\n{"id":"water-tracker","ui":{"entry":"ui/index.html"}}\n```\n' +
+      "```html path=ui/index.html\n<p></p>\n```",
+  );
+  assertEq(
+    withoutOtherFormat(switched, mergeGeneratedFiles(switched, back)).map((f) => f.path).join(","),
+    "manifest.json,api.json,ui/index.html",
+    "and back: the contract's index.html and widget.js go",
+  );
+}
+
+// --- status notes do not pile up --------------------------------------------
+// Opening a project three times in a row wrote three "Continuing your unsaved
+// changes" notes, one under the other, with nothing said in between.
+{
+  const bubbles: WizardBubble[] = [{ role: "user", text: "erstelle einen tracker" }];
+  appendNote(bubbles, { role: "system", text: 'Editing "w".', opened: true, version: "1" });
+  appendNote(bubbles, { role: "system", text: 'Continuing your unsaved changes to "w".', opened: true, version: "2" });
+  assertEq(bubbles.length, 2, "a second opening replaces the first");
+  assertEq(bubbles[1].version, "2", "and points at what is open now");
+
+  appendNote(bubbles, { role: "system", text: "Stopped." });
+  appendNote(bubbles, { role: "system", text: "Stopped." });
+  assertEq(bubbles.length, 3, "the same note twice in a row is written once");
+
+  appendNote(bubbles, { role: "system", text: 'Editing "w".', opened: true });
+  assertEq(bubbles.length, 4, "an opening after something else happened is its own note");
+
+  bubbles.push({ role: "user", text: "mach es blau" });
+  appendNote(bubbles, { role: "system", text: 'Saved "w".', tone: "success", run: { id: "w" } });
+  appendNote(bubbles, { role: "system", text: 'Saved "w".', tone: "success", run: { id: "w" } });
+  assertEq(bubbles.length, 7, "a note with a button is never merged away");
 }
 
 console.log("widgetWizardLogic.assert.ts: ok");

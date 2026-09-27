@@ -44,7 +44,9 @@ Nothing else. No build step, no bundler, no npm.
     "name": "tile",
     "displayName": "Room summary",
     "defaultSize": { "w": 2, "h": 2 },
-    "requires": { "providers": ["kavibay.tado/tado"] },
+    "requires": {
+      "providers": [{ "id": "kavibay.tado/tado", "queries": ["zones", "zoneStates"] }]
+    },
     "configuration": {
       "zone": {
         "type": "select", "label": "Room", "required": true,
@@ -57,12 +59,16 @@ Nothing else. No build step, no bundler, no npm.
 
 `requires.providers` is a **list**, even with one provider — there is no
 singular spelling, and `requires: { "provider": … }` is refused at load rather
-than ignored.
+than ignored. Each entry names one provider by `id`, the `queries` the widget
+reads from it and the `actions` it calls there; leave `actions` out when it
+changes nothing. A bare id string still loads, for packages written before
+entries had fields, but write the object.
 
-**There is no `permissions` field.** Naming an account in `requires.providers`
-is the whole request: the person is shown which accounts you want and ticks the
-ones they allow. You do not list queries, and you cannot be granted a subset of
-an account — either you may read it or you may not.
+**There is no `permissions` field.** Naming an account is the read request: the
+person is shown which accounts you want and ticks the ones they allow, and
+reading one lets the widget call any query it has. `queries` does not narrow
+that. It is what the person is shown, so it has to be true. `actions` is the one
+part that is a permission, and it is described below.
 
 ### More than one provider
 
@@ -72,7 +78,10 @@ outdoor temperature does not exist there, and Open-Meteo has it:
 
 ```json
 "requires": {
-  "providers": ["kavibay.tado/tado", "kavibay.weather/weather"]
+  "providers": [
+    { "id": "kavibay.tado/tado", "queries": ["zoneStates"] },
+    { "id": "kavibay.weather/weather", "queries": ["current"] }
+  ]
 }
 ```
 
@@ -102,10 +111,31 @@ around:
 - **Ask for the fewest accounts that work.** Every extra one is another connect
   prompt in front of your widget, and one the person does not have makes it look
   broken. Do not name an account you only might use.
-- **You may call the provider's actions.** Approving an account approves its
-  queries *and* its actions. Start a Spotify playlist with
-  `ctx.providers["kavibay.spotify/spotify"].action("play", { playlistId })`.
-  Do not invent a second write path.
+- **Name every query you read.** List each query the widget calls with
+  `query` or `subscribe` in its provider's `queries`. It is not a permission
+  (the account is), and nothing is refused for a missing name. It is what the
+  person is shown: the approval dialog describes exactly these instead of
+  everything the account offers, so a list that leaves one out tells them less
+  than the widget does.
+- **Declare every action you call.** Approving an account lets the widget read
+  from it; changing something there is a second question. List each provider
+  action the widget calls in its provider's `actions`:
+
+  ```json
+  "requires": {
+    "providers": [
+      { "id": "kavibay.spotify/spotify", "queries": ["currentlyPlaying"], "actions": ["play"] }
+    ]
+  }
+  ```
+
+  The person sees "may also make changes" with the provider's description of
+  each action, and can say no to it while still allowing the reading. The host
+  refuses any action that is not both declared and approved, with
+  `permission-denied`, so an undeclared call fails the first time it runs.
+  Start the playlist with
+  `ctx.providers["kavibay.spotify/spotify"].action("play", { playlistId })`,
+  and do not invent a second write path.
 
 ## Settings the person can change later
 
@@ -428,7 +458,8 @@ error anywhere a user would look.
 - **A command** for the palette. That is code running in the host process.
 - **A palette action** on the widget (`widget.actions`). That is also code the
   host runs. Provider actions are the other thing: call them with
-  `ctx.providers[id].action(name, args)` — they are listed on the account above.
+  `ctx.providers[id].action(name, args)` after declaring them in the provider's
+  `actions` — they are listed on the account above.
 
 All three are refused by the registry rather than ignored, so a package that
 declares one does not load at all.
@@ -437,21 +468,36 @@ declares one does not load at all.
 
 ```js
 ctx.config                       // this instance's settings, read once
-ctx.data.get(key)                // persisted, scoped to this instance
-ctx.data.set(key, value)
-ctx.data.delete(key)
+await ctx.data.get(key)           // persisted, scoped to this instance
+await ctx.data.set(key, value)
+await ctx.data.delete(key)
 
 ctx.providers[id].query(name, args)   // one read, cached by the host
-ctx.providers[id].action(name, args)  // write through the provider
+ctx.providers[id].action(name, args)  // write through the provider; declared in its entry's actions
 ctx.providers[id].subscribe(name, args, (state) => {})
 ctx.providers[id].status()
 
 ctx.openExternal.open(url)       // open one provider url in the person's browser
 
-// `id` is the full provider id, exactly as written in requires.providers.
+// `id` is the full provider id, exactly as its entry in requires.providers names it.
 // There is no `ctx.provider`: a widget that grows a second provider would keep
 // working and start reading the wrong one.
 ```
+
+**All storage operations are asynchronous.** In `async setup(ctx)`, read
+`const saved = await ctx.data.get("state")` before inspecting any saved fields
+or choosing defaults. Without `await`, `saved` is a Promise, not your data.
+Never overwrite stored state with defaults while its read is still pending,
+or after a failed read. Save changes from user actions, await writes, and show
+write failures. Serialize rapid changes so an older write cannot replace a
+newer one. A successful reload must restore the last saved value.
+
+**Instance storage needs no extra permission.** `ctx.data` is already available
+to an approved contract widget. Do not add `storage.instance` to its manifest;
+that permission belongs to the other package format. A successful `data.set`
+in the host debug log confirms that the write was accepted. Check the matching
+read and instance before changing permissions. The Wizard preview retains its
+own data across edits and saves; each widget placed on a desk has separate data.
 
 ### Links
 

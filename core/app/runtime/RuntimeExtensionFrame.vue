@@ -15,7 +15,10 @@
  * - CI: scripts/runtimeSandboxGuard.assert.mjs greps this file for the
  *   forbidden same-origin sandbox token and requires the static attribute.
  */
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { forwardFrameZoom } from "../host/contentZoom";
+import "./frameViewport.css";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { packageFrameUrl } from "./packageFrameUrl";
 import { invoke } from "@tauri-apps/api/core";
 import {
   faultSourceOf,
@@ -32,11 +35,16 @@ import { reportContentOverflow } from "../host/contentOverflow";
 const props = defineProps<{
   extId: string;
   instanceId: string;
+  /** Host-owned stable namespace when draft and published code share a preview. */
+  storageExtId?: string;
   entryUrl: string;
   grantedPermissions: string[];
 }>();
 
 const iframeRef = ref<HTMLIFrameElement | null>(null);
+const runId = ref(crypto.randomUUID());
+const frameUrl = computed(() => packageFrameUrl(props.entryUrl, runId.value));
+watch(() => props.entryUrl, () => { runId.value = crypto.randomUUID(); });
 
 /** Post a host→ext reply into the iframe (only if still mounted). */
 function postToExt(msg: HostToExt) {
@@ -54,6 +62,7 @@ function postToExt(msg: HostToExt) {
  * only saves a round trip and gives the same code either way.
  */
 async function runHttpCall(requestId: string, endpointId: string, args: unknown) {
+  const requestedRun = runId.value;
   if (!props.grantedPermissions.includes(NETWORK_DECLARED_PERM)) {
     postToExt(httpFailure(requestId, "permission_denied"));
     return;
@@ -65,10 +74,11 @@ async function runHttpCall(requestId: string, endpointId: string, args: unknown)
       endpointId,
       args: args ?? null,
     });
-    postToExt({ type: "kavibay.ext.http.result", requestId, result });
+    // Request ids restart in a new document. A late answer belongs to the old run.
+    if (runId.value === requestedRun) postToExt({ type: "kavibay.ext.http.result", requestId, result });
   } catch {
     // An invoke that throws is a host-side fault, not a provider answer.
-    postToExt(httpFailure(requestId, "network_error"));
+    if (runId.value === requestedRun) postToExt(httpFailure(requestId, "network_error"));
   }
 }
 
@@ -79,6 +89,7 @@ async function runHttpCall(requestId: string, endpointId: string, args: unknown)
 function onMessage(event: MessageEvent) {
   const frameWin = iframeRef.value?.contentWindow;
   if (!frameWin || event.source !== frameWin) return;
+  if (forwardFrameZoom(iframeRef.value, event)) return;
   if (!isExtToHost(event.data)) return;
 
   const message = event.data;
@@ -124,6 +135,7 @@ function onMessage(event: MessageEvent) {
   const reply = handleBridgeMessage(message, {
     extId: props.extId,
     instanceId: props.instanceId,
+    storageExtId: props.storageExtId,
     grantedPermissions: props.grantedPermissions,
   });
   if (reply) postToExt(reply);
@@ -139,23 +151,14 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <iframe
-    ref="iframeRef"
-    class="runtime-ext-frame"
-    :src="entryUrl"
-    :title="`Runtime extension ${extId}`"
-    sandbox="allow-scripts"
-    referrerpolicy="no-referrer"
-  />
+  <div class="widget-frame-viewport">
+    <iframe
+      ref="iframeRef"
+      class="runtime-ext-frame"
+      :src="frameUrl"
+      :title="`Runtime extension ${extId}`"
+      sandbox="allow-scripts"
+      referrerpolicy="no-referrer"
+    />
+  </div>
 </template>
-
-<style scoped>
-.runtime-ext-frame {
-  display: block;
-  width: 100%;
-  height: 100%;
-  min-height: 120px;
-  border: 0;
-  background: transparent;
-}
-</style>

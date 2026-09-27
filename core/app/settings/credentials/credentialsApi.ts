@@ -62,6 +62,11 @@ export function listCredentials(): Promise<CredentialSummary[]> {
   return invoke<CredentialSummary[]>("credentials_list");
 }
 
+/** Forgets a refused keychain read, so the next load asks macOS for access again. */
+export function retryCredentialAccess(): Promise<void> {
+  return invoke<void>("credentials_retry_access");
+}
+
 export function credentialStatus(id: string): Promise<CredentialSummary | null> {
   return invoke<CredentialSummary | null>("credentials_status", { id });
 }

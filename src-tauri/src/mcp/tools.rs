@@ -669,7 +669,7 @@ fn tool_definitions() -> Vec<Tool> {
         ),
         tool(
             "list_widget_providers",
-            "List every provider a contract package can name in requires.providers, each with its schema: query and action names, their arguments and the fields they return. It says nothing about which accounts the person has connected; the host asks for those when the widget is enabled.",
+            "List every provider a contract package can name in requires.providers, each with its schema: query and action names, their arguments and the fields they return. Write each provider as an entry { id, queries, actions }: every action the widget calls must be in actions or the host refuses it, and every query it reads belongs in queries, which is what the person is shown when approving it. It says nothing about which accounts the person has connected; the host asks for those when the widget is enabled.",
             no_args.clone(),
             true,
         ),

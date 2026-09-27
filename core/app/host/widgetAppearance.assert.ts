@@ -36,6 +36,10 @@ assert(
   "blur keeps the shared saturation lift",
 );
 assert(surfaceStyle({ blur: 0 })["--surface-backdrop-filter"] === "none", "blur 0 turns the filter off");
+assert(surfaceStyle({ shadow: false })["--surface-box-shadow"] === "0 0 transparent", "shadow off drops the drop shadow");
+assert(!("--surface-box-shadow" in surfaceStyle({ shadow: true })), "shadow on keeps the shared one");
+assert(normalizeWidgetAppearance({ shadow: false })?.shadow === false, "shadow off is stored");
+assert(normalizeWidgetAppearance({ shadow: "no" }) === undefined, "a non-boolean shadow is not stored");
 assert(Object.keys(surfaceStyle({})).length === 0, "no fields leave the shared look alone");
 
 assert(radiusStyle({ radius: 16 }, "round", false)["--surface-radius"] === "16px", "round corners keep the radius");

@@ -36,6 +36,7 @@ const background = computed(() => props.effective.background ?? sharedBackground
 const opacity = computed(() => props.effective.opacity ?? surfaceOpacity.value);
 const blur = computed(() => props.effective.blur ?? surfaceBlur.value);
 const radius = computed(() => props.effective.radius ?? surfaceRadius.value);
+const shadow = computed(() => props.effective.shadow !== false);
 
 function set<K extends keyof WidgetAppearance>(key: K, value: WidgetAppearance[K]) {
   emit("update", { [key]: value });
@@ -108,6 +109,18 @@ function onNumber(key: "opacity" | "blur" | "radius", event: Event, scale = 1) {
         :style="{ '--fill': `${(radius / MAX_WIDGET_RADIUS) * 100}%` }"
         @input="onNumber('radius', $event)"
       />
+    </label>
+
+    <label class="field field--row">
+      <span class="label">Shadow</span>
+      <span class="switch">
+        <input
+          type="checkbox"
+          :checked="shadow"
+          @change="set('shadow', ($event.target as HTMLInputElement).checked)"
+        />
+        <span class="switch-ui" />
+      </span>
     </label>
   </section>
 </template>
