@@ -192,6 +192,12 @@ pub fn credentials_list(app: AppHandle) -> Result<Vec<CredentialSummary>, String
     Ok(out)
 }
 
+/// Forgets a refused keychain read, so the next load asks macOS for access again.
+#[tauri::command]
+pub fn credentials_retry_access() {
+    crate::security::secrets::retry_access();
+}
+
 /// One credential's current state (poll target while an OAuth flow is pending).
 #[tauri::command]
 pub fn credentials_status(app: AppHandle, id: String) -> Result<Option<CredentialSummary>, String> {

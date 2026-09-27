@@ -699,6 +699,7 @@ pub fn run() {
             runtime_extensions::installs::connections_package_types,
             runtime_extensions::installs::connections_grant_package,
             credentials::credentials_list,
+            credentials::credentials_retry_access,
             credentials::credentials_status,
             credentials::credentials_save,
             credentials::credentials_delete,
