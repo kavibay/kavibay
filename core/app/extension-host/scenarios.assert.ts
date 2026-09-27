@@ -80,6 +80,25 @@ async function run() {
     check("cross-extension provider use without a dependency is refused",
       failed.includes("someone.community-thermo"), JSON.stringify(reg.errors));
   }
+  {
+    const control = tadoExtension.contributes.widgets!.find((w) => w.name === "control")!;
+    const withWidget = (requires: typeof control.requires) => {
+      const reg = new ExtensionRegistry();
+      reg.load(
+        { ...tadoExtension, contributes: { ...tadoExtension.contributes, widgets: [{ ...control, requires }] } },
+        { kind: "bundled" },
+      );
+      return { failed: reg.link(), errors: reg.errors };
+    };
+    const typo = withWidget({ providers: [TADO], actions: { [TADO]: ["setTemprature"] } });
+    check("a declared action the provider does not have is refused at link",
+      typo.failed.includes("kavibay.tado") && typo.errors.some((e) => e.endsWith("unknown action kavibay.tado/tado.setTemprature")),
+      JSON.stringify(typo.errors));
+    const stray = withWidget({ providers: [TADO], actions: { "kavibay.other/thing": ["setTemperature"] } });
+    check("an action declared for a provider the widget does not read is refused at link",
+      stray.failed.includes("kavibay.tado") && stray.errors.some((e) => e.endsWith("which is not in requires.providers")),
+      JSON.stringify(stray.errors));
+  }
 
   // --- 2. Todo: no provider, no capability, per-instance data ------------
   console.log("\n[2] todo (falsification case 1)");
@@ -127,13 +146,39 @@ async function run() {
     check("action invalidation pushes a refresh to the subscriber", states.length > n, `${n} -> ${states.length}`);
 
     /**
-     * FINDINGS §27: approving an account approves the account — queries and
-     * actions. Generated widgets use the same provider API; they still cannot
-     * contribute a provider or a command.
+     * Writes are declared in `requires.actions`, and the host refuses the rest
+     * whoever wrote the code. The temperature tile only reads, so it may not
+     * set a temperature even though its account is connected.
      */
-    const generated = { extensionId: "local.made-up", trust: "generated" as const };
+    const setCalls = () => calls.filter((u) => u.endsWith("/target")).length;
+    const setBefore = setCalls();
+    const undeclared = await caught(() =>
+      c1.providers![TADO]!.action("setTemperature", { roomId: "living-room", temperature: 30 }),
+    );
+    check("a bundled widget that did not declare an action is refused it",
+      undeclared?.kind === "permission-denied", JSON.stringify(undeclared));
+
+    const generated = {
+      extensionId: "local.made-up",
+      trust: "generated" as const,
+      actions: { [TADO]: ["setTemperature"] },
+    };
     await host.action(TADO, "setTemperature", { roomId: "living-room", temperature: 25 }, generated);
-    check("generated code may call provider actions on an approved account", true);
+    check("generated code may call an action it declared, on an approved account", true);
+
+    const readOnly = await caught(() =>
+      host.action(TADO, "setTemperature", { roomId: "living-room", temperature: 26 }, { ...generated, actions: {} }),
+    );
+    check("generated code may not call an action it did not declare", readOnly?.kind === "permission-denied");
+
+    const elsewhere = await caught(() =>
+      host.action(TADO, "setTemperature", { roomId: "living-room", temperature: 27 }, {
+        ...generated,
+        actions: { "kavibay.other/thing": ["setTemperature"] },
+      }),
+    );
+    check("an action declared under another provider does not count", elsewhere?.kind === "permission-denied");
+    check("only the declared action reached the provider", setCalls() - setBefore === 1, `${setCalls() - setBefore}`);
 
     const bedroomCalls = calls.filter((u) => u.includes("bedroom")).length;
     check("no fetch for a room nobody subscribed to", bedroomCalls === 0);

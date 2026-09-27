@@ -32,6 +32,6 @@ export async function loadConfigOptions(
   instanceId?: string,
 ): Promise<ConfigOption[]> {
   if (!field.source) return [];
-  const rows = await host.query<OptionRow[]>(field.source.provider, field.source.query, {}, instanceId ? { extensionId: "host", trust: "core", instanceId } : null);
+  const rows = await host.query<OptionRow[]>(field.source.provider, field.source.query, {}, instanceId ? { extensionId: "host", trust: "core", instanceId, actions: {} } : null);
   return rows.map((row) => ({ value: row.id, label: row.name ?? String(row.id) }));
 }

@@ -84,7 +84,7 @@ const control = defineWidget<{ room: string }>({
   name: "control",
   displayName: "Heating control",
   defaultSize: { w: 3, h: 2 },
-  requires: { providers: [PID] },
+  requires: { providers: [PID], actions: { [PID]: ["setTemperature"] } },
   configuration: {
     room: { type: "select", label: "Room", required: true, source: { provider: PID, query: "rooms" } },
   },
