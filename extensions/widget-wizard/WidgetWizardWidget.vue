@@ -5036,10 +5036,6 @@ async function enablePackage(
   flex: 0 0 auto;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid rgba(var(--fg-rgb), 0.12);
-  border-radius: 8px;
-  background: rgba(var(--fg-rgb), 0.035);
-  box-shadow: inset 0 1px 0 rgba(var(--fg-rgb), 0.05);
 }
 
 .wiz-side-group--all {
@@ -5051,7 +5047,7 @@ async function enablePackage(
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
-  padding: 6px 5px 8px;
+  padding: 2px 0 8px;
   overflow-y: auto;
 }
 
