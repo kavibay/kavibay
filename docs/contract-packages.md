@@ -102,10 +102,24 @@ around:
 - **Ask for the fewest accounts that work.** Every extra one is another connect
   prompt in front of your widget, and one the person does not have makes it look
   broken. Do not name an account you only might use.
-- **You may call the provider's actions.** Approving an account approves its
-  queries *and* its actions. Start a Spotify playlist with
-  `ctx.providers["kavibay.spotify/spotify"].action("play", { playlistId })`.
-  Do not invent a second write path.
+- **Declare every action you call.** Approving an account lets the widget read
+  from it; changing something there is a second question. List each provider
+  action the widget calls under `requires.actions`, keyed by provider:
+
+  ```json
+  "requires": {
+    "providers": ["kavibay.spotify/spotify"],
+    "actions": { "kavibay.spotify/spotify": ["play"] }
+  }
+  ```
+
+  The person sees "may also make changes" with the provider's description of
+  each action, and can say no to it while still allowing the reading. The host
+  refuses any action that is not both declared and approved, with
+  `permission-denied`, so an undeclared call fails the first time it runs.
+  Start the playlist with
+  `ctx.providers["kavibay.spotify/spotify"].action("play", { playlistId })`,
+  and do not invent a second write path.
 
 ## Settings the person can change later
 
@@ -428,7 +442,8 @@ error anywhere a user would look.
 - **A command** for the palette. That is code running in the host process.
 - **A palette action** on the widget (`widget.actions`). That is also code the
   host runs. Provider actions are the other thing: call them with
-  `ctx.providers[id].action(name, args)` — they are listed on the account above.
+  `ctx.providers[id].action(name, args)` after declaring them in
+  `requires.actions` — they are listed on the account above.
 
 All three are refused by the registry rather than ignored, so a package that
 declares one does not load at all.
@@ -442,7 +457,7 @@ ctx.data.set(key, value)
 ctx.data.delete(key)
 
 ctx.providers[id].query(name, args)   // one read, cached by the host
-ctx.providers[id].action(name, args)  // write through the provider
+ctx.providers[id].action(name, args)  // write through the provider; declared in requires.actions
 ctx.providers[id].subscribe(name, args, (state) => {})
 ctx.providers[id].status()
 

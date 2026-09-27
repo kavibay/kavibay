@@ -44,6 +44,8 @@ export interface WidgetPackageInstall {
 export interface StoredGrant {
   /** Current shape: which accounts the person approved. */
   approved?: string[];
+  /** The actions the person let it call, per provider. Absent means none. */
+  actions?: Record<string, string[]>;
   /**
    * Two older shapes, read and never written. Both carried per-query grants,
    * which no longer exist — the provider names are kept and the query lists
@@ -77,14 +79,13 @@ export interface WidgetPackageRefusal {
 }
 
 const signatureOf = (raw: unknown, grant: ApprovedGrant): string =>
-  JSON.stringify({ raw, providers: grant.providers });
+  JSON.stringify({ raw, providers: grant.providers, actions: grant.actions });
 
 /**
  * The grant, from the install record and nowhere else.
  *
- * `actions` is filled in here as empty rather than read: the stored shape has no
- * actions field at all (see `ContractGrant` in `installs.rs`), so there is
- * nothing to copy and no way for one to arrive.
+ * Actions are read only in their own field. The older shapes never carried any,
+ * and a record that has none grants none.
  */
 function grantOf(install: WidgetPackageInstall): ApprovedGrant | undefined {
   const stored = install.contractGrant;
@@ -94,7 +95,13 @@ function grantOf(install: WidgetPackageInstall): ApprovedGrant | undefined {
     stored.approved ??
     stored.providers?.map((row) => row.provider) ??
     (stored.provider ? [stored.provider] : []);
-  return { providers: [...approved] };
+  const actions = Object.fromEntries(
+    Object.entries(stored.actions ?? {}).map(([pid, names]) => [
+      pid,
+      Array.isArray(names) ? names.filter((name) => typeof name === "string") : [],
+    ]),
+  );
+  return { providers: [...approved], actions };
 }
 
 export class WidgetPackageLoader {

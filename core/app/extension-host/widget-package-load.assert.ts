@@ -312,6 +312,40 @@ const install = (over: Record<string, unknown> = {}) => ({
   assert(write?.kind === "permission-denied", "an action the grant does not name is refused over the wire");
 }
 
+// --- a change the person approved goes through, over the same wire ---
+{
+  const writes = {
+    ...manifest,
+    widget: { ...manifest.widget, requires: { providers: [TADO], actions: { [TADO]: ["setTemperature"] } } },
+  };
+  const registry = boot();
+  const loader = new WidgetPackageLoader(registry);
+  loader.sync(
+    [row({ contractManifest: writes })],
+    [install({ contractGrant: { approved: [TADO], actions: { [TADO]: ["setTemperature"] } } })],
+  );
+  assert(loader.refusalOf("room-summary") === undefined, `it loads: ${loader.refusalOf("room-summary")}`);
+
+  const { fetcher, calls } = makeFetcher();
+  const host = new Host(registry, fetcher, makeUi({}).ui);
+  await host.connect(TADO, { accessToken: "tok" });
+  const instance = {
+    id: "package-2",
+    definitionId: loader.definitionOf("room-summary")!,
+    configuration: {},
+    position: { x: 0, y: 0 },
+    size: { w: 2, h: 2 },
+    mode: "compact" as const,
+  };
+  const bridge = new JsonBridge(host);
+  bridge.register(instance);
+  const connection = bridge.connect(instance.id, () => {});
+  const ctx = sandboxContext(instance, (json) => connection.handle(json), () => {}, [TADO]);
+
+  await ctx.providers![TADO]!.action("setTemperature", { roomId: "living-room", temperature: 25 });
+  assert(calls.some((url) => url.endsWith("/target")), "an approved change reaches the provider over the wire");
+}
+
 // --- why it was black, kept as a fact rather than a memory ---
 /**
  * The two frames do not answer each other's messages, and neither says so. A
