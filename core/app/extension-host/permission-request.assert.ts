@@ -215,4 +215,19 @@ const onlyTado = {
   assert(askedNothingNew(carried, both), "and asks nothing new");
 }
 
+// --- declared reads describe this widget, not the whole account ---
+{
+  const reg = boot();
+  const all = buildPermissionRequest(onlyTado, reg).choices[0]!.summary;
+  const reads = {
+    ...onlyTado,
+    widget: { ...onlyTado.widget, requires: { providers: [TADO], queries: { [TADO]: ["roomState", "typo"] } } },
+  };
+  const request = buildPermissionRequest(reads, reg);
+  assert(all.includes("rooms"), `without a declaration the account is summarised: ${all}`);
+  assert(request.choices[0]!.summary === "roomState", `with one, exactly the declared queries it has: ${request.choices[0]!.summary}`);
+  assert(Object.keys(grantFrom({ ...request, choices: request.choices.map((c) => ({ ...c, granted: true })) })).join() === "providers,actions",
+    "and declaring reads grants nothing beyond the account");
+}
+
 console.log("permission-request.assert.ts: ok");

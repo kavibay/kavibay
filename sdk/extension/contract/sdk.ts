@@ -693,6 +693,9 @@ export type ProviderStatus =
  */
 export type ProviderActions = Partial<Record<ProviderId, readonly string[]>>;
 
+/** The provider queries some code reads, keyed by provider like `ProviderActions`. */
+export type ProviderQueries = Partial<Record<ProviderId, readonly string[]>>;
+
 /**
  * What a widget or a code command reaches through providers.
  *
@@ -709,6 +712,16 @@ export type ProviderActions = Partial<Record<ProviderId, readonly string[]>>;
 export interface ProviderRequirements {
   providers: ProviderId[];
   actions?: ProviderActions;
+  /**
+   * The queries the code reads, for the person to see. A STATEMENT, NOT A
+   * PERMISSION: nothing is refused because a query is missing here, since the
+   * account is the read grant (FINDINGS §27). The approval dialog lists these
+   * instead of summarising the whole account, and the Wizard flags a query the
+   * code calls without listing it. The registry still refuses a key outside
+   * `providers` or a name the provider does not have, because a typo in
+   * something shown to a person is a false statement.
+   */
+  queries?: ProviderQueries;
 }
 
 export interface WidgetDefinition<TConfig = Record<string, unknown>> {
