@@ -7,6 +7,7 @@
  *   npx tsx extensions/widget-wizard/widgetWizardLogic.assert.ts
  */
 
+import type { ArgSpec, ResultSchema } from "@sdk/contract/sdk";
 import type { Language } from "./highlight";
 
 /** Consent-facing endpoint shape returned by the host package scanner. */
@@ -24,7 +25,12 @@ export interface WizardProviderSchema {
   requiresCredential: boolean;
   /** Registry type id, so "not connected" can open Settings on that row. */
   credentialType?: string;
-  queries: Array<{ name: string; description?: string }>;
+  queries: Array<{
+    name: string;
+    description?: string;
+    args?: Record<string, ArgSpec>;
+    result?: ResultSchema;
+  }>;
 }
 
 export interface WizardPermissionChoice {
@@ -180,6 +186,63 @@ export function buildWizardPermissionRequest(
   }
 
   return { choices, refused };
+}
+
+/** A provider the package reads from. `schema` is null when this Kavibay has none by that id. */
+export interface ProviderUse {
+  id: string;
+  schema: WizardProviderSchema | null;
+}
+
+/** The providers `manifest.json` asks for, matched against what the host offers. */
+export function providersUsedBy(
+  files: readonly GeneratedFile[],
+  providers: readonly WizardProviderSchema[],
+): ProviderUse[] {
+  const manifest = files.find((file) => file.path === "manifest.json");
+  if (!manifest) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(manifest.contents);
+  } catch {
+    return [];
+  }
+  return requestedContractProviders(parsed).map((id) => ({
+    id,
+    schema: providers.find((provider) => provider.id === id) ?? null,
+  }));
+}
+
+export type ProviderUseState = "missing" | "free" | "connected" | "disconnected";
+
+export function providerUseState(use: ProviderUse, connected: boolean): ProviderUseState {
+  if (!use.schema) return "missing";
+  if (!use.schema.requiresCredential) return "free";
+  return connected ? "connected" : "disconnected";
+}
+
+/** `location, days?`: the arguments a query takes, optional ones marked. */
+export function argSignature(args: Record<string, ArgSpec> | undefined): string {
+  return Object.entries(args ?? {})
+    .map(([name, spec]) => (spec.required ? name : `${name}?`))
+    .join(", ");
+}
+
+/**
+ * What a query answers with, one level deep: `list of { id, name }`.
+ *
+ * Field names rather than the whole tree, because the question here is what
+ * to write `data.` against, and a nested schema printed in full is a second
+ * file to read.
+ */
+export function describeResultShape(result: ResultSchema): string {
+  const shape =
+    result.type === "list"
+      ? `list of ${describeResultShape(result.of)}`
+      : result.type === "object"
+        ? `{ ${Object.keys(result.fields).join(", ")} }`
+        : result.type;
+  return result.nullable ? `${shape} or null` : shape;
 }
 
 export function askedNothingNew(

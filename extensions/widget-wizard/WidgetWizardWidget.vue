@@ -75,7 +75,12 @@ import {
   fileKind,
   fileTreeRows,
   highlightLanguage,
+  argSignature,
+  describeResultShape,
+  providersUsedBy,
+  providerUseState,
   type FileKind,
+  type ProviderUseState,
   sampleBody,
   faultProblem,
   repairTurnFor,
@@ -1313,12 +1318,35 @@ const codeTokens = computed<CodeToken[]>(() => {
  */
 const endpointProbes = computed(() => endpointsToProbe(session.value.draftFiles ?? []));
 
+/**
+ * The providers the package reads from, for the API tab.
+ *
+ * A widget on a provider calls no API of its own: Kavibay makes the requests
+ * and the widget asks for queries by name. Without these the tab stayed away
+ * from exactly the widgets that talk to an API the most, and a weather widget
+ * showed no sign of where its weather came from.
+ */
+const usedProviders = computed(() =>
+  providersUsedBy(session.value.draftFiles ?? [], providerSchemas.value).map((use) => ({
+    ...use,
+    state: providerUseState(use, providerConnected.value.get(use.id) === true),
+  })),
+);
+
+const PROVIDER_STATE_LABEL: Record<ProviderUseState, string> = {
+  missing: "Not available",
+  free: "No account needed",
+  connected: "Connected",
+  disconnected: "Not connected",
+};
+
 type MiddleTab = typeof middleTab.value;
 
 /**
  * The switch above the middle column, one entry per face.
  *
- * API is only listed when there is something to try. A tab that is always there
+ * API is only listed when there is something to show: an endpoint the package
+ * declares or a provider it reads from. A tab that is always there
  * and usually empty teaches people to stop looking at it.
  */
 const middleTabs = computed(() => [
@@ -1330,13 +1358,13 @@ const middleTabs = computed(() => [
     count: fileList.value.length,
     disabled: !fileList.value.length,
   },
-  ...(endpointProbes.value.length
+  ...(endpointProbes.value.length + usedProviders.value.length
     ? [
         {
           id: "api" as MiddleTab,
           label: "API",
           icon: PlugIcon,
-          count: endpointProbes.value.length,
+          count: endpointProbes.value.length + usedProviders.value.length,
           disabled: false,
         },
       ]
@@ -4411,6 +4439,44 @@ async function enablePackage(
         request ends that, and the answer travels with the next message.
       -->
       <div v-show="middleTab === 'api'" class="wiz-api">
+        <!--
+          Read from the host's catalog, never called from here: running a
+          provider query for a draft would be a new host capability, and the
+          calls the preview makes are already listed under Debug beside it.
+        -->
+        <p v-if="usedProviders.length" class="wiz-api-heading">Providers</p>
+        <section v-for="use in usedProviders" :key="use.id" class="wiz-ep">
+          <div class="wiz-ep-head">
+            <span class="wiz-ep-id">{{ use.schema?.displayName ?? use.id }}</span>
+            <span class="wiz-provider-state" :class="`wiz-provider-state--${use.state}`">
+              {{ PROVIDER_STATE_LABEL[use.state] }}
+            </span>
+          </div>
+          <p v-if="use.schema" class="wiz-ep-desc">
+            Kavibay makes the requests; the widget asks for these queries by name. The
+            calls the preview made are listed under Debug.
+          </p>
+          <p v-else class="wiz-ep-note">
+            This Kavibay has no provider <code>{{ use.id }}</code>, so the widget cannot
+            get its data. Check the id in <code>manifest.json</code>.
+          </p>
+          <ul v-if="use.schema?.queries.length" class="wiz-provider-queries">
+            <li v-for="query in use.schema.queries" :key="query.name">
+              <code class="wiz-provider-call">{{ query.name }}({{ argSignature(query.args) }})</code>
+              <code v-if="query.result" class="wiz-provider-result">
+                → {{ describeResultShape(query.result) }}
+              </code>
+              <p v-if="query.description" class="wiz-ep-desc">{{ query.description }}</p>
+            </li>
+          </ul>
+          <div v-if="use.state === 'disconnected'" class="wiz-ep-actions">
+            <button type="button" @click="wizard.openSettings('credentials', use.schema?.credentialType)">
+              Connect account
+            </button>
+          </div>
+        </section>
+
+        <p v-if="usedProviders.length && endpointProbes.length" class="wiz-api-heading">Endpoints</p>
         <div v-for="probe in endpointProbes" :key="probe.id" class="wiz-ep">
           <div class="wiz-ep-head">
             <code class="wiz-ep-id">{{ probe.id }}</code>
@@ -6531,11 +6597,75 @@ async function enablePackage(
 
 .wiz-ep {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 6px;
-  padding: 8px;
-  border-radius: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
   border: 1px solid rgba(var(--fg-rgb), 0.12);
+  background: rgba(var(--fg-rgb), 0.035);
+}
+
+.wiz-api-heading {
+  flex: 0 0 auto;
+  margin: 2px 0 -4px;
+  padding: 0 2px;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(var(--fg-rgb), 0.45);
+}
+
+.wiz-provider-state {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.08);
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+  color: rgba(var(--fg-rgb), 0.7);
+}
+
+.wiz-provider-state--connected {
+  background: rgba(90, 205, 130, 0.14);
+  color: rgb(90, 190, 125);
+}
+
+.wiz-provider-state--disconnected,
+.wiz-provider-state--missing {
+  background: rgba(218, 164, 89, 0.16);
+  color: rgb(205, 150, 70);
+}
+
+.wiz-provider-queries {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 0 0;
+  padding: 8px 0 0;
+  border-top: 1px solid rgba(var(--fg-rgb), 0.08);
+  list-style: none;
+}
+
+.wiz-provider-queries li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+
+.wiz-provider-queries .wiz-ep-desc {
+  flex-basis: 100%;
+}
+
+.wiz-provider-call {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.wiz-provider-result {
+  font-size: 11px;
+  color: #79b8d1;
 }
 
 .wiz-ep-head {
