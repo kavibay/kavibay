@@ -25,7 +25,16 @@ import {
   watch,
 } from "vue";
 import type { DraftChanged, DraftPresence, WizardCapability } from "@sdk/contract/sdk";
-import { BrainIcon, PanelLeftIcon, ServerPlusIcon, SquarePenIcon, UnplugIcon } from "@sdk/icons";
+import {
+  BrainIcon,
+  CodeXmlIcon,
+  MessageSquareIcon,
+  PanelLeftIcon,
+  PlugIcon,
+  ServerPlusIcon,
+  SquarePenIcon,
+  UnplugIcon,
+} from "@sdk/icons";
 import { BrandMark, McpClientMark } from "@sdk/brand";
 import KavibaySelect from "@sdk/KavibaySelect.vue";
 import WizardModelMenu from "./WizardModelMenu.vue";
@@ -1278,6 +1287,46 @@ const codeTokens = computed<CodeToken[]>(() =>
  * reload to find out.
  */
 const endpointProbes = computed(() => endpointsToProbe(session.value.draftFiles ?? []));
+
+type MiddleTab = typeof middleTab.value;
+
+/**
+ * The switch above the middle column, one entry per face.
+ *
+ * API is only listed when there is something to try. A tab that is always there
+ * and usually empty teaches people to stop looking at it.
+ */
+const middleTabs = computed(() => [
+  { id: "chat" as MiddleTab, label: "Chat", icon: MessageSquareIcon, count: 0, disabled: false },
+  {
+    id: "files" as MiddleTab,
+    label: "Code",
+    icon: CodeXmlIcon,
+    count: fileList.value.length,
+    disabled: !fileList.value.length,
+  },
+  ...(endpointProbes.value.length
+    ? [
+        {
+          id: "api" as MiddleTab,
+          label: "API",
+          icon: PlugIcon,
+          count: endpointProbes.value.length,
+          disabled: false,
+        },
+      ]
+    : []),
+]);
+
+/** Arrow keys walk the switch the way they walk any tab list. */
+function stepMiddleTab(delta: -1 | 1): void {
+  const open = middleTabs.value.filter((tab) => !tab.disabled);
+  const at = open.findIndex((tab) => tab.id === middleTab.value);
+  const next = open[(at + delta + open.length) % open.length];
+  if (!next) return;
+  middleTab.value = next.id;
+  void nextTick(() => wizEl.value?.querySelector<HTMLElement>(".wiz-tab--on")?.focus());
+}
 
 /**
  * What the host's endpoint broker answers with.
@@ -4085,7 +4134,7 @@ async function enablePackage(
 
     <section class="wiz-main wiz-c3">
       <!--
-        Name, id and tabs on one line.
+        Name and tabs on one line.
 
         They were three rows of chrome above a column that is already narrow,
         and none of them is content. The name was a filled box the width of the
@@ -4108,52 +4157,36 @@ async function enablePackage(
           @change="onNameChanged"
         />
         <!--
-          Truncated, with the whole thing on hover. It is a directory name and a
-          url host — worth being able to read, never worth half the width.
+          Conversation or code, never both. They are two readings of the same
+          widget, and this column is not wide enough to be honest about either
+          while showing half of the other. The preview is not in this choice — it
+          is what you are reading them against.
         -->
-        <span
-          v-if="session.packageId && !tooNarrow"
-          class="wiz-id"
-          :title="session.packageId"
-        >{{ session.packageId }}</span>
-
-      <!--
-        Conversation or files, never both. They are two readings of the same
-        widget, and this column is not wide enough to be honest about either
-        while showing half of the other. The preview is not in this choice — it
-        is what you are reading them against.
-      -->
-        <div class="wiz-tabs">
-        <button
-          type="button"
-          class="wiz-tab"
-          :class="{ 'wiz-tab--on': middleTab === 'chat' }"
-          @click="middleTab = 'chat'"
+        <div
+          class="wiz-tabs"
+          role="tablist"
+          aria-label="Show"
+          @keydown.left.prevent="stepMiddleTab(-1)"
+          @keydown.right.prevent="stepMiddleTab(1)"
         >
-          Conversation
-        </button>
-        <button
-          type="button"
-          class="wiz-tab"
-          :class="{ 'wiz-tab--on': middleTab === 'files' }"
-          :disabled="!fileList.length"
-          @click="middleTab = 'files'"
-        >
-          Files<span v-if="fileList.length" class="wiz-tab-count">{{ fileList.length }}</span>
-        </button>
-        <!--
-          Only when there is something to try. A tab that is always there and
-          usually empty teaches people to stop looking at it.
-        -->
-        <button
-          v-if="endpointProbes.length"
-          type="button"
-          class="wiz-tab"
-          :class="{ 'wiz-tab--on': middleTab === 'api' }"
-          @click="middleTab = 'api'"
-        >
-          API<span class="wiz-tab-count">{{ endpointProbes.length }}</span>
-        </button>
+          <button
+            v-for="tab in middleTabs"
+            :key="tab.id"
+            type="button"
+            role="tab"
+            class="wiz-tab"
+            :class="{ 'wiz-tab--on': middleTab === tab.id }"
+            :aria-selected="middleTab === tab.id"
+            :aria-label="tab.label"
+            :tabindex="middleTab === tab.id ? 0 : -1"
+            :disabled="tab.disabled"
+            v-tip="tab.label"
+            @click="middleTab = tab.id"
+          >
+            <component :is="tab.icon" :size="13" :stroke-width="2" />
+            <span class="wiz-tab-label">{{ tab.label }}</span>
+            <span v-if="tab.count" class="wiz-tab-count">{{ tab.count }}</span>
+          </button>
         </div>
       </header>
 
@@ -5598,6 +5631,8 @@ async function enablePackage(
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
+  /* The tab labels fold to their icons when the name needs the room. */
+  container-type: inline-size;
 }
 
 /*
@@ -5628,20 +5663,6 @@ async function enablePackage(
   background: rgba(var(--fg-rgb), 0.05);
   border-color: rgba(var(--fg-rgb), 0.2);
   outline: none;
-}
-
-.wiz-id {
-  /* Shrinks before anything else, and never grows: it is the least useful
-     thing on the row and the most likely to be long. */
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 130px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: ui-monospace, monospace;
-  font-size: 10px;
-  opacity: 0.4;
 }
 
 .wiz-presence {
@@ -6369,28 +6390,68 @@ async function enablePackage(
   opacity: 0.55;
 }
 
+/*
+  One control with segments rather than a row of words: the faces are
+  alternatives, and a track they sit in says so before any of them is read.
+  The open one is lifted with the app's selected-row treatment, the same one
+  the sidebar uses for the open project.
+*/
 .wiz-tabs {
   display: flex;
-  gap: 2px;
   flex: 0 0 auto;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: rgba(var(--fg-rgb), 0.06);
 }
 
 .wiz-tab {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
   border: none;
-  border-radius: 6px;
+  border-radius: 7px;
   background: none;
   color: inherit;
-  opacity: 0.5;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0.6;
   cursor: pointer;
+  transition:
+    opacity 120ms ease,
+    background-color 120ms ease;
+}
+
+.wiz-tab:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.wiz-tab:focus-visible {
+  outline: 1px solid rgba(var(--fg-rgb), 0.45);
+  outline-offset: -1px;
 }
 
 .wiz-tab--on {
-  background: rgba(var(--fg-rgb), 0.1);
-  opacity: 0.95;
+  background-color: var(--row-selected-bg, rgba(var(--fg-rgb), 0.1));
+  background-image: var(--row-selected-sheen, none);
+  box-shadow:
+    var(--row-selected-rim, inset 0 0 0 1px rgba(255, 255, 255, 0.05)),
+    var(--row-selected-shadow, 0 1px 3px rgba(0, 0, 0, 0.3));
+  opacity: 1;
+}
+
+@container (max-width: 340px) {
+  .wiz-tab {
+    padding: 0 7px;
+  }
+
+  .wiz-tab-label {
+    display: none;
+  }
 }
 
 .wiz-api {
@@ -6968,12 +7029,19 @@ button:disabled {
   opacity: 0.7;
 }
 .wiz-tab-count {
-  margin-left: 5px;
-  opacity: 0.55;
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.1);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 15px;
+  text-align: center;
+  box-sizing: border-box;
 }
 
-.wiz-tab[disabled] {
-  opacity: 0.4;
+.wiz-tab:disabled {
+  opacity: 0.3;
   cursor: default;
 }
 .wiz-grip {
