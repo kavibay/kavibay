@@ -2283,6 +2283,28 @@ export function isPlainNote(bubble: WizardBubble): boolean {
   return !bubble.approve && !bubble.enable && !(bubble.images && bubble.images.length > 0);
 }
 
+/**
+ * Add a status note to the transcript without piling it up.
+ *
+ * Opening a project again with nothing said since wrote another "Continuing
+ * your unsaved changes" under the last one, and three in a row read as three
+ * events. An opening note replaces one directly above it, and a plain note the
+ * same as the one above is written once. A note with a button is always kept.
+ */
+export function appendNote(bubbles: WizardBubble[], bubble: WizardBubble): void {
+  const last = bubbles[bubbles.length - 1];
+  const replaces =
+    last !== undefined &&
+    isPlainNote(last) &&
+    isPlainNote(bubble) &&
+    !last.run &&
+    !bubble.run &&
+    ((last.opened === true && bubble.opened === true) ||
+      (last.text === bubble.text && last.tone === bubble.tone));
+  if (replaces) bubbles.splice(bubbles.length - 1, 1, bubble);
+  else bubbles.push(bubble);
+}
+
 export interface WizardBubble {
   role: "user" | "assistant" | "system";
   text: string;
@@ -2299,6 +2321,8 @@ export interface WizardBubble {
    * warning sitting in the transcript.
    */
   tone?: "success";
+  /** Reports that a project was opened; the next opening replaces it. */
+  opened?: boolean;
   /**
    * A package this bubble offers to enable, with the consent lines to show
    * first. Present only on the system note that reports a kept package still
