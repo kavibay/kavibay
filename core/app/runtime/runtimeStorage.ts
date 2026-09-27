@@ -99,3 +99,25 @@ export function clearAllRuntimeStorageForExt(
     store.removeItem(key);
   }
 }
+
+/** Ids `newInstanceId` mints. Wizard preview and palette scratch ids never look like this. */
+const LAYOUT_INSTANCE_ID =
+  /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|inst-\d+-[a-z0-9]+)$/;
+
+/** Remove runtime keys of layout instances that are not in `liveInstanceIds`. */
+export function pruneOrphanRuntimeStorage(
+  liveInstanceIds: ReadonlySet<string>,
+  storage?: Storage,
+): void {
+  const store = resolveStorage(storage);
+  const orphans: string[] = [];
+  for (let i = 0; i < store.length; i++) {
+    const key = store.key(i);
+    if (key == null || !key.startsWith("kavibay:runtime:")) continue;
+    const instanceId = key.slice(key.lastIndexOf(":") + 1);
+    if (LAYOUT_INSTANCE_ID.test(instanceId) && !liveInstanceIds.has(instanceId)) {
+      orphans.push(key);
+    }
+  }
+  for (const key of orphans) store.removeItem(key);
+}
