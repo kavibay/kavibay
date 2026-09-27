@@ -312,6 +312,9 @@ The rules for your reply:
   `requires.actions`, keyed by provider**. The person decides separately
   whether you may change things, and the host refuses an action you did not
   declare.
+- **Name every query you read in `requires.queries`, keyed by provider.** It is
+  what the person is shown when they approve the widget, so list each one you
+  call with `query` or `subscribe`, and nothing you do not.
 - **Never draw a spinner, an error, a retry or a connect screen.** The host
   draws all of those around your widget. Yours would be the second one.
 
@@ -419,6 +422,10 @@ mod tests {
         assert!(
             prompt.contains("`requires.actions`, keyed by provider"),
             "and that each one is declared, or the host refuses the first button it draws",
+        );
+        assert!(
+            prompt.contains("`requires.queries`, keyed by provider"),
+            "and that the queries it reads are named, since that list is what the person is shown",
         );
     }
 

@@ -20,6 +20,7 @@ import {
   providersUsedBy,
   providerCallsIn,
   actionUses,
+  queryUses,
   providerUseState,
   conversationIsWorthKeeping,
   conversationLabel,
@@ -1192,8 +1193,8 @@ assert(
   // Skipping the click grants what was asked for, not more.
   const request = {
     choices: [
-      { provider: "kavibay.github/github", providerName: "GitHub", granted: false },
-      { provider: "kavibay.tado/tado", providerName: "tado°", granted: true },
+      { provider: "kavibay.github/github", providerName: "GitHub", summary: "", granted: false },
+      { provider: "kavibay.tado/tado", providerName: "tado°", summary: "", granted: true },
     ],
     refused: ["kavibay.spotify/spotify"],
   };
@@ -1212,7 +1213,7 @@ assert(
 {
   // Skipping the click must reach the same result as answering the dialog.
   const ask = (choices: string[], refused: string[] = []) => ({
-    choices: choices.map((provider) => ({ provider, providerName: provider, granted: false })),
+    choices: choices.map((provider) => ({ provider, providerName: provider, summary: "", granted: false })),
     refused,
   });
 
@@ -1233,8 +1234,8 @@ assert(
 {
   const request = {
     choices: [
-      { provider: "gh", providerName: "GitHub", granted: false },
-      { provider: "tado", providerName: "tado°", granted: true },
+      { provider: "gh", providerName: "GitHub", summary: "", granted: false },
+      { provider: "tado", providerName: "tado°", summary: "", granted: true },
     ],
     refused: ["kavibay.spotify/spotify"],
   };
@@ -1324,7 +1325,7 @@ assert(
   };
   assertEq(
     actionUses(
-      { id: spotify.id, schema: spotify, declaredActions: ["play", "next"] },
+      { id: spotify.id, schema: spotify, declaredActions: ["play", "next"], declaredQueries: [] },
       { queries: [], actions: ["play", "pause", "rewind"] },
     ).map((use) => [use.name, use.declared, use.called]),
     [
@@ -1333,6 +1334,52 @@ assert(
       ["pause", false, true],
     ],
     "declared ones first, then a called one the provider has but the manifest does not declare",
+  );
+}
+
+{
+  const weather = {
+    id: "kavibay.weather/weather",
+    displayName: "Weather",
+    requiresCredential: false,
+    queries: [
+      { name: "current", description: "Current conditions" },
+      { name: "forecast", description: "The next days" },
+      { name: "places", description: "Places by name" },
+    ],
+  };
+  const manifest = (queries: string[]) => ({
+    widget: { requires: { providers: [weather.id], queries: { [weather.id]: queries } } },
+  });
+  assertEq(
+    buildWizardPermissionRequest(manifest(["current", "nope"]), [weather]).choices[0]?.summary,
+    "Current conditions",
+    "the dialog describes the declared queries the provider has",
+  );
+  assertEq(
+    buildWizardPermissionRequest(manifest([]), [weather]).choices[0]?.summary,
+    "Current conditions; The next days, and 1 more",
+    "and the account, the way the host dialog does, without a declaration",
+  );
+
+  const [use] = providersUsedBy(
+    [{ path: "manifest.json", contents: JSON.stringify(manifest(["current", "places", "nope"])) }],
+    [weather],
+  );
+  assertEq(
+    queryUses(use!, { queries: ["current", "forecast"], actions: [] }).map((query) => [
+      query.name,
+      query.declared,
+      query.called,
+      query.known,
+    ]),
+    [
+      ["current", true, true, true],
+      ["forecast", false, true, true],
+      ["places", true, false, true],
+      ["nope", true, false, false],
+    ],
+    "every offered query with its marks, then a declared name the provider does not have",
   );
 }
 

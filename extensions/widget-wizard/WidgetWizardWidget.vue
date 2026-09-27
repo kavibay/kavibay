@@ -80,6 +80,7 @@ import {
   describeResultShape,
   providerCallsIn,
   providersUsedBy,
+  queryUses,
   providerUseState,
   type FileKind,
   type ProviderUseState,
@@ -4459,29 +4460,57 @@ async function enablePackage(
             </span>
           </div>
           <p v-if="use.schema" class="wiz-ep-desc">
-            Kavibay makes the requests; the widget asks for them by name. Marked is
-            what this widget's code calls. The calls the preview made are under Debug.
+            Kavibay makes the requests; the widget asks for them by name. The marks
+            compare what the manifest declares with what the code calls. The calls
+            the preview made are under Debug.
           </p>
           <p v-else class="wiz-ep-note">
             This Kavibay has no provider <code>{{ use.id }}</code>, so the widget cannot
             get its data. Check the id in <code>manifest.json</code>.
           </p>
-          <template v-if="use.schema?.queries.length">
+          <!--
+            Reads are declared for the person, not enforced: the account is the
+            read grant. So the marks say what the manifest tells them against
+            what the code does, and a gap is a gap in what they were told.
+          -->
+          <template v-if="queryUses(use, providerCalls).length">
             <p class="wiz-provider-sub">Reads</p>
             <ul class="wiz-provider-queries">
               <li
-                v-for="query in use.schema.queries"
+                v-for="query in queryUses(use, providerCalls)"
                 :key="query.name"
-                :class="{ 'wiz-provider-unused': !providerCalls.queries.includes(query.name) }"
+                :class="{ 'wiz-provider-unused': !query.declared && !query.called }"
               >
                 <code class="wiz-provider-call">{{ query.name }}({{ argSignature(query.args) }})</code>
                 <code v-if="query.result" class="wiz-provider-result">
                   → {{ describeResultShape(query.result) }}
                 </code>
-                <span v-if="providerCalls.queries.includes(query.name)" class="wiz-provider-badge">
-                  Used
+                <span
+                  v-if="query.declared || query.called"
+                  class="wiz-provider-badge"
+                  :class="{
+                    'wiz-provider-badge--warn': !query.known || !query.declared,
+                    'wiz-provider-badge--quiet': query.known && query.declared && !query.called,
+                  }"
+                >
+                  {{
+                    !query.known
+                      ? "Unknown"
+                      : !query.declared
+                        ? "Not declared"
+                        : query.called
+                          ? "Declared"
+                          : "Declared, not called"
+                  }}
                 </span>
                 <p v-if="query.description" class="wiz-ep-desc">{{ query.description }}</p>
+                <p v-if="!query.known" class="wiz-ep-note">
+                  {{ use.schema?.displayName ?? use.id }} has no query by this name.
+                </p>
+                <p v-else-if="!query.declared" class="wiz-ep-note">
+                  The code reads this, but <code>requires.queries</code> does not list it,
+                  so the approval dialog does not mention it.
+                </p>
               </li>
             </ul>
           </template>

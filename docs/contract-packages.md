@@ -102,6 +102,12 @@ around:
 - **Ask for the fewest accounts that work.** Every extra one is another connect
   prompt in front of your widget, and one the person does not have makes it look
   broken. Do not name an account you only might use.
+- **Name every query you read.** List each query the widget calls with
+  `query` or `subscribe` under `requires.queries`, keyed by provider. It is not
+  a permission (the account is), and nothing is refused for a missing name. It
+  is what the person is shown: the approval dialog describes exactly these
+  instead of everything the account offers, so a list that leaves one out tells
+  them less than the widget does.
 - **Declare every action you call.** Approving an account lets the widget read
   from it; changing something there is a second question. List each provider
   action the widget calls under `requires.actions`, keyed by provider:
@@ -109,6 +115,7 @@ around:
   ```json
   "requires": {
     "providers": ["kavibay.spotify/spotify"],
+    "queries": { "kavibay.spotify/spotify": ["nowPlaying"] },
     "actions": { "kavibay.spotify/spotify": ["play"] }
   }
   ```
