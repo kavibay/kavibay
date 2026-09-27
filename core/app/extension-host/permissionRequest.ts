@@ -107,7 +107,7 @@ export function buildPermissionRequest(
     choices.push({
       provider: pid,
       providerName: provider.def.displayName,
-      summary: summarize(provider.def),
+      summary: summarize(provider.def, asked.queries[pid]),
       // Fail closed, in the UI as well as in the host.
       granted: alreadyGranted.providers.includes(pid),
       ...(provider.def.requiresCredential ? {} : { note: "No account needed" }),
@@ -127,12 +127,7 @@ export function buildPermissionRequest(
 }
 
 /**
- * One sentence about what reading from this provider gets you.
- *
- * Built from the queries' own descriptions rather than from their names, which
- * is finding 20's point surviving the move: the names were never the thing a
- * person could decide about, and now that the decision is per provider the
- * sentence has to cover the whole account rather than one call.
+ * What the changes it asks for do, in the provider's own words.
  */
 function summarizeActions(
   def: { actions: Record<string, { description?: string }> },
@@ -141,7 +136,24 @@ function summarizeActions(
   return names.map((name) => def.actions[name]?.description ?? name).join("; ");
 }
 
-function summarize(def: { queries: Record<string, { description?: string }> }): string {
+/**
+ * One sentence about what reading from this provider gets you.
+ *
+ * Built from the queries' own descriptions rather than from their names, which
+ * is finding 20's point surviving the move: the names were never the thing a
+ * person could decide about.
+ *
+ * When the package says which queries it reads (`requires.queries`), those and
+ * only those, all of them: the sentence then describes this widget rather than
+ * everything the account could give it, and a list the package chose is short
+ * enough not to need truncating.
+ */
+function summarize(
+  def: { queries: Record<string, { description?: string }> },
+  declared: readonly string[] | undefined,
+): string {
+  const known = (declared ?? []).filter((name) => def.queries[name]);
+  if (known.length > 0) return known.map((name) => def.queries[name]?.description ?? name).join("; ");
   const sentences = Object.entries(def.queries)
     .map(([name, query]) => query.description ?? name)
     .filter((entry) => entry.length > 0);

@@ -97,7 +97,11 @@ async function run() {
     const stray = withWidget({ providers: [TADO], actions: { "kavibay.other/thing": ["setTemperature"] } });
     check("an action declared for a provider the widget does not read is refused at link",
       stray.failed.includes("kavibay.tado") && stray.errors.some((e) => e.endsWith("which is not in requires.providers")),
-      JSON.stringify(stray.errors));
+      JSON.stringify(stray.errors));    const misread = withWidget({ providers: [TADO], queries: { [TADO]: ["roomStat"] } });
+    check("a declared query the provider does not have is refused at link",
+      misread.errors.some((e) => e.endsWith("unknown query kavibay.tado/tado.roomStat")), JSON.stringify(misread.errors));
+    const reads = withWidget({ providers: [TADO], queries: { [TADO]: ["roomState"] } });
+    check("a correct query declaration links", reads.failed.length === 0, JSON.stringify(reads.errors));
   }
 
   // --- 2. Todo: no provider, no capability, per-instance data ------------

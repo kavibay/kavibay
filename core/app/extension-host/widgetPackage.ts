@@ -3,6 +3,7 @@ import type {
   ExtensionManifest,
   ProviderActions,
   ProviderId,
+  ProviderQueries,
   WidgetDefinition,
 } from "@sdk/contract/sdk";
 
@@ -72,11 +73,23 @@ const strings = (value: unknown): string[] =>
  * caller that wants to grant these has to pass them back in, which is one more
  * place a reviewer can see the decision being made.
  */
-export function requestedPermissions(raw: unknown): ApprovedGrant {
+/**
+ * What a package asks for, plus what it says it reads. `queries` is shown to
+ * the person and never granted: the account is the read permission.
+ */
+export interface PackageRequest extends ApprovedGrant {
+  queries: ProviderQueries;
+}
+
+export function requestedPermissions(raw: unknown): PackageRequest {
   const manifest = record(raw, "manifest");
   const widget = record(manifest.widget, "manifest.widget");
   const providers = declaredProviders(widget);
-  return { providers, actions: declaredActions(widget, providers) };
+  return {
+    providers,
+    actions: declaredNames(widget, providers, "actions"),
+    queries: declaredNames(widget, providers, "queries"),
+  };
 }
 
 /**
@@ -93,27 +106,32 @@ function declaredProviders(widget: Record<string, unknown>): ProviderId[] {
 }
 
 /**
- * `widget.requires.actions`, from JSON: provider id to action names.
+ * `widget.requires.actions` or `widget.requires.queries`, from JSON: provider
+ * id to names.
  *
  * An array is refused with the shape spelled out, because `["createEvent"]` is
- * the natural first guess and it is a permission with no stated subject
- * (FINDINGS §25). A key outside `requires.providers` is refused for the same
- * reason the registry refuses it on a bundled widget.
+ * the natural first guess and it names nothing it belongs to (FINDINGS §25). A
+ * key outside `requires.providers` is refused for the same reason the registry
+ * refuses it on a bundled widget.
  */
-function declaredActions(widget: Record<string, unknown>, providers: readonly ProviderId[]): ProviderActions {
+function declaredNames(
+  widget: Record<string, unknown>,
+  providers: readonly ProviderId[],
+  field: "actions" | "queries",
+): Partial<Record<ProviderId, string[]>> {
   const requires = widget.requires === undefined ? {} : record(widget.requires, "widget.requires");
-  if (requires.actions === undefined) return {};
-  if (Array.isArray(requires.actions)) {
-    fail('widget.requires.actions is keyed by provider: { "<provider id>": ["<action>"] }');
+  if (requires[field] === undefined) return {};
+  if (Array.isArray(requires[field])) {
+    fail(`widget.requires.${field} is keyed by provider: { "<provider id>": ["<name>"] }`);
   }
-  const actions: ProviderActions = {};
-  for (const [pid, names] of Object.entries(record(requires.actions, "widget.requires.actions"))) {
+  const named: Partial<Record<ProviderId, string[]>> = {};
+  for (const [pid, names] of Object.entries(record(requires[field], `widget.requires.${field}`))) {
     if (!providers.includes(pid)) {
-      fail(`widget.requires.actions names ${pid}, which is not in requires.providers`);
+      fail(`widget.requires.${field} names ${pid}, which is not in requires.providers`);
     }
-    actions[pid] = strings(names);
+    named[pid] = strings(names);
   }
-  return actions;
+  return named;
 }
 
 /**
@@ -164,7 +182,7 @@ export function widgetPackageManifest(raw: unknown, approved: ApprovedGrant): Ex
    * asked for was an answer to a different question, so it is refused rather
    * than quietly narrowed.
    */
-  const asked = declaredActions(widget, declared);
+  const asked = declaredNames(widget, declared, "actions");
   const actions: ProviderActions = {};
   for (const [pid, names] of Object.entries(approved.actions)) {
     if (!names?.length) continue;

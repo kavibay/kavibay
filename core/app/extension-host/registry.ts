@@ -275,7 +275,8 @@ export class ExtensionRegistry {
   }
 
   /**
-   * `requires.actions`, checked against the list beside it and the provider.
+   * `requires.actions` and `requires.queries`, checked against the list beside
+   * them and the provider.
    *
    * A key outside `providers` is a write permission on an account the code never
    * asked to read — FINDINGS §25's grant without a subject, one field over. An
@@ -284,16 +285,18 @@ export class ExtensionRegistry {
    */
   private declaredActionProblems(who: string, requires: ProviderRequirements | undefined): string[] {
     const out: string[] = [];
-    for (const [pid, names] of Object.entries(requires?.actions ?? {})) {
-      if (!requires?.providers.includes(pid)) {
-        out.push(`${who}: requires.actions names ${pid}, which is not in requires.providers`);
-        continue;
-      }
-      const def = this.providers.get(pid)?.def;
-      // An unknown provider is already reported by the caller's loop.
-      if (!def) continue;
-      for (const name of names ?? []) {
-        if (!def.actions[name]) out.push(`${who}: unknown action ${pid}.${name}`);
+    for (const field of ["actions", "queries"] as const) {
+      for (const [pid, names] of Object.entries(requires?.[field] ?? {})) {
+        if (!requires?.providers.includes(pid)) {
+          out.push(`${who}: requires.${field} names ${pid}, which is not in requires.providers`);
+          continue;
+        }
+        const def = this.providers.get(pid)?.def;
+        // An unknown provider is already reported by the caller's loop.
+        if (!def) continue;
+        for (const name of names ?? []) {
+          if (!def[field][name]) out.push(`${who}: unknown ${field === "actions" ? "action" : "query"} ${pid}.${name}`);
+        }
       }
     }
     return out;
