@@ -308,13 +308,12 @@ The rules for your reply:
   widget.
 - **No provider of your own, no commands, no palette actions.** Provider
   actions listed for this account may be called with
-  `ctx.providers[id].action` — **declare every one you call in
-  `requires.actions`, keyed by provider**. The person decides separately
-  whether you may change things, and the host refuses an action you did not
-  declare.
-- **Name every query you read in `requires.queries`, keyed by provider.** It is
-  what the person is shown when they approve the widget, so list each one you
-  call with `query` or `subscribe`, and nothing you do not.
+  `ctx.providers[id].action` — **declare every one you call in its provider
+  entry's `actions`**. The person decides separately whether you may change
+  things, and the host refuses an action you did not declare.
+- **Write each provider as an entry: `{{ "id", "queries", "actions" }}`.** List
+  every query you call with `query` or `subscribe` in `queries`, and nothing
+  you do not: it is what the person is shown when they approve the widget.
 - **Never draw a spinner, an error, a retry or a connect screen.** The host
   draws all of those around your widget. Yours would be the second one.
 
@@ -358,8 +357,13 @@ mod tests {
         let prompt = contract_system_prompt(&["kavibay.tado/tado".to_string()]);
 
         assert!(
-            prompt.contains(r#""requires": { "providers": ["#),
-            "the worked manifest must use the list spelling",
+            prompt.contains(r#""providers": [{ "id": "kavibay.tado/tado", "queries": ["#),
+            "the worked manifest must use the list of provider entries",
+        );
+        assert!(
+            !prompt.contains(r#""queries": { "kavibay."#)
+                && !prompt.contains(r#""actions": { "kavibay."#),
+            "and must not still show queries or actions as maps beside the list, which the loader refuses",
         );
         assert!(
             !prompt.contains(r#""requires": { "provider":"#),
@@ -420,11 +424,11 @@ mod tests {
              opens a URL instead of playing",
         );
         assert!(
-            prompt.contains("`requires.actions`, keyed by provider"),
+            prompt.contains("in its provider\n  entry's `actions`"),
             "and that each one is declared, or the host refuses the first button it draws",
         );
         assert!(
-            prompt.contains("`requires.queries`, keyed by provider"),
+            prompt.contains(r#"`{ "id", "queries", "actions" }`"#),
             "and that the queries it reads are named, since that list is what the person is shown",
         );
     }

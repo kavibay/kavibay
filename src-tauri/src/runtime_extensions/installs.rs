@@ -257,54 +257,71 @@ fn clamp_queries(granted: &[String], requested: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// The queries a contract package's manifest asks for, as it is on disk now.
+/// The contract package's manifest as it is on disk now, or `None` when there
+/// is no such package or it does not parse.
+fn contract_manifest(app: &AppHandle, ext_id: &str) -> Option<serde_json::Value> {
+    let root = super::package_root_for(app, ext_id)?;
+    let text = fs::read_to_string(root.join("manifest.json")).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// The entries of `widget.requires.providers`: each a bare provider id, or
+/// `{ "id", "queries", "actions" }`. An entry of neither shape is skipped, which
+/// fails closed: a provider this cannot read is one the grant cannot keep.
+fn provider_entries(raw: &serde_json::Value) -> Vec<&serde_json::Value> {
+    raw.pointer("/widget/requires/providers")
+        .and_then(|providers| providers.as_array())
+        .map(|providers| providers.iter().collect())
+        .unwrap_or_default()
+}
+
+fn entry_id(entry: &serde_json::Value) -> Option<String> {
+    entry
+        .as_str()
+        .or_else(|| entry.get("id")?.as_str())
+        .map(str::to_string)
+}
+
+/// The providers a manifest names, in either entry form.
+fn contract_providers_in(raw: &serde_json::Value) -> Vec<String> {
+    provider_entries(raw)
+        .into_iter()
+        .filter_map(entry_id)
+        .collect()
+}
+
+/// The actions a manifest declares, per provider, from the object entries.
+fn contract_actions_in(raw: &serde_json::Value) -> BTreeMap<String, Vec<String>> {
+    provider_entries(raw)
+        .into_iter()
+        .filter_map(|entry| {
+            let names: Vec<String> = entry
+                .get("actions")?
+                .as_array()?
+                .iter()
+                .filter_map(|name| name.as_str().map(str::to_string))
+                .collect();
+            if names.is_empty() {
+                return None;
+            }
+            Some((entry_id(entry)?, names))
+        })
+        .collect()
+}
+
+/// The providers a contract package's manifest asks for, as it is on disk now.
 ///
 /// `None` when there is no such package or it is not a contract one; the caller
 /// treats that as "asks for nothing", which fails closed.
 fn requested_contract_providers(app: &AppHandle, ext_id: &str) -> Option<Vec<String>> {
-    let root = super::package_root_for(app, ext_id)?;
-    let text = fs::read_to_string(root.join("manifest.json")).ok()?;
-    let raw: serde_json::Value = serde_json::from_str(&text).ok()?;
-    Some(
-        raw.get("widget")?
-            .get("requires")?
-            .get("providers")?
-            .as_array()?
-            .iter()
-            .filter_map(|value| value.as_str().map(str::to_string))
-            .collect(),
-    )
+    contract_manifest(app, ext_id).map(|raw| contract_providers_in(&raw))
 }
 
-/// `widget.requires.actions` as it is on disk: provider id to action names.
-///
-/// Empty when there is none or the package is not a contract one, which fails
-/// closed the same way `requested_contract_providers` does.
+/// The actions it declares, per provider. Empty when there is none, which
+/// fails closed the same way.
 fn requested_contract_actions(app: &AppHandle, ext_id: &str) -> BTreeMap<String, Vec<String>> {
-    let Some(root) = super::package_root_for(app, ext_id) else {
-        return BTreeMap::new();
-    };
-    let Ok(text) = fs::read_to_string(root.join("manifest.json")) else {
-        return BTreeMap::new();
-    };
-    let Ok(raw) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return BTreeMap::new();
-    };
-    raw.pointer("/widget/requires/actions")
-        .and_then(|actions| actions.as_object())
-        .map(|actions| {
-            actions
-                .iter()
-                .filter_map(|(provider, names)| {
-                    let names = names
-                        .as_array()?
-                        .iter()
-                        .filter_map(|name| name.as_str().map(str::to_string))
-                        .collect();
-                    Some((provider.clone(), names))
-                })
-                .collect()
-        })
+    contract_manifest(app, ext_id)
+        .map(|raw| contract_actions_in(&raw))
         .unwrap_or_default()
 }
 
@@ -869,6 +886,36 @@ mod tests {
             clamp_actions(&granted, &approved, &requested),
             actions(&[("kavibay.tado/tado", &["setTemperature"])]),
         );
+    }
+
+    /// Both entry forms name a provider, and only the object form carries
+    /// actions. Missing either would narrow a grant to nothing when it is
+    /// stored, and the widget would load with no access and no error.
+    #[test]
+    fn a_manifest_names_providers_and_actions_in_either_entry_form() {
+        let raw = serde_json::json!({
+            "widget": { "requires": { "providers": [
+                "kavibay.weather/weather",
+                { "id": "kavibay.spotify/spotify", "queries": ["nowPlaying"], "actions": ["play"] },
+                { "id": "kavibay.tado/tado", "actions": [] },
+                { "actions": ["orphan"] },
+                42
+            ] } }
+        });
+
+        assert_eq!(
+            contract_providers_in(&raw),
+            vec![
+                "kavibay.weather/weather",
+                "kavibay.spotify/spotify",
+                "kavibay.tado/tado"
+            ],
+        );
+        assert_eq!(
+            contract_actions_in(&raw),
+            actions(&[("kavibay.spotify/spotify", &["play"])]),
+        );
+        assert!(contract_providers_in(&serde_json::json!({ "widget": {} })).is_empty());
     }
 
     /// Records written before the field existed read as "no actions", and a

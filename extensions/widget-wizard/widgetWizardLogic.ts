@@ -31,7 +31,7 @@ export interface WizardProviderSchema {
     args?: Record<string, ArgSpec>;
     result?: ResultSchema;
   }>;
-  /** Writes. A widget calls one only after declaring it in `requires.actions`. */
+  /** Writes. A widget calls one only after declaring it in its provider entry's `actions`. */
   actions?: Array<{
     name: string;
     effect?: "write" | "destructive" | "sensitive";
@@ -175,23 +175,36 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-/** `widget.requires.actions` or `.queries` as the manifest states it. Anything malformed reads as none. */
+/**
+ * `widget.requires.providers` as the manifest states it: each entry a bare id,
+ * or `{ id, queries, actions }`. Read leniently, because this only decides what
+ * the Wizard shows; anything malformed reads as nothing, and the host's own
+ * reader is the one that refuses it.
+ */
+function requestedContractEntries(raw: unknown): { id: string; queries: string[]; actions: string[] }[] {
+  const value = asRecord(asRecord(asRecord(raw)?.widget)?.requires)?.providers;
+  if (!Array.isArray(value)) return [];
+  const strings = (list: unknown) =>
+    Array.isArray(list) ? list.filter((name): name is string => typeof name === "string") : [];
+  return value.flatMap((entry) => {
+    if (typeof entry === "string") return [{ id: entry, queries: [], actions: [] }];
+    const object = asRecord(entry);
+    return typeof object?.id === "string"
+      ? [{ id: object.id, queries: strings(object.queries), actions: strings(object.actions) }]
+      : [];
+  });
+}
+
 function requestedContractNames(raw: unknown, field: "actions" | "queries"): Record<string, string[]> {
-  const named = asRecord(asRecord(asRecord(asRecord(raw)?.widget)?.requires)?.[field]);
   return Object.fromEntries(
-    Object.entries(named ?? {}).map(([pid, names]) => [
-      pid,
-      Array.isArray(names) ? names.filter((name): name is string => typeof name === "string") : [],
-    ]),
+    requestedContractEntries(raw)
+      .filter((entry) => entry[field].length > 0)
+      .map((entry) => [entry.id, entry[field]]),
   );
 }
 
 function requestedContractProviders(raw: unknown): string[] {
-  const manifest = asRecord(raw);
-  const widget = asRecord(manifest?.widget);
-  const requires = asRecord(widget?.requires);
-  const value = requires?.providers;
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+  return requestedContractEntries(raw).map((entry) => entry.id);
 }
 
 /**
@@ -262,9 +275,9 @@ function readSummary(provider: WizardProviderSchema, declared: readonly string[]
 export interface ProviderUse {
   id: string;
   schema: WizardProviderSchema | null;
-  /** What `requires.actions` lists for this provider. */
+  /** What this provider's entry lists under `actions`. */
   declaredActions: string[];
-  /** What `requires.queries` lists for this provider. */
+  /** What this provider's entry lists under `queries`. */
   declaredQueries: string[];
 }
 

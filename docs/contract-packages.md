@@ -44,7 +44,9 @@ Nothing else. No build step, no bundler, no npm.
     "name": "tile",
     "displayName": "Room summary",
     "defaultSize": { "w": 2, "h": 2 },
-    "requires": { "providers": ["kavibay.tado/tado"] },
+    "requires": {
+      "providers": [{ "id": "kavibay.tado/tado", "queries": ["zones", "zoneStates"] }]
+    },
     "configuration": {
       "zone": {
         "type": "select", "label": "Room", "required": true,
@@ -57,12 +59,16 @@ Nothing else. No build step, no bundler, no npm.
 
 `requires.providers` is a **list**, even with one provider — there is no
 singular spelling, and `requires: { "provider": … }` is refused at load rather
-than ignored.
+than ignored. Each entry names one provider by `id`, the `queries` the widget
+reads from it and the `actions` it calls there; leave `actions` out when it
+changes nothing. A bare id string still loads, for packages written before
+entries had fields, but write the object.
 
-**There is no `permissions` field.** Naming an account in `requires.providers`
-is the whole request: the person is shown which accounts you want and ticks the
-ones they allow. You do not list queries, and you cannot be granted a subset of
-an account — either you may read it or you may not.
+**There is no `permissions` field.** Naming an account is the read request: the
+person is shown which accounts you want and ticks the ones they allow, and
+reading one lets the widget call any query it has. `queries` does not narrow
+that. It is what the person is shown, so it has to be true. `actions` is the one
+part that is a permission, and it is described below.
 
 ### More than one provider
 
@@ -72,7 +78,10 @@ outdoor temperature does not exist there, and Open-Meteo has it:
 
 ```json
 "requires": {
-  "providers": ["kavibay.tado/tado", "kavibay.weather/weather"]
+  "providers": [
+    { "id": "kavibay.tado/tado", "queries": ["zoneStates"] },
+    { "id": "kavibay.weather/weather", "queries": ["current"] }
+  ]
 }
 ```
 
@@ -103,20 +112,20 @@ around:
   prompt in front of your widget, and one the person does not have makes it look
   broken. Do not name an account you only might use.
 - **Name every query you read.** List each query the widget calls with
-  `query` or `subscribe` under `requires.queries`, keyed by provider. It is not
-  a permission (the account is), and nothing is refused for a missing name. It
-  is what the person is shown: the approval dialog describes exactly these
-  instead of everything the account offers, so a list that leaves one out tells
-  them less than the widget does.
+  `query` or `subscribe` in its provider's `queries`. It is not a permission
+  (the account is), and nothing is refused for a missing name. It is what the
+  person is shown: the approval dialog describes exactly these instead of
+  everything the account offers, so a list that leaves one out tells them less
+  than the widget does.
 - **Declare every action you call.** Approving an account lets the widget read
   from it; changing something there is a second question. List each provider
-  action the widget calls under `requires.actions`, keyed by provider:
+  action the widget calls in its provider's `actions`:
 
   ```json
   "requires": {
-    "providers": ["kavibay.spotify/spotify"],
-    "queries": { "kavibay.spotify/spotify": ["nowPlaying"] },
-    "actions": { "kavibay.spotify/spotify": ["play"] }
+    "providers": [
+      { "id": "kavibay.spotify/spotify", "queries": ["currentlyPlaying"], "actions": ["play"] }
+    ]
   }
   ```
 
@@ -449,8 +458,8 @@ error anywhere a user would look.
 - **A command** for the palette. That is code running in the host process.
 - **A palette action** on the widget (`widget.actions`). That is also code the
   host runs. Provider actions are the other thing: call them with
-  `ctx.providers[id].action(name, args)` after declaring them in
-  `requires.actions` — they are listed on the account above.
+  `ctx.providers[id].action(name, args)` after declaring them in the provider's
+  `actions` — they are listed on the account above.
 
 All three are refused by the registry rather than ignored, so a package that
 declares one does not load at all.
@@ -464,13 +473,13 @@ ctx.data.set(key, value)
 ctx.data.delete(key)
 
 ctx.providers[id].query(name, args)   // one read, cached by the host
-ctx.providers[id].action(name, args)  // write through the provider; declared in requires.actions
+ctx.providers[id].action(name, args)  // write through the provider; declared in its entry's actions
 ctx.providers[id].subscribe(name, args, (state) => {})
 ctx.providers[id].status()
 
 ctx.openExternal.open(url)       // open one provider url in the person's browser
 
-// `id` is the full provider id, exactly as written in requires.providers.
+// `id` is the full provider id, exactly as its entry in requires.providers names it.
 // There is no `ctx.provider`: a widget that grows a second provider would keep
 // working and start reading the wrong one.
 ```

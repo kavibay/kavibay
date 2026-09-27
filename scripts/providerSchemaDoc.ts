@@ -203,8 +203,22 @@ export function renderPromptBlock(schema: ProviderSchema): string {
     "",
     "A field marked `?` can be null: render a dash, never the word null.",
     "",
-    `Name this account in \`requires.providers\` as \`${schema.id}\`. Approving the account`,
-    "approves every query and action above — there is no per-query or per-action grant.",
+    `Name this account in \`requires.providers\` as an entry with id \`${schema.id}\`,`,
+    schema.actions.length > 0
+      ? "the queries the widget reads and, if it changes anything, the actions it calls:"
+      : "and the queries the widget reads:",
+    "",
+    "```json",
+    schema.actions.length > 0
+      ? `{ "id": "${schema.id}", "queries": ["${schema.queries[0]?.name ?? "…"}"], "actions": ["${schema.actions[0]!.name}"] }`
+      : `{ "id": "${schema.id}", "queries": ["${schema.queries[0]?.name ?? "…"}"] }`,
+    "```",
+    "",
+    "Approving the account lets the widget read every query above; `queries` is what",
+    "the person is shown, so list exactly the ones you call.",
+    ...(schema.actions.length > 0
+      ? ["The person approves the actions separately, and the host refuses one that is not listed."]
+      : []),
   );
   return lines.join("\n");
 }

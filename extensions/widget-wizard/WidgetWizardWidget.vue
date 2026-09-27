@@ -4508,8 +4508,8 @@ async function enablePackage(
                   {{ use.schema?.displayName ?? use.id }} has no query by this name.
                 </p>
                 <p v-else-if="!query.declared" class="wiz-ep-note">
-                  The code reads this, but <code>requires.queries</code> does not list it,
-                  so the approval dialog does not mention it.
+                  The code reads this, but its provider entry does not list it under
+                  <code>queries</code>, so the approval dialog does not mention it.
                 </p>
               </li>
             </ul>
@@ -4536,8 +4536,8 @@ async function enablePackage(
                 </span>
                 <p v-if="action.description" class="wiz-ep-desc">{{ action.description }}</p>
                 <p v-if="!action.declared" class="wiz-ep-note">
-                  The code calls this, but <code>requires.actions</code> does not list it,
-                  so Kavibay will refuse it.
+                  The code calls this, but its provider entry does not list it under
+                  <code>actions</code>, so Kavibay will refuse it.
                 </p>
               </li>
             </ul>

@@ -316,7 +316,7 @@ const install = (over: Record<string, unknown> = {}) => ({
 {
   const writes = {
     ...manifest,
-    widget: { ...manifest.widget, requires: { providers: [TADO], actions: { [TADO]: ["setTemperature"] } } },
+    widget: { ...manifest.widget, requires: { providers: [{ id: TADO, actions: ["setTemperature"] }] } },
   };
   const registry = boot();
   const loader = new WidgetPackageLoader(registry);

@@ -252,12 +252,14 @@ a package loads one or the other.
 |---|---|
 | name, version, display name, engine range | **every permission** |
 | default size, configuration schema | |
-| which providers it wants | which of those accounts it may read |
-| which actions it wants (`requires.actions`) | which of those accounts it may also change |
+| which providers it wants (each an entry in `requires.providers`) | which of those accounts it may read |
+| which queries it reads (the entry's `queries`) | nothing: it is shown, not granted |
+| which actions it wants (the entry's `actions`) | which of those accounts it may also change |
 
 **Writing is declared, reading is the account.** A widget, bundled or
-generated, may call a provider action only when it names it in
-`requires.actions`; `Host.action` refuses anything else with
+generated, may call a provider action only when its definition names it in
+`requires.actions` (a package writes it as `actions` on the provider's entry in
+`requires.providers`); `Host.action` refuses anything else with
 `permission-denied`, before it touches the connection. For a package the list
 that counts is the one in its grant: the dialog asks, per account, whether the
 widget may also make changes, and the definition's `requires.actions` is built
@@ -503,7 +505,7 @@ same wait presented as three surprises. A provider with
 **Grants are per provider, not per query.** `permissions` is gone (FINDINGS
 §27). `requires.providers` is the request, the approval dialog lists accounts,
 and the stored grant is a list of provider ids. **Changes are the one finer
-answer**: `requires.actions` asks, the dialog offers "may also make changes"
+answer**: the entry's `actions` asks, the dialog offers "may also make changes"
 once per account, and `ContractGrant.actions` stores what was ticked, clamped in
 `set_enabled` to the manifest on disk and to the approved providers. It is one
 answer per account rather than one per action, because "may change your
