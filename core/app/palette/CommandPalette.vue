@@ -29,12 +29,11 @@ import {
   buildAppRows,
   buildExtensionActionRows,
   buildFolderRows,
-  attachNotePreviews,
   buildOpenNewRows,
   buildTypeRows,
   buildOffDeskWidgetRows,
   buildWidgetOverviewRows,
-  buildWidgetRows,
+  buildInstanceSearchIndex,
   groupInstancesWithCreateRow,
   mergePaletteCatalog,
   filterPaletteRows,
@@ -639,7 +638,7 @@ function syncPreviewFromSelection() {
 /** Resolve persisted MRU entries into live palette rows (skip missing/disabled). */
 function resolveRecentRows(runs: RecentPaletteRun[]): PaletteRow[] {
   const instances = widgetInstances ?? [];
-  const typeRows = buildTypeRows(enabledExtensions.value, instances);
+  const typeRows = buildTypeRows(widgetCatalog.value, instances);
   const typeById = new Map(typeRows.map((row) => [row.typeId, row]));
   const cmdById = new Map(commands.map((c) => [c.id, c]));
   const apps = installedAppsIndex.value;
@@ -716,45 +715,16 @@ const openNewRows = computed(() => buildOpenNewRows(widgetCatalog.value));
 /**
  * Keep query-independent rows and body text warm. Extension hooks read reactive
  * state here, so edits still invalidate the index; typing only re-ranks it.
+ * Every instance is its own row; the create row rides underneath them.
  */
-const widgetSearchIndex = computed(() => {
-  const instances = widgetInstances ?? [];
-  const bodies = new Map<string, string>();
-  const titleFor = (instance: WidgetInstance) => {
-    const def = getExtension(instance.typeId);
-    return instance.title ?? def?.title ?? instance.typeId;
-  };
-  const searchTextFor = (instanceId: string) => bodies.get(instanceId) ?? "";
-  const typeKeywordsFor = (instance: WidgetInstance) => {
-    const def = getExtension(instance.typeId);
-    const keywords = [instance.typeId];
-    if (def?.title) keywords.push(def.title);
-    if (def?.keywords?.length) keywords.push(...def.keywords);
-    if (instance.title) keywords.push(instance.title);
-    const body = searchTextFor(instance.instanceId);
-    if (body) keywords.push(body);
-    return keywords;
-  };
-  // Skip unknown or disabled types.
-  const known = instances.filter(
-    (i) => Boolean(getExtension(i.typeId)) && isEnabled(i.typeId),
-  );
-  for (const instance of known) {
-    bodies.set(
-      instance.instanceId,
-      getExtension(instance.typeId)?.searchText?.(instance.instanceId) ?? "",
-    );
-  }
-  // Every instance is its own row; the create row rides underneath them.
-  const widgetRows = buildWidgetRows(
-    known,
-    titleFor,
-    typeKeywordsFor,
+const widgetSearchIndex = computed(() =>
+  buildInstanceSearchIndex(
+    widgetInstances ?? [],
+    widgetCatalog.value,
+    (instance) => getExtension(instance.typeId)?.searchText?.(instance.instanceId) ?? "",
     (id) => instanceDeskLabels?.(id) ?? "",
-    (instance) => getExtension(instance.typeId)?.actions?.[0],
-  );
-  return { rows: attachNotePreviews(widgetRows, searchTextFor), searchTextFor };
-});
+  ),
+);
 
 const resultState = computed(() => {
   // Inside a folder, that folder is the whole world — mixing apps and widgets
