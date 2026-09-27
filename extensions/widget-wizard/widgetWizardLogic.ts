@@ -1259,6 +1259,54 @@ export function mergeGeneratedFiles(
   return merged;
 }
 
+/** The format a manifest is written in, by the host's rule: a `widget` object. */
+function manifestFormat(files: GeneratedFile[]): WidgetFormat | null {
+  const manifest = files.find((file) => file.path === "manifest.json");
+  if (!manifest) return null;
+  try {
+    const widget = (JSON.parse(manifest.contents) as Record<string, unknown>).widget;
+    return widget !== null && typeof widget === "object" ? "contract-package" : "runtime-package";
+  } catch {
+    return null;
+  }
+}
+
+/** Read by both formats, so never left over from one of them. */
+const SHARED_FILES = new Set(["manifest.json", "api.json"]);
+
+/**
+ * The merged package without what only the other format reads.
+ *
+ * A file the answer does not mention is kept, which is right within a format
+ * and wrong across one. A water tracker moved to the contract format kept its
+ * `ui/` folder next to the new `index.html` and `widget.js`: never loaded,
+ * still in the Files tab, still offered to the model to edit. When the
+ * manifest changed format, files of the old package that the answer did not
+ * write go. A contract manifest also loses the `ui` block, which it ignores.
+ */
+export function withoutOtherFormat(
+  before: GeneratedFile[],
+  merged: GeneratedFile[],
+): GeneratedFile[] {
+  const from = manifestFormat(before);
+  const to = manifestFormat(merged);
+  const previous = new Map(before.map((file) => [file.path, file]));
+  const kept =
+    from === null || to === null || from === to
+      ? merged
+      : merged.filter(
+          (file) => SHARED_FILES.has(file.path) || previous.get(file.path) !== file,
+        );
+  if (to !== "contract-package") return kept;
+  return kept.map((file) => {
+    if (file.path !== "manifest.json") return file;
+    const parsed = JSON.parse(file.contents) as Record<string, unknown>;
+    if (!("ui" in parsed)) return file;
+    delete parsed.ui;
+    return { ...file, contents: `${JSON.stringify(parsed, null, 2)}\n` };
+  });
+}
+
 /**
  * What is wrong with an answer, if anything.
  *

@@ -78,6 +78,7 @@ import {
   formatTokens,
   freshInput,
   mergeGeneratedFiles,
+  withoutOtherFormat,
   readCost,
   readUsage,
   recordVersion,
@@ -2830,6 +2831,49 @@ assert(
     "a list of objects names the fields",
   );
   assertEq(describeResultShape({ type: "number", nullable: true }), "number or null", "a nullable value");
+}
+
+// --- a package that changed format ------------------------------------------
+// A water tracker moved to the contract format to read a provider. The answer
+// wrote index.html and widget.js and kept ui/, which nothing loaded any more.
+{
+  const runtime = [
+    file("manifest.json", '{"id":"water-tracker","ui":{"entry":"ui/index.html"}}'),
+    file("ui/index.html", "<script src=\"app.js\"></script>"),
+    file("ui/app.js", "kavibay.storage.get();"),
+    file("api.json", '{"endpoints":[]}'),
+  ];
+  const toContract = parseGeneratedFiles(
+    "```json path=manifest.json\n" +
+      '{\n  "name": "water-tracker",\n  "widget": { "name": "tile" },\n  "ui": { "defaultScale": 1 }\n}\n' +
+      "```\n```html path=index.html\n<div id=\"kavibay-widget\"></div>\n```\n" +
+      "```js path=widget.js\nexport default {};\n```",
+  );
+  const switched = withoutOtherFormat(runtime, mergeGeneratedFiles(runtime, toContract));
+  assertEq(
+    switched.map((f) => f.path).join(","),
+    "manifest.json,api.json,index.html,widget.js",
+    "the old format's files go; manifest and api.json are read by both",
+  );
+  assertEq(
+    switched[0].contents,
+    '{\n  "name": "water-tracker",\n  "widget": {\n    "name": "tile"\n  }\n}\n',
+    "the contract manifest loses the ui block nothing reads",
+  );
+
+  const partial = parseGeneratedFiles("```js path=ui/app.js\nkavibay.storage.set(1);\n```");
+  const sameFormat = withoutOtherFormat(runtime, mergeGeneratedFiles(runtime, partial));
+  assertEq(sameFormat.length, 4, "an answer inside one format keeps what it did not mention");
+
+  const back = parseGeneratedFiles(
+    '```json path=manifest.json\n{"id":"water-tracker","ui":{"entry":"ui/index.html"}}\n```\n' +
+      "```html path=ui/index.html\n<p></p>\n```",
+  );
+  assertEq(
+    withoutOtherFormat(switched, mergeGeneratedFiles(switched, back)).map((f) => f.path).join(","),
+    "manifest.json,api.json,ui/index.html",
+    "and back: the contract's index.html and widget.js go",
+  );
 }
 
 console.log("widgetWizardLogic.assert.ts: ok");

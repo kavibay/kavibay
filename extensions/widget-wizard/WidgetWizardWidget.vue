@@ -69,6 +69,7 @@ import {
   formatTokens,
   readUsage,
   mergeGeneratedFiles,
+  withoutOtherFormat,
   recordVersion,
   updateLiveVersion,
   endpointsToProbe,
@@ -2567,7 +2568,7 @@ async function runTurn(mine: number, id: string, repairsLeft: number): Promise<v
   // turn is asked for only what it changed, so `parsed.files` is usually a
   // fraction of the widget. A complete answer merges to itself, so nothing here
   // depends on which kind arrived.
-  const merged = mergeGeneratedFiles(before, parsed);
+  const merged = withoutOtherFormat(before, mergeGeneratedFiles(before, parsed));
   const problem = replyProblem(parsed, merged, id, format.value);
   /**
    * The id the model chose, on the turn where nothing was named yet.
