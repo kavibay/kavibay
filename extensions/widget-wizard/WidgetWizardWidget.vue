@@ -53,7 +53,7 @@ import {
   widgetFocusRequestMatches,
   type WidgetFocusRequestDetail,
 } from "@sdk/widgetFocusRequest";
-import { isHighlightable, tokenize, type CodeToken } from "./highlight";
+import { tokenize, type CodeToken } from "./highlight";
 import {
   REPAIR_BUDGET,
   NO_USAGE,
@@ -74,6 +74,7 @@ import {
   endpointsToProbe,
   fileKind,
   fileTreeRows,
+  highlightLanguage,
   type FileKind,
   sampleBody,
   faultProblem,
@@ -1294,11 +1295,10 @@ const draftEditorDirty = computed(() => {
  * "escape it correctly" is a thing to get wrong once. Vue writes text nodes,
  * which cannot be anything but text.
  */
-const codeTokens = computed<CodeToken[]>(() =>
-  isHighlightable(openFile.value)
-    ? tokenize(fileText.value)
-    : [{ kind: "plain", text: fileText.value }],
-);
+const codeTokens = computed<CodeToken[]>(() => {
+  const language = highlightLanguage(openFile.value);
+  return language ? tokenize(fileText.value, language) : [{ kind: "plain", text: fileText.value }];
+});
 
 /**
  * The endpoints of the package in hand, and one response per endpoint.
@@ -6711,6 +6711,16 @@ async function enablePackage(
 .tok-keyword,
 .tok-literal {
   color: #c8a2d8;
+}
+
+/* HTML tags and CSS selectors: what the structure is made of. */
+.tok-tag {
+  color: #e0917c;
+}
+
+/* An attribute name plays the part a key plays in JSON, so it looks like one. */
+.tok-attr {
+  color: #79b8d1;
 }
 
 .wiz-empty {

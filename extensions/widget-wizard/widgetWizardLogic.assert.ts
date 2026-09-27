@@ -12,6 +12,7 @@ import {
   buildProjectRows,
   fileKind,
   fileTreeRows,
+  highlightLanguage,
   conversationIsWorthKeeping,
   conversationLabel,
   declaredDisplayName,
@@ -2608,6 +2609,13 @@ assert(
     ["manifest.json", "ui/index.html", "widget.js", "ui/style.css", "icon.SVG", "README.md"].map(fileKind),
     ["json", "markup", "script", "style", "image", "text"],
     "a file's kind follows its extension, whatever its case",
+  );
+  assertEq(
+    ["manifest.json", "ui/index.html", "widget.js", "ui/style.css", "icon.svg", "README.md"].map(
+      highlightLanguage,
+    ),
+    ["script", "markup", "script", "style", "markup", null],
+    "json and scripts share a scanner, svg is markup, and text stays plain",
   );
 }
 
