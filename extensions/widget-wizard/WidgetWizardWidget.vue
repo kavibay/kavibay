@@ -26,8 +26,14 @@ import {
 } from "vue";
 import type { DraftChanged, DraftPresence, WizardCapability } from "@sdk/contract/sdk";
 import {
+  BracesIcon,
   BrainIcon,
   CodeXmlIcon,
+  FileCodeIcon,
+  FileIcon,
+  FolderIcon,
+  HashIcon,
+  ImageIcon,
   MessageSquareIcon,
   PanelLeftIcon,
   PlugIcon,
@@ -66,6 +72,9 @@ import {
   recordVersion,
   updateLiveVersion,
   endpointsToProbe,
+  fileKind,
+  fileTreeRows,
+  type FileKind,
   sampleBody,
   faultProblem,
   repairTurnFor,
@@ -1254,6 +1263,22 @@ const fileText = ref("");
 const fileList = computed(() =>
   [...(session.value.draftFiles ?? [])].sort((a, b) => a.path.localeCompare(b.path)),
 );
+
+const fileRows = computed(() => fileTreeRows(fileList.value.map((file) => file.path)));
+
+/** Each kind of file gets its icon and, through its class, its colour. */
+const FILE_ICONS: Record<FileKind, Component> = {
+  json: BracesIcon,
+  markup: CodeXmlIcon,
+  script: FileCodeIcon,
+  style: HashIcon,
+  image: ImageIcon,
+  text: FileIcon,
+};
+
+/** The open file's folders, for the path above the editor. */
+const openFileFolders = computed(() => openFile.value.split("/").slice(0, -1));
+const openFileName = computed(() => openFile.value.slice(openFile.value.lastIndexOf("/") + 1));
 
 /** A textarea can be dirty even when the in-memory file set is unchanged. */
 const draftEditorDirty = computed(() => {
@@ -4287,20 +4312,59 @@ async function enablePackage(
           </button>
         </div>
 
+        <!--
+          One panel, like an editor's: the tree on the left, the open file on
+          the right under its path. A path such as `ui/index.html` is shown as
+          the folder it is in, so the list reads as the package's layout rather
+          than as a column of strings to parse.
+        -->
         <div class="wiz-files">
-        <ul v-if="fileList.length" class="wiz-filelist">
-          <li v-for="file in fileList" :key="file.path">
-            <button
-              type="button"
-              class="wiz-filebtn"
-              :class="{ 'wiz-filebtn--on': file.path === openFile }"
-              @click="openFile = file.path"
-            >
-              {{ file.path }}
-            </button>
-          </li>
-        </ul>
+        <nav v-if="fileList.length" class="wiz-filetree" aria-label="Files">
+          <p class="wiz-filetree-heading">Files</p>
+          <ul class="wiz-filelist">
+            <li v-for="row in fileRows" :key="row.key">
+              <span
+                v-if="row.kind === 'folder'"
+                class="wiz-filerow wiz-filerow--folder"
+                :style="{ '--depth': row.depth }"
+              >
+                <FolderIcon :size="13" class="wiz-fileicon wiz-fileicon--folder" />
+                <span class="wiz-filename">{{ row.name }}</span>
+              </span>
+              <button
+                v-else
+                type="button"
+                class="wiz-filerow wiz-filebtn"
+                :class="{ 'wiz-filebtn--on': row.path === openFile }"
+                :style="{ '--depth': row.depth }"
+                :title="row.path"
+                @click="openFile = row.path"
+              >
+                <component
+                  :is="FILE_ICONS[fileKind(row.path)]"
+                  :size="13"
+                  class="wiz-fileicon"
+                  :class="`wiz-fileicon--${fileKind(row.path)}`"
+                />
+                <span class="wiz-filename">{{ row.name }}</span>
+              </button>
+            </li>
+          </ul>
+        </nav>
         <div class="wiz-fileedit">
+          <div v-if="fileList.length" class="wiz-filepath">
+            <component
+              :is="FILE_ICONS[fileKind(openFile)]"
+              :size="13"
+              class="wiz-fileicon"
+              :class="`wiz-fileicon--${fileKind(openFile)}`"
+            />
+            <template v-for="(folder, index) in openFileFolders" :key="index">
+              <span class="wiz-filepath-dir">{{ folder }}</span>
+              <span class="wiz-filepath-dir" aria-hidden="true">/</span>
+            </template>
+            <span class="wiz-filepath-name">{{ openFileName }}</span>
+          </div>
           <p v-if="editInvalidatesConsent" class="wiz-filenote">
             Editing this re-opens the endpoint review before the widget may use
             the network again.
@@ -6555,18 +6619,12 @@ async function enablePackage(
   user-select: text;
 }
 
+/* The panel around it draws the frame; the code is its body. */
 .wiz-code {
   position: relative;
   flex: 1;
   min-height: 0;
-  border-radius: 10px;
-  border: 1px solid rgba(var(--fg-rgb), 0.14);
-  background: rgba(var(--fg-rgb), 0.05);
   overflow: hidden;
-}
-
-.wiz-code:focus-within {
-  border-color: rgba(var(--fg-rgb), 0.28);
 }
 
 /*
@@ -6976,44 +7034,134 @@ button:disabled {
   display: flex;
   flex: 1;
   min-height: 0;
-  gap: 8px;
   /* Takes the height the transcript would have had, so switching tabs does not
      resize the column. */
   overflow: hidden;
+  border: 1px solid rgba(var(--fg-rgb), 0.12);
+  border-radius: 10px;
+  background: rgba(var(--fg-rgb), 0.035);
 }
 
-.wiz-filelist {
+.wiz-files:has(.wiz-code-edit:focus) {
+  border-color: rgba(var(--fg-rgb), 0.26);
+}
+
+.wiz-filetree {
+  display: flex;
   flex: 0 0 auto;
-  max-width: 40%;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  flex-direction: column;
+  width: clamp(120px, 32%, 190px);
+  padding: 8px 6px;
+  box-sizing: border-box;
+  border-right: 1px solid rgba(var(--fg-rgb), 0.08);
   overflow: auto;
 }
 
-.wiz-filebtn {
-  display: block;
+.wiz-filetree-heading {
+  margin: 0 0 4px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(var(--fg-rgb), 0.45);
+}
+
+.wiz-filelist {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Each level of folder indents by one icon plus its gap, so a file's icon sits
+   under its folder's name. */
+.wiz-filerow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
-  text-align: left;
-  padding: 3px 6px;
+  height: 24px;
+  padding: 0 6px 0 calc(6px + var(--depth, 0) * 19px);
+  box-sizing: border-box;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 11px;
-  opacity: 0.7;
-  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
   white-space: nowrap;
 }
 
-.wiz-filebtn:hover {
-  background: rgba(232, 232, 234, 0.08);
+.wiz-filerow--folder {
+  color: rgba(var(--fg-rgb), 0.55);
 }
 
-.wiz-filebtn--on {
-  background: rgba(232, 232, 234, 0.12);
-  opacity: 1;
+.wiz-filebtn {
+  color: rgba(var(--fg-rgb), 0.78);
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+
+.wiz-filebtn:hover {
+  background: var(--fill, rgba(var(--fg-rgb), 0.08));
+  color: rgba(var(--fg-rgb), 0.95);
+}
+
+.wiz-filebtn:focus-visible {
+  outline: 1px solid rgba(var(--fg-rgb), 0.45);
+  outline-offset: -1px;
+}
+
+.wiz-filebtn--on,
+.wiz-filebtn--on:hover {
+  background-color: var(--row-selected-bg, rgba(var(--fg-rgb), 0.1));
+  background-image: var(--row-selected-sheen, none);
+  box-shadow:
+    var(--row-selected-rim, inset 0 0 0 1px rgba(255, 255, 255, 0.05)),
+    var(--row-selected-shadow, 0 1px 3px rgba(0, 0, 0, 0.3));
+  color: rgba(var(--fg-rgb), 0.95);
+}
+
+.wiz-filename {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+  One colour per kind of file, mid-tone so it reads on the dark card and the
+  light one alike, and only on the icon: the names stay the text colour, so the
+  list is a column of names with a coloured mark rather than a rainbow.
+*/
+.wiz-fileicon {
+  flex: 0 0 auto;
+}
+
+.wiz-fileicon--json {
+  color: rgb(212, 158, 64);
+}
+
+.wiz-fileicon--markup {
+  color: rgb(224, 116, 84);
+}
+
+.wiz-fileicon--script {
+  color: rgb(198, 170, 48);
+}
+
+.wiz-fileicon--style {
+  color: rgb(86, 146, 226);
+}
+
+.wiz-fileicon--image {
+  color: rgb(164, 116, 214);
+}
+
+.wiz-fileicon--text,
+.wiz-fileicon--folder {
+  color: rgba(var(--fg-rgb), 0.55);
 }
 
 .wiz-fileedit {
@@ -7023,8 +7171,37 @@ button:disabled {
   flex-direction: column;
 }
 
+.wiz-filepath {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 12px;
+  border-bottom: 1px solid rgba(var(--fg-rgb), 0.08);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.wiz-filepath > .wiz-fileicon {
+  margin-right: 3px;
+}
+
+.wiz-filepath-dir {
+  color: rgba(var(--fg-rgb), 0.5);
+}
+
+.wiz-filepath-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
 .wiz-filenote {
-  margin: 0 0 4px;
+  margin: 0;
+  padding: 8px 12px 0;
   font-size: 11px;
   opacity: 0.7;
 }

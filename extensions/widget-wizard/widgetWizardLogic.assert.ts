@@ -10,6 +10,8 @@ import {
   base64FromDataUrl,
   consentPreviewFor,
   buildProjectRows,
+  fileKind,
+  fileTreeRows,
   conversationIsWorthKeeping,
   conversationLabel,
   declaredDisplayName,
@@ -2576,6 +2578,36 @@ assert(
   assert(
     wizardHasAnyKey([...catalog, model({ id: "an-3", configured: true })]),
     "one configured model is a key",
+  );
+}
+
+{
+  assertEq(
+    fileTreeRows(["manifest.json", "ui/index.html", "api.json", "ui/icons/sun.svg"]).map((row) => [
+      row.kind,
+      row.name,
+      row.depth,
+    ]),
+    [
+      ["folder", "ui", 0],
+      ["folder", "icons", 1],
+      ["file", "sun.svg", 2],
+      ["file", "index.html", 1],
+      ["file", "api.json", 0],
+      ["file", "manifest.json", 0],
+    ],
+    "folders come first at every level, and files sit under their folder",
+  );
+  assertEq(
+    fileTreeRows(["ui/index.html"])[1],
+    { kind: "file", key: "ui/index.html", name: "index.html", depth: 1, path: "ui/index.html" },
+    "a nested file shows its name and keeps its full path for opening",
+  );
+  assertEq(fileTreeRows([]), [], "no files, no rows");
+  assertEq(
+    ["manifest.json", "ui/index.html", "widget.js", "ui/style.css", "icon.SVG", "README.md"].map(fileKind),
+    ["json", "markup", "script", "style", "image", "text"],
+    "a file's kind follows its extension, whatever its case",
   );
 }
 

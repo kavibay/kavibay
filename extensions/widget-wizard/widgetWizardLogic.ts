@@ -3225,3 +3225,65 @@ export function splitProviderMentions(
   }
   return segments;
 }
+
+/** What a package file is, as far as the file list's icon is concerned. */
+export type FileKind = "json" | "markup" | "script" | "style" | "image" | "text";
+
+const FILE_KINDS: readonly (readonly [RegExp, FileKind])[] = [
+  [/\.json$/i, "json"],
+  [/\.html?$/i, "markup"],
+  [/\.[mc]?[jt]s$/i, "script"],
+  [/\.css$/i, "style"],
+  [/\.(svg|png|jpe?g|gif|webp|ico)$/i, "image"],
+];
+
+export function fileKind(path: string): FileKind {
+  return FILE_KINDS.find(([pattern]) => pattern.test(path))?.[1] ?? "text";
+}
+
+/** One line of the file list: a folder, or a file inside the folder above it. */
+export type FileTreeRow =
+  | { kind: "folder"; key: string; name: string; depth: number }
+  | { kind: "file"; key: string; name: string; depth: number; path: string };
+
+interface FileTreeDir {
+  dirs: Map<string, FileTreeDir>;
+  files: string[];
+}
+
+/**
+ * The package's files as a tree, folders before files at every level.
+ *
+ * Flat rows with a depth rather than nested nodes: the list draws one row per
+ * line and never folds, so nesting would only be something to walk back out of.
+ */
+export function fileTreeRows(paths: readonly string[]): FileTreeRow[] {
+  const root: FileTreeDir = { dirs: new Map(), files: [] };
+  for (const path of paths) {
+    let dir = root;
+    for (const part of path.split("/").slice(0, -1).filter(Boolean)) {
+      let next = dir.dirs.get(part);
+      if (!next) {
+        next = { dirs: new Map(), files: [] };
+        dir.dirs.set(part, next);
+      }
+      dir = next;
+    }
+    dir.files.push(path);
+  }
+
+  const rows: FileTreeRow[] = [];
+  const byName = (a: string, b: string) => a.localeCompare(b);
+  const walk = (dir: FileTreeDir, prefix: string, depth: number): void => {
+    for (const [name, child] of [...dir.dirs].sort(([a], [b]) => byName(a, b))) {
+      const key = `${prefix}${name}/`;
+      rows.push({ kind: "folder", key, name, depth });
+      walk(child, key, depth + 1);
+    }
+    for (const path of [...dir.files].sort(byName)) {
+      rows.push({ kind: "file", key: path, name: path.slice(path.lastIndexOf("/") + 1), depth, path });
+    }
+  };
+  walk(root, "", 0);
+  return rows;
+}

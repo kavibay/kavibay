@@ -316,6 +316,12 @@ columns. Reading a file and watching what it does are one activity, so the file
 view does not cover the widget — it replaces the transcript, which you are not
 reading at that moment anyway.
 
+Code shows the package the way an editor does: one panel with the file tree on
+the left and the open file on the right, under its path. Folders such as `ui/`
+are rows of their own with their files indented beneath, folders before files,
+and each file carries an icon coloured by its kind (JSON, HTML, script, CSS,
+image). The tree is built by `fileTreeRows` in `widgetWizardLogic.ts`.
+
 Code lists
 everything the package is made of — `manifest.json`, `index.html`, `widget.js`,
 `api.json` — and each one is editable. An edit is written to the draft when the
