@@ -250,7 +250,7 @@ export interface FocusTrackerCapability {
   deleteIgnoreRule(id: number): Promise<void>;
 }
 
-export type LlmChatRole = "system" | "user";
+export type LlmChatRole = "system" | "user" | "assistant";
 
 export interface LlmImage {
   mediaType: string;

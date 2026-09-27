@@ -49,6 +49,9 @@ assert(
   filterSettingsNav(SETTINGS_NAV_GROUPS, "zzz").length === 0,
   "a query nothing matches leaves an empty nav",
 );
+for (const query of ["duckduckgo", "google", "chatgpt", "ecosia", "brave", "bing", "logos", "order"]) {
+  assert(ids(filterSettingsNav(SETTINGS_NAV_GROUPS, query)) === "search", `${query} finds search preferences`);
+}
 assert(
   !matchesNavEntry({ id: "mcp", label: "MCP Server", keywords: ["port"] }, "x"),
   "a single stray letter is not a match",

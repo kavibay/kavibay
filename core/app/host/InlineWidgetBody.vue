@@ -50,6 +50,8 @@ const props = defineProps<{
    * provide tree, and a popover mounted in the header would inject nothing.
    */
   menuOpen?: boolean;
+  /** Shortcut previews keep focus on the icon until Enter moves into the widget. */
+  autoFocus?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -147,6 +149,18 @@ function focusRuntimeFrame() {
 
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
+function focusEntry(fallbackToBody = true) {
+  if (retryTimer !== undefined) clearTimeout(retryTimer);
+  if (isRuntime.value && !isContractPackage.value) {
+    focusRuntimeFrame();
+    return;
+  }
+  if (fallbackToBody) rootEl.value?.focus();
+  requestEntryFocus();
+  retryTimer = setTimeout(requestEntryFocus, 60);
+}
+defineExpose({ focusEntry });
+
 onMounted(() => {
   void nextTick().then(() => {
     if (rootEl.value) {
@@ -156,14 +170,9 @@ onMounted(() => {
         (scale) => emit("update:contentScale", scale),
       );
     }
-    if (isRuntime.value) {
-      focusRuntimeFrame();
-      return;
-    }
-    requestEntryFocus();
     // A widget without an entry point ignores this and focus stays in the
     // search field, which is the right place to keep typing from.
-    retryTimer = setTimeout(requestEntryFocus, 60);
+    if (props.autoFocus !== false) focusEntry(false);
   });
 });
 
@@ -179,7 +188,7 @@ onBeforeUnmount(() => {
        popover would only mean "no further scaling", so a zoomed-in widget used
        to render its menu at the same multiple. Cards solve it the same way, by
        keeping title and chrome outside `.widget-card-body`. -->
-  <div ref="rootEl" class="inline-widget-shell">
+  <div ref="rootEl" class="inline-widget-shell" tabindex="-1">
     <div
       class="inline-widget-body"
       :class="{
