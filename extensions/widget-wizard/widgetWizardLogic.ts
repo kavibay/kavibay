@@ -243,6 +243,8 @@ export function buildWizardPermissionRequest(
 export interface ProviderUse {
   id: string;
   schema: WizardProviderSchema | null;
+  /** What `requires.actions` lists for this provider. */
+  declaredActions: string[];
 }
 
 /** The providers `manifest.json` asks for, matched against what the host offers. */
@@ -258,10 +260,76 @@ export function providersUsedBy(
   } catch {
     return [];
   }
+  const actions = requestedContractActions(parsed);
   return requestedContractProviders(parsed).map((id) => ({
     id,
     schema: providers.find((provider) => provider.id === id) ?? null,
+    declaredActions: actions[id] ?? [],
   }));
+}
+
+/** The provider queries and actions a package's code names, by name. */
+export interface ProviderCalls {
+  queries: string[];
+  actions: string[];
+}
+
+const PROVIDER_CALL = /\.(query|subscribe|action)\(\s*(["'`])([\w-]+)\2/g;
+const SCRIPT_FILE = /\.(m?js|html?)$/i;
+
+/**
+ * What the code calls, read off the source rather than off a run.
+ *
+ * A literal first argument is the only form counted: `ctx.providers[id]
+ * .query("forecast", …)` is, a name built at runtime is not. That is enough for
+ * what the API tab shows, which is transparency about a package somebody is
+ * about to approve — and a call it cannot see is simply not marked, never
+ * marked wrongly.
+ */
+export function providerCallsIn(files: readonly GeneratedFile[]): ProviderCalls {
+  const queries = new Set<string>();
+  const actions = new Set<string>();
+  for (const file of files) {
+    if (!SCRIPT_FILE.test(file.path)) continue;
+    for (const match of file.contents.matchAll(PROVIDER_CALL)) {
+      (match[1] === "action" ? actions : queries).add(match[3]!);
+    }
+  }
+  return { queries: [...queries].sort(), actions: [...actions].sort() };
+}
+
+/** One provider action as the API tab lists it. */
+export interface ActionUse {
+  name: string;
+  description?: string;
+  args?: Record<string, ArgSpec>;
+  declared: boolean;
+  called: boolean;
+}
+
+/**
+ * The actions worth showing for one provider: the declared ones, and any the
+ * code calls that the provider has. A called one that is not declared is the
+ * case to flag, because the host will refuse it the first time it runs.
+ */
+export function actionUses(use: ProviderUse, calls: ProviderCalls): ActionUse[] {
+  const known = use.schema?.actions ?? [];
+  const names = [
+    ...use.declaredActions,
+    ...calls.actions.filter(
+      (name) => !use.declaredActions.includes(name) && known.some((action) => action.name === name),
+    ),
+  ];
+  return names.map((name) => {
+    const action = known.find((entry) => entry.name === name);
+    return {
+      name,
+      ...(action?.description ? { description: action.description } : {}),
+      ...(action?.args ? { args: action.args } : {}),
+      declared: use.declaredActions.includes(name),
+      called: calls.actions.includes(name),
+    };
+  });
 }
 
 export type ProviderUseState = "missing" | "free" | "connected" | "disconnected";

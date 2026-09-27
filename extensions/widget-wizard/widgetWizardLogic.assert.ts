@@ -18,6 +18,8 @@ import {
   argSignature,
   describeResultShape,
   providersUsedBy,
+  providerCallsIn,
+  actionUses,
   providerUseState,
   conversationIsWorthKeeping,
   conversationLabel,
@@ -1286,6 +1288,52 @@ assert(
   const carried = buildWizardPermissionRequest(manifest, [spotify], both);
   assertEq(carried.choices[0]?.actions?.granted, true, "an approved change comes back ticked");
   assertEq(wizardAskedNothingNew(carried, both), true, "and asks nothing new");
+}
+
+{
+  const files = [
+    {
+      path: "widget.js",
+      contents: [
+        'const el = document.querySelector("div");',
+        'const now = await ctx.providers[W].query("current", { location });',
+        "ctx.providers[W].subscribe('forecast', {}, render);",
+        "button.onclick = () => ctx.providers[S].action(`play`, { id });",
+        "const dynamic = ctx.providers[W].query(name, {});",
+      ].join("\n"),
+    },
+    { path: "ui/index.html", contents: '<script>ctx.providers[S].action("pause", {})</script>' },
+    { path: "notes.md", contents: 'ctx.providers[S].action("skip", {})' },
+  ];
+  assertEq(
+    providerCallsIn(files),
+    { queries: ["current", "forecast"], actions: ["pause", "play"] },
+    "literal names in scripts and inline html count; querySelector, runtime names and prose do not",
+  );
+
+  const spotify = {
+    id: "kavibay.spotify/spotify",
+    displayName: "Spotify",
+    requiresCredential: true,
+    queries: [],
+    actions: [
+      { name: "play", description: "Start playing a playlist" },
+      { name: "pause" },
+      { name: "next" },
+    ],
+  };
+  assertEq(
+    actionUses(
+      { id: spotify.id, schema: spotify, declaredActions: ["play", "next"] },
+      { queries: [], actions: ["play", "pause", "rewind"] },
+    ).map((use) => [use.name, use.declared, use.called]),
+    [
+      ["play", true, true],
+      ["next", true, false],
+      ["pause", false, true],
+    ],
+    "declared ones first, then a called one the provider has but the manifest does not declare",
+  );
 }
 
 assertEq(describeDraftAuthor("mcp"), "an MCP client", "the other client is named");

@@ -76,7 +76,9 @@ import {
   fileTreeRows,
   highlightLanguage,
   argSignature,
+  actionUses,
   describeResultShape,
+  providerCallsIn,
   providersUsedBy,
   providerUseState,
   type FileKind,
@@ -1333,6 +1335,9 @@ const usedProviders = computed(() =>
     state: providerUseState(use, providerConnected.value.get(use.id) === true),
   })),
 );
+
+/** What the package's code calls, so the tab can say which of the catalog it uses. */
+const providerCalls = computed(() => providerCallsIn(session.value.draftFiles ?? []));
 
 const PROVIDER_STATE_LABEL: Record<ProviderUseState, string> = {
   missing: "Not available",
@@ -4454,22 +4459,60 @@ async function enablePackage(
             </span>
           </div>
           <p v-if="use.schema" class="wiz-ep-desc">
-            Kavibay makes the requests; the widget asks for these queries by name. The
-            calls the preview made are listed under Debug.
+            Kavibay makes the requests; the widget asks for them by name. Marked is
+            what this widget's code calls. The calls the preview made are under Debug.
           </p>
           <p v-else class="wiz-ep-note">
             This Kavibay has no provider <code>{{ use.id }}</code>, so the widget cannot
             get its data. Check the id in <code>manifest.json</code>.
           </p>
-          <ul v-if="use.schema?.queries.length" class="wiz-provider-queries">
-            <li v-for="query in use.schema.queries" :key="query.name">
-              <code class="wiz-provider-call">{{ query.name }}({{ argSignature(query.args) }})</code>
-              <code v-if="query.result" class="wiz-provider-result">
-                → {{ describeResultShape(query.result) }}
-              </code>
-              <p v-if="query.description" class="wiz-ep-desc">{{ query.description }}</p>
-            </li>
-          </ul>
+          <template v-if="use.schema?.queries.length">
+            <p class="wiz-provider-sub">Reads</p>
+            <ul class="wiz-provider-queries">
+              <li
+                v-for="query in use.schema.queries"
+                :key="query.name"
+                :class="{ 'wiz-provider-unused': !providerCalls.queries.includes(query.name) }"
+              >
+                <code class="wiz-provider-call">{{ query.name }}({{ argSignature(query.args) }})</code>
+                <code v-if="query.result" class="wiz-provider-result">
+                  → {{ describeResultShape(query.result) }}
+                </code>
+                <span v-if="providerCalls.queries.includes(query.name)" class="wiz-provider-badge">
+                  Used
+                </span>
+                <p v-if="query.description" class="wiz-ep-desc">{{ query.description }}</p>
+              </li>
+            </ul>
+          </template>
+          <!--
+            Changes are the part the person approves separately, so they are
+            listed by what the manifest declares, not by what the provider
+            offers. A call the code makes without declaring it is the one to
+            flag: the host refuses it the first time the button is pressed.
+          -->
+          <template v-if="actionUses(use, providerCalls).length">
+            <p class="wiz-provider-sub">Changes</p>
+            <ul class="wiz-provider-queries">
+              <li v-for="action in actionUses(use, providerCalls)" :key="action.name">
+                <code class="wiz-provider-call">{{ action.name }}({{ argSignature(action.args) }})</code>
+                <span
+                  class="wiz-provider-badge"
+                  :class="{
+                    'wiz-provider-badge--warn': !action.declared,
+                    'wiz-provider-badge--quiet': action.declared && !action.called,
+                  }"
+                >
+                  {{ action.declared ? (action.called ? "Declared" : "Declared, not called") : "Not declared" }}
+                </span>
+                <p v-if="action.description" class="wiz-ep-desc">{{ action.description }}</p>
+                <p v-if="!action.declared" class="wiz-ep-note">
+                  The code calls this, but <code>requires.actions</code> does not list it,
+                  so Kavibay will refuse it.
+                </p>
+              </li>
+            </ul>
+          </template>
           <div v-if="use.state === 'disconnected'" class="wiz-ep-actions">
             <button type="button" @click="wizard.openSettings('credentials', use.schema?.credentialType)">
               Connect account
@@ -6662,6 +6705,40 @@ async function enablePackage(
 .wiz-provider-call {
   font-size: 11px;
   font-weight: 600;
+}
+
+.wiz-provider-sub {
+  margin: 4px 0 -2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(var(--fg-rgb), 0.45);
+}
+
+/* Offered by the provider, not called by this widget: there, but quiet. */
+.wiz-provider-unused {
+  opacity: 0.5;
+}
+
+.wiz-provider-badge {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(90, 205, 130, 0.14);
+  color: rgb(90, 190, 125);
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.wiz-provider-badge--quiet {
+  background: rgba(var(--fg-rgb), 0.08);
+  color: rgba(var(--fg-rgb), 0.6);
+}
+
+.wiz-provider-badge--warn {
+  background: rgba(218, 164, 89, 0.16);
+  color: rgb(205, 150, 70);
 }
 
 .wiz-provider-result {
