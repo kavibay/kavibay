@@ -78,6 +78,7 @@ import {
   formatTokens,
   freshInput,
   mergeGeneratedFiles,
+  appendNote,
   withoutOtherFormat,
   readCost,
   readUsage,
@@ -109,6 +110,7 @@ import {
   wizardPlatforms,
   wizardHasAnyKey,
 } from "./widgetWizardLogic";
+import type { WizardBubble } from "./widgetWizardLogic";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -2874,6 +2876,29 @@ assert(
     "manifest.json,api.json,ui/index.html",
     "and back: the contract's index.html and widget.js go",
   );
+}
+
+// --- status notes do not pile up --------------------------------------------
+// Opening a project three times in a row wrote three "Continuing your unsaved
+// changes" notes, one under the other, with nothing said in between.
+{
+  const bubbles: WizardBubble[] = [{ role: "user", text: "erstelle einen tracker" }];
+  appendNote(bubbles, { role: "system", text: 'Editing "w".', opened: true, version: "1" });
+  appendNote(bubbles, { role: "system", text: 'Continuing your unsaved changes to "w".', opened: true, version: "2" });
+  assertEq(bubbles.length, 2, "a second opening replaces the first");
+  assertEq(bubbles[1].version, "2", "and points at what is open now");
+
+  appendNote(bubbles, { role: "system", text: "Stopped." });
+  appendNote(bubbles, { role: "system", text: "Stopped." });
+  assertEq(bubbles.length, 3, "the same note twice in a row is written once");
+
+  appendNote(bubbles, { role: "system", text: 'Editing "w".', opened: true });
+  assertEq(bubbles.length, 4, "an opening after something else happened is its own note");
+
+  bubbles.push({ role: "user", text: "mach es blau" });
+  appendNote(bubbles, { role: "system", text: 'Saved "w".', tone: "success", run: { id: "w" } });
+  appendNote(bubbles, { role: "system", text: 'Saved "w".', tone: "success", run: { id: "w" } });
+  assertEq(bubbles.length, 7, "a note with a button is never merged away");
 }
 
 console.log("widgetWizardLogic.assert.ts: ok");

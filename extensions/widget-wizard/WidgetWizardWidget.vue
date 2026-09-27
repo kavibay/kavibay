@@ -145,6 +145,7 @@ import {
   type ConversationHeader,
   conversationLabel,
   isPlainNote,
+  appendNote,
   conversationTitle,
   buildProjectRows,
   describeDraftAuthor,
@@ -2159,7 +2160,7 @@ async function discardDraftById(id: string): Promise<void> {
 }
 
 function note(text: string, tone?: "success") {
-  session.value.bubbles.push({ role: "system", text, ...(tone ? { tone } : {}) });
+  appendNote(session.value.bubbles, { role: "system", text, ...(tone ? { tone } : {}) });
   scrollDown();
 }
 
@@ -3211,6 +3212,13 @@ function runFromBubble(bubble: WizardBubble) {
   void save(session.value);
 }
 
+/** Only the newest save offers "Add to desk"; older ones are history. */
+const latestRunIndex = computed(() => {
+  const bubbles = session.value.bubbles;
+  for (let at = bubbles.length - 1; at >= 0; at -= 1) if (bubbles[at]!.run) return at;
+  return -1;
+});
+
 /** Abandon the reply in flight. */
 function stop() {
   if (!busy.value) return;
@@ -3445,8 +3453,9 @@ async function openWidget(id: string, conversationId: string | null = null) {
       opened.existing && author !== "wizard" ? author : null,
       opened.existing && author !== "wizard" ? clientName : null,
     );
-    session.value.bubbles.push({
+    appendNote(session.value.bubbles, {
       role: "system",
+      opened: true,
       text: describeDraftOpen(id, opened.existing, author),
       author: opened.existing && author !== "wizard" ? author : null,
       clientName: opened.existing && author !== "wizard" ? clientName : null,
@@ -4803,7 +4812,7 @@ async function enablePackage(
             side of it — the caption arriving after the thing it captions, at
             the end of a line the eye reads left to right.
           -->
-          <div v-if="bubble.run" class="wiz-run-actions">
+          <div v-if="bubble.run && index === latestRunIndex" class="wiz-run-actions">
             <button
               type="button"
               class="wiz-consent-btn"
@@ -6211,8 +6220,21 @@ async function enablePackage(
   color: rgba(155, 210, 180, 0.9);
 }
 
-/* A note's checkpoint sits under the box, centred on it, and on the page. */
+/*
+  A note's checkpoint appears under the box, in the gap to the next turn,
+  instead of reserving a line of its own: a column of notes with an empty line
+  under each read as scattered.
+*/
+.wiz-turn.note {
+  position: relative;
+}
+
 .wiz-turn.note .wiz-meta {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 0;
   display: flex;
   justify-content: center;
 }
