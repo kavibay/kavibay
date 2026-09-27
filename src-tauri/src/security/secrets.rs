@@ -25,13 +25,39 @@ pub fn protect_secret(plaintext: &str) -> Result<String, String> {
     Ok(B64.encode(protected))
 }
 
+/// Why a protected value did not open.
+#[derive(Debug)]
+pub enum UnprotectError {
+    /// The OS did not hand out this user's key, as after a denied Keychain
+    /// prompt. The value may be fine, and a later attempt can open it.
+    KeyUnavailable(String),
+    /// The value does not open with this user's key: another user or machine,
+    /// or damage.
+    Unreadable(String),
+}
+
+impl From<UnprotectError> for String {
+    fn from(error: UnprotectError) -> Self {
+        match error {
+            UnprotectError::KeyUnavailable(message) | UnprotectError::Unreadable(message) => {
+                message
+            }
+        }
+    }
+}
+
 /// Decrypts a value previously produced by [`protect_secret`].
-pub fn unprotect_secret(encoded: &str) -> Result<String, String> {
-    let protected = B64
-        .decode(encoded.trim())
-        .map_err(|error| format!("corrupt protected secret: {error}"))?;
-    let bytes = unprotect_bytes(&protected)?;
-    String::from_utf8(bytes).map_err(|error| format!("protected secret is not UTF-8: {error}"))
+pub fn unprotect_secret(encoded: &str) -> Result<String, UnprotectError> {
+    let protected = B64.decode(encoded.trim()).map_err(|error| {
+        UnprotectError::Unreadable(format!("corrupt protected secret: {error}"))
+    })?;
+    // With the key in hand, a failure below can only be the value's own.
+    #[cfg(target_os = "macos")]
+    master_key().map_err(UnprotectError::KeyUnavailable)?;
+    let bytes = unprotect_bytes(&protected).map_err(UnprotectError::Unreadable)?;
+    String::from_utf8(bytes).map_err(|error| {
+        UnprotectError::Unreadable(format!("protected secret is not UTF-8: {error}"))
+    })
 }
 
 #[cfg(windows)]

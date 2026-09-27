@@ -115,8 +115,10 @@ Credentials and `web-storage.json` are encrypted with a key kept in your login
 keychain as "Kavibay Safe Storage". A debug build is ad-hoc signed, so every
 rebuild has a new signature the keychain has not seen, and macOS asks once per
 build whether `kavibay` may use that item. Allow it; *Always Allow* covers only
-that one build. Deny it and that session runs without the key: credentials
-cannot be read and `web-storage.json` is written unencrypted until the next start.
+that one build. Deny it and that session runs without the key. Settings →
+Credentials shows the refusal, and **Try again** asks once more. Widget content
+is saved unencrypted to `web-storage.pending.json` next to the untouched
+`web-storage.json`, and the first start or save with the key folds it back in.
 
 One decision is already baked in: the transparent window needs Apple's private
 APIs, which **rules out App Store distribution**.
