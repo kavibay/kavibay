@@ -3,6 +3,7 @@ import { ref, type Ref } from "vue";
 export type SettingsSectionId =
   | "appearance"
   | "behavior"
+  | "search"
   | "files"
   | "extensions"
   | "ai"

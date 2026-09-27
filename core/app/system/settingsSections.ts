@@ -22,7 +22,7 @@
 /**
  * localStorage key → top-level section name in `settings.json`.
  *
- * Deliberately a literal map rather than imports of the four owning modules:
+ * Deliberately a literal map rather than imports of the owning modules:
  * this runs in the pre-hydration path, and importing settings modules there is
  * exactly the boot-order trap `main.ts` warns about. `settingsSections.assert.ts`
  * checks these strings against the real constants, so drift fails CI instead of
@@ -37,6 +37,8 @@ export const SETTINGS_SECTIONS: Readonly<Record<string, string>> = {
   "kavibay:developer-v1": "developer",
   "kavibay:extensions-v1": "extensions",
   "kavibay:palette-folders-v1": "folders",
+  "kavibay:palette-search-v1": "search",
+  "kavibay:palette-widgets-v1": "searchWidgets",
 };
 
 /** Membership test without touching prototype keys (`toString`, `__proto__`). */

@@ -17,6 +17,16 @@ import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { commands } from "./commands";
 import KbdHint from "./KbdHint.vue";
+import PaletteSearchActions from "./PaletteSearchActions.vue";
+import PaletteWidgetShortcuts from "./PaletteWidgetShortcuts.vue";
+import PaletteAnswerPanel from "./PaletteAnswerPanel.vue";
+import { usePaletteAnswer } from "./usePaletteAnswer";
+import { getQuickActionModelDefinition } from "../settings/ai/aiApi";
+import { useSearchPrefs } from "../settings/useSearchPrefs";
+import { usePaletteWidgetPrefs } from "../settings/usePaletteWidgetPrefs";
+import { buildWebSearchUrl, type SearchActionId, type WebSearchActionId } from "./searchActions";
+import { connectionEpoch, HOST_OWNER } from "../settings/credentials/connections";
+import { tauriWidgetCapabilityTransport } from "../extension-host/tauriWidgetCapabilityTransport";
 import {
   alignArgValues,
   nextParamIndex,
@@ -29,12 +39,11 @@ import {
   buildAppRows,
   buildExtensionActionRows,
   buildFolderRows,
-  attachNotePreviews,
   buildOpenNewRows,
   buildTypeRows,
   buildOffDeskWidgetRows,
   buildWidgetOverviewRows,
-  buildWidgetRows,
+  buildInstanceSearchIndex,
   groupInstancesWithCreateRow,
   mergePaletteCatalog,
   filterPaletteRows,
@@ -124,6 +133,7 @@ import {
   inlineScratchInstanceId,
   isInlineScratchInstanceId,
   resolveInlineWidgetTarget,
+  type InlineWidgetTarget,
 } from "./inlineWidgetTarget";
 import {
   loadInlineZoom,
@@ -151,6 +161,7 @@ import type {
   ExtensionInstanceAction,
 } from "@sdk/types";
 import { scheduleRegionSync, setClickThroughPaused } from "../system/clickThrough";
+import { isCardHeaderHit, useCardChromePosition } from "../host/useCardChromePosition";
 import { evaluate, formatResult } from "../../../extensions/calculator/widgets/calculator";
 import { useAppearance } from "../settings/useAppearance";
 import { useExtensionsPrefs } from "../settings/useExtensionsPrefs";
@@ -306,6 +317,63 @@ function hidePaletteFromChrome() {
 const query = ref("");
 const selectedIndex = ref(0);
 const inputEl = ref<HTMLInputElement | null>(null);
+const searchActionsEl = ref<InstanceType<typeof PaletteSearchActions> | null>(null);
+const widgetShortcutsEl = ref<InstanceType<typeof PaletteWidgetShortcuts> | null>(null);
+const inlineWidgetBodyEl = ref<InstanceType<typeof InlineWidgetBody> | null>(null);
+const answerPanelEl = ref<InstanceType<typeof PaletteAnswerPanel> | null>(null);
+const searchActionError = ref<string | null>(null);
+const { enabledActions: enabledSearchActions } = useSearchPrefs();
+const { selectedIds: widgetShortcutIds } = usePaletteWidgetPrefs();
+const widgetShortcuts = computed(() => widgetShortcutIds.value.flatMap((id) => {
+  const widget = widgetCatalog.value.find((entry) => entry.id === id);
+  return widget ? [widget] : [];
+}));
+const paletteAi = usePaletteAnswer({
+  loadModel: getQuickActionModelDefinition,
+  stream: (request, onEvent) =>
+    tauriWidgetCapabilityTransport.llmStream("palette-search", request, onEvent, HOST_OWNER),
+  cancel: (requestId) => tauriWidgetCapabilityTransport.llmCancel(requestId),
+});
+const { model: searchAiModel, answer: aiAnswer, messages: aiMessages, busy: aiBusy } = paletteAi;
+
+/** Model discovery reads configuration only; it never sends the search text. */
+function refreshSearchAiModel() {
+  void paletteAi.refreshModel().catch(() => {});
+}
+watch(connectionEpoch, refreshSearchAiModel);
+
+function closeAiAnswer() {
+  paletteAi.reset();
+  focusSearchInput();
+}
+
+function askSearchAi() {
+  if (!showSearchActions.value) return;
+  searchActionError.value = null;
+  void paletteAi.ask(query.value);
+  void nextTick(() => answerPanelEl.value?.focusComposer());
+}
+
+function runSearchAction(id: SearchActionId) {
+  if (!enabledSearchActions.value.includes(id)) return;
+  if (id === "ai") askSearchAi();
+  else void searchWeb(id);
+}
+
+/** The OS opens the query in the user's default browser, just like the g prefix. */
+async function searchWeb(id: WebSearchActionId) {
+  if (!showSearchActions.value) return;
+  paletteAi.reset();
+  searchActionError.value = null;
+  try {
+    await invoke("launch_path", { path: buildWebSearchUrl(id, query.value) });
+    afterPaletteAction();
+    dismissAfterAction();
+  } catch {
+    searchActionError.value = "Could not open the browser. Try again.";
+    focusSearchInput();
+  }
+}
 const listEl = ref<HTMLUListElement | null>(null);
 /** Custom overlay scrollbar (paints on top of rows; no layout gutter). */
 const listOverlay = reactive({
@@ -319,7 +387,8 @@ const paletteMenuOpen = ref(false);
 const paletteMenuAt = ref<{ x: number; y: number } | null>(null);
 const paletteMenuEl = ref<HTMLElement | null>(null);
 const paletteMenuTriggerEl = ref<HTMLElement | null>(null);
-const paletteHovered = ref(false);
+const paletteHeaderHovered = ref(false);
+const paletteChromeFocused = ref(false);
 const paletteRootEl = ref<HTMLElement | null>(null);
 
 /** Habitual palette launches (boost only after 2+ gap-debounced opens). */
@@ -340,6 +409,10 @@ const widgetsOpen = ref(false);
  * `syncPreviewFromSelection` reads it long before the rest of the machinery.
  */
 const inlineWidget = ref<{ instanceId: string; typeId: string } | null>(null);
+const inlineShortcutId = ref<string | null>(null);
+watch(inlineWidget, (target) => {
+  if (!target) inlineShortcutId.value = null;
+});
 
 /** Apps the user hid from search (still reachable via Show more). */
 const hiddenAppKeys = ref(loadHiddenApps());
@@ -414,7 +487,7 @@ const paletteListHeight = inject<Ref<number | undefined>>(
 );
 const shortcutHintTarget = inject(SHORTCUT_HINT_TARGET_KEY);
 const shortcutModifier = shortcutModifierLabel();
-const pinShortcutTip = `Pin\n${shortcutModifier}+S`;
+const pinShortcutTip = `Pin\n${shortcutModifier}+P`;
 const hidePaletteShortcutTip = `Hide\n${shortcutModifier}+W`;
 const shortcutHintVisible = computed(
   () => shortcutHintTarget?.value?.kind === "palette",
@@ -523,15 +596,28 @@ const {
 // modal closes so typing can continue without an extra click.
 watch(settingsOpen, async (isOpen, wasOpen) => {
   if (isOpen || !wasOpen) return;
+  refreshSearchAiModel();
   await nextTick();
   inputEl.value?.focus();
 });
 const { toggleColorMode } = useAppearance();
 
-/** Grip + pin inside the palette on hover or while Ctrl-hold hints are visible. */
+/** Search focus and hovering results do not reveal the card controls. */
+function onPalettePointerMove(event: PointerEvent) {
+  const rect = paletteRootEl.value?.getBoundingClientRect();
+  if (!rect) return;
+  paletteHeaderHovered.value = isCardHeaderHit(event.clientY, rect.top);
+}
+
+/** Match widgets: header hover, focus on a control, an open menu, or shortcut hints. */
 const paletteChromeVisible = computed(
-  () => paletteHovered.value || shortcutHintVisible.value,
+  () =>
+    paletteHeaderHovered.value ||
+    paletteChromeFocused.value ||
+    paletteMenuOpen.value ||
+    shortcutHintVisible.value,
 );
+const paletteChromePositionStyle = useCardChromePosition(paletteRootEl, paletteChromeVisible);
 
 /** Effective palette outer width for resize handles. */
 const resizeWidth = computed(() => paletteWidth.value ?? DEFAULT_PALETTE_WIDTH);
@@ -639,7 +725,7 @@ function syncPreviewFromSelection() {
 /** Resolve persisted MRU entries into live palette rows (skip missing/disabled). */
 function resolveRecentRows(runs: RecentPaletteRun[]): PaletteRow[] {
   const instances = widgetInstances ?? [];
-  const typeRows = buildTypeRows(enabledExtensions.value, instances);
+  const typeRows = buildTypeRows(widgetCatalog.value, instances);
   const typeById = new Map(typeRows.map((row) => [row.typeId, row]));
   const cmdById = new Map(commands.map((c) => [c.id, c]));
   const apps = installedAppsIndex.value;
@@ -716,45 +802,16 @@ const openNewRows = computed(() => buildOpenNewRows(widgetCatalog.value));
 /**
  * Keep query-independent rows and body text warm. Extension hooks read reactive
  * state here, so edits still invalidate the index; typing only re-ranks it.
+ * Every instance is its own row; the create row rides underneath them.
  */
-const widgetSearchIndex = computed(() => {
-  const instances = widgetInstances ?? [];
-  const bodies = new Map<string, string>();
-  const titleFor = (instance: WidgetInstance) => {
-    const def = getExtension(instance.typeId);
-    return instance.title ?? def?.title ?? instance.typeId;
-  };
-  const searchTextFor = (instanceId: string) => bodies.get(instanceId) ?? "";
-  const typeKeywordsFor = (instance: WidgetInstance) => {
-    const def = getExtension(instance.typeId);
-    const keywords = [instance.typeId];
-    if (def?.title) keywords.push(def.title);
-    if (def?.keywords?.length) keywords.push(...def.keywords);
-    if (instance.title) keywords.push(instance.title);
-    const body = searchTextFor(instance.instanceId);
-    if (body) keywords.push(body);
-    return keywords;
-  };
-  // Skip unknown or disabled types.
-  const known = instances.filter(
-    (i) => Boolean(getExtension(i.typeId)) && isEnabled(i.typeId),
-  );
-  for (const instance of known) {
-    bodies.set(
-      instance.instanceId,
-      getExtension(instance.typeId)?.searchText?.(instance.instanceId) ?? "",
-    );
-  }
-  // Every instance is its own row; the create row rides underneath them.
-  const widgetRows = buildWidgetRows(
-    known,
-    titleFor,
-    typeKeywordsFor,
+const widgetSearchIndex = computed(() =>
+  buildInstanceSearchIndex(
+    widgetInstances ?? [],
+    widgetCatalog.value,
+    (instance) => getExtension(instance.typeId)?.searchText?.(instance.instanceId) ?? "",
     (id) => instanceDeskLabels?.(id) ?? "",
-    (instance) => getExtension(instance.typeId)?.actions?.[0],
-  );
-  return { rows: attachNotePreviews(widgetRows, searchTextFor), searchTextFor };
-});
+  ),
+);
 
 const resultState = computed(() => {
   // Inside a folder, that folder is the whole world — mixing apps and widgets
@@ -1364,6 +1421,15 @@ const inlineWidgetTitle = computed(() => {
 function openInlineWidget(index: number) {
   const target = resolveInlineWidgetTarget(results.value[index] as PaletteRow | undefined);
   if (!target) return;
+  showInlineWidget(target);
+  inputEl.value?.focus();
+}
+
+function showInlineWidget(target: InlineWidgetTarget, fromShortcut = false) {
+  inlineShortcutId.value = fromShortcut ? target.typeId : null;
+  const instanceId = target.kind === "instance" ? target.instanceId : inlineScratchInstanceId(target.typeId);
+  // Focus and click can arrive for the same icon; do not initialise it twice.
+  if (inlineWidget.value?.instanceId === instanceId) return;
   // Chips belong to a row; the row list is about to be replaced by the widget.
   if (argMode.value) exitArgMode(false);
   if (actionChipMode.value) exitActionChipMode();
@@ -1377,17 +1443,34 @@ function openInlineWidget(index: number) {
       inlineScratchInstanceId(target.typeId),
     );
   }
-  inlineWidget.value = {
-    instanceId:
-      target.kind === "instance"
-        ? target.instanceId
-        : inlineScratchInstanceId(target.typeId),
-    typeId: target.typeId,
-  };
+  inlineWidget.value = { instanceId, typeId: target.typeId };
   previewWidget?.(null);
   rememberRecentRun({ kind: "type", typeId: target.typeId, title: target.title });
-  inputEl.value?.focus();
 }
+
+function openWidgetShortcut(typeId: string) {
+  const widget = widgetShortcuts.value.find((entry) => entry.id === typeId);
+  if (!widget) return;
+  // Match the catalog's normal reuse policy, including hidden desk instances.
+  const row = buildTypeRows([widget], widgetInstances ?? [])[0];
+  const target = resolveInlineWidgetTarget(row);
+  if (target) showInlineWidget(target, true);
+}
+
+function leaveWidgetShortcuts() {
+  if (inlineShortcutId.value) closeInlineWidget();
+  focusSearchInput();
+}
+
+function enterWidgetShortcut() {
+  void nextTick(() => inlineWidgetBodyEl.value?.focusEntry());
+}
+
+watch(widgetShortcuts, (widgets) => {
+  if (inlineShortcutId.value && !widgets.some((widget) => widget.id === inlineShortcutId.value)) {
+    closeInlineWidget();
+  }
+});
 
 /**
  * Send the inline widget out of the palette and onto the desk as its own card.
@@ -1486,6 +1569,7 @@ watch(inlineWidgetRequest, (request) => {
   // watcher, whose whole job is to drop the inline view — it would close the
   // panel we are opening. Back then returns to whatever was searched, same as
   // when the view is opened from a row.
+  inlineShortcutId.value = null;
   inlineWidget.value = { instanceId: request.instanceId, typeId: request.typeId };
   previewWidget?.(null);
 });
@@ -1500,6 +1584,24 @@ const showResultsList = computed(
     inlineWidgetOpen.value ||
     folderScopeActive.value,
 );
+
+/** Offer external answers only when ordinary search has genuinely found nothing. */
+const showSearchActions = computed(() =>
+  enabledSearchActions.value.length > 0 && query.value.trim().length > 0 && results.value.length === 0 &&
+  hiddenAppMatchCount.value === 0 && !scopedSearchHasOtherResults.value &&
+  calcDisplay.value === null && !folderScopeActive.value && !inlineWidgetOpen.value &&
+  !argMode.value && !actionChipMode.value && !looksLikePathQuery(query.value) &&
+  parsePrefixSearch(query.value) === null,
+);
+const showWidgetShortcuts = computed(() =>
+  widgetShortcuts.value.length > 0 && query.value.trim().length === 0 &&
+  !folderScopeActive.value && !argMode.value && !actionChipMode.value,
+);
+watch(showSearchActions, (visible) => {
+  if (visible) return;
+  paletteAi.reset();
+  searchActionError.value = null;
+});
 
 /** Keep host preview scale in sync with the selected palette row. */
 watch([selectedIndex, results], syncPreviewFromSelection, { immediate: true });
@@ -1683,6 +1785,8 @@ function showAllSearchResults() {
 
 // Every query change resets the selection to the first (best) result.
 watch(query, (next) => {
+  paletteAi.reset();
+  searchActionError.value = null;
   selectedIndex.value = 0;
   showHiddenApps.value = false;
   // Editing the query is a new search, not a search in the browsed folder.
@@ -1910,9 +2014,9 @@ function seedRecentFromLaunchHistoryIfEmpty() {
   saveRecentPaletteRuns(seeded);
 }
 
-// `inlineWidgetOpen` is in here because the list unmounts while a widget holds
-// the panel — the overlay thumb has to re-attach to the new <ul> on the way back.
-watch([results, resizeListHeight, showResultsList, inlineWidgetOpen], async () => {
+// The list unmounts while a widget or AI answer holds the panel; re-attach the
+// overlay thumb to the new <ul> when returning to search results.
+watch([results, resizeListHeight, resizeWidth, enabledSearchActions, widgetShortcuts, showResultsList, inlineWidgetOpen, () => aiAnswer.value !== null], async () => {
   await nextTick();
   syncViewportListHeight();
   if (listEl.value && listOverlayRo) {
@@ -2456,10 +2560,29 @@ function onKeydown(event: KeyboardEvent) {
   if (settingsOpen.value) return;
   // The desk-name field is in this same capture tree; leave keys to it.
   if (renamingDeskId.value) return;
+  if (event.isComposing) return;
+  if (event.key === "Escape" && aiAnswer.value) {
+    event.preventDefault();
+    event.stopPropagation();
+    closeAiAnswer();
+    return;
+  }
 
   const row = results.value[selectedIndex.value];
   const mod = event.ctrlKey || event.metaKey;
   const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+
+  if (
+    showWidgetShortcuts.value && !event.shiftKey && !mod && !event.altKey &&
+    (event.key === "Tab" ||
+      (event.key === "ArrowRight" && event.target === inputEl.value && query.value.length === 0))
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    leftSearchViaTab = false;
+    widgetShortcutsEl.value?.focusFirst();
+    return;
+  }
 
   // A widget fills the panel: the rows behind it are off screen, so every key
   // that acts on the selected row would fire blind. Escape, ArrowLeft and typing
@@ -2485,7 +2608,7 @@ function onKeydown(event: KeyboardEvent) {
       event.key === "Enter" ||
       // The row chords below. Listed by key rather than "any modifier" so the
       // search field keeps Ctrl+A / Ctrl+V while the widget is up.
-      (mod && !event.altKey && ["n", "h", "r", "s", "t"].includes(key));
+      (mod && !event.altKey && ["n", "h", "r", "p", "t"].includes(key));
     if (actsOnARow) {
       event.preventDefault();
       event.stopPropagation();
@@ -2533,10 +2656,10 @@ function onKeydown(event: KeyboardEvent) {
     return;
   }
 
-  // The palette chrome is its own surface: pin with Ctrl/Cmd+S and hide it
+  // The palette chrome is its own surface: pin with Ctrl/Cmd+P and hide it
   // with Ctrl/Cmd+W when no row-specific action consumed the chord above.
   if (!folderScopeActive.value && mod && !event.altKey) {
-    if (key === "s") {
+    if (key === "p") {
       event.preventDefault();
       event.stopPropagation();
       togglePalettePinned?.();
@@ -2726,6 +2849,12 @@ function onKeydown(event: KeyboardEvent) {
       }
       break;
     case "Tab": {
+      if (showSearchActions.value && !event.shiftKey && !mod && !event.altKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        searchActionsEl.value?.focusFirst();
+        break;
+      }
       if (argMode.value) {
         event.preventDefault();
         event.stopPropagation();
@@ -3143,6 +3272,7 @@ async function warmPaletteIcons() {
 
 onMounted(async () => {
   inputEl.value?.focus();
+  refreshSearchAiModel();
   window.addEventListener("kavibay:focus-palette", onFocusPaletteEvent);
   window.addEventListener("resize", syncViewportListHeight);
   document.addEventListener("keydown", onDocumentShiftTab, true);
@@ -3164,6 +3294,7 @@ onMounted(async () => {
       homePath.value = null;
     });
   unlistenShow = await listen("palette:show", () => {
+    refreshSearchAiModel();
     paletteMenuOpen.value = false;
     onboardingMenuOpen.value = false;
     deskCtxMenu.value = null;
@@ -3178,6 +3309,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  paletteAi.reset();
   window.removeEventListener("kavibay:focus-palette", onFocusPaletteEvent);
   window.removeEventListener("resize", syncViewportListHeight);
   listOverlayRo?.disconnect();
@@ -3205,9 +3337,11 @@ onUnmounted(() => {
     ref="paletteRootEl"
     class="palette"
     :class="{ 'palette--drop-target': paletteDropActive }"
+    :style="paletteChromePositionStyle"
     data-interactive
-    @pointerenter="paletteHovered = true"
-    @pointerleave="paletteHovered = false"
+    @pointerenter="onPalettePointerMove"
+    @pointermove="onPalettePointerMove"
+    @pointerleave="paletteHeaderHovered = false"
     @pointerup="onPalettePointerUp"
     @contextmenu="onPaletteContextMenu"
   >
@@ -3239,6 +3373,8 @@ onUnmounted(() => {
       class="palette-card-chrome"
       data-interactive
       @pointerdown.stop
+      @focusin="paletteChromeFocused = true"
+      @focusout="paletteChromeFocused = false"
     >
       <button
         type="button"
@@ -3252,7 +3388,7 @@ onUnmounted(() => {
         <PinIcon :active="palettePinned" />
         <span v-if="shortcutHintVisible" class="palette-shortcut-hint" aria-hidden="true">
           <span>Pin</span>
-          <span>{{ shortcutModifier }}+S</span>
+          <span>{{ shortcutModifier }}+P</span>
         </span>
       </button>
       <button
@@ -3354,7 +3490,10 @@ onUnmounted(() => {
     </div>
     <div
       class="palette-input-row"
-      :class="{ 'palette-input-row--enum-open': enumSuggestions.length > 0 }"
+      :class="{
+        'palette-input-row--enum-open': enumSuggestions.length > 0,
+        'palette-input-row--search-actions': showSearchActions || showWidgetShortcuts,
+      }"
     >
       <!-- With chips present the input hugs its text (field-sizing), so the
            first chip sits right after what was typed instead of screen-far. -->
@@ -3485,6 +3624,23 @@ onUnmounted(() => {
           {{ action.title }}
         </button>
       </template>
+      <PaletteSearchActions
+        v-if="showSearchActions"
+        ref="searchActionsEl"
+        :model="searchAiModel"
+        :actions="enabledSearchActions"
+        @select="runSearchAction"
+        @back="focusSearchInput"
+      />
+      <PaletteWidgetShortcuts
+        v-else-if="showWidgetShortcuts"
+        ref="widgetShortcutsEl"
+        :widgets="widgetShortcuts"
+        :active-id="inlineShortcutId"
+        @select="openWidgetShortcut"
+        @enter="enterWidgetShortcut"
+        @back="leaveWidgetShortcuts"
+      />
     </div>
 
     <div class="palette-statusbar">
@@ -3867,10 +4023,23 @@ onUnmounted(() => {
           <SquareArrowOutUpRightIcon :size="16" animated />
         </button>
       </div>
+      <PaletteAnswerPanel
+        v-if="aiAnswer"
+        ref="answerPanelEl"
+        :answer="aiAnswer"
+        :messages="aiMessages"
+        :busy="aiBusy"
+        :style="{ height: `${renderedListHeight}px` }"
+        @back="closeAiAnswer"
+        @stop="paletteAi.stop"
+        @retry="paletteAi.retry"
+        @follow-up="paletteAi.followUp"
+        @settings="showSettingsSection('ai')"
+      />
       <!-- Inline height is per widget type; only this lower edge can resize it,
            so the search panel never widens or grows upward. -->
       <div
-        v-if="inlineWidgetOpen"
+        v-else-if="inlineWidgetOpen"
         class="palette-inline-widget"
         :class="{ 'palette-inline-widget--menu-open': inlineMenuOpen }"
         :style="{ height: `${inlineWidgetHeight}px` }"
@@ -3885,11 +4054,13 @@ onUnmounted(() => {
           @resize="onInlineWidgetResize"
         />
         <InlineWidgetBody
+          ref="inlineWidgetBodyEl"
           :key="inlineWidgetInstance!.instanceId"
           :instance="inlineWidgetInstance!"
           :def="inlineWidgetDef!"
           :content-scale="inlineWidgetScale"
           :menu-open="inlineMenuOpen"
+          :auto-focus="inlineShortcutId === null"
           @update:content-scale="onInlineZoom"
           @update:menu-open="inlineMenuOpen = $event"
         />
@@ -4336,7 +4507,8 @@ onUnmounted(() => {
           "
           class="palette-empty"
         >
-          {{ folderScopeActive ? folderScopeEmptyLabel : "No matches" }}
+          <span v-if="searchActionError" role="alert">{{ searchActionError }}</span>
+          <template v-else>{{ folderScopeActive ? folderScopeEmptyLabel : "No matches" }}</template>
         </li>
         <li
           v-if="scopedSearchHasOtherResults"
@@ -4483,15 +4655,27 @@ onUnmounted(() => {
   cursor: grabbing;
 }
 
+/* Outside controls, with an 8px hover bridge included in the interactive rect. */
 .palette-card-chrome {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: var(--card-chrome-top, -40px);
+  right: 0;
   z-index: 3;
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: 2px;
+  padding: 2px 2px 10px;
+  border-radius: 999px;
+}
+
+.palette-card-chrome::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 8px;
+  z-index: -1;
+  border-radius: inherit;
+  background: rgba(var(--surface-bg-rgb), 0.85);
 }
 
 /* Same control as .palette-bar-btn, so same shape — leaving these square while
@@ -4562,8 +4746,8 @@ onUnmounted(() => {
 
 .palette-context-menu {
   position: absolute;
-  top: 42px;
-  right: 10px;
+  top: calc(var(--card-chrome-top, -40px) + 44px);
+  right: 0;
   z-index: 20;
   min-width: 140px;
   padding: 4px;
@@ -4629,12 +4813,15 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 0 56px 0 20px;
+  padding: 0 20px;
   box-shadow: rgba(0, 0, 0, 0.02) 1px 1px 3px 1px inset;
   border-bottom: 1px solid var(--border);
   border-radius: var(--surface-radius, 16px) var(--surface-radius, 16px) 0 0;
   corner-shape: var(--surface-corner-shape, round);
 }
+
+/* Search actions can wrap while keeping the query field usable. */
+.palette-input-row--search-actions { flex-wrap: wrap; row-gap: 0; }
 
 /* `font-family: inherit` is not optional here: form controls default to the UA
    font (Arial on Windows), so without it the query renders in a different
@@ -4656,6 +4843,9 @@ onUnmounted(() => {
 .palette-input::placeholder {
   color: var(--text-faint);
 }
+
+/* Keep a usable query field when many search actions wrap onto another line. */
+.palette-input-row--search-actions .palette-input { flex: 1 1 140px; }
 
 /* Only while chips are on screen: hug the typed text so the first chip sits
    next to it. Alone, the input keeps filling the bar (bigger click target). */
@@ -5048,6 +5238,13 @@ onUnmounted(() => {
   border-radius: 30px;
   corner-shape: var(--surface-corner-shape, round);
   cursor: pointer;
+}
+
+/* WebKit draws circular corners, so the squircle radius would make rows pill-shaped. */
+@supports not (corner-shape: squircle) {
+  .palette-item {
+    border-radius: 10px;
+  }
 }
 
 .palette-item--selected {

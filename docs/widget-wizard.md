@@ -60,8 +60,9 @@ to a question that has one.
 
 **A dot before the name, and nothing else.** It answers one question: can the
 palette run this yet. A filled green dot is a saved package you can add from the
-palette; amber is a saved package with newer unsaved changes; a hollow white
-ring is a draft that has never been published.
+palette; amber is a saved package with newer unsaved changes; a hollow ring is
+a draft that has never been published. The ring is drawn in the theme's
+foreground, so it stays visible on the light sidebar.
 
 Every row used to carry a second line — what changed, who changed it, how long
 ago — which answered questions nobody asks while scanning a list, and cost every
@@ -69,18 +70,25 @@ row twice its height to do it. Eight projects took 470 pixels; they now take
 324. None of it is deleted, it is moved: the dot's tooltip still says which of
 the two states the project is in and when it last changed.
 
-**The open project's conversations sit on a ground of their own** — one flat
-grey, no sheen, no rim, no shadow — so the group reads as belonging to the row
-above it rather than as more rows in the same list. Deliberately not the hover
-fill and not the selected treatment: both of those mean "this row, right now",
-and reusing either would say that about a whole group. It is also lighter than
-both, so a conversation lying on it still has its own two states to move
-between. The left rail is dropped where the panel applies, because the panel
-already groups what the rail was drawn to group.
+**The sidebar reads like a harness's thread list.** Codex and Claude Code were
+the reference: no box around the list, a flat **New project** entry at the top
+with the sidebar toggle beside it, a quiet **Projects** label, and rows set close
+together. The list used to sit in a framed panel and the open project's
+conversations on a grey ground of their own. Both are gone, because the rows'
+own hover and selection fills already structure the list.
 
-Over the page at `28,28,32`, the four grounds land at `38,38,42` for the panel,
-`46,46,50` for a hovered row, `51,51,54` for the selected one, and higher again
-for rows on the panel — one scale, in the order the states matter.
+**Conversations hang off their project by indentation alone.** Their text starts
+in the project name's column, they carry no status dot, and they are set
+lighter, which is what keeps six conversations from reading as six projects. An
+unfolded project gets a little air after its conversations. The status dot sits
+in a column as wide as the New project icon, so every name starts where that
+label starts.
+
+**Only one row reads as open.** The project line carries the selection until its
+conversation has a row of its own; once the project is unfolded, the selection
+moves down to that conversation. While the Wizard is working, a small spinner
+marks the same row at its end, in place of the conversation's age, the way a
+harness marks a running thread.
 
 **The selected row uses the app's own selected-row treatment** — the same
 `--row-selected-*` tokens the command palette draws its current row with: a
@@ -114,6 +122,11 @@ widget: if Codex or Claude changed the widget after that transcript was saved,
 the current draft wins and appears in the files and preview. The same
 reconciliation runs when the Wizard mounts, so an MCP event missed while the
 card or app was closed does not leave the visible project on stale files.
+
+A row's controls (**+**, the reorder handle and **×**) appear on hover and lie
+over the end of the row, where the text fades out beneath them. They take no
+width at rest: when they sat beside the name, invisible but still laid out,
+every name was cut off after a few letters next to an empty stretch of row.
 
 **+** on the row starts a new conversation in that project, without opening
 anything first. It only appears where there is a project to start one in: a row
@@ -220,12 +233,12 @@ to decide which project is showing, and the answer is a new one. The caret lands
 in the composer, because a new project is a question waiting to be typed.
 
 **It opens with the chrome folded away.** No project list, no name field, no
-Conversation/Files switch — all three describe a package that does not exist
+Chat/Code switch — all three describe a package that does not exist
 yet, and somebody who just pressed "New Widget" has one thing to do. The caret
 is in the composer and there is nothing above it.
 
 The **header** comes back by itself once the first generation produces a
-package: the name field then names something and Files has files in it, so the
+package: the name field then names something and Code has files in it, so the
 reason for hiding it has expired. There is no button to leave the mode — a mode
 you have to leave is one people get stuck in.
 
@@ -237,7 +250,7 @@ one way out, which is why it cannot be conditional on anything.
 The fold is deliberately *not* stored. Whether this card's sidebar is collapsed
 is a preference living in its `ctx.data`, and it has to survive being briefly
 overruled — so the palette's fold is a separate flag that goes away again. The
-sidebar's own **+ New project** button does not fold anything: it is the same
+sidebar's own **New project** entry does not fold anything: it is the same
 act arrived at from a place that just used the sidebar.
 
 The action is declared **`needsInstance: false`**, which is what gives it a row
@@ -281,10 +294,20 @@ the logo — Cloudflare serves other people's models), and the `authoring` flag.
 
 ## Seeing and editing the files
 
-The middle column switches between **Conversation** and **Files**; the preview
-is its own column on the right and never moves.
+The middle column switches between **Chat** and **Code**, plus **API** when the
+package declares endpoints or reads from a provider; the preview is its own column on the right and never
+moves. The switch is one segmented control with an icon per face, and the open
+face is lifted with the app's selected-row treatment. When the column is too
+narrow for the labels, only the icons stay, each with its name as a tooltip.
+Arrow keys move between the faces once the switch has focus. The header shows
+the widget's name and nothing else: the package id is a folder name, which
+matters to the files and to MCP clients but not to somebody building a widget.
 
 Both dividers are draggable, and arrow keys on a focused divider move them too.
+The left divider only resizes. Hiding the sidebar is the panel icon beside
+**New project**; folded away, the same icon sits at the top left, level with the
+header, because the divider track is the one place still on screen when the
+header is hidden while composing.
 Widths live in the widget's own `ctx.data`, so they belong to this Wizard on
 this desk rather than to whichever conversation was open when you dragged them.
 Below about 620px the side columns fold away on their own and the conversation
@@ -293,7 +316,13 @@ columns. Reading a file and watching what it does are one activity, so the file
 view does not cover the widget — it replaces the transcript, which you are not
 reading at that moment anyway.
 
-Files lists
+Code shows the package the way an editor does: one panel with the file tree on
+the left and the open file on the right, under its path. Folders such as `ui/`
+are rows of their own with their files indented beneath, folders before files,
+and each file carries an icon coloured by its kind (JSON, HTML, script, CSS,
+image). The tree is built by `fileTreeRows` in `widgetWizardLogic.ts`.
+
+Code lists
 everything the package is made of — `manifest.json`, `index.html`, `widget.js`,
 `api.json` — and each one is editable. An edit is written to the draft when the
 field loses focus; a `.json` file that does not parse is reported and not
@@ -309,7 +338,7 @@ makes the reader translate it into one about clocks. A hand edit gets its own
 line there too, so the transcript stops implying that each answer followed the
 previous one when it did not.
 
-In the **Files tab**, above the file list: one button per state, with times.
+In the **Code tab**, above the file list: one button per state, with times.
 The compact overview, for when you know you want "two back" rather than a
 particular message.
 
@@ -330,11 +359,16 @@ Saving does not add an entry. It rewrites `ui.defaultSize` to whatever the
 preview was left at, which changes the bytes without being a step anybody took,
 so the live snapshot is patched in place instead.
 
-`.json` and `.js` files are syntax-highlighted by
-[`highlight.ts`](../extensions/widget-wizard/highlight.ts) — about a hundred
-lines, no dependency. It is a coloured `<pre>` under a textarea whose text is
-transparent, so the field stays a real textarea and keeps undo, selection and
-IME. Regular-expression literals, template interpolation and JSX are not
+JSON, script, HTML, CSS and SVG files are syntax-highlighted by
+[`highlight.ts`](../extensions/widget-wizard/highlight.ts), a few hundred lines
+with no dependency. `highlightLanguage` in `widgetWizardLogic.ts` picks the
+scanner from the file's kind. In HTML, the bodies of `<style>` and `<script>`
+are read as CSS and script, because that is most of a generated `index.html`.
+CSS colours what can be told apart by position alone: selectors, property
+names, numbers and colours, at-rules and `!important`. Value words such as
+`grid` stay plain. The editor is a coloured `<pre>` under a textarea whose text
+is transparent, so the field stays a real textarea and keeps undo, selection
+and IME. Regular-expression literals, template interpolation and JSX are not
 recognised and render plain; a highlighter this size is better unhelpful than
 confidently wrong.
 
@@ -462,7 +496,7 @@ pointer is the one thing that has to hold still. Only the ink fades.
 The checkpoint is a real button, so the row also appears on `:focus-within`: it
 stays tabbable while invisible, and one reachable only by pointer is one a
 keyboard cannot reach at all. On touch, where there is no hover, the footnotes
-are simply always shown. The Files tab's version strip is unaffected either
+are simply always shown. The Code tab's version strip is unaffected either
 way — that is the always-visible route to the same thing.
 
 **The token counts are exact.** They come from the provider's own `usage` block,
@@ -602,10 +636,40 @@ threading a prop through those would add a parameter to two generic components
 for one caller. The listener sits on the preview's own element, so a widget
 running on the desk cannot resize the wizard's card by reporting a size.
 
+## Providers and endpoints
+
+The **API** tab appears once the package declares endpoints or names a provider
+in `widget.requires.providers`.
+
+**Providers** come first. A widget on a provider calls no API of its own:
+Kavibay makes the requests and the widget asks for queries by name, so a weather
+widget built on `kavibay.weather/weather` has no `api.json` and, before this,
+showed no API tab at all. Each provider is a card with its state (no account
+needed, connected, not connected with a button to connect, or not available on
+this Kavibay) and its queries, each as a call and an answer shape, such as
+`places(name) → list of { id, name }`. All of it comes from the host's provider
+catalog; nothing is called. Running a provider query for a draft would be a new
+host capability, and the calls the preview makes are already listed under
+**Debug** beside it. `providersUsedBy` in `widgetWizardLogic.ts` reads the
+manifest and matches it against the catalog.
+
+**What the manifest says against what the code does.** Each provider entry in
+`requires.providers` names the `queries` a widget reads there and the `actions`
+it calls.
+`providerCallsIn` finds every `.query("…")`, `.subscribe("…")` and `.action("…")`
+with a literal name in the package's scripts and inline HTML, and each card
+marks the difference. Under **Reads**: declared, declared but not called, not
+declared (the code reads it, so the approval dialog, which describes the
+declared queries, does not mention it), or unknown to the provider; a query
+that is neither declared nor called is dimmed. Under **Changes** the same marks,
+and an undeclared action is the serious one: the host refuses it the first time
+it runs, where an undeclared query still works. A name built at runtime is not
+seen, so it is simply not marked, never marked wrongly.
+
 ## Trying an endpoint
 
-Once the package declares endpoints, the middle column grows an **API** tab:
-every endpoint with its parameters, a **Try** button, and what came back.
+Every endpoint the package declares in `api.json` is listed below the providers
+with its parameters, a **Try** button, and what came back.
 
 This is the shortest fix for the longest loop in the wizard. Building against
 an API used to go: describe it, get a widget, run it, watch it render
@@ -742,7 +806,7 @@ directory through that name. So renaming is one edit in one place: the manifest
 folder to whatever the manifest says, and the Wizard follows it.
 
 Three routes reach the same write. Typing in the **name field** slugifies it and
-patches the manifest for you. Editing `manifest.json` in the **Files tab** does
+patches the manifest for you. Editing `manifest.json` in the **Code tab** does
 it directly. An **MCP client** writing a draft with a different name in the
 manifest renames it the same way, and the reply says where it moved
 (`id` plus `renamedFrom`).
@@ -794,7 +858,9 @@ a request it refuses shows as refused instead of leaving a control that looks on
 and does nothing. Without Developer Extensions the switch is not offered at all.
 
 **It grants exactly what the package asked for** (`autoApprovedGrant`) — every
-provider the manifest declared that this machine actually has, and nothing else.
+provider the manifest declared that this machine actually has, the changes it
+declared on them in each entry's `actions`, and nothing else. An action the provider
+does not have lands in `refused`, so the dialog is shown instead.
 A bypass that reached past the request would be granting access the widget never
 declared, which is a different and much larger thing than skipping a click.
 

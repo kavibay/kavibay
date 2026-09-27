@@ -5,7 +5,7 @@
  */
 import { computed, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { needsReconsent, permissionLabel } from "../runtime/runtimeInstallLogic";
+import { contractGrantFrom, needsReconsent, permissionLabel } from "../runtime/runtimeInstallLogic";
 import { useRuntimeExtensions } from "../runtime/useRuntimeExtensions";
 import { extensionHost } from "../extension-host/cockpit";
 import { buildPermissionRequest } from "../extension-host/permissionRequest";
@@ -153,10 +153,7 @@ const contractRequest = computed(() => {
 async function onApproveContract(id: string, grant: ApprovedGrant) {
   pendingConsent.value = null;
   try {
-    // `actions` is not passed and has nowhere to go: the stored shape has no
-    // field for one. Generated widgets are read-only, kept as a shape rather
-    // than as a rule somebody has to remember.
-    await setEnabled(id, true, { approved: [...grant.providers] });
+    await setEnabled(id, true, contractGrantFrom(grant));
   } catch (error) {
     console.error("[kavibay] approving a widget package failed:", error);
   }

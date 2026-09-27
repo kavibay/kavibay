@@ -14,6 +14,7 @@ import CredentialConnections from "./CredentialConnections.vue";
 import {
   listCredentials,
   listCredentialTypes,
+  retryCredentialAccess,
   type CredentialSummary,
   type CredentialTypeSchema,
 } from "./credentialsApi";
@@ -29,6 +30,12 @@ import {
   type CredentialStatusFilter,
 } from "./credentialsPanelLogic";
 import { useSettingsModal } from "../useSettingsModal";
+import { keyPlatform } from "../../host/shortcutHints";
+
+const sealedFor =
+  keyPlatform() === "mac"
+    ? "encrypted with a key in your macOS login keychain"
+    : "encrypted for this Windows user";
 
 const types = ref<CredentialTypeSchema[]>([]);
 const credentials = ref<CredentialSummary[]>([]);
@@ -103,6 +110,16 @@ async function reload() {
   }
 }
 
+/** Load again; after a denied keychain prompt, macOS asks once more. */
+async function retry() {
+  loading.value = true;
+  try {
+    await retryCredentialAccess();
+  } finally {
+    await reload();
+  }
+}
+
 watch(focusType, (requested) => {
   if (requested && types.value.length > 0) applyFocus(requested);
 });
@@ -115,13 +132,16 @@ onMounted(reload);
     <header class="creds-head">
       <h2 class="creds-title">Credentials</h2>
       <p class="creds-lead">
-        API keys and tokens for integrations. Values are encrypted for this Windows
-        user and never leave the backend — the app only reports whether a secret is set.
+        API keys and tokens for integrations. Values are {{ sealedFor }} and never
+        leave the backend — the app only reports whether a secret is set.
       </p>
     </header>
 
     <p v-if="loading" class="creds-note">Loading…</p>
-    <p v-else-if="error" class="creds-error">{{ error }}</p>
+    <div v-else-if="error" class="creds-failed">
+      <p class="creds-error">{{ error }}</p>
+      <button type="button" class="creds-retry" @click="retry">Try again</button>
+    </div>
 
     <template v-else>
       <section class="creds-block">
@@ -221,6 +241,30 @@ onMounted(reload);
   margin: 0;
   font-size: 13px;
   color: rgba(255, 140, 140, 0.95);
+}
+
+.creds-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.creds-retry {
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.1);
+  color: rgba(var(--fg-rgb), 0.92);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.creds-retry:hover {
+  background: var(--row-selected-sheen), var(--row-selected-bg);
+  box-shadow: var(--row-selected-rim), var(--row-selected-shadow);
 }
 
 .creds-block {

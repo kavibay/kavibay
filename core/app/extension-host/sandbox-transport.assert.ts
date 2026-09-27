@@ -62,6 +62,21 @@ async function wire(instance: WidgetInstance<any>) {
 
 const tadoTile = () => inst("kavibay.tado/control", "frame-1", { room: "living-room" });
 
+// An unawaited read fails before its defaults can overwrite persisted data.
+{
+  const { ctx, guest } = await wire(inst("kavibay.todo/list", "water-test", {}));
+  await ctx.data.set("water", { glasses: 3 });
+  let message = "";
+  try {
+    const saved = ctx.data.get("water") as unknown as { glasses: number };
+    await ctx.data.set("water", { glasses: saved?.glasses ?? 0 });
+  } catch (error) { message = String(error); }
+  assert(message.includes("Use await ctx.data.get"), "missing await has an actionable error");
+  const saved = await ctx.data.get<{ glasses: number }>("water");
+  assert(saved?.glasses === 3, "the real bridge retains the saved counter");
+  guest.dispose();
+}
+
 // --- a widget runs unchanged on the far side of the transport ---
 {
   const { host, ctx, crossed } = await wire(tadoTile());

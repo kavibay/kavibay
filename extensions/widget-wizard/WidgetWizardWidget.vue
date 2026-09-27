@@ -25,10 +25,28 @@ import {
   watch,
 } from "vue";
 import type { DraftChanged, DraftPresence, WizardCapability } from "@sdk/contract/sdk";
-import { BrainIcon, ServerPlusIcon, UnplugIcon } from "@sdk/icons";
-import { BrandMark, McpClientMark } from "@sdk/brand";
+import {
+  BracesIcon,
+  BrainIcon,
+  ClipboardCopyIcon,
+  CodeXmlIcon,
+  FileCodeIcon,
+  FileIcon,
+  FolderIcon,
+  HashIcon,
+  IconBase,
+  ImageIcon,
+  MessageSquareIcon,
+  PanelLeftIcon,
+  PlugIcon,
+  ServerPlusIcon,
+  SquarePenIcon,
+  UnplugIcon,
+} from "@sdk/icons";
+import { BrandMark, McpClientMark, brandMarkFor } from "@sdk/brand";
 import KavibaySelect from "@sdk/KavibaySelect.vue";
 import WizardModelMenu from "./WizardModelMenu.vue";
+import WizardMcpHelp from "./WizardMcpHelp.vue";
 import WizardChevron from "./WizardChevron.vue";
 import WizardGenerationStatus from "./WizardGenerationStatus.vue";
 import WizardPreviewStage, { type PreviewFault } from "./WizardPreviewStage.vue";
@@ -38,7 +56,8 @@ import {
   widgetFocusRequestMatches,
   type WidgetFocusRequestDetail,
 } from "@sdk/widgetFocusRequest";
-import { isHighlightable, tokenize, type CodeToken } from "./highlight";
+import { tokenize, type CodeToken } from "./highlight";
+import { storageReadProblems } from "./storageReadProblems";
 import {
   REPAIR_BUDGET,
   NO_USAGE,
@@ -54,9 +73,22 @@ import {
   formatTokens,
   readUsage,
   mergeGeneratedFiles,
+  withoutOtherFormat,
   recordVersion,
   updateLiveVersion,
   endpointsToProbe,
+  fileKind,
+  fileTreeRows,
+  highlightLanguage,
+  argSignature,
+  actionUses,
+  describeResultShape,
+  providerCallsIn,
+  providersUsedBy,
+  queryUses,
+  providerUseState,
+  type FileKind,
+  type ProviderUseState,
   sampleBody,
   faultProblem,
   repairTurnFor,
@@ -117,6 +149,7 @@ import {
   type ConversationHeader,
   conversationLabel,
   isPlainNote,
+  appendNote,
   conversationTitle,
   buildProjectRows,
   describeDraftAuthor,
@@ -175,6 +208,7 @@ interface RuntimeInstallRecord {
    */
   contractGrant?: {
     approved?: string[];
+    actions?: Record<string, string[]>;
     providers?: { provider: string; queries: string[] }[];
     provider?: string;
     queries?: string[];
@@ -196,6 +230,9 @@ interface ScannedRuntimeExtension {
 
 const props = defineProps<{ model: WidgetWizardModel }>();
 const wizard: WizardCapability = props.model.wizard;
+const saveShortcutTip = /Mac|iPhone|iPad/.test(
+  typeof navigator === "undefined" ? "" : navigator.platform || navigator.userAgent,
+) ? "Save (⌘S)" : "Save (Ctrl+S)";
 const {
   headers,
   active: session,
@@ -375,6 +412,7 @@ function toggleSidebar() {
  * inverted.
  */
 function startDrag(which: "side" | "preview", event: PointerEvent) {
+  if (which === "side" && sidebarHidden.value) return;
   const handle = event.currentTarget as HTMLElement;
   const startX = event.clientX;
   const startWidth = which === "side" ? sideWidth.value : previewWidth.value;
@@ -396,7 +434,6 @@ function startDrag(which: "side" | "preview", event: PointerEvent) {
     handle.removeEventListener("pointermove", move);
     handle.removeEventListener("pointerup", end);
     handle.removeEventListener("pointercancel", end);
-    if (!moved && which === "side") toggleSidebar();
     saveLayout();
   };
 
@@ -749,6 +786,11 @@ function describeProjectStatus(row: ProjectRow): string {
 function isActiveRow(row: ProjectRow): boolean {
   if (row.packageId && row.packageId === session.value.packageId) return true;
   return row.conversationIds.includes(session.value.id);
+}
+
+/** Whether the conversation on screen has a row of its own, unfolded under this project. */
+function showsActiveConversation(row: ProjectRow): boolean {
+  return isExpanded(row) && row.conversationIds.includes(session.value.id);
 }
 
 function conversationHeaderFor(id: string): ConversationHeader | undefined {
@@ -1114,12 +1156,8 @@ function onComposerInput(): void {
 }
 
 function onComposerKeydown(event: KeyboardEvent): void {
-  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-    event.preventDefault();
-    syncComposerDraft();
-    void send();
-    return;
-  }
+  // Enter can confirm an IME candidate; WebKit may only report keyCode 229.
+  if (event.isComposing || event.keyCode === 229) return;
   if (integrationMenuOpen.value) {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -1128,7 +1166,7 @@ function onComposerKeydown(event: KeyboardEvent): void {
       integrationMenuIndex.value = (integrationMenuIndex.value + direction + length) % length;
       return;
     }
-    if (event.key === "Enter" || event.key === "Tab") {
+    if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
       event.preventDefault();
       const option = filteredIntegrationOptions.value[integrationMenuIndex.value];
       if (option) chooseIntegration(option);
@@ -1142,9 +1180,15 @@ function onComposerKeydown(event: KeyboardEvent): void {
   }
   if (event.key === "Enter") {
     event.preventDefault();
-    document.execCommand("insertLineBreak");
+    event.stopPropagation();
+    if (event.shiftKey) {
+      document.execCommand("insertLineBreak");
+      syncComposerDraft();
+      updateIntegrationMenu();
+      return;
+    }
     syncComposerDraft();
-    updateIntegrationMenu();
+    void send();
   }
 }
 
@@ -1241,6 +1285,22 @@ const fileList = computed(() =>
   [...(session.value.draftFiles ?? [])].sort((a, b) => a.path.localeCompare(b.path)),
 );
 
+const fileRows = computed(() => fileTreeRows(fileList.value.map((file) => file.path)));
+
+/** Each kind of file gets its icon and, through its class, its colour. */
+const FILE_ICONS: Record<FileKind, Component> = {
+  json: BracesIcon,
+  markup: CodeXmlIcon,
+  script: FileCodeIcon,
+  style: HashIcon,
+  image: ImageIcon,
+  text: FileIcon,
+};
+
+/** The open file's folders, for the path above the editor. */
+const openFileFolders = computed(() => openFile.value.split("/").slice(0, -1));
+const openFileName = computed(() => openFile.value.slice(openFile.value.lastIndexOf("/") + 1));
+
 /** A textarea can be dirty even when the in-memory file set is unchanged. */
 const draftEditorDirty = computed(() => {
   const current = session.value.draftFiles?.find((file) => file.path === openFile.value);
@@ -1255,11 +1315,10 @@ const draftEditorDirty = computed(() => {
  * "escape it correctly" is a thing to get wrong once. Vue writes text nodes,
  * which cannot be anything but text.
  */
-const codeTokens = computed<CodeToken[]>(() =>
-  isHighlightable(openFile.value)
-    ? tokenize(fileText.value)
-    : [{ kind: "plain", text: fileText.value }],
-);
+const codeTokens = computed<CodeToken[]>(() => {
+  const language = highlightLanguage(openFile.value);
+  return language ? tokenize(fileText.value, language) : [{ kind: "plain", text: fileText.value }];
+});
 
 /**
  * The endpoints of the package in hand, and one response per endpoint.
@@ -1273,6 +1332,72 @@ const codeTokens = computed<CodeToken[]>(() =>
  * reload to find out.
  */
 const endpointProbes = computed(() => endpointsToProbe(session.value.draftFiles ?? []));
+
+/**
+ * The providers the package reads from, for the API tab.
+ *
+ * A widget on a provider calls no API of its own: Kavibay makes the requests
+ * and the widget asks for queries by name. Without these the tab stayed away
+ * from exactly the widgets that talk to an API the most, and a weather widget
+ * showed no sign of where its weather came from.
+ */
+const usedProviders = computed(() =>
+  providersUsedBy(session.value.draftFiles ?? [], providerSchemas.value).map((use) => ({
+    ...use,
+    state: providerUseState(use, providerConnected.value.get(use.id) === true),
+  })),
+);
+
+/** What the package's code calls, so the tab can say which of the catalog it uses. */
+const providerCalls = computed(() => providerCallsIn(session.value.draftFiles ?? []));
+
+const PROVIDER_STATE_LABEL: Record<ProviderUseState, string> = {
+  missing: "Not available",
+  free: "No account needed",
+  connected: "Connected",
+  disconnected: "Not connected",
+};
+
+type MiddleTab = typeof middleTab.value;
+
+/**
+ * The switch above the middle column, one entry per face.
+ *
+ * API is only listed when there is something to show: an endpoint the package
+ * declares or a provider it reads from. A tab that is always there
+ * and usually empty teaches people to stop looking at it.
+ */
+const middleTabs = computed(() => [
+  { id: "chat" as MiddleTab, label: "Chat", icon: MessageSquareIcon, count: 0, disabled: false },
+  {
+    id: "files" as MiddleTab,
+    label: "Code",
+    icon: CodeXmlIcon,
+    count: fileList.value.length,
+    disabled: !fileList.value.length,
+  },
+  ...(endpointProbes.value.length + usedProviders.value.length
+    ? [
+        {
+          id: "api" as MiddleTab,
+          label: "API",
+          icon: PlugIcon,
+          count: endpointProbes.value.length + usedProviders.value.length,
+          disabled: false,
+        },
+      ]
+    : []),
+]);
+
+/** Arrow keys walk the switch the way they walk any tab list. */
+function stepMiddleTab(delta: -1 | 1): void {
+  const open = middleTabs.value.filter((tab) => !tab.disabled);
+  const at = open.findIndex((tab) => tab.id === middleTab.value);
+  const next = open[(at + delta + open.length) % open.length];
+  if (!next) return;
+  middleTab.value = next.id;
+  void nextTick(() => wizEl.value?.querySelector<HTMLElement>(".wiz-tab--on")?.focus());
+}
 
 /**
  * What the host's endpoint broker answers with.
@@ -2044,7 +2169,7 @@ async function discardDraftById(id: string): Promise<void> {
 }
 
 function note(text: string, tone?: "success") {
-  session.value.bubbles.push({ role: "system", text, ...(tone ? { tone } : {}) });
+  appendNote(session.value.bubbles, { role: "system", text, ...(tone ? { tone } : {}) });
   scrollDown();
 }
 
@@ -2393,7 +2518,7 @@ async function autoSaveContractPreview(): Promise<void> {
  * waiting, which is the whole reason the retry is automatic rather than a
  * button: it costs them a second of a wait they were in anyway.
  */
-async function runTurn(mine: number, id: string, repairsLeft: number): Promise<void> {
+async function runTurn(mine: number, id: string, repairsLeft: number, repairFiles?: GeneratedFile[]): Promise<void> {
   const reply = await wizard.complete<{ text: string; model?: string; usage?: unknown }>({
     model: session.value.model,
     messages: session.value.turns,
@@ -2432,7 +2557,7 @@ async function runTurn(mine: number, id: string, repairsLeft: number): Promise<v
   session.value.cost = addCost(session.value.cost, cost);
 
   const parsed = parseGeneratedFiles(reply.text);
-  const before = session.value.draftFiles ?? [];
+  const before = repairFiles ?? session.value.draftFiles ?? [];
   // Held rather than pushed and forgotten: the version it produces does not
   // exist until the write below succeeds, and it is marked on this bubble.
   const answer: WizardBubble = {
@@ -2442,6 +2567,7 @@ async function runTurn(mine: number, id: string, repairsLeft: number): Promise<v
     text: parsed.prose || describeReply(parsed, before),
     usage: spent,
     model: ranOn?.label ?? reply.model,
+    modelCredentialType: ranOn?.credentialType,
     cost,
   };
   session.value.bubbles.push(answer);
@@ -2453,7 +2579,7 @@ async function runTurn(mine: number, id: string, repairsLeft: number): Promise<v
   // turn is asked for only what it changed, so `parsed.files` is usually a
   // fraction of the widget. A complete answer merges to itself, so nothing here
   // depends on which kind arrived.
-  const merged = mergeGeneratedFiles(before, parsed);
+  const merged = withoutOtherFormat(before, mergeGeneratedFiles(before, parsed));
   const problem = replyProblem(parsed, merged, id, format.value);
   /**
    * The id the model chose, on the turn where nothing was named yet.
@@ -2519,6 +2645,7 @@ async function runTurn(mine: number, id: string, repairsLeft: number): Promise<v
       outcome.problems.length === 1
         ? `That package has a problem — asking for a fix: ${outcome.problems[0]}`
         : `That package has ${outcome.problems.length} problems — asking for a fix.`,
+      files,
     );
     return;
   }
@@ -2546,11 +2673,14 @@ async function askForRepair(
   problems: string[],
   repairsLeft: number,
   announcement: string,
+  repairFiles?: GeneratedFile[],
 ) {
   session.value.bubbles.push({ role: "system", text: announcement });
   session.value.turns.push({ role: "user", content: repairTurnFor(problems) });
   scrollDown();
-  await runTurn(mine, id, repairsLeft);
+  // Rejected files never become the live draft. Keep their complete set here
+  // so a repair returning only widget.js still retains its HTML and manifest.
+  await runTurn(mine, id, repairsLeft, repairFiles);
 }
 
 /**
@@ -2677,18 +2807,20 @@ async function enableFromBubble(bubble: WizardBubble) {
  * remembered in the session, so a transcript restored on another day cannot
  * carry a grant that Settings has since withdrawn.
  */
-function approvedGrantFor(id: string): string[] | null {
+function approvedGrantFor(id: string): WizardApprovedGrant | null {
   const record = installs.value.find((install) => install.id === id);
   if (!record?.enabled || !record.contractGrant) return null;
   // Every older spelling folded in rather than assumed migrated: the backend
   // rewrites on load, but a session restored beside a stale scan would
   // otherwise report "nothing approved" and re-open a dialog nobody needs.
   const grant = record.contractGrant;
-  return (
-    grant.approved ??
-    grant.providers?.map((row) => row.provider) ??
-    (grant.provider ? [grant.provider] : [])
-  );
+  return {
+    providers:
+      grant.approved ??
+      grant.providers?.map((row) => row.provider) ??
+      (grant.provider ? [grant.provider] : []),
+    actions: grant.actions ?? {},
+  };
 }
 
 /**
@@ -2702,7 +2834,7 @@ const previewUnmet = computed(() => {
   const id = session.value.packageId;
   if (!id || session.value.hasDraft || previewFormat.value !== "contract") return [];
   const request = approvalRequestFor(id);
-  return request ? unmetProviders(request, approvedGrantFor(id)) : [];
+  return request ? unmetProviders(request, approvedGrantFor(id)?.providers) : [];
 });
 
 function approvalRequestFor(id: string): WizardPermissionRequest | undefined {
@@ -2711,7 +2843,7 @@ function approvalRequestFor(id: string): WizardPermissionRequest | undefined {
   return buildWizardPermissionRequest(
     row.contractManifest,
     providerSchemas.value,
-    approvedGrantFor(id) ?? [],
+    approvedGrantFor(id) ?? undefined,
   );
 }
 
@@ -2727,13 +2859,6 @@ function approvalNameFor(id: string): string {
   return row?.name?.trim() || id;
 }
 
-/**
- * The answer, stored and enabled — the same backend call Settings makes.
- *
- * `actions` is not passed and could not be: `grantFrom` does not produce one and
- * the stored shape has no field for it. A generated widget is read-only, and
- * that is kept as a shape rather than as a rule anybody has to apply here.
- */
 /**
  * Register a grant and bring the widget up. Shared by the dialog and by the
  * path that skips it, so "approved just now" and "approved earlier and
@@ -2754,7 +2879,12 @@ async function applyContractGrant(
    */
   how = "",
 ): Promise<boolean> {
-  if (!(await enablePackage(id, { approved: [...grant.providers] }))) {
+  const actions = Object.fromEntries(
+    Object.entries(grant.actions)
+      .filter(([, names]) => (names?.length ?? 0) > 0)
+      .map(([provider, names]) => [provider, [...(names ?? [])]]),
+  );
+  if (!(await enablePackage(id, { approved: [...grant.providers], actions }))) {
     note(`"${id}" could not be enabled. See Settings -> Extensions.`);
     return false;
   }
@@ -3022,6 +3152,23 @@ function costLabel(cost: WizardCost | null | undefined): string {
   return cost ? `~${formatCost(cost.amount, cost.currency)}` : "";
 }
 
+/** Older conversations resolve their saved model name against the catalog. */
+function usageBrand(bubble: WizardBubble): string | undefined {
+  const credentialType = bubble.modelCredentialType ?? models.value.find(
+    (model) => model.id === bubble.model || model.label === bubble.model,
+  )?.credentialType;
+  return brandMarkFor(credentialType) ? credentialType : undefined;
+}
+
+/** Keep the answer's model, token counts and cost together in its tooltip. */
+function usageTooltip(bubble: WizardBubble): string {
+  return [
+    bubble.model,
+    bubble.usage ? usageLine(bubble.usage) : "",
+    costLabel(bubble.cost),
+  ].filter(Boolean).join("\n");
+}
+
 /**
  * The conversation's running total.
  *
@@ -3034,6 +3181,33 @@ const sessionTokens = computed(() => {
   const u = sessionUsage.value;
   return u.input + u.cached + u.cacheWrite + u.output;
 });
+
+const transcriptCopyState = ref<"idle" | "copying" | "copied" | "error">("idle");
+let transcriptCopyTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Feedback belongs to the conversation that was copied. */
+function resetTranscriptCopy() {
+  clearTimeout(transcriptCopyTimer);
+  transcriptCopyState.value = "idle";
+}
+watch(() => session.value.id, resetTranscriptCopy);
+onUnmounted(() => clearTimeout(transcriptCopyTimer));
+
+/** Copy the current transcript and acknowledge only a successful clipboard write. */
+async function copyTranscript() {
+  if (transcriptCopyState.value === "copying") return;
+  resetTranscriptCopy();
+  const conversation = session.value;
+  transcriptCopyState.value = "copying";
+  try {
+    await props.model.copyTranscript();
+    if (session.value !== conversation) return;
+    transcriptCopyState.value = "copied";
+    transcriptCopyTimer = setTimeout(resetTranscriptCopy, 1500);
+  } catch {
+    if (session.value === conversation) transcriptCopyState.value = "error";
+  }
+}
 
 /** `14:32` — the day is never in question inside one conversation. */
 const timeOfDay = (at: number) =>
@@ -3096,6 +3270,13 @@ function runFromBubble(bubble: WizardBubble) {
   void save(session.value);
 }
 
+/** Only the newest save offers "Add to desk"; older ones are history. */
+const latestRunIndex = computed(() => {
+  const bubbles = session.value.bubbles;
+  for (let at = bubbles.length - 1; at >= 0; at -= 1) if (bubbles[at]!.run) return at;
+  return -1;
+});
+
 /** Abandon the reply in flight. */
 function stop() {
   if (!busy.value) return;
@@ -3134,6 +3315,12 @@ interface DraftOutcome {
  * left, and this is the one place that knows what the problems are.
  */
 async function writeDraft(id: string, files: GeneratedFile[]): Promise<DraftOutcome> {
+  const storageProblems = storageReadProblems(files);
+  if (storageProblems.length) {
+    // Reject before previewing: merely running this code could erase saved data.
+    session.value.draftError = storageProblems.join("\n");
+    return { written: false, problems: storageProblems };
+  }
   let summary: DraftSummary;
   try {
     summary = await writeDraftFiles(id, files);
@@ -3157,6 +3344,7 @@ async function writeDraft(id: string, files: GeneratedFile[]): Promise<DraftOutc
   }
 
   session.value.previewEntry = uiEntryOf(files);
+  session.value.draftError = undefined;
   session.value.previewPermissions = previewPermissionsFor(files);
   session.value.draftFiles = files;
   rememberVersion(files, "Generated");
@@ -3330,8 +3518,9 @@ async function openWidget(id: string, conversationId: string | null = null) {
       opened.existing && author !== "wizard" ? author : null,
       opened.existing && author !== "wizard" ? clientName : null,
     );
-    session.value.bubbles.push({
+    appendNote(session.value.bubbles, {
       role: "system",
+      opened: true,
       text: describeDraftOpen(id, opened.existing, author),
       author: opened.existing && author !== "wizard" ? author : null,
       clientName: opened.existing && author !== "wizard" ? clientName : null,
@@ -3446,7 +3635,7 @@ async function keepMyVersion(): Promise<void> {
   }
 }
 
-// --- keep / discard --------------------------------------------------------
+// --- save / export ---------------------------------------------------------
 
 /**
  * Move the draft into the custom root and turn it on.
@@ -3553,7 +3742,7 @@ async function keep(runAfterSave = false) {
       const request = approvalRequestFor(id);
       const granted = approvedGrantFor(id);
       if (request && askedNothingNew(request, granted)) {
-        await applyContractGrant(id, { providers: [...granted!] }, runAfterSave);
+        await applyContractGrant(id, granted!, runAfterSave);
       } else if (request && wizardAutoEnable.value && canAutoApprove(request)) {
         /**
          * The same bypass the runtime path has always honoured.
@@ -3629,12 +3818,64 @@ async function keep(runAfterSave = false) {
   }
 }
 
+let saveShortcutActive = false;
+
+/** Include the host's focusable card/shell, which sits outside the Wizard root. */
+function saveShortcutScope(): HTMLElement | null {
+  const root = wizEl.value;
+  return root?.closest<HTMLElement>(".widget-card, .inline-widget-shell") ?? root;
+}
+
+/** Retain ownership when a busy editor loses focus, but relinquish it on other interactions. */
+function onSaveShortcutInteraction(event: Event) {
+  const target = event.target;
+  if (event.type === "focusin" && (target === document.body || target === document.documentElement)) return;
+  saveShortcutActive = target instanceof Node && !!saveShortcutScope()?.contains(target);
+}
+
+/** Save from the active Wizard, including edits that have not blurred yet. */
+async function onSaveKeydown(event: KeyboardEvent) {
+  if (
+    event.defaultPrevented ||
+    !(event.metaKey || event.ctrlKey) ||
+    event.altKey || event.shiftKey || event.isComposing ||
+    event.key.toLowerCase() !== "s"
+  ) return;
+
+  const root = wizEl.value;
+  if (!root || root.getClientRects().length === 0) return;
+  const target = event.target;
+  const focusOnPage = target === document.body || target === document.documentElement;
+  if (!(target instanceof Node && saveShortcutScope()?.contains(target)) &&
+      !(focusOnPage && saveShortcutActive)) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.repeat || busy.value || (!canSave.value && !draftEditorDirty.value)) return;
+
+  const targetSession = session.value;
+  if (draftEditorDirty.value) await applyFile();
+  // A failed edit must not silently save the previous file contents.
+  if (session.value !== targetSession || draftEditorDirty.value || !canSave.value) return;
+  await keep();
+}
+
+onMounted(() => {
+  window.addEventListener("pointerdown", onSaveShortcutInteraction, true);
+  window.addEventListener("focusin", onSaveShortcutInteraction, true);
+  window.addEventListener("keydown", onSaveKeydown, true);
+});
+onUnmounted(() => {
+  window.removeEventListener("pointerdown", onSaveShortcutInteraction, true);
+  window.removeEventListener("focusin", onSaveShortcutInteraction, true);
+  window.removeEventListener("keydown", onSaveKeydown, true);
+});
+
 /** Save the package and immediately add/focus its enabled runtime widget. */
 function saveAndRun() {
   return keep(true);
 }
 
-/** Throw the draft away. An edited widget itself is never touched. */
 /**
  * Write this widget to a zip somewhere outside the app.
  *
@@ -3661,26 +3902,6 @@ async function exportWidget() {
     note(`Exported ${what} — ${report.files} files — to ${report.path}`, "success");
   } catch (error) {
     note(describeExportError(String(error)));
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function discard() {
-  const id = session.value.packageId;
-  if (!id || busy.value) return;
-  const wasEditing = session.value.editing === id;
-  busy.value = true;
-  try {
-    await wizard.draftDiscard(id);
-    session.value.hasDraft = false;
-    session.value.draftRevision = undefined;
-    session.value.draftError = undefined;
-    session.value.previewEntry = null;
-    note(wasEditing ? `Discarded the changes. "${id}" is unchanged.` : `Discarded "${id}".`);
-    await Promise.all([save(session.value), refreshDrafts()]);
-  } catch (error) {
-    note(describeDraftError(String(error)));
   } finally {
     busy.value = false;
   }
@@ -3753,7 +3974,7 @@ const consentStillMatches = computed(() => {
 
 async function enablePackage(
   id: string,
-  contractGrant?: { approved: string[] },
+  contractGrant?: { approved: string[]; actions: Record<string, string[]> },
 ): Promise<boolean> {
   const row = scanned.value.find((item) => item.id === id);
   try {
@@ -3775,9 +3996,23 @@ async function enablePackage(
   >
     <!-- Left: what you have already made or asked -->
     <aside v-show="!tooNarrow" class="wiz-side wiz-c1">
-      <button type="button" class="wiz-new" :disabled="busy" @click="newConversation">
-        + New project
-      </button>
+      <div class="wiz-side-top">
+        <button type="button" class="wiz-new" :disabled="busy" @click="newConversation">
+          <SquarePenIcon :size="14" />
+          <span>New project</span>
+        </button>
+        <button
+          type="button"
+          class="wiz-side-toggle"
+          aria-label="Hide sidebar"
+          v-tip="'Hide sidebar'"
+          @click="toggleSidebar"
+        >
+          <PanelLeftIcon :size="15" />
+        </button>
+      </div>
+
+      <p class="wiz-side-heading">Projects</p>
 
       <div class="wiz-side-sections">
         <!--
@@ -3803,9 +4038,18 @@ async function enablePackage(
               <!--
                 The highlight sits on the line, not on the project block: on the
                 block it tinted the conversations inside it too, so an open
-                project and its contents were one grey slab.
+                project and its contents were one grey slab. It moves down to the
+                conversation once that has a row of its own, so only one row on
+                screen ever reads as open.
               -->
-              <div class="wiz-side-line" :class="{ 'wiz-side-sel': isActiveRow(row) }">
+              <div
+                class="wiz-side-line"
+                :class="{
+                  'wiz-side-sel': isActiveRow(row) && !showsActiveConversation(row),
+                  'wiz-side-line--bare': !row.packageId,
+                  'wiz-side-line--armed': pendingDelete === row.key,
+                }"
+              >
                 <!--
                   One control for the project.
 
@@ -3911,63 +4155,67 @@ async function enablePackage(
                         />
                       </svg>
                     </span>
+                    <span
+                      v-if="busy && isActiveRow(row) && !showsActiveConversation(row)"
+                      class="wiz-side-spinner"
+                      role="status"
+                      aria-label="Working"
+                    ></span>
                   </span>
                 </button>
                 <!--
-                  Start a conversation in this project without opening anything
-                  first. Only where there is a project to start one in: a row
-                  that is itself nothing but a conversation has no second one to
-                  offer, and a + there would make a new project under the wrong
-                  name.
+                  Laid over the end of the row instead of beside it. Beside it,
+                  the hidden buttons kept their width at rest and every name was
+                  cut off after a few letters next to an empty stretch of row.
                 -->
-                <button
-                  v-if="row.packageId"
-                  type="button"
-                  class="wiz-side-add"
-                  v-tip="'New conversation in this project'"
-                  aria-label="New conversation"
-                  :disabled="busy"
-                  @click.stop="newConversationIn(row)"
-                >+</button>
-                <!--
-                  Pointer events, not HTML5 drag-and-drop.
+                <span class="wiz-side-actions">
+                  <!--
+                    Start a conversation in this project without opening anything
+                    first. Only where there is a project to start one in: a row
+                    that is itself nothing but a conversation has no second one to
+                    offer, and a + there would make a new project under the wrong
+                    name.
+                  -->
+                  <button
+                    v-if="row.packageId"
+                    type="button"
+                    class="wiz-side-add"
+                    v-tip="'New conversation in this project'"
+                    aria-label="New conversation"
+                    :disabled="busy"
+                    @click.stop="newConversationIn(row)"
+                  >+</button>
+                  <!--
+                    Pointer events, not HTML5 drag-and-drop.
 
-                  The webview this runs in hands OS-level drag to the host
-                  window, and in-page `dragstart` is not reliably delivered — a
-                  handle that works everywhere except in the app it is for is
-                  worse than no handle. Alt+arrows on the row do the same thing
-                  without a pointer at all.
-                -->
-                <span
-                  class="wiz-side-grip"
-                  v-tip="'Drag to reorder — or Alt+↑ / Alt+↓ on the row'"
-                  aria-hidden="true"
-                  @pointerdown="startReorder(row.key, $event)"
-                >⠿</span>
-                <button
-                  type="button"
-                  class="wiz-side-del"
-                  :class="{ 'wiz-side-del--armed': pendingDelete === row.key }"
-                  v-tip="
-                    pendingDelete === row.key ? 'Click again — there is no undo' : rowDeleteTip(row)
-                  "
-                  :disabled="busy"
-                  @click="deleteRow(row)"
-                >
-                  {{ pendingDelete === row.key ? "Sure?" : "×" }}
-                </button>
+                    The webview this runs in hands OS-level drag to the host
+                    window, and in-page `dragstart` is not reliably delivered — a
+                    handle that works everywhere except in the app it is for is
+                    worse than no handle. Alt+arrows on the row do the same thing
+                    without a pointer at all.
+                  -->
+                  <span
+                    class="wiz-side-grip"
+                    v-tip="'Drag to reorder — or Alt+↑ / Alt+↓ on the row'"
+                    aria-hidden="true"
+                    @pointerdown="startReorder(row.key, $event)"
+                  >⠿</span>
+                  <button
+                    type="button"
+                    class="wiz-side-del"
+                    :class="{ 'wiz-side-del--armed': pendingDelete === row.key }"
+                    v-tip="
+                      pendingDelete === row.key ? 'Click again — there is no undo' : rowDeleteTip(row)
+                    "
+                    :disabled="busy"
+                    @click="deleteRow(row)"
+                  >
+                    {{ pendingDelete === row.key ? "Sure?" : "×" }}
+                  </button>
+                </span>
               </div>
 
-              <!--
-                The open project's conversations get a ground of their own, so
-                the group reads as belonging to the row above it rather than as
-                more rows in the same list.
-              -->
-              <div
-                v-if="isExpanded(row)"
-                class="wiz-side-history"
-                :class="{ 'wiz-side-history--on': isActiveRow(row) }"
-              >
+              <div v-if="isExpanded(row)" class="wiz-side-history">
                 <div
                   v-for="conversation in row.conversationIds"
                   :key="conversation"
@@ -3988,17 +4236,25 @@ async function enablePackage(
                     @click="openConversation(conversation)"
                   >
                     <span class="wiz-side-name">{{ conversationTitleFor(conversation) }}</span>
-                    <small class="wiz-side-when">{{ conversationAgeFor(conversation) }}</small>
+                    <span
+                      v-if="busy && conversation === session.id"
+                      class="wiz-side-spinner"
+                      role="status"
+                      aria-label="Working"
+                    ></span>
+                    <small v-else class="wiz-side-when">{{ conversationAgeFor(conversation) }}</small>
                   </button>
-                  <button
-                    type="button"
-                    class="wiz-side-del"
-                    v-tip="'Delete this conversation'"
-                    :disabled="busy"
-                    @click="deleteConversation(conversation)"
-                  >
-                    ×
-                  </button>
+                  <span class="wiz-side-actions">
+                    <button
+                      type="button"
+                      class="wiz-side-del"
+                      v-tip="'Delete this conversation'"
+                      :disabled="busy"
+                      @click="deleteConversation(conversation)"
+                    >
+                      ×
+                    </button>
+                  </span>
                 </div>
                 <p v-if="!row.conversationIds.length" class="wiz-hint">
                   No conversation yet — press + to start one.
@@ -4009,6 +4265,10 @@ async function enablePackage(
           </div>
         </div>
       </div>
+      <WizardMcpHelp
+        v-if="!sidebarHidden && !tooNarrow"
+        @open-settings="wizard.openSettings('mcp')"
+      />
     </aside>
 
     <!-- Middle: name, chat, model -->
@@ -4024,26 +4284,28 @@ async function enablePackage(
       @keydown.left.prevent="nudge('side', -1)"
       @keydown.right.prevent="nudge('side', 1)"
     >
+      <!--
+        In the divider's track because that is the one place left on screen when
+        the sidebar is folded: the header above the conversation is hidden while
+        composing, which is exactly when the sidebar is tucked away.
+      -->
       <button
+        v-if="sidebarHidden"
         type="button"
-        class="wiz-side-toggle"
-        :aria-expanded="!sidebarHidden"
-        :aria-label="sidebarHidden ? 'Expand sidebar' : 'Collapse sidebar'"
-        :title="sidebarHidden ? 'Expand sidebar' : 'Collapse sidebar'"
+        class="wiz-side-expand"
+        aria-label="Show sidebar"
+        v-tip="'Show sidebar'"
         @pointerdown.stop
         @keydown.stop
         @click.stop="toggleSidebar"
       >
-        <span class="wiz-side-toggle-title">
-          {{ sidebarHidden ? "Click to expand" : "Click to collapse" }}
-        </span>
-        <span class="wiz-side-toggle-hint">Drag to resize</span>
+        <PanelLeftIcon :size="15" />
       </button>
     </div>
 
     <section class="wiz-main wiz-c3">
       <!--
-        Name, id and tabs on one line.
+        Name and tabs on one line.
 
         They were three rows of chrome above a column that is already narrow,
         and none of them is content. The name was a filled box the width of the
@@ -4066,52 +4328,36 @@ async function enablePackage(
           @change="onNameChanged"
         />
         <!--
-          Truncated, with the whole thing on hover. It is a directory name and a
-          url host — worth being able to read, never worth half the width.
+          Conversation or code, never both. They are two readings of the same
+          widget, and this column is not wide enough to be honest about either
+          while showing half of the other. The preview is not in this choice — it
+          is what you are reading them against.
         -->
-        <span
-          v-if="session.packageId && !tooNarrow"
-          class="wiz-id"
-          :title="session.packageId"
-        >{{ session.packageId }}</span>
-
-      <!--
-        Conversation or files, never both. They are two readings of the same
-        widget, and this column is not wide enough to be honest about either
-        while showing half of the other. The preview is not in this choice — it
-        is what you are reading them against.
-      -->
-        <div class="wiz-tabs">
-        <button
-          type="button"
-          class="wiz-tab"
-          :class="{ 'wiz-tab--on': middleTab === 'chat' }"
-          @click="middleTab = 'chat'"
+        <div
+          class="wiz-tabs"
+          role="tablist"
+          aria-label="Show"
+          @keydown.left.prevent="stepMiddleTab(-1)"
+          @keydown.right.prevent="stepMiddleTab(1)"
         >
-          Conversation
-        </button>
-        <button
-          type="button"
-          class="wiz-tab"
-          :class="{ 'wiz-tab--on': middleTab === 'files' }"
-          :disabled="!fileList.length"
-          @click="middleTab = 'files'"
-        >
-          Files<span v-if="fileList.length" class="wiz-tab-count">{{ fileList.length }}</span>
-        </button>
-        <!--
-          Only when there is something to try. A tab that is always there and
-          usually empty teaches people to stop looking at it.
-        -->
-        <button
-          v-if="endpointProbes.length"
-          type="button"
-          class="wiz-tab"
-          :class="{ 'wiz-tab--on': middleTab === 'api' }"
-          @click="middleTab = 'api'"
-        >
-          API<span class="wiz-tab-count">{{ endpointProbes.length }}</span>
-        </button>
+          <button
+            v-for="tab in middleTabs"
+            :key="tab.id"
+            type="button"
+            role="tab"
+            class="wiz-tab"
+            :class="{ 'wiz-tab--on': middleTab === tab.id }"
+            :aria-selected="middleTab === tab.id"
+            :aria-label="tab.label"
+            :tabindex="middleTab === tab.id ? 0 : -1"
+            :disabled="tab.disabled"
+            v-tip="tab.label"
+            @click="middleTab = tab.id"
+          >
+            <component :is="tab.icon" :size="13" :stroke-width="2" />
+            <span class="wiz-tab-label">{{ tab.label }}</span>
+            <span v-if="tab.count" class="wiz-tab-count">{{ tab.count }}</span>
+          </button>
         </div>
       </header>
 
@@ -4212,20 +4458,59 @@ async function enablePackage(
           </button>
         </div>
 
+        <!--
+          One panel, like an editor's: the tree on the left, the open file on
+          the right under its path. A path such as `ui/index.html` is shown as
+          the folder it is in, so the list reads as the package's layout rather
+          than as a column of strings to parse.
+        -->
         <div class="wiz-files">
-        <ul v-if="fileList.length" class="wiz-filelist">
-          <li v-for="file in fileList" :key="file.path">
-            <button
-              type="button"
-              class="wiz-filebtn"
-              :class="{ 'wiz-filebtn--on': file.path === openFile }"
-              @click="openFile = file.path"
-            >
-              {{ file.path }}
-            </button>
-          </li>
-        </ul>
+        <nav v-if="fileList.length" class="wiz-filetree" aria-label="Files">
+          <p class="wiz-filetree-heading">Files</p>
+          <ul class="wiz-filelist">
+            <li v-for="row in fileRows" :key="row.key">
+              <span
+                v-if="row.kind === 'folder'"
+                class="wiz-filerow wiz-filerow--folder"
+                :style="{ '--depth': row.depth }"
+              >
+                <FolderIcon :size="13" class="wiz-fileicon wiz-fileicon--folder" />
+                <span class="wiz-filename">{{ row.name }}</span>
+              </span>
+              <button
+                v-else
+                type="button"
+                class="wiz-filerow wiz-filebtn"
+                :class="{ 'wiz-filebtn--on': row.path === openFile }"
+                :style="{ '--depth': row.depth }"
+                :title="row.path"
+                @click="openFile = row.path"
+              >
+                <component
+                  :is="FILE_ICONS[fileKind(row.path)]"
+                  :size="13"
+                  class="wiz-fileicon"
+                  :class="`wiz-fileicon--${fileKind(row.path)}`"
+                />
+                <span class="wiz-filename">{{ row.name }}</span>
+              </button>
+            </li>
+          </ul>
+        </nav>
         <div class="wiz-fileedit">
+          <div v-if="fileList.length" class="wiz-filepath">
+            <component
+              :is="FILE_ICONS[fileKind(openFile)]"
+              :size="13"
+              class="wiz-fileicon"
+              :class="`wiz-fileicon--${fileKind(openFile)}`"
+            />
+            <template v-for="(folder, index) in openFileFolders" :key="index">
+              <span class="wiz-filepath-dir">{{ folder }}</span>
+              <span class="wiz-filepath-dir" aria-hidden="true">/</span>
+            </template>
+            <span class="wiz-filepath-name">{{ openFileName }}</span>
+          </div>
           <p v-if="editInvalidatesConsent" class="wiz-filenote">
             Editing this re-opens the endpoint review before the widget may use
             the network again.
@@ -4272,6 +4557,110 @@ async function enablePackage(
         request ends that, and the answer travels with the next message.
       -->
       <div v-show="middleTab === 'api'" class="wiz-api">
+        <!--
+          Read from the host's catalog, never called from here: running a
+          provider query for a draft would be a new host capability, and the
+          calls the preview makes are already listed under Debug beside it.
+        -->
+        <p v-if="usedProviders.length" class="wiz-api-heading">Providers</p>
+        <section v-for="use in usedProviders" :key="use.id" class="wiz-ep">
+          <div class="wiz-ep-head">
+            <span class="wiz-ep-id">{{ use.schema?.displayName ?? use.id }}</span>
+            <span class="wiz-provider-state" :class="`wiz-provider-state--${use.state}`">
+              {{ PROVIDER_STATE_LABEL[use.state] }}
+            </span>
+          </div>
+          <p v-if="use.schema" class="wiz-ep-desc">
+            Kavibay makes the requests; the widget asks for them by name. The marks
+            compare what the manifest declares with what the code calls. The calls
+            the preview made are under Debug.
+          </p>
+          <p v-else class="wiz-ep-note">
+            This Kavibay has no provider <code>{{ use.id }}</code>, so the widget cannot
+            get its data. Check the id in <code>manifest.json</code>.
+          </p>
+          <!--
+            Reads are declared for the person, not enforced: the account is the
+            read grant. So the marks say what the manifest tells them against
+            what the code does, and a gap is a gap in what they were told.
+          -->
+          <template v-if="queryUses(use, providerCalls).length">
+            <p class="wiz-provider-sub">Reads</p>
+            <ul class="wiz-provider-queries">
+              <li
+                v-for="query in queryUses(use, providerCalls)"
+                :key="query.name"
+                :class="{ 'wiz-provider-unused': !query.declared && !query.called }"
+              >
+                <code class="wiz-provider-call">{{ query.name }}({{ argSignature(query.args) }})</code>
+                <code v-if="query.result" class="wiz-provider-result">
+                  → {{ describeResultShape(query.result) }}
+                </code>
+                <span
+                  v-if="query.declared || query.called"
+                  class="wiz-provider-badge"
+                  :class="{
+                    'wiz-provider-badge--warn': !query.known || !query.declared,
+                    'wiz-provider-badge--quiet': query.known && query.declared && !query.called,
+                  }"
+                >
+                  {{
+                    !query.known
+                      ? "Unknown"
+                      : !query.declared
+                        ? "Not declared"
+                        : query.called
+                          ? "Declared"
+                          : "Declared, not called"
+                  }}
+                </span>
+                <p v-if="query.description" class="wiz-ep-desc">{{ query.description }}</p>
+                <p v-if="!query.known" class="wiz-ep-note">
+                  {{ use.schema?.displayName ?? use.id }} has no query by this name.
+                </p>
+                <p v-else-if="!query.declared" class="wiz-ep-note">
+                  The code reads this, but its provider entry does not list it under
+                  <code>queries</code>, so the approval dialog does not mention it.
+                </p>
+              </li>
+            </ul>
+          </template>
+          <!--
+            Changes are the part the person approves separately, so they are
+            listed by what the manifest declares, not by what the provider
+            offers. A call the code makes without declaring it is the one to
+            flag: the host refuses it the first time the button is pressed.
+          -->
+          <template v-if="actionUses(use, providerCalls).length">
+            <p class="wiz-provider-sub">Changes</p>
+            <ul class="wiz-provider-queries">
+              <li v-for="action in actionUses(use, providerCalls)" :key="action.name">
+                <code class="wiz-provider-call">{{ action.name }}({{ argSignature(action.args) }})</code>
+                <span
+                  class="wiz-provider-badge"
+                  :class="{
+                    'wiz-provider-badge--warn': !action.declared,
+                    'wiz-provider-badge--quiet': action.declared && !action.called,
+                  }"
+                >
+                  {{ action.declared ? (action.called ? "Declared" : "Declared, not called") : "Not declared" }}
+                </span>
+                <p v-if="action.description" class="wiz-ep-desc">{{ action.description }}</p>
+                <p v-if="!action.declared" class="wiz-ep-note">
+                  The code calls this, but its provider entry does not list it under
+                  <code>actions</code>, so Kavibay will refuse it.
+                </p>
+              </li>
+            </ul>
+          </template>
+          <div v-if="use.state === 'disconnected'" class="wiz-ep-actions">
+            <button type="button" @click="wizard.openSettings('credentials', use.schema?.credentialType)">
+              Connect account
+            </button>
+          </div>
+        </section>
+
+        <p v-if="usedProviders.length && endpointProbes.length" class="wiz-api-heading">Endpoints</p>
         <div v-for="probe in endpointProbes" :key="probe.id" class="wiz-ep">
           <div class="wiz-ep-head">
             <code class="wiz-ep-id">{{ probe.id }}</code>
@@ -4524,7 +4913,7 @@ async function enablePackage(
             side of it — the caption arriving after the thing it captions, at
             the end of a line the eye reads left to right.
           -->
-          <div v-if="bubble.run" class="wiz-run-actions">
+          <div v-if="bubble.run && index === latestRunIndex" class="wiz-run-actions">
             <button
               type="button"
               class="wiz-consent-btn"
@@ -4587,13 +4976,17 @@ async function enablePackage(
               the number belongs to the thing that produced it, and a running
               total nobody can attribute to a turn is a number nobody acts on.
             -->
-            <p v-if="bubble.usage" class="wiz-usage" :title="usageDetail(bubble.usage)">
-              {{ usageLine(bubble.usage) }}
-              <span v-if="bubble.model" class="wiz-usage-model">· {{ bubble.model }}</span>
-              <span v-if="costLabel(bubble.cost)" class="wiz-usage-cost">
-                {{ costLabel(bubble.cost) }}
-              </span>
-            </p>
+            <span
+              v-if="bubble.usage"
+              class="wiz-usage-mark"
+              tabindex="0"
+              role="img"
+              :aria-label="usageTooltip(bubble)"
+              v-tip="usageTooltip(bubble)"
+            >
+              <BrandMark v-if="usageBrand(bubble)" :provider="usageBrand(bubble)" :size="14" />
+              <BrainIcon v-else :size="14" />
+            </span>
 
             <!--
               The checkpoint, where the change it belongs to was made.
@@ -4619,7 +5012,10 @@ async function enablePackage(
                 :disabled="busy"
                 @click="goBackTo(bubble.version)"
               >
-                ↩ Back to this version
+                <IconBase :size="14" class="wiz-cp-icon">
+                  <path d="m9 10-5 5 5 5M4 15h11a5 5 0 0 0 0-10h-3" />
+                </IconBase>
+                <span>Back to this version</span>
               </button>
             </div>
           </div>
@@ -4642,15 +5038,32 @@ async function enablePackage(
       <p
         v-if="middleTab === 'chat' && sessionTokens > 0"
         class="wiz-usage wiz-usage--total"
-        :title="usageDetail(sessionUsage)"
       >
-        This conversation: {{ formatTokens(sessionTokens) }} tokens
-        <template v-if="sessionUsage.cached > 0">
-          ({{ formatTokens(sessionUsage.cached) }} from cache)
-        </template>
-        <span v-if="costLabel(sessionCost)" class="wiz-usage-cost">
-          {{ costLabel(sessionCost) }}
+        <span class="wiz-copy-feedback" role="status">
+          {{ transcriptCopyState === 'copied' ? 'Copied' : transcriptCopyState === 'error' ? 'Could not copy. Try again.' : '' }}
         </span>
+        <span class="wiz-usage-summary" :title="usageDetail(sessionUsage)">
+          This conversation: {{ formatTokens(sessionTokens) }} tokens
+          <template v-if="sessionUsage.cached > 0">
+            ({{ formatTokens(sessionUsage.cached) }} from cache)
+          </template>
+          <span v-if="costLabel(sessionCost)" class="wiz-usage-cost">
+            {{ costLabel(sessionCost) }}
+          </span>
+        </span>
+        <button
+          type="button"
+          class="wiz-copy-transcript"
+          :disabled="transcriptCopyState === 'copying'"
+          :aria-label="transcriptCopyState === 'copied' ? 'Transcript copied' : 'Copy transcript'"
+          v-tip="transcriptCopyState === 'copied' ? 'Copied' : 'Copy transcript'"
+          @click="copyTranscript"
+        >
+          <svg v-if="transcriptCopyState === 'copied'" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="m5 12 4 4L19 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <ClipboardCopyIcon v-else :size="14" />
+        </button>
       </p>
 
       <!-- Part of the conversation, so it goes with it. -->
@@ -4852,7 +5265,7 @@ async function enablePackage(
             type="button"
             class="wiz-send"
             :disabled="!canSend"
-            title="Ctrl+Enter"
+            title="Send (Enter) · New line (Shift+Enter)"
             aria-label="Send"
             @click="send"
           >
@@ -4860,6 +5273,10 @@ async function enablePackage(
           </button>
         </div>
       </div>
+      <WizardMcpHelp
+        v-if="sidebarHidden || tooNarrow"
+        @open-settings="wizard.openSettings('mcp')"
+      />
     </section>
 
     <!-- Right: the draft, in the chrome it will actually wear -->
@@ -4876,12 +5293,38 @@ async function enablePackage(
     />
 
     <section v-show="!tooNarrow" class="wiz-preview wiz-c5">
-      <!--
-        Grows so the Save row is pushed to the foot of this column — the same
-        baseline as the conversation's compose bar. A Vue child advertising
-        `flex: 1` on its own root was not enough: the stage sized to its
-        widget and the buttons sat up beside the textarea.
-      -->
+      <div class="wiz-actions" role="group" aria-label="Widget actions">
+        <button
+          type="button"
+          :disabled="!canExport"
+          v-tip="'Save this widget as a .zip — the whole folder, ready to hand on'"
+          @click="exportWidget"
+        >
+          <IconBase :size="13">
+            <path d="M12 16V3m-4 4 4-4 4 4M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4" />
+          </IconBase>
+          Export
+        </button>
+        <button
+          type="button"
+          :disabled="!canSave"
+          v-tip="'Save this widget and open it on the desk'"
+          @click="saveAndRun"
+        >
+          <IconBase :size="13"><path d="m8 5 11 7-11 7Z" /></IconBase>
+          Run on desk
+        </button>
+        <button
+          type="button"
+          class="wiz-action--primary"
+          :disabled="!canSave"
+          v-tip="saveShortcutTip"
+          aria-keyshortcuts="Meta+S Control+S"
+          @click="() => keep()"
+        >
+          Save
+        </button>
+      </div>
       <div class="wiz-preview-body">
         <div v-if="showFirstVersionGeneration" class="wiz-empty">
           <WizardGenerationStatus />
@@ -4904,21 +5347,6 @@ async function enablePackage(
         <div v-else class="wiz-empty">
           Your widget will appear here.
         </div>
-      </div>
-      <div class="wiz-actions">
-        <button type="button" :disabled="!canSave" @click="() => keep()">Save</button>
-        <button type="button" :disabled="!canSave" @click="saveAndRun">Save &amp; Run</button>
-        <button
-          type="button"
-          :disabled="!canExport"
-          v-tip="'Save this widget as a .zip — the whole folder, ready to hand on'"
-          @click="exportWidget"
-        >
-          Export
-        </button>
-        <button type="button" :disabled="busy || !session.hasDraft" @click="discard">
-          Discard
-        </button>
       </div>
     </section>
   </div>
@@ -4972,16 +5400,6 @@ async function enablePackage(
   grid-column: 3;
 }
 
-/*
-  Hidden grid tracks still retain their gaps. Pull the main panel across those
-  two gaps and the small handle track so its left breathing room matches the
-  ordinary outer padding on the preview side.
-*/
-.wiz--sidebar-collapsed .wiz-main {
-  width: calc(100% + 26px);
-  margin-left: -26px;
-}
-
 .wiz-c4 {
   grid-column: 4;
 }
@@ -5020,10 +5438,6 @@ async function enablePackage(
   flex: 0 0 auto;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid rgba(var(--fg-rgb), 0.12);
-  border-radius: 8px;
-  background: rgba(var(--fg-rgb), 0.035);
-  box-shadow: inset 0 1px 0 rgba(var(--fg-rgb), 0.05);
 }
 
 .wiz-side-group--all {
@@ -5035,47 +5449,8 @@ async function enablePackage(
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
-  padding: 6px 5px 8px;
+  padding: 2px 0 8px;
   overflow-y: auto;
-}
-
-.wiz-side-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex: 0 0 auto;
-  width: 100%;
-  box-sizing: border-box;
-  margin: 0;
-  padding: 6px 8px 5px;
-  border: none;
-  border-radius: 7px 7px 0 0;
-  border-bottom: 1px solid rgba(var(--fg-rgb), 0.08);
-  background: rgba(var(--fg-rgb), 0.06);
-  color: inherit;
-  font: inherit;
-  font-size: 10px;
-  font-weight: 600;
-  text-align: left;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  opacity: 0.7;
-  cursor: pointer;
-}
-
-.wiz-side-label:hover {
-  background: rgba(var(--fg-rgb), 0.1);
-  opacity: 0.95;
-}
-
-.wiz-side-label:focus-visible {
-  outline: 1px solid rgba(var(--fg-rgb), 0.35);
-  outline-offset: -1px;
-}
-
-.wiz-side-chevron {
-  font-size: 12px;
-  line-height: 1;
 }
 
 .wiz-side-item {
@@ -5085,13 +5460,14 @@ async function enablePackage(
 }
 
 /*
-  A project is a heading with things under it, so it is spaced like one: air
-  above each project, none between a project and its own conversations. The
-  screenshot that prompted this had the same gap everywhere, which made six
-  conversations read as six projects.
+  Projects sit close, the way a harness lists its threads. What keeps six
+  conversations from reading as six projects is no longer air above every
+  project, which made a folded list twice as tall as its names: conversations
+  are indented to the name column, carry no status dot, and are set lighter.
+  An unfolded project still gets air after its conversations.
 */
 .wiz-side-item--stacked + .wiz-side-item--stacked {
-  margin-top: 9px;
+  margin-top: 1px;
 }
 
 /*
@@ -5107,6 +5483,7 @@ async function enablePackage(
 */
 .wiz-side-line,
 .wiz-side-history > .wiz-side-item {
+  position: relative;
   border-radius: 8px;
   transition: background-color 100ms ease;
 }
@@ -5185,7 +5562,7 @@ async function enablePackage(
 
 .wiz-side-item--stacked > .wiz-side-line > .wiz-side-row .wiz-side-name {
   flex: 0 1 auto;
-  font-weight: 550;
+  font-weight: 500;
 }
 
 /*
@@ -5193,10 +5570,13 @@ async function enablePackage(
   is still runnable from the palette but a newer draft is waiting to be saved;
   a hollow ring is a draft that has never been published.
 */
+/* Centred in a 14px column, the width of the New project icon above it, so
+   the names start where that label starts. */
 .wiz-side-dot {
   flex: 0 0 auto;
   width: 7px;
   height: 7px;
+  margin: 0 3px 0 4px;
   border-radius: 50%;
 }
 
@@ -5216,7 +5596,7 @@ async function enablePackage(
 */
 .wiz-side-dot--draft {
   background: none;
-  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.85);
+  box-shadow: inset 0 0 0 1.5px rgba(var(--fg-rgb), 0.85);
 }
 
 .wiz-side-presence {
@@ -5258,7 +5638,7 @@ async function enablePackage(
   /* Centred, not baseline: a caret has no baseline worth aligning to, and on
      one it sat below the text and read as having slipped. */
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   /* The constraint the name needs to be able to shorten itself. Without a width
      here the row shrink-wraps its content, overflows the button and is cut by
      its `overflow: hidden` — the title lost its last letters *and* its ellipsis,
@@ -5291,27 +5671,108 @@ async function enablePackage(
 }
 
 /*
+  The row's actions sit on top of the end of the row and take no width from it,
+  so a name uses the whole row until the pointer arrives.
+
+  The text under them fades out instead of being covered. A cover would need an
+  opaque colour, and the row is a tint over a card whose opacity the person
+  sets, so no colour matches it in both themes. The fade is as wide as the
+  buttons that are showing: 20px each, plus the inset.
+*/
+.wiz-side-line {
+  --wiz-side-actions: 64px;
+}
+
+.wiz-side-line--bare {
+  --wiz-side-actions: 44px;
+}
+
+.wiz-side-line--armed {
+  --wiz-side-actions: 84px;
+}
+
+.wiz-side-line--bare.wiz-side-line--armed {
+  --wiz-side-actions: 64px;
+}
+
+.wiz-side-history > .wiz-side-item {
+  --wiz-side-actions: 24px;
+}
+
+.wiz-side-actions {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+/*
+  Each row reveals its own actions, and only its own.
+
+  A project *is* an item and its conversations are items inside it, so a
+  descendant combinator on the item matched every nested delete button the
+  moment the pointer entered the project block. Child combinators keep each
+  reveal to the row that owns it.
+*/
+.wiz-side-line:hover > .wiz-side-actions,
+.wiz-side-line:has(:focus-visible) > .wiz-side-actions,
+.wiz-side-line--armed > .wiz-side-actions,
+.wiz-side-item--dragging > .wiz-side-line > .wiz-side-actions,
+.wiz-side-history > .wiz-side-item:hover > .wiz-side-actions,
+.wiz-side-history > .wiz-side-item:has(:focus-visible) > .wiz-side-actions {
+  opacity: 1;
+}
+
+.wiz-side-line:hover > .wiz-side-row,
+.wiz-side-line:has(:focus-visible) > .wiz-side-row,
+.wiz-side-line--armed > .wiz-side-row,
+.wiz-side-item--dragging > .wiz-side-line > .wiz-side-row,
+.wiz-side-history > .wiz-side-item:hover > .wiz-side-row,
+.wiz-side-history > .wiz-side-item:has(:focus-visible) > .wiz-side-row {
+  -webkit-mask-image: linear-gradient(
+    to left,
+    transparent var(--wiz-side-actions),
+    #000 calc(var(--wiz-side-actions) + 16px)
+  );
+  mask-image: linear-gradient(
+    to left,
+    transparent var(--wiz-side-actions),
+    #000 calc(var(--wiz-side-actions) + 16px)
+  );
+}
+
+.wiz-side-add,
+.wiz-side-grip,
+.wiz-side-del {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    opacity 120ms ease,
+    background-color 120ms ease;
+}
+
+/*
   Starting a conversation is an action on the project, so it is on the project's
   row rather than a line inside it that only exists once the project is open.
 */
 .wiz-side-add {
-  flex: 0 0 auto;
-  padding: 2px 6px;
-  border: none;
-  background: none;
-  color: inherit;
-  font: inherit;
   font-size: 15px;
-  line-height: 1;
-  opacity: 0;
-  cursor: pointer;
-  border-radius: 5px;
-  transition: opacity 120ms ease;
-}
-
-.wiz-side-line:hover > .wiz-side-add,
-.wiz-side-line:focus-within > .wiz-side-add {
-  opacity: 0.45;
+  opacity: 0.55;
 }
 
 .wiz-side-add:hover:not(:disabled) {
@@ -5325,31 +5786,17 @@ async function enablePackage(
   outline-offset: -1px;
 }
 
-/*
-  Visible on hover like the delete button: a handle on every row at rest is
-  forty pieces of furniture in a list that is read far more often than it is
-  rearranged.
-*/
 .wiz-side-grip {
-  flex: 0 0 auto;
-  padding: 2px;
   font-size: 11px;
-  line-height: 1;
-  opacity: 0;
+  opacity: 0.4;
   cursor: grab;
   /* The pointer must not be able to select text out from under a drag. */
   touch-action: none;
   user-select: none;
-  transition: opacity 120ms ease;
 }
 
 .wiz-side-item--dragging .wiz-side-grip {
   cursor: grabbing;
-}
-
-.wiz-side-line:hover > .wiz-side-grip,
-.wiz-side-line:focus-within > .wiz-side-grip {
-  opacity: 0.35;
 }
 
 .wiz-side-item--dragging {
@@ -5357,34 +5804,15 @@ async function enablePackage(
 }
 
 /*
-  The conversations hang off the project rather than sitting beside it: one
-  rail, indented under the name, so the eye can tell a project from its own
-  contents without reading either.
+  The conversations hang off the project by indentation alone: their text
+  starts in the project name's column, so the eye can tell a project from its
+  own contents without a rail or a panel drawn around them.
 */
 .wiz-side-history {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin: 3px 0 2px 11px;
-  padding: 0 0 0 9px;
-  border-left: 1px solid rgba(var(--fg-rgb), 0.09);
-}
-
-/*
-  Deliberately *not* the hover fill and not the selected treatment.
-
-  Both of those mean "this row, right now" — one because the pointer is on it,
-  one because it is open — and reusing either here would say that about a whole
-  group. This is a ground: one flat colour, no sheen, no rim, no shadow, and
-  lighter than both so a row lying on it still has its own two states to move
-  between. The rail is dropped where it applies, because a panel already groups
-  what the rail was drawn to group.
-*/
-.wiz-side-history--on {
-  padding: 4px 4px 5px 9px;
-  border-left-color: transparent;
-  border-radius: 8px;
-  background: rgba(var(--fg-rgb), 0.045);
+  gap: 1px;
+  margin: 1px 0 6px 20px;
 }
 
 /*
@@ -5408,42 +5836,42 @@ async function enablePackage(
 
 .wiz-side-when {
   flex: 0 0 auto;
+  margin-left: auto;
   font-size: 10px;
   opacity: 0.6;
 }
 
-.wiz-side-del {
-  border: none;
-  background: none;
-  color: inherit;
-  opacity: 0;
-  cursor: pointer;
-  padding: 2px 6px;
-  font-size: 14px;
-  line-height: 1;
-  transition: opacity 120ms ease;
+/*
+  The row whose conversation is being worked on, marked where a harness marks
+  a running thread: at the end of the row, in place of its age.
+*/
+.wiz-side-spinner {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 9px;
+  height: 9px;
+  margin-left: auto;
+  border: 1.5px solid rgba(var(--fg-rgb), 0.2);
+  border-top-color: rgba(var(--fg-rgb), 0.8);
+  border-radius: 50%;
+  animation: wiz-side-spin 0.8s linear infinite;
 }
 
-/*
-  Each row reveals its own chrome, and only its own.
+@keyframes wiz-side-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
-  `.wiz-side-item:hover .wiz-side-del` looked right and was not: a project *is*
-  an item and its conversations are items inside it, so a descendant combinator
-  matched every nested delete button the moment the pointer entered the project
-  block. Eight conversations then showed eight × at once, which reads as a
-  column of buttons rather than as an action on the row under the pointer.
-  Child combinators keep each reveal to the row that owns it.
-*/
-.wiz-side-line:hover > .wiz-side-del,
-.wiz-side-line:focus-within > .wiz-side-del,
-.wiz-side-history > .wiz-side-item:hover > .wiz-side-del,
-.wiz-side-history > .wiz-side-item:focus-within > .wiz-side-del {
-  opacity: 0.35;
+.wiz-side-del {
+  font-size: 14px;
+  opacity: 0.45;
 }
 
 .wiz-side-del:hover:not(:disabled),
 .wiz-side-del:focus-visible {
   opacity: 0.9;
+  background: rgba(var(--fg-rgb), 0.12);
 }
 
 .wiz-side-del:focus-visible {
@@ -5451,29 +5879,104 @@ async function enablePackage(
   outline-offset: -1px;
 }
 
-.wiz-side-del--armed {
-  opacity: 1;
-  font-size: 10px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: rgba(255, 120, 120, 0.2);
-  color: rgba(255, 157, 157, 0.95);
-}
-
 /* Armed is a state, not a hover: it stays visible until it is used or times out. */
 .wiz-side-del--armed,
 .wiz-side-del--armed:hover:not(:disabled) {
+  width: 40px;
+  font-size: 10px;
+  border-radius: 999px;
+  background: rgba(255, 120, 120, 0.2);
+  color: rgba(255, 157, 157, 0.95);
   opacity: 1;
 }
 
+/*
+  The sidebar's own actions are rows like the projects under them, not a
+  button the width of the column: the list is what this column is for.
+*/
+.wiz-side-top {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
 .wiz-new {
-  padding: 7px 10px;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: none;
   border-radius: 8px;
-  border: 1px solid rgba(var(--fg-rgb), 0.16);
-  background: rgba(var(--fg-rgb), 0.08);
+  background: none;
   color: inherit;
   font: inherit;
+  font-weight: 500;
+  text-align: left;
   cursor: pointer;
+  transition: background-color 100ms ease;
+}
+
+.wiz-new:hover:not(:disabled) {
+  background: var(--fill, rgba(var(--fg-rgb), 0.08));
+}
+
+.wiz-new:focus-visible {
+  outline: 1px solid rgba(var(--fg-rgb), 0.45);
+  outline-offset: -1px;
+}
+
+.wiz-new:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.wiz-new > .lmi {
+  flex: 0 0 auto;
+  opacity: 0.75;
+}
+
+.wiz-side-toggle,
+.wiz-side-expand {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  opacity: 0.55;
+  cursor: pointer;
+  transition:
+    opacity 120ms ease,
+    background-color 120ms ease;
+}
+
+.wiz-side-toggle:hover,
+.wiz-side-expand:hover {
+  background: var(--fill, rgba(var(--fg-rgb), 0.08));
+  opacity: 1;
+}
+
+.wiz-side-toggle:focus-visible,
+.wiz-side-expand:focus-visible {
+  outline: 1px solid rgba(var(--fg-rgb), 0.45);
+  outline-offset: -1px;
+  opacity: 1;
+}
+
+.wiz-side-heading {
+  flex: 0 0 auto;
+  margin: 6px 0 0;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(var(--fg-rgb), 0.45);
 }
 
 .wiz-head {
@@ -5481,6 +5984,8 @@ async function enablePackage(
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
+  /* The tab labels fold to their icons when the name needs the room. */
+  container-type: inline-size;
 }
 
 /*
@@ -5511,20 +6016,6 @@ async function enablePackage(
   background: rgba(var(--fg-rgb), 0.05);
   border-color: rgba(var(--fg-rgb), 0.2);
   outline: none;
-}
-
-.wiz-id {
-  /* Shrinks before anything else, and never grows: it is the least useful
-     thing on the row and the most likely to be long. */
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 130px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: ui-monospace, monospace;
-  font-size: 10px;
-  opacity: 0.4;
 }
 
 .wiz-presence {
@@ -5869,8 +6360,21 @@ async function enablePackage(
   color: rgba(155, 210, 180, 0.9);
 }
 
-/* A note's checkpoint sits under the box, centred on it, and on the page. */
+/*
+  A note's checkpoint appears under the box, in the gap to the next turn,
+  instead of reserving a line of its own: a column of notes with an empty line
+  under each read as scattered.
+*/
+.wiz-turn.note {
+  position: relative;
+}
+
 .wiz-turn.note .wiz-meta {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 0;
   display: flex;
   justify-content: center;
 }
@@ -5969,8 +6473,7 @@ async function enablePackage(
   opacity: 0.7;
 }
 
-.wiz-consent-btn,
-.wiz-actions button {
+.wiz-consent-btn {
   padding: 4px 12px;
   border-radius: 8px;
   border: 1px solid rgba(var(--fg-rgb), 0.22);
@@ -5980,13 +6483,11 @@ async function enablePackage(
   cursor: pointer;
 }
 
-.wiz-consent-btn:hover:not(:disabled),
-.wiz-actions button:hover:not(:disabled) {
+.wiz-consent-btn:hover:not(:disabled) {
   background: rgba(var(--fg-rgb), 0.18);
 }
 
-.wiz-consent-btn:disabled,
-.wiz-actions button:disabled {
+.wiz-consent-btn:disabled {
   opacity: 0.55;
   cursor: default;
 }
@@ -6252,28 +6753,73 @@ async function enablePackage(
   opacity: 0.55;
 }
 
-.wiz-tabs {
+/*
+  One control with segments rather than a row of words: the faces are
+  alternatives, and a track they sit in says so before any of them is read.
+  The open one is lifted with the app's selected-row treatment, the same one
+  the sidebar uses for the open project.
+*/
+.wiz-tabs,
+.wiz-actions {
   display: flex;
-  gap: 2px;
   flex: 0 0 auto;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: rgba(var(--fg-rgb), 0.06);
 }
 
-.wiz-tab {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 4px 8px;
+.wiz-tab,
+.wiz-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
   border: none;
-  border-radius: 6px;
+  border-radius: 7px;
   background: none;
   color: inherit;
-  opacity: 0.5;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0.6;
   cursor: pointer;
+  transition:
+    opacity 120ms ease,
+    background-color 120ms ease;
 }
 
-.wiz-tab--on {
-  background: rgba(var(--fg-rgb), 0.1);
-  opacity: 0.95;
+.wiz-tab:hover:not(:disabled),
+.wiz-actions button:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.wiz-tab:focus-visible,
+.wiz-actions button:focus-visible {
+  outline: 1px solid rgba(var(--fg-rgb), 0.45);
+  outline-offset: -1px;
+}
+
+.wiz-tab--on,
+.wiz-actions .wiz-action--primary {
+  background-color: var(--row-selected-bg, rgba(var(--fg-rgb), 0.1));
+  background-image: var(--row-selected-sheen, none);
+  box-shadow:
+    var(--row-selected-rim, inset 0 0 0 1px rgba(255, 255, 255, 0.05)),
+    var(--row-selected-shadow, 0 1px 3px rgba(0, 0, 0, 0.3));
+  opacity: 1;
+}
+
+@container (max-width: 340px) {
+  .wiz-tab {
+    padding: 0 7px;
+  }
+
+  .wiz-tab-label {
+    display: none;
+  }
 }
 
 .wiz-api {
@@ -6289,11 +6835,109 @@ async function enablePackage(
 
 .wiz-ep {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 6px;
-  padding: 8px;
-  border-radius: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
   border: 1px solid rgba(var(--fg-rgb), 0.12);
+  background: rgba(var(--fg-rgb), 0.035);
+}
+
+.wiz-api-heading {
+  flex: 0 0 auto;
+  margin: 2px 0 -4px;
+  padding: 0 2px;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(var(--fg-rgb), 0.45);
+}
+
+.wiz-provider-state {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.08);
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+  color: rgba(var(--fg-rgb), 0.7);
+}
+
+.wiz-provider-state--connected {
+  background: rgba(90, 205, 130, 0.14);
+  color: rgb(90, 190, 125);
+}
+
+.wiz-provider-state--disconnected,
+.wiz-provider-state--missing {
+  background: rgba(218, 164, 89, 0.16);
+  color: rgb(205, 150, 70);
+}
+
+.wiz-provider-queries {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 0 0;
+  padding: 8px 0 0;
+  border-top: 1px solid rgba(var(--fg-rgb), 0.08);
+  list-style: none;
+}
+
+.wiz-provider-queries li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+
+.wiz-provider-queries .wiz-ep-desc {
+  flex-basis: 100%;
+}
+
+.wiz-provider-call {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.wiz-provider-sub {
+  margin: 4px 0 -2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(var(--fg-rgb), 0.45);
+}
+
+/* Offered by the provider, not called by this widget: there, but quiet. */
+.wiz-provider-unused {
+  opacity: 0.5;
+}
+
+.wiz-provider-badge {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(90, 205, 130, 0.14);
+  color: rgb(90, 190, 125);
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.wiz-provider-badge--quiet {
+  background: rgba(var(--fg-rgb), 0.08);
+  color: rgba(var(--fg-rgb), 0.6);
+}
+
+.wiz-provider-badge--warn {
+  background: rgba(218, 164, 89, 0.16);
+  color: rgb(205, 150, 70);
+}
+
+.wiz-provider-result {
+  font-size: 11px;
+  color: #79b8d1;
 }
 
 .wiz-ep-head {
@@ -6377,18 +7021,12 @@ async function enablePackage(
   user-select: text;
 }
 
+/* The panel around it draws the frame; the code is its body. */
 .wiz-code {
   position: relative;
   flex: 1;
   min-height: 0;
-  border-radius: 10px;
-  border: 1px solid rgba(var(--fg-rgb), 0.14);
-  background: rgba(var(--fg-rgb), 0.05);
   overflow: hidden;
-}
-
-.wiz-code:focus-within {
-  border-color: rgba(var(--fg-rgb), 0.28);
 }
 
 /*
@@ -6477,6 +7115,16 @@ async function enablePackage(
   color: #c8a2d8;
 }
 
+/* HTML tags and CSS selectors: what the structure is made of. */
+.tok-tag {
+  color: #e0917c;
+}
+
+/* An attribute name plays the part a key plays in JSON, so it looks like one. */
+.tok-attr {
+  color: #79b8d1;
+}
+
 .wiz-empty {
   flex: 1;
   display: flex;
@@ -6497,11 +7145,11 @@ async function enablePackage(
 }
 
 /*
-  Fills the column above the Save row. Every child stretches so the stage
-  (or the empty grid) owns the leftover height instead of sitting at its
-  content size.
+  Fills the column behind the floating actions. Keep the stage's stacking
+  context below the toolbar, including its iframe and backdrop layers.
 */
 .wiz-preview-body {
+  isolation: isolate;
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -6513,18 +7161,17 @@ async function enablePackage(
   min-height: 0;
 }
 
-/*
-  Same line as `.wiz-compose-bar`: that bar is 28px plus the compose box's
-  7px padding-bottom. Matching both keeps Save / Save & Run / Discard on
-  the send-button baseline rather than floating up beside the textarea.
-*/
+/* Flush with the column top, the same line the Chat/Code tabs sit on. */
 .wiz-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 0 auto;
-  min-height: 28px;
-  padding-bottom: 7px;
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  max-width: 100%;
+  box-sizing: border-box;
+  backdrop-filter: blur(12px);
 }
 
 button {
@@ -6695,6 +7342,9 @@ button:disabled {
  * focusability), so tabbing to it reveals the row it lives in.
  */
 .wiz-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-top: 4px;
   opacity: 0;
   pointer-events: none;
@@ -6722,13 +7372,76 @@ button:disabled {
 }
 
 .wiz-usage--total {
+  display: flex;
+  align-items: center;
+  align-self: flex-end;
+  gap: 6px;
+  max-width: 100%;
   flex: 0 0 auto;
   margin: 0 0 2px;
   text-align: right;
+  opacity: 1;
 }
 
-.wiz-usage-model {
-  margin-left: 4px;
+.wiz-usage-summary { opacity: 0.45; }
+.wiz-copy-feedback { color: rgba(var(--fg-rgb), 0.65); }
+.wiz-copy-feedback:empty { display: none; }
+
+.wiz-copy-transcript {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(var(--fg-rgb), 0.7);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.wiz-usage--total:hover .wiz-copy-transcript,
+.wiz-usage--total:focus-within .wiz-copy-transcript {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.wiz-copy-transcript:hover { background: rgba(var(--fg-rgb), 0.08); }
+.wiz-copy-transcript:focus-visible { outline: 1px solid currentColor; outline-offset: 2px; }
+.wiz-copy-transcript:disabled { cursor: default; }
+
+@media (hover: none) {
+  .wiz-copy-transcript { opacity: 1; pointer-events: auto; }
+}
+
+.wiz-usage-mark,
+.wiz-cp-btn {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 22px;
+}
+
+.wiz-usage-mark {
+  flex: 0 0 auto;
+  justify-content: center;
+  width: 22px;
+  border-radius: 4px;
+  opacity: 0.6;
+  cursor: help;
+}
+
+.wiz-usage-mark:hover,
+.wiz-usage-mark:focus-visible {
+  opacity: 1;
+}
+
+.wiz-usage-mark:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
 }
 
 .wiz-usage-cost {
@@ -6741,7 +7454,6 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 5px;
-  margin-top: 2px;
   font-size: 10px;
   opacity: 0.6;
 }
@@ -6754,9 +7466,16 @@ button:disabled {
 }
 
 .wiz-cp-btn {
-  padding: 1px 7px;
+  gap: 5px;
+  padding: 0 7px;
   font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
   border-radius: 999px;
+}
+
+.wiz-cp-icon {
+  flex: 0 0 auto;
 }
 
 .wiz-versions {
@@ -6798,44 +7517,134 @@ button:disabled {
   display: flex;
   flex: 1;
   min-height: 0;
-  gap: 8px;
   /* Takes the height the transcript would have had, so switching tabs does not
      resize the column. */
   overflow: hidden;
+  border: 1px solid rgba(var(--fg-rgb), 0.12);
+  border-radius: 10px;
+  background: rgba(var(--fg-rgb), 0.035);
 }
 
-.wiz-filelist {
+.wiz-files:has(.wiz-code-edit:focus) {
+  border-color: rgba(var(--fg-rgb), 0.26);
+}
+
+.wiz-filetree {
+  display: flex;
   flex: 0 0 auto;
-  max-width: 40%;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  flex-direction: column;
+  width: clamp(120px, 32%, 190px);
+  padding: 8px 6px;
+  box-sizing: border-box;
+  border-right: 1px solid rgba(var(--fg-rgb), 0.08);
   overflow: auto;
 }
 
-.wiz-filebtn {
-  display: block;
+.wiz-filetree-heading {
+  margin: 0 0 4px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(var(--fg-rgb), 0.45);
+}
+
+.wiz-filelist {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Each level of folder indents by one icon plus its gap, so a file's icon sits
+   under its folder's name. */
+.wiz-filerow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
-  text-align: left;
-  padding: 3px 6px;
+  height: 24px;
+  padding: 0 6px 0 calc(6px + var(--depth, 0) * 19px);
+  box-sizing: border-box;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 11px;
-  opacity: 0.7;
-  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
   white-space: nowrap;
 }
 
-.wiz-filebtn:hover {
-  background: rgba(232, 232, 234, 0.08);
+.wiz-filerow--folder {
+  color: rgba(var(--fg-rgb), 0.55);
 }
 
-.wiz-filebtn--on {
-  background: rgba(232, 232, 234, 0.12);
-  opacity: 1;
+.wiz-filebtn {
+  color: rgba(var(--fg-rgb), 0.78);
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+
+.wiz-filebtn:hover {
+  background: var(--fill, rgba(var(--fg-rgb), 0.08));
+  color: rgba(var(--fg-rgb), 0.95);
+}
+
+.wiz-filebtn:focus-visible {
+  outline: 1px solid rgba(var(--fg-rgb), 0.45);
+  outline-offset: -1px;
+}
+
+.wiz-filebtn--on,
+.wiz-filebtn--on:hover {
+  background-color: var(--row-selected-bg, rgba(var(--fg-rgb), 0.1));
+  background-image: var(--row-selected-sheen, none);
+  box-shadow:
+    var(--row-selected-rim, inset 0 0 0 1px rgba(255, 255, 255, 0.05)),
+    var(--row-selected-shadow, 0 1px 3px rgba(0, 0, 0, 0.3));
+  color: rgba(var(--fg-rgb), 0.95);
+}
+
+.wiz-filename {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+  One colour per kind of file, mid-tone so it reads on the dark card and the
+  light one alike, and only on the icon: the names stay the text colour, so the
+  list is a column of names with a coloured mark rather than a rainbow.
+*/
+.wiz-fileicon {
+  flex: 0 0 auto;
+}
+
+.wiz-fileicon--json {
+  color: rgb(212, 158, 64);
+}
+
+.wiz-fileicon--markup {
+  color: rgb(224, 116, 84);
+}
+
+.wiz-fileicon--script {
+  color: rgb(198, 170, 48);
+}
+
+.wiz-fileicon--style {
+  color: rgb(86, 146, 226);
+}
+
+.wiz-fileicon--image {
+  color: rgb(164, 116, 214);
+}
+
+.wiz-fileicon--text,
+.wiz-fileicon--folder {
+  color: rgba(var(--fg-rgb), 0.55);
 }
 
 .wiz-fileedit {
@@ -6845,18 +7654,55 @@ button:disabled {
   flex-direction: column;
 }
 
+.wiz-filepath {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 12px;
+  border-bottom: 1px solid rgba(var(--fg-rgb), 0.08);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.wiz-filepath > .wiz-fileicon {
+  margin-right: 3px;
+}
+
+.wiz-filepath-dir {
+  color: rgba(var(--fg-rgb), 0.5);
+}
+
+.wiz-filepath-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
 .wiz-filenote {
-  margin: 0 0 4px;
+  margin: 0;
+  padding: 8px 12px 0;
   font-size: 11px;
   opacity: 0.7;
 }
 .wiz-tab-count {
-  margin-left: 5px;
-  opacity: 0.55;
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.1);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 15px;
+  text-align: center;
+  box-sizing: border-box;
 }
 
-.wiz-tab[disabled] {
-  opacity: 0.4;
+.wiz-tab:disabled,
+.wiz-actions button:disabled {
+  opacity: 0.3;
   cursor: default;
 }
 .wiz-grip {
@@ -6875,102 +7721,22 @@ button:disabled {
   outline: none;
 }
 
-.wiz-side-toggle {
-  position: absolute;
-  top: 50%;
-  left: 8px;
-  display: flex;
-  align-items: flex-start;
-  flex-direction: column;
-  min-width: 132px;
-  padding: 7px 10px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 7px;
-  background: rgba(12, 12, 14, 0.96);
-  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.32);
-  color: rgba(255, 255, 255, 0.95);
-  font: inherit;
-  font-size: 12px;
-  line-height: 1.25;
-  cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-50%);
-  transition: background-color 120ms, opacity 120ms;
-  z-index: 5;
-}
-
-.wiz-c2:hover .wiz-side-toggle,
-.wiz-c2:focus-within .wiz-side-toggle,
-.wiz-side-toggle:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.wiz-side-toggle-title {
-  font-weight: 600;
-}
-
-.wiz-side-toggle-hint {
-  margin-top: 3px;
-  color: rgba(255, 255, 255, 0.65);
-}
-
-.wiz-side-toggle:hover {
-  background: rgba(24, 24, 27, 0.98);
-  opacity: 1;
-}
-
-.wiz-side-toggle:focus-visible {
-  outline: 1px solid rgba(255, 255, 255, 0.5);
-  outline-offset: 1px;
-  opacity: 1;
-}
-
-/* A collapsed sidebar leaves a small, quiet handle rather than a full-height
-   highlighted rail. Its native title still explains how to expand it. */
+/*
+  Folded away, the divider has no width to set. It only holds the way back,
+  level with the header rather than halfway down the edge where it used to be
+  a tab nobody looked for.
+*/
 .wiz-grip.wiz-c2--sidebar-collapsed,
 .wiz-grip.wiz-c2--sidebar-collapsed:hover,
 .wiz-grip.wiz-c2--sidebar-collapsed:focus-visible {
   background: transparent;
+  cursor: default;
 }
 
-.wiz-c2--sidebar-collapsed .wiz-side-toggle {
-  top: 50%;
-  left: -16px;
-  min-width: 14px;
-  width: 14px;
-  height: 28px;
-  padding: 0;
-  border-color: rgba(var(--fg-rgb), 0.1);
-  border-radius: 4px;
-  background: rgba(var(--fg-rgb), 0.06);
-  color: inherit;
-  font-size: 0;
-  opacity: 0.55;
-  pointer-events: auto;
-  transform: translateY(-50%);
-  box-shadow: none;
-  display: grid;
-  place-items: center;
-}
-
-.wiz-c2--sidebar-collapsed .wiz-side-toggle::before {
-  content: "›";
-  font-size: 14px;
-  line-height: 1;
-}
-
-.wiz-c2--sidebar-collapsed .wiz-side-toggle-title,
-.wiz-c2--sidebar-collapsed .wiz-side-toggle-hint {
-  display: none;
-}
-
-.wiz-c2--sidebar-collapsed .wiz-side-toggle:hover,
-.wiz-c2--sidebar-collapsed:focus-within .wiz-side-toggle {
-  background: rgba(var(--fg-rgb), 0.1);
-  border-color: rgba(var(--fg-rgb), 0.16);
-  opacity: 1;
+.wiz-side-expand {
+  position: absolute;
+  top: 2px;
+  left: -13px;
 }
 
 </style>

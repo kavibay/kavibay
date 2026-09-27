@@ -110,7 +110,9 @@ One window, `label: "main"`, created hidden and never destroyed
 
 - **Not `fullscreen: true`.** Exclusive fullscreen fights with transparency.
   Rust reads `current_monitor()` in `setup` and applies `set_size` +
-  `set_position` in physical pixels.
+  `set_position` in physical pixels. On macOS the window uses the monitor's
+  native work area, excluding the menu bar and Dock, so widget coordinates
+  and drag limits stay inside the usable desktop.
 - **`shadow: false`** matters on Windows: otherwise DWM draws a drop shadow
   around the invisible fullscreen rectangle.
 - **Hidden, not closed.** The hotkeys and the tray only call `show()` / `hide()`,
@@ -296,7 +298,7 @@ a pomodoro deliberately ignores it and keeps ticking.
 through the open cards (`widgetFocusCycle.ts`), `Ctrl+Alt+S` jumps back into the
 palette search from wherever focus sits, and `Ctrl+W` / `Ctrl+H` / `Ctrl+R` act on
 the palette's selected row while you are typing there, and on the card you are
-working in otherwise. `Ctrl+S` pins that same card and `Ctrl+D`
+working in otherwise. `Ctrl+P` (`Cmd+P` on macOS) pins that same card and `Ctrl+D`
 duplicates it (skipped for types with `allowDuplicate: false`). `widgetCloseKeys.ts`
 holds the rule that decides which — palette focus first, then the card owning
 the DOM focus, then the card the host handed keyboard focus to, then the last

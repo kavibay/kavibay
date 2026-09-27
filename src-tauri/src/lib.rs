@@ -3,6 +3,8 @@
 
 mod appearance_prefs;
 mod autostart;
+#[cfg(target_os = "macos")]
+mod behind_window_blur;
 mod commands;
 mod credentials;
 #[cfg(any(windows, target_os = "macos", test))]
@@ -42,7 +44,7 @@ use serde::Serialize;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager, PhysicalPosition, PhysicalSize, RunEvent,
+    Emitter, Manager, PhysicalPosition, RunEvent,
 };
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, ShortcutState};
 
@@ -484,6 +486,8 @@ pub fn run() {
             let active_window: SharedActiveWindow = Arc::new(Mutex::new(None));
             app.manage(active_window.clone());
             spawn_click_through_watcher(app.handle().clone(), click_through, active_window);
+            #[cfg(target_os = "macos")]
+            behind_window_blur::spawn(app.handle().clone());
 
             let clipboard_state = clipboard_widget::ClipboardState::default();
             app.manage(clipboard_state.clone());
@@ -680,6 +684,7 @@ pub fn run() {
             quick_action::quick_action_apply,
             quick_action::quick_action_open_widget,
             quick_action::quick_action_cancel,
+            quick_action::quick_action_open_access_settings,
             quick_action::quick_action_shortcut,
             quick_action::quick_action_shortcut_set,
             quick_action::quick_action_shortcut_capture,
@@ -694,6 +699,7 @@ pub fn run() {
             runtime_extensions::installs::connections_package_types,
             runtime_extensions::installs::connections_grant_package,
             credentials::credentials_list,
+            credentials::credentials_retry_access,
             credentials::credentials_status,
             credentials::credentials_save,
             credentials::credentials_delete,
@@ -821,7 +827,7 @@ fn fit_window_to_monitor(window: &tauri::WebviewWindow, target: OpenMonitor) -> 
     fit_window_to_monitor_tauri(window, target)
 }
 
-/// Tauri fallback: move onto the target monitor, then size to its physical bounds.
+/// Tauri fallback: fit the target monitor, respecting the macOS work area.
 fn fit_window_to_monitor_tauri(
     window: &tauri::WebviewWindow,
     target: OpenMonitor,
@@ -841,15 +847,17 @@ fn fit_window_to_monitor_tauri(
     };
 
     if let Some(monitor) = monitor {
+        // The macOS menu bar intercepts input even above our always-on-top window.
+        // Use the native work area (also excluding the Dock), so webview coordinates
+        // and every widget's drag boundary start below it, including on other displays.
+        #[cfg(target_os = "macos")]
+        let (position, size) = (monitor.work_area().position, monitor.work_area().size);
+        #[cfg(not(target_os = "macos"))]
+        let (position, size) = (*monitor.position(), *monitor.size());
+
         // Position first so the window enters the target DPI context before resize.
-        window.set_position(PhysicalPosition::new(
-            monitor.position().x,
-            monitor.position().y,
-        ))?;
-        window.set_size(PhysicalSize::new(
-            monitor.size().width,
-            monitor.size().height,
-        ))?;
+        window.set_position(position)?;
+        window.set_size(size)?;
     }
     Ok(())
 }

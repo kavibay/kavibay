@@ -17,6 +17,7 @@ import type {
 } from "./types";
 import { DEFAULT_CONTENT_SCALE, clampContentScale } from "./resizeLogic";
 import { normalizeWidgetAppearance } from "./widgetAppearance";
+import { pruneOrphanRuntimeStorage } from "../runtime/runtimeStorage";
 
 export const LAYOUT_STORAGE_KEY = "kavibay:layout-v3";
 export const LAYOUT_STORAGE_KEY_V2 = "kavibay:layout-v2";
@@ -61,6 +62,21 @@ export function newInstanceId(): string {
     return crypto.randomUUID();
   }
   return `inst-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Whether anything in the app's keyspace belongs to this instance: runtime
+ * package storage, widget data or widget settings. Their keys all put the id
+ * last, alone or before a `\0` field separator, so a longer id never matches.
+ */
+export function instanceHoldsData(instanceId: string): boolean {
+  const own = `:${instanceId}`;
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (!key?.startsWith("kavibay:")) continue;
+    if (key.endsWith(own) || key.includes(`${own}\0`)) return true;
+  }
+  return false;
 }
 
 /**
@@ -185,20 +201,15 @@ function isValidCatalogEntry(c: unknown): c is WidgetCatalogEntry {
   return typeof entry.instanceId === "string" && typeof entry.typeId === "string";
 }
 
-/** Drop unknown typeIds from catalog and orphan placements; warn for skipped entries. */
-function filterKnownCatalog(
-  layout: SavedLayoutV4,
-  knownIds: Set<string>,
-): SavedLayoutV4 {
-  const catalog = layout.catalog
-    .map((c) => normalizeCatalogEntry(c))
-    .filter((c) => {
-      if (knownIds.has(c.typeId)) return true;
-      console.warn(
-        `[kavibay] Skipping layout catalog entry with unknown typeId "${c.typeId}"`,
-      );
-      return false;
-    });
+/**
+ * Normalize catalog entries and drop placements of instances it lacks.
+ *
+ * An unknown type stays. A runtime package is registered only after the async
+ * scan, so dropping unknown types deleted its cards at every start. Cards of a
+ * type with no definition do not mount.
+ */
+function normalizeCatalog(layout: SavedLayoutV4): SavedLayoutV4 {
+  const catalog = layout.catalog.map((c) => normalizeCatalogEntry(c));
   const knownInstanceIds = new Set(catalog.map((c) => c.instanceId));
   const desks = layout.desks.map((d) => ({
     ...d,
@@ -246,7 +257,7 @@ function upgradeLegacyPinFields(layout: SavedLayoutV4): SavedLayoutV4 {
 }
 
 /** Parse and normalize a stored layout-v4 document. */
-function parseLayoutV4(raw: string, knownIds: Set<string>): SavedLayoutV4 | null {
+function parseLayoutV4(raw: string): SavedLayoutV4 | null {
   try {
     const parsed = JSON.parse(raw) as SavedLayoutV4;
     if (
@@ -259,10 +270,7 @@ function parseLayoutV4(raw: string, knownIds: Set<string>): SavedLayoutV4 | null
     ) {
       return null;
     }
-    return filterKnownCatalog(
-      normalizeLayoutV4(upgradeLegacyPinFields(parsed)),
-      knownIds,
-    );
+    return normalizeCatalog(normalizeLayoutV4(upgradeLegacyPinFields(parsed)));
   } catch {
     return null;
   }
@@ -341,21 +349,19 @@ function loadLayoutV3(registry: RegisteredExtension[]): SavedLayoutV3 {
  * Existing / migrated installs skip the first-open search-bar reveal.
  */
 export function loadLayout(registry: RegisteredExtension[]): SavedLayoutV4 {
-  const knownIds = new Set(registry.map((d) => d.id));
-
   try {
     const v4raw = localStorage.getItem(LAYOUT_STORAGE_KEY_V4);
     if (v4raw) {
-      const v4 = parseLayoutV4(v4raw, knownIds);
+      const v4 = parseLayoutV4(v4raw);
       if (v4) {
         markFirstOpenDone();
         // Drop soft-hidden orphans left behind by older New/Gallery stacks.
-        const cleaned = purgeRedundantHiddenInstances(v4);
-        if (cleaned.removedInstanceIds.length > 0) {
-          saveLayout(cleaned.layout);
-          return cleaned.layout;
-        }
-        return v4;
+        const cleaned = purgeRedundantHiddenInstances(v4, instanceHoldsData);
+        if (cleaned.removedInstanceIds.length > 0) saveLayout(cleaned.layout);
+        // Runtime packages have no dispose hook, so a removed card leaves
+        // its values behind. The layout just loaded says which cards exist.
+        pruneOrphanRuntimeStorage(new Set(cleaned.layout.catalog.map((c) => c.instanceId)));
+        return cleaned.layout;
       }
     }
   } catch {

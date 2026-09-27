@@ -78,11 +78,14 @@ Stored unencrypted:
   and `web-storage.json` mirrors it, so the encrypted file is a durable copy of
   data that also exists in the profile in the clear.
 
-On platforms with no secret backend (Linux today), or on macOS when the keychain
-refuses the key, `web-storage.json` is written in plaintext instead of not at
-all, and the app logs `[web_storage] storing unprotected`. Credentials fail closed
-in the same situation; this file does not, because it is the only copy of the
-user's notes and refusing to write it would destroy them rather than expose them.
+On platforms with no secret backend (Linux today), `web-storage.json` is written
+in plaintext instead of not at all, and the app logs `[web_storage] storing
+unprotected`. On macOS, when the keychain refuses the key, an encrypted
+`web-storage.json` stays untouched and saves go to `web-storage.pending.json` in
+plaintext. The first load or save that gets the key folds that file back in,
+encrypts the result and deletes it. Credentials fail closed in both situations;
+widget content does not, because it is the only copy of the user's notes and
+refusing to write it would destroy them rather than expose them.
 
 **What this does not protect against:** any program running under your account,
 including a malicious runtime extension that escapes its sandbox. Encryption at

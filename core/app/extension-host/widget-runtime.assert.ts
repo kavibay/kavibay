@@ -241,7 +241,7 @@ const pairExtension = defineExtension({
         name: "both",
         displayName: "Both",
         defaultSize: { w: 1, h: 1 },
-        requires: { providers: [PAIR] },
+        requires: { providers: [PAIR], actions: { [PAIR]: ["refresh"] } },
         component: {
           async setup(ctx: WidgetContext<Record<string, never>>) {
             // The failing one first, so a naive last-writer-wins runtime ends on

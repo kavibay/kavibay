@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { installContentZoom } from "./contentZoom";
 import {
   computed,
   inject,
@@ -13,9 +14,9 @@ import {
 import { scheduleRegionSync, setClickThroughPaused } from "../system/clickThrough";
 import ResizeEdges from "./ResizeEdges.vue";
 import PinIcon from "./PinIcon.vue";
+import { isCardHeaderHit, useCardChromePosition } from "./useCardChromePosition";
 import {
   clampContentScale,
-  contentScaleFromWheel,
   DEFAULT_CONTENT_SCALE,
   RESIZE_EDGES_HORIZONTAL,
   RESIZE_EDGES_NO_TOP,
@@ -146,7 +147,7 @@ const emit = defineEmits<{
 const slots = useSlots();
 const shortcutHintTarget = inject(SHORTCUT_HINT_TARGET_KEY);
 const shortcutModifier = shortcutModifierLabel();
-const pinShortcutTip = `Pin\n${shortcutModifier}+S`;
+const pinShortcutTip = `Pin\n${shortcutModifier}+P`;
 const hideShortcutTip = `Hide\n${shortcutModifier}+W`;
 
 /** Local flash class so re-highlighting restarts the CSS animation. */
@@ -169,6 +170,7 @@ const renaming = ref(false);
 const draftTitle = ref("");
 /** Pointer sits in the card's header band (see `onCardPointerMove`). */
 const headerHovered = ref(false);
+const chromeFocused = ref(false);
 /** Chrome Hide long-press: idle → pressing → armed (eye-off → × morph). */
 const hidePressPhase = ref<HidePressPhase>("idle");
 /** False while the pointer is dragged off the control (show eye-off again). */
@@ -189,14 +191,6 @@ const forceCoachChrome = computed(() => {
 });
 
 /**
- * The header band the chrome answers to: the 12px drag overhang above the card
- * down past the 28px buttons at `top: 8px`. Hovering the body leaves the card
- * clean, so passing the pointer over a stack of widgets does not light them up.
- */
-const HEADER_BAND_TOP_PX = -12;
-const HEADER_BAND_BOTTOM_PX = 40;
-
-/**
  * Hover is tracked by position, not by a hit target: the buttons sit above the
  * band as siblings, so a zone element would fire `pointerleave` the moment the
  * pointer reached one and flicker the chrome away under the cursor.
@@ -204,14 +198,14 @@ const HEADER_BAND_BOTTOM_PX = 40;
 function onCardPointerMove(event: PointerEvent) {
   const rect = rootEl.value?.getBoundingClientRect();
   if (!rect) return;
-  const y = event.clientY - rect.top;
-  headerHovered.value = y >= HEADER_BAND_TOP_PX && y <= HEADER_BAND_BOTTOM_PX;
+  headerHovered.value = isCardHeaderHit(event.clientY, rect.top);
 }
 
 /** Top drag strip + pin/⋯ while over the header, overlay open, or × long-press active. */
 const chromeVisible = computed(
   () =>
     headerHovered.value ||
+    chromeFocused.value ||
     menuOpen.value ||
     settingsOpen.value ||
     renaming.value ||
@@ -260,6 +254,7 @@ const chromeCompact = computed(() => {
       : measuredWidth.value;
   return typeof w === "number" && Number.isFinite(w) && w < COMPACT_CHROME_MAX_WIDTH;
 });
+const chromePositionStyle = useCardChromePosition(rootEl, chromeVisible);
 
 /** True when the host has locked an explicit size (content should fill). */
 const hostSized = computed(() => {
@@ -373,25 +368,7 @@ function onResizeEnd() {
   void nextTick().then(() => scheduleRegionSync());
 }
 
-/**
- * Ctrl/Meta + wheel zooms widget content (same scale as Ctrl+resize).
- * Trackpad pinch arrives here too — the webview reports it as a wheel event
- * with ctrlKey set and small fractional deltas.
- * Capture phase so it still runs over scroll areas that use @wheel.stop.
- * Non-passive so preventDefault can block page zoom.
- */
-function onContentWheel(event: WheelEvent) {
-  if (!(event.ctrlKey || event.metaKey)) return;
-  event.preventDefault();
-  event.stopPropagation();
-  const next = contentScaleFromWheel(
-    resolvedContentScale.value,
-    event.deltaY,
-    event.deltaMode,
-  );
-  if (next === resolvedContentScale.value) return;
-  emit("update:contentScale", next);
-}
+let stopContentZoom: (() => void) | undefined;
 
 /**
  * Open the widget menu; closes settings when opening.
@@ -625,10 +602,10 @@ function onRemoveAllDesks() {
   emit("remove", "everywhere");
 }
 
-/** Toggle title visibility and close the menu. */
-function onToggleHideTitle() {
+/** Restore a hidden title and close the menu. */
+function onShowTitle() {
   menuOpen.value = false;
-  emit("update:hideTitle", !props.hideTitle);
+  emit("update:hideTitle", false);
 }
 
 /** Start inline title edit on double-click. */
@@ -649,6 +626,19 @@ function commitRename() {
   const trimmed = draftTitle.value.trim();
   renaming.value = false;
   emit("rename", trimmed.length > 0 ? trimmed : undefined);
+}
+
+/** Tab may move to Hide title without ending the edit before its button activates. */
+function onTitleEditorFocusOut(event: FocusEvent) {
+  if (event.relatedTarget instanceof Node &&
+      (event.currentTarget as HTMLElement).contains(event.relatedTarget)) return;
+  commitRename();
+}
+
+function hideTitleFromEditor() {
+  commitRename();
+  emit("update:hideTitle", true);
+  rootEl.value?.focus({ preventScroll: true });
 }
 
 /** Abort rename without emitting. */
@@ -728,7 +718,7 @@ watch([menuOpen, settingsOpen, renaming, hidePressPhase], () => {
   syncDocListeners();
 });
 
-/** Re-report interactive rects after in-card chrome mounts or unmounts. */
+/** Re-report interactive rects after outside chrome mounts or unmounts. */
 watch(chromeVisible, async () => {
   await nextTick();
   scheduleRegionSync();
@@ -760,10 +750,13 @@ onMounted(() => {
   window.addEventListener(WIDGET_FOCUS_EVENT, onKavibayFocusWidget);
   void nextTick().then(() => {
     scheduleRegionSync();
-    rootEl.value?.addEventListener("wheel", onContentWheel, {
-      passive: false,
-      capture: true,
-    });
+    if (rootEl.value) {
+      stopContentZoom = installContentZoom(
+        rootEl.value,
+        () => resolvedContentScale.value,
+        (scale) => emit("update:contentScale", scale),
+      );
+    }
     if (rootEl.value && typeof ResizeObserver !== "undefined") {
       widthObserver = new ResizeObserver((entries) => {
         const entry = entries[0];
@@ -778,7 +771,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener(WIDGET_FOCUS_EVENT, onKavibayFocusWidget);
-  rootEl.value?.removeEventListener("wheel", onContentWheel, { capture: true });
+  stopContentZoom?.();
   widthObserver?.disconnect();
   widthObserver = undefined;
   resetHidePress();
@@ -822,7 +815,7 @@ watch(
       'widget-card--full-drag': fullDrag,
       'widget-card--opaque': opaque,
     }"
-    :style="[sizedStyle, cardVars]"
+    :style="[sizedStyle, cardVars, chromePositionStyle]"
     @pointerenter="onCardPointerMove"
     @pointermove="onCardPointerMove"
     @pointerleave="headerHovered = false"
@@ -864,8 +857,10 @@ watch(
         'widget-card-chrome--dormant': !chromeVisible,
         'widget-card-chrome--coach': forceCoachChrome,
       }"
-      data-interactive
+      :data-interactive="chromeVisible ? '' : undefined"
       @pointerdown.stop
+      @focusin="chromeFocused = true"
+      @focusout="chromeFocused = false"
       @contextmenu="onHeaderContextMenu"
     >
       <button
@@ -882,7 +877,7 @@ watch(
         <PinIcon :active="pinned" />
         <span v-if="shortcutHintVisible" class="widget-card-shortcut-hint" aria-hidden="true">
           <span>Pin</span>
-          <span>{{ shortcutModifier }}+S</span>
+          <span>{{ shortcutModifier }}+P</span>
         </span>
       </button>
       <button
@@ -1063,15 +1058,14 @@ watch(
           Move to main panel
         </button>
         <button
+          v-if="hideTitle"
           type="button"
           role="menuitem"
           class="widget-menu-tool widget-menu-tool--labeled"
-          :aria-label="hideTitle ? 'Show title' : 'Hide title'"
-          :aria-pressed="hideTitle"
-          @click="onToggleHideTitle"
+          aria-label="Show title"
+          @click="onShowTitle"
         >
-          <!-- Type/"T": distinct from Hide widget (eye). Strike when title is visible (click to hide). -->
-          <svg v-if="hideTitle" class="widget-menu-tool-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <svg class="widget-menu-tool-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path
               d="M4 7V4h16v3M9 20h6M12 4v16"
               fill="none"
@@ -1081,26 +1075,7 @@ watch(
               stroke-linejoin="round"
             />
           </svg>
-          <svg v-else class="widget-menu-tool-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M4 7V4h16v3M9 20h6M12 4v16"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-            <line
-              x1="3"
-              y1="3"
-              x2="21"
-              y2="21"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-            />
-          </svg>
-          {{ hideTitle ? "Show title" : "Hide title" }}
+          Show title
         </button>
         <button
           v-if="!removeChoiceOpen"
@@ -1307,17 +1282,28 @@ watch(
       <slot name="settings" />
     </div>
 
-    <input
+    <div
       v-if="renaming"
-      ref="titleInputEl"
-      v-model="draftTitle"
-      class="widget-card-title-input"
-      type="text"
-      aria-label="Widget title"
+      class="widget-card-title-editor"
       @pointerdown.stop
-      @keydown="onTitleKeydown"
-      @blur="commitRename"
-    />
+      @focusout="onTitleEditorFocusOut"
+      @keydown.esc.stop.prevent="cancelRename"
+    >
+      <input
+        ref="titleInputEl"
+        v-model="draftTitle"
+        class="widget-card-title-input"
+        type="text"
+        aria-label="Widget title"
+        @keydown="onTitleKeydown"
+      />
+      <button
+        type="button"
+        class="widget-card-title-hide"
+        @pointerdown.prevent
+        @click.stop="hideTitleFromEditor"
+      >Hide title</button>
+    </div>
     <p
       v-else-if="!hideTitle"
       class="widget-card-title"
@@ -1402,16 +1388,27 @@ watch(
   cursor: grabbing;
 }
 
-/* Pin + ⋯ + Hide (eye-off) inside the card (top-right). Narrow cards: ⋯ only. */
+/* Outside, aligned to the right edge. Bottom padding bridges hover/click-through. */
 .widget-card-chrome {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: var(--card-chrome-top, -40px);
+  right: 0;
   z-index: 3;
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: 2px;
+  padding: 2px 2px 10px;
+  border-radius: 10px;
+}
+
+.widget-card-chrome::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 8px;
+  z-index: -1;
+  border-radius: inherit;
+  background: rgba(var(--surface-bg-rgb), 0.85);
 }
 
 /* In DOM for coach targeting, but not interactive/visible until hover or tour. */
@@ -1682,7 +1679,6 @@ watch(
   position: relative;
   z-index: 1;
   margin: 0 0 6px;
-  padding-right: 64px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -1691,18 +1687,36 @@ watch(
   cursor: text;
 }
 
-.widget-card-title-input {
+.widget-card-title-editor {
   position: relative;
   z-index: 1;
-  display: block;
+  display: flex;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
   box-sizing: border-box;
   width: 100%;
-  margin: 0 0 6px;
-  padding: 2px 4px;
-  padding-right: 64px;
+  margin: 0 0 8px;
+  padding: 4px;
   border: 1px solid rgba(var(--fg-rgb), 0.2);
-  border-radius: 6px;
+  border-radius: 8px;
   background: rgba(0, 0, 0, 0.25);
+}
+
+.widget-card-title-editor:focus-within {
+  border-color: rgba(var(--fg-rgb), 0.35);
+}
+
+.widget-card-title-input {
+  flex: 1 1 80px;
+  min-width: 0;
+  max-width: 100%;
+  width: 0;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  font-family: inherit;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -1713,8 +1727,29 @@ watch(
   user-select: text;
 }
 
-.widget-card-title-input:focus {
-  border-color: rgba(var(--fg-rgb), 0.35);
+.widget-card-title-hide {
+  flex: 0 1 auto;
+  max-width: 100%;
+  margin-left: auto;
+  padding: 5px 7px;
+  border: 1px solid rgba(var(--fg-rgb), 0.12);
+  border-radius: 5px;
+  background: rgba(var(--fg-rgb), 0.06);
+  color: rgba(var(--fg-rgb), 0.65);
+  font-family: inherit;
+  font-size: 10px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.widget-card-title-hide:hover {
+  background: rgba(var(--fg-rgb), 0.12);
+  color: rgba(var(--fg-rgb), 0.95);
+}
+
+.widget-card-title-hide:focus-visible {
+  outline: 1px solid rgba(var(--fg-rgb), 0.65);
+  outline-offset: 2px;
 }
 
 .widget-card-body {
@@ -1760,19 +1795,29 @@ watch(
 }
 
 .widget-card--flush .widget-card-title,
-.widget-card--flush .widget-card-title-input {
+.widget-card--flush .widget-card-title-editor {
   position: absolute;
   top: 0;
   left: 0;
-  right: 92px;
+  right: 0;
   z-index: 2;
   margin: 0;
-  padding: 10px 12px;
   box-sizing: border-box;
+}
+
+.widget-card--flush .widget-card-title {
+  padding: 10px 12px;
   /* Keep the title gradient from squaring off the image's top-left corner. */
   border-top-left-radius: var(--surface-radius, 16px);
   corner-shape: var(--surface-corner-shape, round);
   background: linear-gradient(rgba(0, 0, 0, 0.55), transparent);
+}
+
+.widget-card--flush .widget-card-title-editor {
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  width: auto;
 }
 
 .widget-card--flush .widget-card-body {
@@ -1798,8 +1843,8 @@ watch(
 
 .widget-context-menu {
   position: absolute;
-  top: 40px;
-  right: 8px;
+  top: calc(var(--card-chrome-top, -40px) + 44px);
+  right: 0;
   z-index: 10;
   min-width: 0;
   padding: 4px;
@@ -2025,8 +2070,8 @@ watch(
 
 .widget-settings-popover {
   position: absolute;
-  top: 40px;
-  right: 8px;
+  top: calc(var(--card-chrome-top, -40px) + 44px);
+  right: 0;
   z-index: 10;
   min-width: 220px;
   padding: 12px;

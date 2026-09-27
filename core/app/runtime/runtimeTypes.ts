@@ -85,6 +85,8 @@ export interface ScannedRuntimeExtension {
   description?: string | null;
   path: string;
   uiEntry: string;
+  /** Publish-directory timestamp; changes when the Wizard replaces a package. */
+  updatedAt?: number | null;
   /** Optional package-relative icon path from manifest (e.g. icon.svg). */
   icon?: string | null;
   permissions: string[];

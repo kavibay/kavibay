@@ -1,7 +1,8 @@
 //! Enumerate installed apps for the palette launcher.
 //!
 //! Windows: Start apps + Start Menu shortcuts + uninstall registry.
-//! macOS: `.app` bundles under `/Applications` and `~/Applications`.
+//! macOS: `.app` bundles in the folders Finder shows as Applications, their
+//! Utilities folders, and `~/Applications`.
 
 use serde::Serialize;
 
@@ -76,11 +77,21 @@ pub async fn list_installed_apps() -> Result<Vec<InstalledApp>, String> {
     }
 }
 
-/// Scan `/Applications` and `~/Applications` for launchable `.app` bundles.
+/// Scan the application folders for launchable `.app` bundles.
+///
+/// Finder shows `/Applications` merged with `/System/Applications`, where the
+/// apps that ship with macOS live (Mail, Music, Notes, System Settings). Their
+/// Utilities folders hold Terminal and Activity Monitor.
 #[cfg(target_os = "macos")]
 fn scan_installed_apps_macos() -> Result<Vec<InstalledApp>, String> {
     let mut out = Vec::new();
-    for dir in [PathBuf::from("/Applications"), home_applications_dir()] {
+    for dir in [
+        PathBuf::from("/Applications"),
+        PathBuf::from("/Applications/Utilities"),
+        PathBuf::from("/System/Applications"),
+        PathBuf::from("/System/Applications/Utilities"),
+        home_applications_dir(),
+    ] {
         collect_macos_apps_in_dir(&dir, &mut out);
     }
     out.sort_by_key(|a| a.name.to_lowercase());
@@ -889,5 +900,22 @@ fn expand_env_vars(input: &str) -> String {
         }
         let len = (written as usize).saturating_sub(1);
         String::from_utf16_lossy(&buf[..len])
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_apps_that_ship_with_macos_are_listed() {
+        let apps = scan_installed_apps_macos().unwrap();
+        let paths: Vec<&str> = apps.iter().map(|a| a.path.as_str()).collect();
+        for expected in [
+            "/System/Applications/Mail.app",
+            "/System/Applications/Utilities/Terminal.app",
+        ] {
+            assert!(paths.contains(&expected), "{expected} missing");
+        }
     }
 }

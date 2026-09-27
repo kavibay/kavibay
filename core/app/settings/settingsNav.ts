@@ -72,6 +72,11 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
         ],
       },
       {
+        id: "search",
+        label: "Search",
+        keywords: ["palette", "search actions", "search engines", "google", "duckduckgo", "chatgpt", "claude", "ecosia", "brave", "bing", "logos", "icons", "order", "reorder", "no matches"],
+      },
+      {
         id: "files",
         label: "Files and Folders",
         keywords: ["folders", "search scope", "paths", "downloads", "documents", "desktop"],

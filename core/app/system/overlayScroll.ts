@@ -61,11 +61,14 @@ function syncRail(state: Bound) {
   }
 
   const trackPad = 4;
-  const track = Math.max(0, ch - trackPad * 2);
-  const thumbH = Math.max(24, (ch / sh) * track);
+  // The body-level rail uses viewport pixels; clientHeight stays unscaled
+  // inside a widget's CSS zoom. Only the scroll fraction uses local units.
+  const track = Math.max(0, r.height - trackPad * 2);
+  const thumbH = Math.min(track, Math.max(24, (ch / sh) * track));
   const maxScroll = sh - ch;
   const maxY = Math.max(0, track - thumbH);
-  const thumbY = trackPad + (maxScroll > 0 ? (el.scrollTop / maxScroll) * maxY : 0);
+  const progress = Math.min(1, Math.max(0, el.scrollTop / maxScroll));
+  const thumbY = trackPad + progress * maxY;
 
   rail.style.top = `${Math.round(r.top)}px`;
   rail.style.left = `${Math.round(r.right - 10)}px`;

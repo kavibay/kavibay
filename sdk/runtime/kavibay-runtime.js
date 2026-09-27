@@ -354,10 +354,10 @@
     storage: {
       /** Reads this widget instance's stored value (`null` when unset). */
       get: function () {
-        return send({ type: "kavibay.ext.storage.get" }).then(function (reply) {
+        return storageReadPromise(send({ type: "kavibay.ext.storage.get" }).then(function (reply) {
           if (reply.ok === false) throw new Error(reply.error);
           return reply.value;
-        });
+        }));
       },
       /** Replaces this widget instance's stored value. */
       set: function (value) {
@@ -370,6 +370,21 @@
       },
     },
   };
+
+  // Match the contract guest: a missing await must not silently reset saved fields.
+  function storageReadPromise(promise) {
+    function misuse() {
+      throw new Error("kavibay.storage.get() returns a Promise. Use await kavibay.storage.get() before reading saved fields.");
+    }
+    return new Proxy(promise, {
+      get: function (target, key) {
+        if (key === "then" || key === "catch" || key === "finally") return target[key].bind(target);
+        if (Reflect.has(target, key)) return Reflect.get(target, key, target);
+        return misuse();
+      },
+      ownKeys: misuse,
+    });
+  }
 
   window.kavibay = kavibay;
   parent.postMessage({ type: "kavibay.ext.ready" }, "*");

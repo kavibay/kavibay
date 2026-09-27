@@ -2,13 +2,13 @@
 /**
  * A very small syntax highlighter, for the Wizard's file editor.
  *
- * Deliberately not a library. The editor shows three kinds of file — a
- * manifest, an `api.json`, and a widget script — and the job is to make a
- * string look different from a key so a misplaced quote is visible. Prism and
+ * Deliberately not a library. The editor shows a handful of kinds of file — a
+ * manifest, an `api.json`, a widget script, its HTML and CSS — and the job is
+ * to make a string look different from a key so a misplaced quote is visible. Prism and
  * highlight.js do that too, and also bring a grammar registry, a plugin system
  * and a theme format, none of which this editor has any use for.
  *
- * ONE TOKENIZER FOR BOTH LANGUAGES. JSON is a subset of JavaScript's literal
+ * ONE SCANNER FOR JSON AND SCRIPT. JSON is a subset of JavaScript's literal
  * syntax, so the same scanner reads both. The JavaScript keywords cannot
  * misfire on JSON: they match only as bare words, and in JSON every bare word
  * that is not `true`, `false` or `null` is already a syntax error.
@@ -17,6 +17,12 @@
  * interpolation, and JSX are not recognised and fall through as plain text.
  * They are unhighlighted rather than mis-highlighted, which is the right way
  * for a highlighter this size to be wrong.
+ *
+ * MARKUP AND STYLE. A generated `index.html` is mostly a `<style>` block and a
+ * `<script>`, so HTML is read as tags with the bodies of those two handed to
+ * the CSS and script scanners. CSS colours what can be told apart without a
+ * parser: selectors, property names, numbers and colours, at-rules. Value
+ * words such as `grid` or `center` stay plain.
  */
 
 /**
@@ -29,19 +35,23 @@
  */
 export const HIGHLIGHT_LIMIT = 60_000;
 
-export type TokenKind = "plain" | "comment" | "string" | "key" | "number" | "literal" | "keyword";
+export type TokenKind =
+  | "plain"
+  | "comment"
+  | "string"
+  | "key"
+  | "number"
+  | "literal"
+  | "keyword"
+  | "tag"
+  | "attr";
+
+/** Which scanner reads a file. JSON goes through `script`, see above. */
+export type Language = "script" | "markup" | "style";
 
 export interface CodeToken {
   readonly kind: TokenKind;
   readonly text: string;
-}
-
-/** Extensions worth scanning. Anything else — Markdown, text — renders plain. */
-const CODE_SUFFIXES = [".json", ".js", ".mjs", ".ts", ".mts"];
-
-export function isHighlightable(path: string): boolean {
-  const lower = path.toLowerCase();
-  return CODE_SUFFIXES.some((suffix) => lower.endsWith(suffix));
 }
 
 const LITERALS = new Set(["true", "false", "null", "undefined", "NaN", "Infinity"]);
@@ -93,33 +103,157 @@ function classify(text: string): TokenKind {
   return LITERALS.has(text) ? "literal" : "keyword";
 }
 
+/**
+ * Splits `source` into the matches of `pattern` and the plain text between
+ * them. Every alternative of every pattern consumes at least one character;
+ * the zero-length guard only keeps a future mistake from hanging the editor.
+ */
+function scan(
+  source: string,
+  pattern: RegExp,
+  kindOf: (match: RegExpExecArray) => TokenKind,
+): CodeToken[] {
+  const tokens: CodeToken[] = [];
+  let last = 0;
+  pattern.lastIndex = 0;
+
+  for (let match = pattern.exec(source); match !== null; match = pattern.exec(source)) {
+    const text = match[0];
+    if (text.length === 0) {
+      pattern.lastIndex += 1;
+      continue;
+    }
+    if (match.index > last) tokens.push({ kind: "plain", text: source.slice(last, match.index) });
+    tokens.push({ kind: kindOf(match), text });
+    last = match.index + text.length;
+  }
+
+  if (last < source.length) tokens.push({ kind: "plain", text: source.slice(last) });
+  return tokens;
+}
+
 /** A string followed by a colon is a property name, not a value. */
 const KEY_AHEAD = /^\s*:/;
 
-export function tokenize(source: string): CodeToken[] {
-  if (source.length === 0) return [];
-  if (source.length > HIGHLIGHT_LIMIT) return [{ kind: "plain", text: source }];
-
-  const tokens: CodeToken[] = [];
-  let last = 0;
-  TOKEN.lastIndex = 0;
-
-  for (let match = TOKEN.exec(source); match !== null; match = TOKEN.exec(source)) {
+function scanScript(source: string): CodeToken[] {
+  return scan(source, TOKEN, (match) => {
     const text = match[0];
-    if (match.index > last) tokens.push({ kind: "plain", text: source.slice(last, match.index) });
-
     const end = match.index + text.length;
-    let kind = classify(text);
+    const kind = classify(text);
     // A bounded slice, not the rest of the file: an unbounded lookahead makes
     // this quadratic, which is invisible on a manifest and not on a script.
-    if (kind === "string" && text.startsWith('"') && KEY_AHEAD.test(source.slice(end, end + 8))) {
-      kind = "key";
-    }
+    return kind === "string" && text.startsWith('"') && KEY_AHEAD.test(source.slice(end, end + 8))
+      ? "key"
+      : kind;
+  });
+}
 
-    tokens.push({ kind, text });
+/**
+ * CSS, told apart by position rather than parsed.
+ *
+ * A property is a name right after `{`, `;` or a comment whose colon is not
+ * followed by a `{`: that last part is what keeps `a:hover {` a selector. A
+ * selector is text right after `}`, `{`, `;`, a comment or the start of the
+ * file that runs into a `{`. Everything the two lookbehinds turn away, such
+ * as `http` in `url(http://x)`, stays plain.
+ */
+const STYLE_TOKEN = new RegExp(
+  [
+    /\/\*[\s\S]*?(?:\*\/|$)/,
+    /"(?:[^"\\\n]|\\.)*"?/,
+    /'(?:[^'\\\n]|\\.)*'?/,
+    /@[\w-]+/,
+    /!important\b/,
+    /(?<property>(?<=[{;/]\s*)[\w-]+(?=\s*:(?![^;{}]*\{)))/,
+    /#[0-9a-fA-F]{3,8}\b/,
+    /(?<![\w#-])-?\d*\.?\d+(?:[a-zA-Z]+|%)?/,
+    /(?<selector>(?<=(?:^|[{};/])\s*)[^\s{};][^{};]*?(?=\s*\{))/,
+  ]
+    .map((part) => part.source)
+    .join("|"),
+  "g",
+);
+
+function scanStyle(source: string): CodeToken[] {
+  return scan(source, STYLE_TOKEN, (match) => {
+    if (match.groups?.property !== undefined) return "key";
+    if (match.groups?.selector !== undefined) return "tag";
+    const first = match[0][0];
+    if (first === "/") return "comment";
+    if (first === '"' || first === "'") return "string";
+    if (first === "@" || first === "!") return "keyword";
+    return "number";
+  });
+}
+
+/**
+ * HTML: comments, the doctype, entities, and tags. A tag is matched whole and
+ * then split into its name, attributes and values. It stops at the next `<`
+ * when unclosed, so a tag being typed does not swallow the one after it.
+ */
+const MARKUP_TOKEN = new RegExp(
+  [/<!--[\s\S]*?(?:-->|$)/, /<![^<>]*>?/, /<\/?[A-Za-z][^<>]*>?/, /&(?:#\d+|#x[0-9a-fA-F]+|\w+);/]
+    .map((part) => part.source)
+    .join("|"),
+  "g",
+);
+
+const TAG_PART = /^<\/?[\w:-]*|\/?>$|"[^"]*"?|'[^']*'?|[^\s"'=<>/]+/g;
+
+function scanTag(tag: string): CodeToken[] {
+  return scan(tag, TAG_PART, (match) => {
+    const text = match[0];
+    if (text.startsWith("<") || text.endsWith(">")) return "tag";
+    if (text.startsWith('"') || text.startsWith("'")) return "string";
+    // An unquoted value is a value, not another attribute.
+    return tag[match.index - 1] === "=" ? "string" : "attr";
+  });
+}
+
+/** The two elements whose bodies are another language. */
+const EMBEDDED_OPEN = /^<(script|style)\b[^<>]*(?<!\/)>$/i;
+
+function scanMarkup(source: string): CodeToken[] {
+  const tokens: CodeToken[] = [];
+  let last = 0;
+  MARKUP_TOKEN.lastIndex = 0;
+
+  for (let match = MARKUP_TOKEN.exec(source); match !== null; match = MARKUP_TOKEN.exec(source)) {
+    const text = match[0];
+    if (match.index > last) tokens.push({ kind: "plain", text: source.slice(last, match.index) });
+    let end = match.index + text.length;
+
+    if (text.startsWith("<!--")) tokens.push({ kind: "comment", text });
+    else if (text.startsWith("&")) tokens.push({ kind: "literal", text });
+    else if (text.startsWith("<!")) tokens.push({ kind: "tag", text });
+    else {
+      tokens.push(...scanTag(text));
+      const embedded = EMBEDDED_OPEN.exec(text)?.[1]?.toLowerCase();
+      if (embedded) {
+        const close = source.slice(end).search(new RegExp(`</${embedded}\\b`, "i"));
+        const bodyEnd = close === -1 ? source.length : end + close;
+        const body = source.slice(end, bodyEnd);
+        if (body) tokens.push(...(embedded === "script" ? scanScript(body) : scanStyle(body)));
+        end = bodyEnd;
+        MARKUP_TOKEN.lastIndex = end;
+      }
+    }
     last = end;
   }
 
   if (last < source.length) tokens.push({ kind: "plain", text: source.slice(last) });
   return tokens;
+}
+
+const SCANNERS: Record<Language, (source: string) => CodeToken[]> = {
+  script: scanScript,
+  markup: scanMarkup,
+  style: scanStyle,
+};
+
+/** Which language a file is read as is the caller's: see `highlightLanguage`. */
+export function tokenize(source: string, language: Language): CodeToken[] {
+  if (source.length === 0) return [];
+  if (source.length > HIGHLIGHT_LIMIT) return [{ kind: "plain", text: source }];
+  return SCANNERS[language](source);
 }

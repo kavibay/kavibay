@@ -1,0 +1,25 @@
+/* WebKit applies an ancestor's initial CSS zoom to an iframe, but leaves its
+ * document at that zoom when it changes. Keep the frame at an effective zoom
+ * of 1 and scale its surface instead, including after a live resize/pinch. */
+.widget-frame-viewport {
+  zoom: calc(1 / var(--widget-content-scale, 1));
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.widget-frame-viewport > iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: calc(100% / var(--widget-content-scale, 1));
+  height: calc(100% / var(--widget-content-scale, 1));
+  transform: scale(var(--widget-content-scale, 1));
+  transform-origin: top left;
+  border: 0;
+  background: transparent;
+}

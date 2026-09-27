@@ -85,7 +85,8 @@ one — see Lucide's brand logo statement.
 
 `sdk/extension/brand/` ships logos, shown wherever the app names the account a
 user connects: the credential cards in Settings, the connect gate a widget shows
-before its provider is live, and the permission dialog for a widget package.
+before its provider is live, the permission dialog for a widget package, and
+the palette's search actions.
 
 Each is the trademark of its owner and is used nominatively — to identify the
 service being connected. No affiliation or endorsement is implied, the marks are
@@ -94,7 +95,12 @@ not modified beyond scaling (GitHub, Anthropic and OpenAI are drawn in
 of them is used as this app's own identity.
 
 - Anthropic — Anthropic PBC — https://www.anthropic.com
+- Claude — Anthropic PBC — https://claude.ai/favicon.svg
+- Brave Search — Brave Software, Inc. — https://brave.com/favicon.ico
+- Bing — Microsoft Corporation — https://www.bing.com/favicon.ico
 - Cloudflare — Cloudflare, Inc. — https://www.cloudflare.com
+- DuckDuckGo — Duck Duck Go, Inc. — https://duckduckgo.com/press
+- Ecosia — Ecosia GmbH — https://www.ecosia.org/favicon.ico
 - GitHub — GitHub, Inc. — https://github.com/logos
 - Google — Google LLC — https://about.google/brand-resource-center/
 - Linear — Linear Orbit, Inc. — https://linear.app/brand

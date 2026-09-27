@@ -16,16 +16,14 @@ import type { PackageOrigin } from "./runtimeTypes";
 export const RUNTIME_INSTALLS_KEY = "kavibay:runtime-installs-v1";
 
 /**
- * What a contract package was approved to read, as Rust stores it.
- *
- * Mirrors `ContractGrant` in `installs.rs`, including what it does not have: no
- * per-action list. Approving an account approves its actions too; the shape
- * cannot grow a second grant. The same reason `grantFrom` does not take
- * actions as a parameter.
+ * What a contract package was approved to read and to call, as Rust stores it.
+ * Mirrors `ContractGrant` in `installs.rs`.
  */
 export interface ContractGrant {
   /** Current shape: which accounts the person approved. */
   approved: string[];
+  /** The provider actions the person let it call, per provider. Absent means none. */
+  actions?: Record<string, string[]>;
   /**
    * Two older shapes, read and never written. Both carried per-query grants,
    * which no longer exist. Kept because dropping them would not fail loudly:
@@ -35,6 +33,25 @@ export interface ContractGrant {
   providers?: { provider: string; queries: string[] }[];
   provider?: string;
   queries?: string[];
+}
+
+/**
+ * The dialog's answer in the shape Rust stores. Rust clamps it again against
+ * the manifest on disk, so this can only be as wide as what was ticked.
+ */
+export function contractGrantFrom(grant: {
+  providers: readonly string[];
+  actions: Partial<Record<string, readonly string[]>>;
+}): ContractGrant {
+  const actions = Object.fromEntries(
+    Object.entries(grant.actions)
+      .filter(([, names]) => (names?.length ?? 0) > 0)
+      .map(([provider, names]) => [provider, [...(names ?? [])]]),
+  );
+  return {
+    approved: [...grant.providers],
+    ...(Object.keys(actions).length > 0 ? { actions } : {}),
+  };
 }
 
 /** One enabled/disabled install row for a scanned package id. */

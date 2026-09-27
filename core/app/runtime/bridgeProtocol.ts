@@ -102,6 +102,8 @@ export type HostToExt =
 export interface BridgeFrameIdentity {
   extId: string;
   instanceId: string;
+  /** Set only by host chrome; never accepted from a package message. */
+  storageExtId?: string;
   grantedPermissions: readonly string[];
 }
 
@@ -205,7 +207,7 @@ export function handleBridgeMessage(
         return storageError(msg.requestId, "permission denied: storage.instance");
       }
       const value = loadRuntimeInstanceJson(
-        identity.extId,
+        identity.storageExtId ?? identity.extId,
         identity.instanceId,
         storage,
       );
@@ -223,7 +225,7 @@ export function handleBridgeMessage(
       }
       try {
         saveRuntimeInstanceJson(
-          identity.extId,
+          identity.storageExtId ?? identity.extId,
           identity.instanceId,
           msg.value,
           storage,

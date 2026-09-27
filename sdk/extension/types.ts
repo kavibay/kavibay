@@ -15,6 +15,8 @@ export interface WidgetAppearance {
   blur?: number;
   /** Corner radius in CSS pixels. */
   radius?: number;
+  /** `false` drops the card's drop shadow; absent keeps the shared one. */
+  shadow?: boolean;
 }
 
 /** Center offset of a card relative to the palette, in CSS pixels. */

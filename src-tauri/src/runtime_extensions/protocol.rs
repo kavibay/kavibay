@@ -34,14 +34,16 @@ use super::validate::safe_join;
 /// `http://kavibay-img.localhost` on Windows and Android. Naming only one is a
 /// CSP that works on the developer's machine.
 ///
-/// `'self'` is kept for the package's own files but is not what carries this:
-/// the frame is `sandbox="allow-scripts"`, so its origin is opaque and `'self'`
-/// resolves to something that matches nothing. The scheme sources are the ones
-/// doing the work.
+/// WebKit does not match `'self'` for package resources in an opaque sandbox.
+/// Name the local package protocol explicitly for scripts, styles and images;
+/// otherwise macOS renders the HTML but blocks both the SDK and widget script.
+/// These sources reach the host's protocol handlers, not arbitrary web hosts.
+/// The frame keeps its opaque origin and direct network access stays denied.
 const EXTENSION_FRAME_CSP: &str = concat!(
     "default-src 'none'; ",
-    "img-src 'self' data: blob: kavibay-img: http://kavibay-img.localhost; ",
-    "style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'none'"
+    "img-src 'self' kavibay-ext: http://kavibay-ext.localhost data: blob: kavibay-img: http://kavibay-img.localhost; ",
+    "style-src 'self' kavibay-ext: http://kavibay-ext.localhost 'unsafe-inline'; ",
+    "script-src 'self' kavibay-ext: http://kavibay-ext.localhost; connect-src 'none'"
 );
 
 /// Parsed `kavibay-ext` request target.
@@ -79,7 +81,7 @@ fn handle_kavibay_ext_request<R: Runtime>(
 /// not matter. `nosniff` keeps a `.txt` from being promoted to HTML.
 fn file_response(bytes: Vec<u8>, content_type: &'static str) -> Response<Vec<u8>> {
     let bytes = if content_type.starts_with("text/html") {
-        with_canvas_reset(bytes)
+        with_frame_defaults(bytes)
     } else {
         bytes
     };
@@ -88,6 +90,7 @@ fn file_response(bytes: Vec<u8>, content_type: &'static str) -> Response<Vec<u8>
         .header(header::CONTENT_TYPE, content_type)
         .header(header::CONTENT_SECURITY_POLICY, EXTENSION_FRAME_CSP)
         .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+        .header(header::CACHE_CONTROL, "no-store")
         .body(bytes)
         .unwrap_or_else(|_| status_response(StatusCode::INTERNAL_SERVER_ERROR))
 }
@@ -152,6 +155,11 @@ const RUNTIME_SDK: &str = include_str!("../../../sdk/runtime/kavibay-runtime.js"
 const CONTRACT_GUEST_PATH: &str = "@kavibay/contract.js";
 const CONTRACT_GUEST: &str = include_str!("../../../sdk/contract-guest/kavibay-contract-guest.js");
 
+// Host gestures are shared by both package formats and installed before package
+// scripts, so a generated widget never has to implement zoom itself.
+const FRAME_GESTURES: &str = include_str!("../../../core/app/runtime/frameGestures.js");
+const FRAME_GESTURES_TAG: &str = "<script src=\"@kavibay/frame.js\"></script>";
+
 /// The canvas reset, injected into every HTML document this protocol serves.
 ///
 /// WHY HERE AND NOT ONLY IN THE GUESTS. Both guests inject the same rule, and
@@ -182,13 +190,13 @@ const CANVAS_RESET: &str = concat!(
     "</style>"
 );
 
-/// Put the reset as early in the document as it can legally go.
+/// Put the canvas reset and host gestures before the package's own code.
 ///
 /// After `<head>` where there is one, after `<html>` where there is not, and
 /// after the doctype otherwise — never before it, because a stray node ahead of
 /// the doctype drops the page into quirks mode, which changes far more than a
 /// background.
-fn with_canvas_reset(html: Vec<u8>) -> Vec<u8> {
+fn with_frame_defaults(html: Vec<u8>) -> Vec<u8> {
     let Ok(text) = std::str::from_utf8(&html) else {
         // Not text we can reason about; serve it untouched rather than corrupt it.
         return html;
@@ -203,17 +211,19 @@ fn with_canvas_reset(html: Vec<u8>) -> Vec<u8> {
         .or_else(|| lower.find("<!doctype").and_then(after_open_tag))
         .unwrap_or(0);
 
-    let mut out = String::with_capacity(text.len() + CANVAS_RESET.len());
+    let mut out = String::with_capacity(text.len() + CANVAS_RESET.len() + FRAME_GESTURES_TAG.len());
     out.push_str(&text[..at]);
     out.push_str(CANVAS_RESET);
+    out.push_str(FRAME_GESTURES_TAG);
     out.push_str(&text[at..]);
     out.into_bytes()
 }
 
 /// Scripts the host serves itself, under names no package file can claim.
-const HOST_SERVED: [(&str, &str); 2] = [
+const HOST_SERVED: [(&str, &str); 3] = [
     (RUNTIME_SDK_PATH, RUNTIME_SDK),
     (CONTRACT_GUEST_PATH, CONTRACT_GUEST),
+    ("@kavibay/frame.js", FRAME_GESTURES),
 ];
 
 /// The script body when a request is for one of the host-served names.
@@ -266,7 +276,7 @@ pub fn parse_kavibay_ext_uri(uri: &Uri) -> Result<KavibayExtTarget, String> {
         .decode_utf8()
         .map_err(|_| "path_not_utf8".to_string())?;
 
-    let (ext_id, relative_path) =
+    let (ext_id, mut relative_path) =
         if host.is_empty() || host.eq_ignore_ascii_case("localhost") || is_scheme_localhost(host) {
             // `kavibay-ext://localhost/<extId>/…` or `http://kavibay-ext.localhost/<extId>/…`
             split_ext_and_path(decoded_path.trim_start_matches('/'))?
@@ -280,6 +290,20 @@ pub fn parse_kavibay_ext_uri(uri: &Uri) -> Result<KavibayExtTarget, String> {
         };
 
     validate_ext_id(&ext_id)?;
+    // A host-minted directory changes every relative asset URL on a remount.
+    // It is not a filesystem path or a permission; safe_join still checks the rest.
+    if let Some(rest) = relative_path.strip_prefix("@run/") {
+        let (run_id, path) = rest.split_once('/').ok_or("invalid_frame_run")?;
+        if run_id.is_empty()
+            || run_id.len() > 64
+            || !run_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        {
+            return Err("invalid_frame_run".into());
+        }
+        relative_path = path.to_string();
+    }
     // Relative path still goes through safe_join (traversal / absolute / empty segments).
     if relative_path.is_empty() {
         return Err("missing_relative_path".into());
@@ -364,12 +388,60 @@ fn status_response(status: StatusCode) -> Response<Vec<u8>> {
     Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header(header::CACHE_CONTROL, "no-store")
         .body(Vec::new())
         .unwrap_or_else(|_| Response::new(Vec::new()))
 }
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn reload_directories_resolve_the_same_package_files() {
+        for origin in [
+            "kavibay-ext://localhost/demo",
+            "http://kavibay-ext.localhost/demo",
+            "kavibay-ext://demo",
+        ] {
+            for file in [
+                "ui/index.html",
+                "ui/widget.js",
+                "style.css",
+                "ui/@kavibay/contract.js",
+            ] {
+                for run in ["first-run", "second-run"] {
+                    let target =
+                        parse(&format!("{origin}/@run/{run}/{file}?published=42")).unwrap();
+                    assert_eq!(target.ext_id, "demo");
+                    assert_eq!(target.relative_path, file);
+                }
+            }
+        }
+        let draft = parse("kavibay-ext://localhost/__draft__demo/@run/new-run/widget.js").unwrap();
+        assert_eq!(draft.ext_id, "__draft__demo");
+        assert_eq!(draft.relative_path, "widget.js");
+        for suffix in ["", "/widget.js", "bad_token/widget.js", "../widget.js"] {
+            assert!(parse(&format!("kavibay-ext://localhost/demo/@run/{suffix}")).is_err());
+        }
+        let target = parse("kavibay-ext://localhost/demo/@run/valid/../secret").unwrap();
+        assert!(safe_join(&PathBuf::from("/packages/demo"), &target.relative_path).is_err());
+    }
+
+    #[test]
+    fn package_files_and_misses_are_never_cached() {
+        for response in [
+            super::file_response(b"script".to_vec(), "text/javascript"),
+            super::status_response(tauri::http::StatusCode::NOT_FOUND),
+        ] {
+            assert_eq!(
+                response
+                    .headers()
+                    .get(tauri::http::header::CACHE_CONTROL)
+                    .unwrap(),
+                "no-store"
+            );
+        }
+    }
 
     /// Every file a frame can navigate to carries the frame CSP — an SVG is a
     /// scripted document too, and without it `connect-src 'none'` was one
@@ -394,12 +466,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn package_documents_load_host_gestures_before_package_scripts() {
+        let response = super::file_response(
+            b"<!doctype html><html><head><script src=\"app.js\"></script></head></html>".to_vec(),
+            "text/html; charset=utf-8",
+        );
+        let html = std::str::from_utf8(response.body()).unwrap();
+        assert!(html.find("@kavibay/frame.js").unwrap() < html.find("app.js").unwrap());
+        assert!(super::host_served_script("ui/@kavibay/frame.js").is_some());
+        assert!(super::host_served_script("ui/not@kavibay/frame.js").is_none());
+    }
+
     /// The reset has to be in the document before the package's own CSS, or it
     /// is racing the parser — which is what made the black intermittent.
     #[test]
     fn the_canvas_reset_lands_at_the_top_of_the_head() {
         let html = b"<!doctype html><html lang=\"de\"><head><style>:root{color-scheme:dark}</style></head><body></body></html>";
-        let out = String::from_utf8(super::with_canvas_reset(html.to_vec())).unwrap();
+        let out = String::from_utf8(super::with_frame_defaults(html.to_vec())).unwrap();
 
         let reset = out
             .find("color-scheme:normal")
@@ -436,7 +520,7 @@ mod tests {
         ];
         for (input, expected) in cases {
             let out =
-                String::from_utf8(super::with_canvas_reset(input.as_bytes().to_vec())).unwrap();
+                String::from_utf8(super::with_frame_defaults(input.as_bytes().to_vec())).unwrap();
             assert!(
                 out.contains(expected),
                 "{input} did not place the reset: {out}"
@@ -447,13 +531,13 @@ mod tests {
     /// A fragment with neither is still served, and still gets the rule.
     #[test]
     fn a_document_with_no_tags_at_all_is_not_corrupted() {
-        let out = String::from_utf8(super::with_canvas_reset(b"<p>hi</p>".to_vec())).unwrap();
+        let out = String::from_utf8(super::with_frame_defaults(b"<p>hi</p>".to_vec())).unwrap();
         assert!(out.starts_with("<style>"));
         assert!(out.ends_with("<p>hi</p>"));
 
         // Bytes that are not text are served untouched rather than mangled.
         let binary = vec![0xff, 0xfe, 0x00];
-        assert_eq!(super::with_canvas_reset(binary.clone()), binary);
+        assert_eq!(super::with_frame_defaults(binary.clone()), binary);
     }
     use super::super::drafts::is_valid_package_id;
     use super::super::validate::safe_join;

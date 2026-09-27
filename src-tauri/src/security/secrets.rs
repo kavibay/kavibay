@@ -25,13 +25,39 @@ pub fn protect_secret(plaintext: &str) -> Result<String, String> {
     Ok(B64.encode(protected))
 }
 
+/// Why a protected value did not open.
+#[derive(Debug)]
+pub enum UnprotectError {
+    /// The OS did not hand out this user's key, as after a denied Keychain
+    /// prompt. The value may be fine, and a later attempt can open it.
+    KeyUnavailable(String),
+    /// The value does not open with this user's key: another user or machine,
+    /// or damage.
+    Unreadable(String),
+}
+
+impl From<UnprotectError> for String {
+    fn from(error: UnprotectError) -> Self {
+        match error {
+            UnprotectError::KeyUnavailable(message) | UnprotectError::Unreadable(message) => {
+                message
+            }
+        }
+    }
+}
+
 /// Decrypts a value previously produced by [`protect_secret`].
-pub fn unprotect_secret(encoded: &str) -> Result<String, String> {
-    let protected = B64
-        .decode(encoded.trim())
-        .map_err(|error| format!("corrupt protected secret: {error}"))?;
-    let bytes = unprotect_bytes(&protected)?;
-    String::from_utf8(bytes).map_err(|error| format!("protected secret is not UTF-8: {error}"))
+pub fn unprotect_secret(encoded: &str) -> Result<String, UnprotectError> {
+    let protected = B64.decode(encoded.trim()).map_err(|error| {
+        UnprotectError::Unreadable(format!("corrupt protected secret: {error}"))
+    })?;
+    // With the key in hand, a failure below can only be the value's own.
+    #[cfg(target_os = "macos")]
+    master_key().map_err(UnprotectError::KeyUnavailable)?;
+    let bytes = unprotect_bytes(&protected).map_err(UnprotectError::Unreadable)?;
+    String::from_utf8(bytes).map_err(|error| {
+        UnprotectError::Unreadable(format!("protected secret is not UTF-8: {error}"))
+    })
 }
 
 #[cfg(windows)]
@@ -171,12 +197,53 @@ const SEALED_V1: u8 = 1;
 /// `web_storage` seals on every debounce tick. A Keychain read per call would be
 /// a round trip per save and, on a build the item does not trust yet (every
 /// unsigned rebuild), an access prompt per save. A refusal is kept for the same
-/// reason, and the next start asks again. Concurrent first callers wait on the
-/// one fetch, so they raise one prompt between them.
+/// reason, until [`retry_access`] forgets it or the next start asks again.
 #[cfg(target_os = "macos")]
 fn master_key() -> Result<MasterKey, String> {
-    static MASTER_KEY: std::sync::OnceLock<Result<MasterKey, String>> = std::sync::OnceLock::new();
-    MASTER_KEY.get_or_init(fetch_master_key).clone()
+    MASTER_KEY.get_or_fetch(fetch_master_key)
+}
+
+#[cfg(target_os = "macos")]
+static MASTER_KEY: KeyCache = KeyCache::new();
+
+/// Forgets a refused Keychain read, so the next secret operation asks again.
+/// A key that was read stays.
+pub fn retry_access() {
+    #[cfg(target_os = "macos")]
+    MASTER_KEY.forget_failure();
+}
+
+/// The outcome of the one Keychain fetch. Concurrent first callers wait on
+/// that fetch, so they raise one prompt between them.
+#[cfg(any(target_os = "macos", test))]
+struct KeyCache(std::sync::Mutex<Option<Result<MasterKey, String>>>);
+
+#[cfg(any(target_os = "macos", test))]
+impl KeyCache {
+    const fn new() -> Self {
+        Self(std::sync::Mutex::new(None))
+    }
+
+    fn get_or_fetch(
+        &self,
+        fetch: impl FnOnce() -> Result<MasterKey, String>,
+    ) -> Result<MasterKey, String> {
+        self.lock().get_or_insert_with(fetch).clone()
+    }
+
+    fn forget_failure(&self) {
+        let mut outcome = self.lock();
+        if matches!(*outcome, Some(Err(_))) {
+            *outcome = None;
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Option<Result<MasterKey, String>>> {
+        // A fetch that panics stores nothing, so a poisoned slot is still consistent.
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -208,7 +275,10 @@ struct KeychainItem<'a> {
     account: &'a str,
 }
 
-/// `errSecItemNotFound` and `errSecDuplicateItem` from `SecBase.h`.
+/// `errSecUserCanceled`, `errSecItemNotFound` and `errSecDuplicateItem` from
+/// `SecBase.h`. Denying the access prompt is a user cancel.
+#[cfg(target_os = "macos")]
+const ERR_SEC_USER_CANCELED: i32 = -128;
 #[cfg(target_os = "macos")]
 const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
 #[cfg(target_os = "macos")]
@@ -240,6 +310,10 @@ fn read_key(item: &KeychainItem) -> Result<Option<MasterKey>, String> {
                 )
             }),
         Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(None),
+        Err(error) if error.code() == ERR_SEC_USER_CANCELED => Err(format!(
+            "access to \"{}\" in your login keychain was denied",
+            item.service
+        )),
         Err(error) => Err(format!("keychain read failed: {error}")),
     }
 }
@@ -357,6 +431,28 @@ mod tests {
         assert!(!protected.contains(secret));
         let restored = unprotect_secret(&protected).expect("unprotect");
         assert_eq!(restored, secret);
+    }
+
+    #[test]
+    fn a_refused_key_is_asked_for_again_only_after_a_retry() {
+        let cache = KeyCache::new();
+        let key = random_key().unwrap();
+        let denied = || Err("denied".to_string());
+
+        assert_eq!(cache.get_or_fetch(denied), denied());
+        assert_eq!(
+            cache.get_or_fetch(|| panic!("a refusal must not prompt again")),
+            denied()
+        );
+
+        cache.forget_failure();
+        assert_eq!(cache.get_or_fetch(|| Ok(key)), Ok(key));
+
+        cache.forget_failure();
+        assert_eq!(
+            cache.get_or_fetch(|| panic!("a key that was read must be kept")),
+            Ok(key)
+        );
     }
 
     #[test]
