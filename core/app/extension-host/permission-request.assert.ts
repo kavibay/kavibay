@@ -24,6 +24,9 @@ function assert(cond: boolean, msg: string) {
   if (!cond) throw new Error(msg);
 }
 
+/** A grant to read these accounts, and to change nothing. */
+const reading = (...providers: string[]) => ({ providers, actions: {} });
+
 function boot() {
   const reg = new ExtensionRegistry();
   reg.load(tadoExtension, { kind: "bundled" });
@@ -139,21 +142,21 @@ const onlyTado = {
   assert(fresh.choices.every((c) => !c.granted), "a request on its own pre-ticks nothing");
   assert(!askedNothingNew(fresh, null), "with no prior grant there is always something to decide");
 
-  const carried = buildPermissionRequest(onlyTado, reg, [TADO]);
+  const carried = buildPermissionRequest(onlyTado, reg, reading(TADO));
   assert(
     carried.choices.every((c) => c.granted),
     "an account the person already approved for this package comes back ticked",
   );
-  assert(askedNothingNew(carried, [TADO]), "the same request against the same grant asks nothing new");
+  assert(askedNothingNew(carried, reading(TADO)), "the same request against the same grant asks nothing new");
 
   // Narrowing is the user's to do in Settings, not a reason to interrupt an edit.
   assert(
-    askedNothingNew(carried, [TADO, "kavibay.other/x"]),
+    askedNothingNew(carried, reading(TADO, "kavibay.other/x")),
     "asking for less than was granted still decides nothing",
   );
 
   assert(
-    !askedNothingNew(carried, ["kavibay.other/x"]),
+    !askedNothingNew(carried, reading("kavibay.other/x")),
     "a grant for a different account is not this grant",
   );
 
@@ -162,11 +165,54 @@ const onlyTado = {
    * otherwise every edit of a package naming an uninstalled account would
    * reopen the dialog forever, with nothing in it the person could act on.
    */
-  const withMissing = buildPermissionRequest(asking, reg, [TADO]);
+  const withMissing = buildPermissionRequest(asking, reg, reading(TADO));
   assert(
-    askedNothingNew(withMissing, [TADO]),
+    askedNothingNew(withMissing, reading(TADO)),
     "and a provider nobody ships does not keep the dialog coming back",
   );
+}
+
+// --- changes: asked per account, never pre-ticked, only with reading ---
+{
+  const reg = boot();
+  const writes = {
+    ...asking,
+    widget: {
+      ...asking.widget,
+      requires: { providers: [TADO], actions: { [TADO]: ["setTemperature", "boost"] } },
+    },
+  };
+
+  const request = buildPermissionRequest(writes, reg);
+  const choice = request.choices[0]!;
+  assert(choice.actions?.names.join() === "setTemperature", "only actions the provider has are offered");
+  assert(request.refused.includes(`${TADO}.boost`), "and one it does not have is shown as refused");
+  assert(choice.actions?.granted === false, "a change is never pre-ticked by the request");
+  assert((choice.actions?.summary.length ?? 0) > 0, "and it says what it does");
+
+  choice.granted = true;
+  assert(Object.keys(grantFrom(request).actions).length === 0, "reading alone grants no action");
+  choice.actions!.granted = true;
+  assert(
+    JSON.stringify(grantFrom(request)) === JSON.stringify({ providers: [TADO], actions: { [TADO]: ["setTemperature"] } }),
+    "ticking changes grants the declared actions on that account",
+  );
+  choice.granted = false;
+  const unread = grantFrom(request);
+  assert(
+    unread.providers.length === 0 && Object.keys(unread.actions).length === 0,
+    "a change on an account that may not be read is not granted",
+  );
+
+  const readOnly = buildPermissionRequest(writes, reg, reading(TADO));
+  assert(readOnly.choices[0]!.granted && readOnly.choices[0]!.actions?.granted === false,
+    "reading approved earlier comes back ticked, the change does not");
+  assert(!askedNothingNew(readOnly, reading(TADO)), "a change not yet decided asks again");
+
+  const both = { providers: [TADO], actions: { [TADO]: ["setTemperature"] } };
+  const carried = buildPermissionRequest(writes, reg, both);
+  assert(carried.choices[0]!.actions?.granted === true, "an approved change comes back ticked");
+  assert(askedNothingNew(carried, both), "and asks nothing new");
 }
 
 console.log("permission-request.assert.ts: ok");

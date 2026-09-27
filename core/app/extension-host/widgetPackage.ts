@@ -1,4 +1,10 @@
-import type { ConfigField, ExtensionManifest, ProviderId, WidgetDefinition } from "@sdk/contract/sdk";
+import type {
+  ConfigField,
+  ExtensionManifest,
+  ProviderActions,
+  ProviderId,
+  WidgetDefinition,
+} from "@sdk/contract/sdk";
 
 /**
  * Turns a widget package's `manifest.json` into something the registry can
@@ -18,19 +24,21 @@ import type { ConfigField, ExtensionManifest, ProviderId, WidgetDefinition } fro
  */
 
 /**
- * Deliberately the same two fields a `WidgetDefinition` carries, under the same
- * names: what the widget may address, and what it may do there. A grant that
- * described itself differently from the thing it produces would be a second
- * vocabulary for one fact, and the mapping between them the place a mistake
- * hides.
+ * Deliberately the same two fields `requires` carries, under the same names:
+ * which accounts the widget may read, and which actions it may call on them. A
+ * grant that described itself differently from the thing it produces would be
+ * a second vocabulary for one fact, and the mapping between them the place a
+ * mistake hides.
  *
- * `actions` inside a grant is not a field: FINDING 27 made the grant a
- * provider list. Palette `widget.actions` are still refused for generated
- * packages by the registry. Provider actions run through `Host.action`.
+ * `actions` is required, not optional, so a caller building a grant has to say
+ * "none" out loud. Palette `widget.actions` are a different thing and still
+ * refused for generated packages by the registry.
  */
 export interface ApprovedGrant {
   /** The providers the user approved this widget for. Empty means none. */
   providers: ProviderId[];
+  /** The actions the user let it call, per approved provider. Empty means none. */
+  actions: ProviderActions;
 }
 
 /**
@@ -67,7 +75,8 @@ const strings = (value: unknown): string[] =>
 export function requestedPermissions(raw: unknown): ApprovedGrant {
   const manifest = record(raw, "manifest");
   const widget = record(manifest.widget, "manifest.widget");
-  return { providers: declaredProviders(widget) };
+  const providers = declaredProviders(widget);
+  return { providers, actions: declaredActions(widget, providers) };
 }
 
 /**
@@ -81,6 +90,30 @@ function declaredProviders(widget: Record<string, unknown>): ProviderId[] {
   const requires = record(widget.requires, "widget.requires");
   refuseSingular(requires);
   return strings(requires.providers) as ProviderId[];
+}
+
+/**
+ * `widget.requires.actions`, from JSON: provider id to action names.
+ *
+ * An array is refused with the shape spelled out, because `["createEvent"]` is
+ * the natural first guess and it is a permission with no stated subject
+ * (FINDINGS §25). A key outside `requires.providers` is refused for the same
+ * reason the registry refuses it on a bundled widget.
+ */
+function declaredActions(widget: Record<string, unknown>, providers: readonly ProviderId[]): ProviderActions {
+  const requires = widget.requires === undefined ? {} : record(widget.requires, "widget.requires");
+  if (requires.actions === undefined) return {};
+  if (Array.isArray(requires.actions)) {
+    fail('widget.requires.actions is keyed by provider: { "<provider id>": ["<action>"] }');
+  }
+  const actions: ProviderActions = {};
+  for (const [pid, names] of Object.entries(record(requires.actions, "widget.requires.actions"))) {
+    if (!providers.includes(pid)) {
+      fail(`widget.requires.actions names ${pid}, which is not in requires.providers`);
+    }
+    actions[pid] = strings(names);
+  }
+  return actions;
 }
 
 /**
@@ -125,12 +158,39 @@ export function widgetPackageManifest(raw: unknown, approved: ApprovedGrant): Ex
     );
   }
 
+  /**
+   * The actions come from the grant, like everything else a package may do.
+   * The file only bounds them: an approval naming an action the package never
+   * asked for was an answer to a different question, so it is refused rather
+   * than quietly narrowed.
+   */
+  const asked = declaredActions(widget, declared);
+  const actions: ProviderActions = {};
+  for (const [pid, names] of Object.entries(approved.actions)) {
+    if (!names?.length) continue;
+    if (!approved.providers.includes(pid)) {
+      fail(`the approval lets ${pid} be written to without approving it to be read`);
+    }
+    const unasked = names.filter((name) => !(asked[pid] ?? []).includes(name));
+    if (unasked.length) {
+      fail(`the approval names ${unasked.map((name) => `${pid}.${name}`).join(", ")}, which the package does not declare`);
+    }
+    actions[pid] = [...names];
+  }
+
   const definition: WidgetDefinition<Record<string, unknown>> = {
     name: str(widget.name, "widget.name"),
     displayName: str(widget.displayName, "widget.displayName"),
     description: typeof widget.description === "string" ? widget.description : undefined,
     defaultSize: size(widget.defaultSize),
-    ...(declared.length > 0 ? { requires: { providers: [...declared] } } : {}),
+    ...(declared.length > 0
+      ? {
+          requires: {
+            providers: [...declared],
+            ...(Object.keys(actions).length > 0 ? { actions } : {}),
+          },
+        }
+      : {}),
     /**
      * FINDING 14. Not read from the file, not merged with it, not intersected
      * with it — replaced by it having never been consulted.

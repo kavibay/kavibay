@@ -252,12 +252,19 @@ a package loads one or the other.
 |---|---|
 | name, version, display name, engine range | **every permission** |
 | default size, configuration schema | |
-| which provider it wants | which of that provider's queries |
+| which providers it wants | which of those accounts it may read |
+| which actions it wants (`requires.actions`) | which of those accounts it may also change |
 
-**A generated widget may call provider actions** on accounts the person
-approved — the same queries and actions a bundled widget gets. It still cannot
-contribute a provider, a command, or a palette callback: that is code the host
-would run, refused at load.
+**Writing is declared, reading is the account.** A widget, bundled or
+generated, may call a provider action only when it names it in
+`requires.actions`; `Host.action` refuses anything else with
+`permission-denied`, before it touches the connection. For a package the list
+that counts is the one in its grant: the dialog asks, per account, whether the
+widget may also make changes, and the definition's `requires.actions` is built
+from that answer. The file only bounds it — an approval naming an action the
+package never declared is refused. Generated code still cannot contribute a
+provider, a command, or a palette callback: that is code the host would run,
+refused at load.
 
 `widgetPackageManifest(raw, approved)` takes the grant as a required argument,
 so there is no path that reads a permission out of the file. `requestedPermissions(raw)`
@@ -340,8 +347,6 @@ refused. Once saved and approved it previews for real, through the same
 
 ## What is left
 
-- **Whether a generated widget may ever request an action.** Refused at load
-  today, in one function, deliberately.
 - **A package that changes what it asks for after consent** is not re-asked. It
   cannot gain anything — the stored grant is what loads, and a query added to
   the manifest afterwards is not in it — so this is a clarity gap rather than a
@@ -497,9 +502,14 @@ same wait presented as three surprises. A provider with
 
 **Grants are per provider, not per query.** `permissions` is gone (FINDINGS
 §27). `requires.providers` is the request, the approval dialog lists accounts,
-and the stored grant is a list of provider ids. Provider actions on those
-accounts run through `Host.action` for generated widgets too. What generated
-code still cannot contribute is a provider, a command, or a palette callback.
+and the stored grant is a list of provider ids. **Changes are the one finer
+answer**: `requires.actions` asks, the dialog offers "may also make changes"
+once per account, and `ContractGrant.actions` stores what was ticked, clamped in
+`set_enabled` to the manifest on disk and to the approved providers. It is one
+answer per account rather than one per action, because "may change your
+heating" is a decision and "may call `setTemperature` but not `boost`" is the
+per-query dialog again. What generated code still cannot contribute is a
+provider, a command, or a palette callback.
 
 **Stored grants read three shapes and write one.** `installs.json` records written before
 this say `{ provider, queries }` or `{ providers: [{ provider, queries }] }`;

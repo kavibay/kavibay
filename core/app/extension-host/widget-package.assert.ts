@@ -56,7 +56,7 @@ const greedy = {
 // --- the file's own list is never what is granted ---
 {
   // The user said yes to one query and no to the action.
-  const manifest = widgetPackageManifest(greedy, { providers: [TADO] });
+  const manifest = widgetPackageManifest(greedy, { providers: [TADO], actions: {} });
   const widget = manifest.contributes.widgets![0]!;
 
   assert(
@@ -82,7 +82,7 @@ const greedy = {
       ...greedy,
       widget: { ...greedy.widget, requires: undefined, configuration: undefined },
     },
-    { providers: [] },
+    { providers: [], actions: {} },
   );
   const widget = manifest.contributes.widgets![0]!;
   assert(widget.requires === undefined, "an empty approval addresses nothing");
@@ -92,11 +92,11 @@ const greedy = {
 // --- an approval about a different provider is refused, not reconciled ---
 {
   refuses(
-    () => widgetPackageManifest(greedy, { providers: ["kavibay.google-calendar/calendar"] }),
+    () => widgetPackageManifest(greedy, { providers: ["kavibay.google-calendar/calendar"], actions: {} }),
     "a grant for another provider",
   );
   refuses(
-    () => widgetPackageManifest(greedy, { providers: [] }),
+    () => widgetPackageManifest(greedy, { providers: [], actions: {} }),
     "a grant naming no provider at all",
   );
 }
@@ -132,7 +132,7 @@ const greedy = {
             },
           },
         },
-        { providers: [TADO] },
+        { providers: [TADO], actions: {} },
       ),
     "options sourced from a provider the package did not declare",
   );
@@ -150,14 +150,14 @@ const greedy = {
     },
   };
   refuses(
-    () => widgetPackageManifest(sneaky, { providers: [TADO] }),
+    () => widgetPackageManifest(sneaky, { providers: [TADO], actions: {} }),
     "options sourced from a provider the package never declared",
   );
 }
 
 // --- a package never runs in this document ---
 {
-  const manifest = widgetPackageManifest(greedy, { providers: [TADO] });
+  const manifest = widgetPackageManifest(greedy, { providers: [TADO], actions: {} });
   const widget = manifest.contributes.widgets![0]!;
   let threw = false;
   try {
@@ -172,7 +172,7 @@ const greedy = {
 
 // --- and the registry gives it the trust its load source implies ---
 {
-  const manifest = widgetPackageManifest(greedy, { providers: [TADO] });
+  const manifest = widgetPackageManifest(greedy, { providers: [TADO], actions: {} });
   const reg = new ExtensionRegistry();
   reg.load(manifest, { kind: "generated", builderSessionId: "session-1" });
   const ext = [...reg.extensions.values()][0];
@@ -190,7 +190,7 @@ const greedy = {
  * generated code in the host process: a provider, a command, a palette action.
  */
 {
-  const manifest = widgetPackageManifest(greedy, { providers: [TADO] });
+  const manifest = widgetPackageManifest(greedy, { providers: [TADO], actions: {} });
 
   const generated = new ExtensionRegistry();
   generated.load(tadoExtension, { kind: "bundled" });
@@ -203,7 +203,7 @@ const greedy = {
 // --- nor may generated output define a provider or a command ---
 {
   const withProvider = {
-    ...widgetPackageManifest(greedy, { providers: [TADO] }),
+    ...widgetPackageManifest(greedy, { providers: [TADO], actions: {} }),
     contributes: {
       widgets: [],
       providers: [{ name: "sneaky", displayName: "S", requiresCredential: true, hosts: ["x.example"], queries: {}, actions: {} }],
@@ -216,7 +216,7 @@ const greedy = {
   );
 
   const withCommand = {
-    ...widgetPackageManifest(greedy, { providers: [TADO] }),
+    ...widgetPackageManifest(greedy, { providers: [TADO], actions: {} }),
     contributes: {
       widgets: [],
       commands: [{ kind: "code", name: "run", title: "Run", run: () => {} }],
@@ -231,20 +231,20 @@ const greedy = {
 
 // --- malformed input is refused rather than half-loaded ---
 {
-  refuses(() => widgetPackageManifest(null, { providers: [] }), "null");
-  refuses(() => widgetPackageManifest({}, { providers: [] }), "an empty object");
+  refuses(() => widgetPackageManifest(null, { providers: [], actions: {} }), "null");
+  refuses(() => widgetPackageManifest({}, { providers: [], actions: {} }), "an empty object");
   refuses(
-    () => widgetPackageManifest({ ...greedy, widget: { ...greedy.widget, name: "" } }, { providers: [TADO] }),
+    () => widgetPackageManifest({ ...greedy, widget: { ...greedy.widget, name: "" } }, { providers: [TADO], actions: {} }),
     "an empty widget name",
   );
   refuses(
-    () => widgetPackageManifest({ ...greedy, engines: {} }, { providers: [TADO] }),
+    () => widgetPackageManifest({ ...greedy, engines: {} }, { providers: [TADO], actions: {} }),
     "a missing engine range",
   );
   refuses(
     () => widgetPackageManifest(
       { ...greedy, widget: { ...greedy.widget, configuration: { x: { type: "colour", label: "X" } } } },
-      { providers: [TADO] },
+      { providers: [TADO], actions: {} },
     ),
     "a field type that does not exist",
   );
@@ -260,7 +260,7 @@ const greedy = {
  * about what may live in a sandboxed document already are.
  */
 {
-  const manifest = widgetPackageManifest(exampleManifest, { providers: [] });
+  const manifest = widgetPackageManifest(exampleManifest, { providers: [], actions: {} });
   const widget = manifest.contributes.widgets![0]!;
   assert(widget.name === "counter", `the example loads, got ${widget.name}`);
   assert(
@@ -372,7 +372,7 @@ console.log("widget-package.assert.ts: ok");
         capabilities: { wizard: true, http: { hosts: ["example.com"], methods: ["GET"] }, openExternal: true },
       },
     } as never,
-    { providers: [] },
+    { providers: [], actions: {} },
   );
 
   const definition = built.contributes?.widgets?.[0] as { capabilities?: unknown } | undefined;
@@ -380,6 +380,51 @@ console.log("widget-package.assert.ts: ok");
   assert(
     definition!.capabilities === undefined,
     "a manifest asking for capabilities gets none, however it spells it",
+  );
+}
+
+// --- changes: the grant decides, the file only bounds ---
+{
+  const writes = {
+    ...greedy,
+    widget: { ...greedy.widget, requires: { providers: [TADO], actions: { [TADO]: ["setTemperature"] } } },
+  };
+  assert(
+    JSON.stringify(requestedPermissions(writes).actions) === JSON.stringify({ [TADO]: ["setTemperature"] }),
+    "the dialog can name the changes it asks to make",
+  );
+
+  const readOnly = widgetPackageManifest(writes, { providers: [TADO], actions: {} });
+  assert(
+    readOnly.contributes.widgets![0]!.requires?.actions === undefined,
+    "a change the file declares but the person did not approve is not in the definition",
+  );
+
+  const approved = widgetPackageManifest(writes, { providers: [TADO], actions: { [TADO]: ["setTemperature"] } });
+  assert(
+    JSON.stringify(approved.contributes.widgets![0]!.requires?.actions) === JSON.stringify({ [TADO]: ["setTemperature"] }),
+    "an approved change is",
+  );
+
+  refuses(
+    () => widgetPackageManifest(greedy, { providers: [TADO], actions: { [TADO]: ["setTemperature"] } }),
+    "an approval for a change the package never asked for",
+  );
+  refuses(
+    () => widgetPackageManifest(writes, { providers: [], actions: { [TADO]: ["setTemperature"] } }),
+    "a change on an account the approval does not let it read",
+  );
+  refuses(
+    () => requestedPermissions({ ...greedy, widget: { ...greedy.widget, requires: { providers: [TADO], actions: ["setTemperature"] } } }),
+    "a bare list of actions, with no provider they belong to",
+  );
+  refuses(
+    () =>
+      requestedPermissions({
+        ...greedy,
+        widget: { ...greedy.widget, requires: { providers: [TADO], actions: { "kavibay.other/x": ["go"] } } },
+      }),
+    "a change on a provider the package does not read",
   );
 }
 

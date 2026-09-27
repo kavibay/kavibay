@@ -40,6 +40,23 @@ export interface PermissionChoice {
    * guessing; offering it and saying so points at Settings.
    */
   note?: string;
+  /**
+   * The changes it asks to make on this account, when it declares any.
+   *
+   * One answer for all of them, not one per action: "may change your heating"
+   * is a decision; "may call setTemperature but not boost" is the per-query
+   * dialog FINDINGS §27 deleted, one level down.
+   */
+  actions?: ActionChoice;
+}
+
+export interface ActionChoice {
+  /** The declared actions this provider actually has. */
+  names: string[];
+  /** What they do, in the provider's own words. */
+  summary: string;
+  /** Only ever ticked by an earlier decision covering every one of `names`. */
+  granted: boolean;
 }
 
 export interface PermissionRequest {
@@ -63,13 +80,13 @@ export function buildPermissionRequest(
   raw: unknown,
   registry: ExtensionRegistry,
   /**
-   * Providers this package was already granted, if it is installed and enabled.
+   * What this package was already granted, if it is installed and enabled.
    *
    * Read from the install record, never from the manifest: the package states
    * what it wants and the person states what it gets, and that separation is
    * the whole point of `widgetPackageManifest(raw, approved)`.
    */
-  alreadyGranted: readonly string[] = [],
+  alreadyGranted: ApprovedGrant = { providers: [], actions: {} },
 ): PermissionRequest {
   const asked = requestedPermissions(raw);
   const choices: PermissionChoice[] = [];
@@ -81,13 +98,28 @@ export function buildPermissionRequest(
       refused.push(pid);
       continue;
     }
+    const declared = asked.actions[pid] ?? [];
+    const names = declared.filter((name) => provider.def.actions[name]);
+    // An action the provider does not have is offered to nobody, like a
+    // provider nobody ships; loading the package would refuse it anyway.
+    refused.push(...declared.filter((name) => !provider.def.actions[name]).map((name) => `${pid}.${name}`));
+    const approvedActions = alreadyGranted.actions[pid] ?? [];
     choices.push({
       provider: pid,
       providerName: provider.def.displayName,
       summary: summarize(provider.def),
       // Fail closed, in the UI as well as in the host.
-      granted: alreadyGranted.includes(pid),
+      granted: alreadyGranted.providers.includes(pid),
       ...(provider.def.requiresCredential ? {} : { note: "No account needed" }),
+      ...(names.length > 0
+        ? {
+            actions: {
+              names,
+              summary: summarizeActions(provider.def, names),
+              granted: names.every((name) => approvedActions.includes(name)),
+            },
+          }
+        : {}),
     });
   }
 
@@ -102,6 +134,13 @@ export function buildPermissionRequest(
  * person could decide about, and now that the decision is per provider the
  * sentence has to cover the whole account rather than one call.
  */
+function summarizeActions(
+  def: { actions: Record<string, { description?: string }> },
+  names: readonly string[],
+): string {
+  return names.map((name) => def.actions[name]?.description ?? name).join("; ");
+}
+
 function summarize(def: { queries: Record<string, { description?: string }> }): string {
   const sentences = Object.entries(def.queries)
     .map(([name, query]) => query.description ?? name)
@@ -126,11 +165,15 @@ function summarize(def: { queries: Record<string, { description?: string }> }): 
  */
 export function askedNothingNew(
   request: PermissionRequest,
-  granted: readonly string[] | null | undefined,
+  granted: ApprovedGrant | null | undefined,
 ): boolean {
   if (!granted) return false;
   // A refused provider is not on offer, so it cannot be part of a decision.
-  return request.choices.every((choice) => granted.includes(choice.provider));
+  return request.choices.every(
+    (choice) =>
+      granted.providers.includes(choice.provider) &&
+      (choice.actions?.names ?? []).every((name) => (granted.actions[choice.provider] ?? []).includes(name)),
+  );
 }
 
 /**
@@ -140,7 +183,15 @@ export function askedNothingNew(
  * it being here rather than being a flag somebody sets in a later refactor.
  */
 export function grantFrom(request: PermissionRequest): ApprovedGrant {
+  const granted = request.choices.filter((choice) => choice.granted);
   return {
-    providers: request.choices.filter((choice) => choice.granted).map((choice) => choice.provider),
+    providers: granted.map((choice) => choice.provider),
+    // Changes only on an account that may also be read: a write permission on
+    // something the widget may not see is not a state the dialog can produce.
+    actions: Object.fromEntries(
+      granted
+        .filter((choice) => choice.actions?.granted)
+        .map((choice) => [choice.provider, [...(choice.actions?.names ?? [])]]),
+    ),
   };
 }

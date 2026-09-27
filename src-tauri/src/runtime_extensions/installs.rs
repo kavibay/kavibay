@@ -14,7 +14,7 @@
 //! also fixes an old papercut: clearing the webview profile silently wiped every
 //! grant.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
@@ -32,27 +32,29 @@ use super::limits::{clamp_daily_budget, DEFAULT_DAILY_BUDGET};
 /// design, section 3.
 const GRANTABLE: &[&str] = &["storage.instance", "network.declared"];
 
-/// What a contract package was allowed to read.
+/// What a contract package was allowed to read, and which actions it may call.
 ///
 /// A separate vocabulary from `granted_permissions`, deliberately: that list is
 /// the runtime catalogue (`storage.instance`, `network.declared`) and a query
 /// name put through it would be dropped as unknown. The two consent screens ask
 /// different questions and neither answer belongs in the other's field.
-///
-/// **There is no `actions` field.** Approving an account approves its actions
-/// too (FINDINGS §27). A shape that cannot hold a per-action list cannot be
-/// edited into a second grant. The frontend's `grantFrom` makes the same
-/// decision the same way, by not taking actions as a parameter.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContractGrant {
-    /// Which accounts the person approved this widget for.
+    /// Which accounts the person approved this widget for, to read from.
     ///
-    /// The whole answer now. Per-query grants are gone (FINDINGS §27): what a
-    /// person decides is which accounts a widget may use. Provider actions on
-    /// those accounts run through `Host.action`.
+    /// Per-query grants are gone (FINDINGS §27): what a person decides is which
+    /// accounts a widget may use. Writing to one is the separate `actions`.
     #[serde(default)]
     pub approved: Vec<String>,
+    /// The provider actions the person let this widget call, per provider.
+    ///
+    /// A second answer beside `approved` because writing is a second question:
+    /// "may read your heating" and "may change it" are both answers somebody
+    /// actually has, where "may use `zoneStates`" was not (FINDINGS §27). The
+    /// frontend's `Host.action` refuses anything not listed. Absent means none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub actions: BTreeMap<String, Vec<String>>,
     /// Two older spellings, read and never written. `migrate` folds them into
     /// `approved` on load, so the file rewrites itself the first time anything
     /// else changes.
@@ -220,6 +222,24 @@ fn normalize(records: Vec<InstallRecord>) -> Vec<InstallRecord> {
     by_id.into_values().collect()
 }
 
+/// The actions a grant may keep: on an approved provider, and declared by the
+/// manifest as it is on disk. Like `clamp_queries`, it can only shrink what the
+/// person ticked, and a provider left with no action is dropped.
+fn clamp_actions(
+    granted: &BTreeMap<String, Vec<String>>,
+    approved: &[String],
+    requested: &BTreeMap<String, Vec<String>>,
+) -> BTreeMap<String, Vec<String>> {
+    granted
+        .iter()
+        .filter(|(provider, _)| approved.contains(provider))
+        .filter_map(|(provider, names)| {
+            let kept = clamp_queries(names, requested.get(provider)?);
+            (!kept.is_empty()).then(|| (provider.clone(), kept))
+        })
+        .collect()
+}
+
 /// Keeps only queries the package's manifest actually asks for.
 ///
 /// The honest path cannot trip this: the dialog offers what the manifest
@@ -254,6 +274,38 @@ fn requested_contract_providers(app: &AppHandle, ext_id: &str) -> Option<Vec<Str
             .filter_map(|value| value.as_str().map(str::to_string))
             .collect(),
     )
+}
+
+/// `widget.requires.actions` as it is on disk: provider id to action names.
+///
+/// Empty when there is none or the package is not a contract one, which fails
+/// closed the same way `requested_contract_providers` does.
+fn requested_contract_actions(app: &AppHandle, ext_id: &str) -> BTreeMap<String, Vec<String>> {
+    let Some(root) = super::package_root_for(app, ext_id) else {
+        return BTreeMap::new();
+    };
+    let Ok(text) = fs::read_to_string(root.join("manifest.json")) else {
+        return BTreeMap::new();
+    };
+    let Ok(raw) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return BTreeMap::new();
+    };
+    raw.pointer("/widget/requires/actions")
+        .and_then(|actions| actions.as_object())
+        .map(|actions| {
+            actions
+                .iter()
+                .filter_map(|(provider, names)| {
+                    let names = names
+                        .as_array()?
+                        .iter()
+                        .filter_map(|name| name.as_str().map(str::to_string))
+                        .collect();
+                    Some((provider.clone(), names))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -627,8 +679,15 @@ pub fn runtime_extensions_installs_set(
             // user ticked can only shrink here, never grow. A provider the
             // package no longer declares is dropped rather than kept.
             let requested = requested_contract_providers(&app, &id).unwrap_or_default();
+            let grant = grant.migrated();
+            let approved = clamp_queries(&grant.approved, &requested);
             ContractGrant {
-                approved: clamp_queries(&grant.migrated().approved, &requested),
+                actions: clamp_actions(
+                    &grant.actions,
+                    &approved,
+                    &requested_contract_actions(&app, &id),
+                ),
+                approved,
                 providers: Vec::new(),
                 provider: None,
                 queries: Vec::new(),
@@ -771,27 +830,82 @@ mod tests {
     fn grant(providers: &[&str]) -> ContractGrant {
         ContractGrant {
             approved: providers.iter().map(|id| (*id).to_string()).collect(),
-            providers: Vec::new(),
-            provider: None,
-            queries: Vec::new(),
+            ..ContractGrant::default()
         }
+    }
+
+    fn actions(rows: &[(&str, &[&str])]) -> BTreeMap<String, Vec<String>> {
+        rows.iter()
+            .map(|(provider, names)| {
+                (
+                    (*provider).to_string(),
+                    names.iter().map(|name| (*name).to_string()).collect(),
+                )
+            })
+            .collect()
+    }
+
+    /// What the person ticked can only shrink when it is stored: an action on a
+    /// provider that was not approved, or one the manifest on disk no longer
+    /// declares, is dropped, and so is a provider left with nothing.
+    #[test]
+    fn a_stored_action_grant_is_clamped_to_the_manifest_and_the_approval() {
+        let granted = actions(&[
+            ("kavibay.tado/tado", &["setTemperature", "boost"]),
+            ("kavibay.spotify/spotify", &["play"]),
+            ("kavibay.linear/linear", &["createIssue"]),
+        ]);
+        let requested = actions(&[
+            ("kavibay.tado/tado", &["setTemperature"]),
+            ("kavibay.spotify/spotify", &["play"]),
+            ("kavibay.linear/linear", &["updateIssue"]),
+        ]);
+        let approved = vec![
+            "kavibay.tado/tado".to_string(),
+            "kavibay.linear/linear".to_string(),
+        ];
+
+        assert_eq!(
+            clamp_actions(&granted, &approved, &requested),
+            actions(&[("kavibay.tado/tado", &["setTemperature"])]),
+        );
+    }
+
+    /// Records written before the field existed read as "no actions", and a
+    /// grant without actions writes no key, so old files stay byte-identical.
+    #[test]
+    fn a_grant_without_actions_reads_and_writes_as_before() {
+        let old: ContractGrant =
+            serde_json::from_str(r#"{"approved":["kavibay.tado/tado"]}"#).expect("parses");
+        assert!(old.actions.is_empty());
+        assert_eq!(
+            serde_json::to_string(&old).expect("serializes"),
+            r#"{"approved":["kavibay.tado/tado"]}"#,
+        );
+
+        let with = ContractGrant {
+            actions: actions(&[("kavibay.tado/tado", &["setTemperature"])]),
+            ..old
+        };
+        let round: ContractGrant =
+            serde_json::from_str(&serde_json::to_string(&with).expect("serializes"))
+                .expect("parses");
+        assert_eq!(round, with, "and a grant with actions round-trips");
     }
 
     /// The oldest shape: one provider, its own query list, written before a
     /// widget could name more than one.
     fn legacy_grant(provider: &str, queries: &[&str]) -> ContractGrant {
         ContractGrant {
-            approved: Vec::new(),
-            providers: Vec::new(),
             provider: Some(provider.into()),
             queries: queries.iter().map(|q| (*q).to_string()).collect(),
+            ..ContractGrant::default()
         }
     }
 
     /// The middle shape: several providers, each with its own query list.
     fn per_query_grant(rows: &[(&str, &[&str])]) -> ContractGrant {
         ContractGrant {
-            approved: Vec::new(),
             providers: rows
                 .iter()
                 .map(|(provider, queries)| ContractProviderGrant {
@@ -799,8 +913,7 @@ mod tests {
                     queries: queries.iter().map(|q| (*q).to_string()).collect(),
                 })
                 .collect(),
-            provider: None,
-            queries: Vec::new(),
+            ..ContractGrant::default()
         }
     }
 
@@ -868,6 +981,7 @@ mod tests {
             }],
             provider: Some("kavibay.tado/tado".into()),
             queries: vec!["zones".into()],
+            ..ContractGrant::default()
         }
         .migrated();
         assert_eq!(
