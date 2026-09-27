@@ -44,6 +44,8 @@ export interface WizardPermissionChoice {
   provider: string;
   /** "tado°", not "kavibay.tado/tado". */
   providerName: string;
+  /** What reading from it gets the widget, in the provider's own words. */
+  summary: string;
   granted: boolean;
   /**
    * The changes the package asks to make on this account. The same shape as the
@@ -173,11 +175,11 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-/** `widget.requires.actions` as the manifest states it. Anything malformed reads as none. */
-function requestedContractActions(raw: unknown): Record<string, string[]> {
-  const actions = asRecord(asRecord(asRecord(asRecord(raw)?.widget)?.requires)?.actions);
+/** `widget.requires.actions` or `.queries` as the manifest states it. Anything malformed reads as none. */
+function requestedContractNames(raw: unknown, field: "actions" | "queries"): Record<string, string[]> {
+  const named = asRecord(asRecord(asRecord(asRecord(raw)?.widget)?.requires)?.[field]);
   return Object.fromEntries(
-    Object.entries(actions ?? {}).map(([pid, names]) => [
+    Object.entries(named ?? {}).map(([pid, names]) => [
       pid,
       Array.isArray(names) ? names.filter((name): name is string => typeof name === "string") : [],
     ]),
@@ -205,7 +207,8 @@ export function buildWizardPermissionRequest(
 ): WizardPermissionRequest {
   const choices: WizardPermissionChoice[] = [];
   const refused: string[] = [];
-  const asked = requestedContractActions(raw);
+  const asked = requestedContractNames(raw, "actions");
+  const reads = requestedContractNames(raw, "queries");
 
   for (const pid of requestedContractProviders(raw)) {
     const provider = providers.find((entry) => entry.id === pid);
@@ -221,6 +224,7 @@ export function buildWizardPermissionRequest(
     choices.push({
       provider: pid,
       providerName: provider.displayName,
+      summary: readSummary(provider, reads[pid] ?? []),
       granted: alreadyGranted.providers.includes(pid),
       ...(names.length > 0
         ? {
@@ -239,12 +243,29 @@ export function buildWizardPermissionRequest(
   return { choices, refused };
 }
 
+/**
+ * The host dialog's sentence under an account, built the same way: the declared
+ * queries when the package names them, else the first two of the account's.
+ */
+function readSummary(provider: WizardProviderSchema, declared: readonly string[]): string {
+  const describe = (name: string) =>
+    provider.queries.find((query) => query.name === name)?.description ?? name;
+  const known = declared.filter((name) => provider.queries.some((query) => query.name === name));
+  if (known.length > 0) return known.map(describe).join("; ");
+  const sentences = provider.queries.map((query) => query.description ?? query.name);
+  if (sentences.length === 0) return "Reads nothing yet";
+  if (sentences.length <= 2) return sentences.join("; ");
+  return `${sentences.slice(0, 2).join("; ")}, and ${sentences.length - 2} more`;
+}
+
 /** A provider the package reads from. `schema` is null when this Kavibay has none by that id. */
 export interface ProviderUse {
   id: string;
   schema: WizardProviderSchema | null;
   /** What `requires.actions` lists for this provider. */
   declaredActions: string[];
+  /** What `requires.queries` lists for this provider. */
+  declaredQueries: string[];
 }
 
 /** The providers `manifest.json` asks for, matched against what the host offers. */
@@ -260,11 +281,13 @@ export function providersUsedBy(
   } catch {
     return [];
   }
-  const actions = requestedContractActions(parsed);
+  const actions = requestedContractNames(parsed, "actions");
+  const queries = requestedContractNames(parsed, "queries");
   return requestedContractProviders(parsed).map((id) => ({
     id,
     schema: providers.find((provider) => provider.id === id) ?? null,
     declaredActions: actions[id] ?? [],
+    declaredQueries: queries[id] ?? [],
   }));
 }
 
@@ -296,6 +319,43 @@ export function providerCallsIn(files: readonly GeneratedFile[]): ProviderCalls 
     }
   }
   return { queries: [...queries].sort(), actions: [...actions].sort() };
+}
+
+/** One provider query as the API tab lists it. */
+export interface QueryUse {
+  name: string;
+  description?: string;
+  args?: Record<string, ArgSpec>;
+  result?: ResultSchema;
+  declared: boolean;
+  called: boolean;
+  /** False for a declared name the provider does not have: a false statement. */
+  known: boolean;
+}
+
+/**
+ * Every query the provider offers, plus any declared name it does not have.
+ *
+ * All of them rather than only the used ones: the tab is where somebody reads
+ * what the account could give the widget, and the marks say which part this
+ * widget takes. Nothing here is enforced — reading is the account's grant —
+ * so an undeclared read is a gap in what the person was told, not a failure.
+ */
+export function queryUses(use: ProviderUse, calls: ProviderCalls): QueryUse[] {
+  const offered = use.schema?.queries ?? [];
+  const unknown = use.declaredQueries.filter((name) => !offered.some((query) => query.name === name));
+  return [
+    ...offered.map((query) => ({
+      name: query.name,
+      ...(query.description ? { description: query.description } : {}),
+      ...(query.args ? { args: query.args } : {}),
+      ...(query.result ? { result: query.result } : {}),
+      declared: use.declaredQueries.includes(query.name),
+      called: calls.queries.includes(query.name),
+      known: true,
+    })),
+    ...unknown.map((name) => ({ name, declared: true, called: calls.queries.includes(name), known: false })),
+  ];
 }
 
 /** One provider action as the API tab lists it. */

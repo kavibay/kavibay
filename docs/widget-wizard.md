@@ -653,13 +653,16 @@ host capability, and the calls the preview makes are already listed under
 **Debug** beside it. `providersUsedBy` in `widgetWizardLogic.ts` reads the
 manifest and matches it against the catalog.
 
-**Which of it the widget uses** is read off its code. `providerCallsIn` finds
-every `.query("…")`, `.subscribe("…")` and `.action("…")` with a literal name in
-the package's scripts and inline HTML. Under **Reads**, the queries the code
-calls are marked **Used** and the rest are dimmed. Under **Changes**, every
-declared action is listed as declared, or declared but not called, and an
-action the code calls without declaring it in `requires.actions` is flagged:
-the host would refuse it the first time it runs. A name built at runtime is not
+**What the manifest says against what the code does.** `requires.queries` names
+the queries a widget reads and `requires.actions` the actions it calls.
+`providerCallsIn` finds every `.query("…")`, `.subscribe("…")` and `.action("…")`
+with a literal name in the package's scripts and inline HTML, and each card
+marks the difference. Under **Reads**: declared, declared but not called, not
+declared (the code reads it, so the approval dialog, which describes the
+declared queries, does not mention it), or unknown to the provider; a query
+that is neither declared nor called is dimmed. Under **Changes** the same marks,
+and an undeclared action is the serious one: the host refuses it the first time
+it runs, where an undeclared query still works. A name built at runtime is not
 seen, so it is simply not marked, never marked wrongly.
 
 ## Trying an endpoint
