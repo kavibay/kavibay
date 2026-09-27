@@ -5051,45 +5051,6 @@ async function enablePackage(
   overflow-y: auto;
 }
 
-.wiz-side-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex: 0 0 auto;
-  width: 100%;
-  box-sizing: border-box;
-  margin: 0;
-  padding: 6px 8px 5px;
-  border: none;
-  border-radius: 7px 7px 0 0;
-  border-bottom: 1px solid rgba(var(--fg-rgb), 0.08);
-  background: rgba(var(--fg-rgb), 0.06);
-  color: inherit;
-  font: inherit;
-  font-size: 10px;
-  font-weight: 600;
-  text-align: left;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  opacity: 0.7;
-  cursor: pointer;
-}
-
-.wiz-side-label:hover {
-  background: rgba(var(--fg-rgb), 0.1);
-  opacity: 0.95;
-}
-
-.wiz-side-label:focus-visible {
-  outline: 1px solid rgba(var(--fg-rgb), 0.35);
-  outline-offset: -1px;
-}
-
-.wiz-side-chevron {
-  font-size: 12px;
-  line-height: 1;
-}
-
 .wiz-side-item {
   display: flex;
   align-items: center;
