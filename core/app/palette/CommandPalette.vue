@@ -5054,6 +5054,13 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
+/* WebKit draws circular corners, so the squircle radius would make rows pill-shaped. */
+@supports not (corner-shape: squircle) {
+  .palette-item {
+    border-radius: 10px;
+  }
+}
+
 .palette-item--selected {
   background: var(--row-selected-sheen), var(--row-selected-bg);
   box-shadow: var(--row-selected-rim), var(--row-selected-shadow);
