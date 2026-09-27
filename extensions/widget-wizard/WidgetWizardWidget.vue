@@ -199,6 +199,7 @@ interface RuntimeInstallRecord {
    */
   contractGrant?: {
     approved?: string[];
+    actions?: Record<string, string[]>;
     providers?: { provider: string; queries: string[] }[];
     provider?: string;
     queries?: string[];
@@ -2784,18 +2785,20 @@ async function enableFromBubble(bubble: WizardBubble) {
  * remembered in the session, so a transcript restored on another day cannot
  * carry a grant that Settings has since withdrawn.
  */
-function approvedGrantFor(id: string): string[] | null {
+function approvedGrantFor(id: string): WizardApprovedGrant | null {
   const record = installs.value.find((install) => install.id === id);
   if (!record?.enabled || !record.contractGrant) return null;
   // Every older spelling folded in rather than assumed migrated: the backend
   // rewrites on load, but a session restored beside a stale scan would
   // otherwise report "nothing approved" and re-open a dialog nobody needs.
   const grant = record.contractGrant;
-  return (
-    grant.approved ??
-    grant.providers?.map((row) => row.provider) ??
-    (grant.provider ? [grant.provider] : [])
-  );
+  return {
+    providers:
+      grant.approved ??
+      grant.providers?.map((row) => row.provider) ??
+      (grant.provider ? [grant.provider] : []),
+    actions: grant.actions ?? {},
+  };
 }
 
 /**
@@ -2809,7 +2812,7 @@ const previewUnmet = computed(() => {
   const id = session.value.packageId;
   if (!id || session.value.hasDraft || previewFormat.value !== "contract") return [];
   const request = approvalRequestFor(id);
-  return request ? unmetProviders(request, approvedGrantFor(id)) : [];
+  return request ? unmetProviders(request, approvedGrantFor(id)?.providers) : [];
 });
 
 function approvalRequestFor(id: string): WizardPermissionRequest | undefined {
@@ -2818,7 +2821,7 @@ function approvalRequestFor(id: string): WizardPermissionRequest | undefined {
   return buildWizardPermissionRequest(
     row.contractManifest,
     providerSchemas.value,
-    approvedGrantFor(id) ?? [],
+    approvedGrantFor(id) ?? undefined,
   );
 }
 
@@ -2834,13 +2837,6 @@ function approvalNameFor(id: string): string {
   return row?.name?.trim() || id;
 }
 
-/**
- * The answer, stored and enabled — the same backend call Settings makes.
- *
- * `actions` is not passed and could not be: `grantFrom` does not produce one and
- * the stored shape has no field for it. A generated widget is read-only, and
- * that is kept as a shape rather than as a rule anybody has to apply here.
- */
 /**
  * Register a grant and bring the widget up. Shared by the dialog and by the
  * path that skips it, so "approved just now" and "approved earlier and
@@ -2861,7 +2857,12 @@ async function applyContractGrant(
    */
   how = "",
 ): Promise<boolean> {
-  if (!(await enablePackage(id, { approved: [...grant.providers] }))) {
+  const actions = Object.fromEntries(
+    Object.entries(grant.actions)
+      .filter(([, names]) => (names?.length ?? 0) > 0)
+      .map(([provider, names]) => [provider, [...(names ?? [])]]),
+  );
+  if (!(await enablePackage(id, { approved: [...grant.providers], actions }))) {
     note(`"${id}" could not be enabled. See Settings -> Extensions.`);
     return false;
   }
@@ -3660,7 +3661,7 @@ async function keep(runAfterSave = false) {
       const request = approvalRequestFor(id);
       const granted = approvedGrantFor(id);
       if (request && askedNothingNew(request, granted)) {
-        await applyContractGrant(id, { providers: [...granted!] }, runAfterSave);
+        await applyContractGrant(id, granted!, runAfterSave);
       } else if (request && wizardAutoEnable.value && canAutoApprove(request)) {
         /**
          * The same bypass the runtime path has always honoured.
@@ -3860,7 +3861,7 @@ const consentStillMatches = computed(() => {
 
 async function enablePackage(
   id: string,
-  contractGrant?: { approved: string[] },
+  contractGrant?: { approved: string[]; actions: Record<string, string[]> },
 ): Promise<boolean> {
   const row = scanned.value.find((item) => item.id === id);
   try {

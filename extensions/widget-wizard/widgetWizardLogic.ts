@@ -31,6 +31,13 @@ export interface WizardProviderSchema {
     args?: Record<string, ArgSpec>;
     result?: ResultSchema;
   }>;
+  /** Writes. A widget calls one only after declaring it in `requires.actions`. */
+  actions?: Array<{
+    name: string;
+    effect?: "write" | "destructive" | "sensitive";
+    description?: string;
+    args?: Record<string, ArgSpec>;
+  }>;
 }
 
 export interface WizardPermissionChoice {
@@ -38,6 +45,11 @@ export interface WizardPermissionChoice {
   /** "tado°", not "kavibay.tado/tado". */
   providerName: string;
   granted: boolean;
+  /**
+   * The changes the package asks to make on this account. The same shape as the
+   * host dialog's `ActionChoice`, because that dialog is what renders it.
+   */
+  actions?: { names: string[]; summary: string; granted: boolean };
 }
 
 export interface WizardPermissionRequest {
@@ -48,7 +60,11 @@ export interface WizardPermissionRequest {
 
 export interface WizardApprovedGrant {
   providers: string[];
+  /** Per approved provider, the actions it may call. Empty means none. */
+  actions: Partial<Record<string, readonly string[]>>;
 }
+
+const NO_GRANT: WizardApprovedGrant = { providers: [], actions: {} };
 
 /**
  * What "approve automatically" grants: exactly what the package asked for.
@@ -61,7 +77,14 @@ export interface WizardApprovedGrant {
  * that this machine does not have, so there is nothing to grant.
  */
 export function autoApprovedGrant(request: WizardPermissionRequest): WizardApprovedGrant {
-  return { providers: request.choices.map((choice) => choice.provider) };
+  return {
+    providers: request.choices.map((choice) => choice.provider),
+    actions: Object.fromEntries(
+      request.choices
+        .filter((choice) => choice.actions)
+        .map((choice) => [choice.provider, [...(choice.actions?.names ?? [])]]),
+    ),
+  };
 }
 
 /**
@@ -150,6 +173,17 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+/** `widget.requires.actions` as the manifest states it. Anything malformed reads as none. */
+function requestedContractActions(raw: unknown): Record<string, string[]> {
+  const actions = asRecord(asRecord(asRecord(asRecord(raw)?.widget)?.requires)?.actions);
+  return Object.fromEntries(
+    Object.entries(actions ?? {}).map(([pid, names]) => [
+      pid,
+      Array.isArray(names) ? names.filter((name): name is string => typeof name === "string") : [],
+    ]),
+  );
+}
+
 function requestedContractProviders(raw: unknown): string[] {
   const manifest = asRecord(raw);
   const widget = asRecord(manifest?.widget);
@@ -167,10 +201,11 @@ function requestedContractProviders(raw: unknown): string[] {
 export function buildWizardPermissionRequest(
   raw: unknown,
   providers: readonly WizardProviderSchema[],
-  alreadyGranted: readonly string[] = [],
+  alreadyGranted: WizardApprovedGrant = NO_GRANT,
 ): WizardPermissionRequest {
   const choices: WizardPermissionChoice[] = [];
   const refused: string[] = [];
+  const asked = requestedContractActions(raw);
 
   for (const pid of requestedContractProviders(raw)) {
     const provider = providers.find((entry) => entry.id === pid);
@@ -178,10 +213,26 @@ export function buildWizardPermissionRequest(
       refused.push(pid);
       continue;
     }
+    const has = (name: string) => provider.actions?.some((action) => action.name === name) ?? false;
+    const declared = asked[pid] ?? [];
+    const names = declared.filter(has);
+    refused.push(...declared.filter((name) => !has(name)).map((name) => `${pid}.${name}`));
+    const approved = alreadyGranted.actions[pid] ?? [];
     choices.push({
       provider: pid,
       providerName: provider.displayName,
-      granted: alreadyGranted.includes(pid),
+      granted: alreadyGranted.providers.includes(pid),
+      ...(names.length > 0
+        ? {
+            actions: {
+              names,
+              summary: names
+                .map((name) => provider.actions?.find((action) => action.name === name)?.description ?? name)
+                .join("; "),
+              granted: names.every((name) => approved.includes(name)),
+            },
+          }
+        : {}),
     });
   }
 
@@ -247,10 +298,14 @@ export function describeResultShape(result: ResultSchema): string {
 
 export function askedNothingNew(
   request: WizardPermissionRequest,
-  granted: readonly string[] | null | undefined,
+  granted: WizardApprovedGrant | null | undefined,
 ): boolean {
   if (!granted) return false;
-  return request.choices.every((choice) => granted.includes(choice.provider));
+  return request.choices.every(
+    (choice) =>
+      granted.providers.includes(choice.provider) &&
+      (choice.actions?.names ?? []).every((name) => (granted.actions[choice.provider] ?? []).includes(name)),
+  );
 }
 
 /** One file of a generated package. */

@@ -4,6 +4,8 @@
 import {
   attachmentProblem,
   autoApprovedGrant,
+  buildWizardPermissionRequest,
+  askedNothingNew as wizardAskedNothingNew,
   canAutoApprove,
   unmetProviders,
   applyDraftPresence,
@@ -1244,6 +1246,46 @@ assert(
     [],
     "and a fully granted widget has nothing outstanding",
   );
+}
+
+{
+  // Changes are asked per account, only for actions the provider has.
+  const spotify = {
+    id: "kavibay.spotify/spotify",
+    displayName: "Spotify",
+    requiresCredential: true,
+    queries: [],
+    actions: [{ name: "play", effect: "write" as const, description: "Start playing a playlist" }],
+  };
+  const manifest = {
+    widget: {
+      requires: {
+        providers: ["kavibay.spotify/spotify"],
+        actions: { "kavibay.spotify/spotify": ["play", "rewind"] },
+      },
+    },
+  };
+
+  const request = buildWizardPermissionRequest(manifest, [spotify]);
+  assertEq(
+    request.choices[0]?.actions,
+    { names: ["play"], summary: "Start playing a playlist", granted: false },
+    "a declared action is offered in the provider's words, never pre-ticked",
+  );
+  assertEq(request.refused, ["kavibay.spotify/spotify.rewind"], "and one the provider lacks is refused");
+  assertEq(
+    autoApprovedGrant(request),
+    { providers: ["kavibay.spotify/spotify"], actions: { "kavibay.spotify/spotify": ["play"] } },
+    "skipping the click grants the changes it asked for, and no others",
+  );
+
+  const reading = { providers: ["kavibay.spotify/spotify"], actions: {} };
+  assertEq(wizardAskedNothingNew(buildWizardPermissionRequest(manifest, [spotify], reading), reading), false,
+    "reading approved earlier does not settle a change");
+  const both = { providers: ["kavibay.spotify/spotify"], actions: { "kavibay.spotify/spotify": ["play"] } };
+  const carried = buildWizardPermissionRequest(manifest, [spotify], both);
+  assertEq(carried.choices[0]?.actions?.granted, true, "an approved change comes back ticked");
+  assertEq(wizardAskedNothingNew(carried, both), true, "and asks nothing new");
 }
 
 assertEq(describeDraftAuthor("mcp"), "an MCP client", "the other client is named");
