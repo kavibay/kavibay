@@ -233,12 +233,12 @@ to decide which project is showing, and the answer is a new one. The caret lands
 in the composer, because a new project is a question waiting to be typed.
 
 **It opens with the chrome folded away.** No project list, no name field, no
-Conversation/Files switch — all three describe a package that does not exist
+Chat/Code switch — all three describe a package that does not exist
 yet, and somebody who just pressed "New Widget" has one thing to do. The caret
 is in the composer and there is nothing above it.
 
 The **header** comes back by itself once the first generation produces a
-package: the name field then names something and Files has files in it, so the
+package: the name field then names something and Code has files in it, so the
 reason for hiding it has expired. There is no button to leave the mode — a mode
 you have to leave is one people get stuck in.
 
@@ -294,8 +294,14 @@ the logo — Cloudflare serves other people's models), and the `authoring` flag.
 
 ## Seeing and editing the files
 
-The middle column switches between **Conversation** and **Files**; the preview
-is its own column on the right and never moves.
+The middle column switches between **Chat** and **Code**, plus **API** when the
+package declares endpoints; the preview is its own column on the right and never
+moves. The switch is one segmented control with an icon per face, and the open
+face is lifted with the app's selected-row treatment. When the column is too
+narrow for the labels, only the icons stay, each with its name as a tooltip.
+Arrow keys move between the faces once the switch has focus. The header shows
+the widget's name and nothing else: the package id is a folder name, which
+matters to the files and to MCP clients but not to somebody building a widget.
 
 Both dividers are draggable, and arrow keys on a focused divider move them too.
 The left divider only resizes. Hiding the sidebar is the panel icon beside
@@ -310,7 +316,7 @@ columns. Reading a file and watching what it does are one activity, so the file
 view does not cover the widget — it replaces the transcript, which you are not
 reading at that moment anyway.
 
-Files lists
+Code lists
 everything the package is made of — `manifest.json`, `index.html`, `widget.js`,
 `api.json` — and each one is editable. An edit is written to the draft when the
 field loses focus; a `.json` file that does not parse is reported and not
@@ -326,7 +332,7 @@ makes the reader translate it into one about clocks. A hand edit gets its own
 line there too, so the transcript stops implying that each answer followed the
 previous one when it did not.
 
-In the **Files tab**, above the file list: one button per state, with times.
+In the **Code tab**, above the file list: one button per state, with times.
 The compact overview, for when you know you want "two back" rather than a
 particular message.
 
@@ -479,7 +485,7 @@ pointer is the one thing that has to hold still. Only the ink fades.
 The checkpoint is a real button, so the row also appears on `:focus-within`: it
 stays tabbable while invisible, and one reachable only by pointer is one a
 keyboard cannot reach at all. On touch, where there is no hover, the footnotes
-are simply always shown. The Files tab's version strip is unaffected either
+are simply always shown. The Code tab's version strip is unaffected either
 way — that is the always-visible route to the same thing.
 
 **The token counts are exact.** They come from the provider's own `usage` block,
@@ -759,7 +765,7 @@ directory through that name. So renaming is one edit in one place: the manifest
 folder to whatever the manifest says, and the Wizard follows it.
 
 Three routes reach the same write. Typing in the **name field** slugifies it and
-patches the manifest for you. Editing `manifest.json` in the **Files tab** does
+patches the manifest for you. Editing `manifest.json` in the **Code tab** does
 it directly. An **MCP client** writing a draft with a different name in the
 manifest renames it the same way, and the reply says where it moved
 (`id` plus `renamedFrom`).
