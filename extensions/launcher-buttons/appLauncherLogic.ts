@@ -185,6 +185,41 @@ export function normalizeUrl(input: string): string | null {
   }
 }
 
+/** What the Add dialog names and offers on the desktop it runs on. */
+export interface LauncherDesktop {
+  /** File types the Files section picks. The host's picker filter matches them. */
+  appFiles: readonly string[];
+  /** Badge on the Files section. */
+  appFileBadge: string;
+  computer: string;
+  fileManager: string;
+  /** Media and system keys can be sent. The host sends them only on Windows. */
+  keys: boolean;
+}
+
+const WINDOWS_DESKTOP: LauncherDesktop = {
+  appFiles: [".exe", ".lnk"],
+  appFileBadge: "EXE",
+  computer: "your computer",
+  fileManager: "Explorer",
+  keys: true,
+};
+
+const MAC_DESKTOP: LauncherDesktop = {
+  appFiles: [".app"],
+  appFileBadge: "APP",
+  computer: "your Mac",
+  fileManager: "Finder",
+  keys: false,
+};
+
+/** The desktop behind this webview, read from its platform string. */
+export function launcherDesktop(
+  platform = typeof navigator === "undefined" ? "" : navigator.platform || navigator.userAgent,
+): LauncherDesktop {
+  return /Mac/.test(platform) ? MAC_DESKTOP : WINDOWS_DESKTOP;
+}
+
 /** Windows-insensitive path key for duplicate detection (filesystem paths). */
 export function normalizePath(path: string): string {
   return path.trim().replace(/\//g, "\\").toLowerCase();
@@ -222,7 +257,7 @@ export function displayName(path: string): string {
   const cleaned = path.replace(/[\\/]+$/, "");
   const parts = cleaned.split(/[\\/]/);
   const base = parts[parts.length - 1] || cleaned;
-  return base.replace(/\.(exe|lnk)$/i, "") || base;
+  return base.replace(/\.(exe|lnk|app)$/i, "") || base;
 }
 
 /** Cryptographically random id when available. */

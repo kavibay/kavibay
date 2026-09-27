@@ -19,6 +19,7 @@ import type {
   WidgetInstanceId,
 } from "@sdk/contract/sdk";
 import { playSessionEndBeep } from "../audio/sessionEndBeep";
+import { keyPlatform } from "../host/shortcutHints";
 import { withRealPathSeparators } from "../runtime/manifestValidate";
 import type { WidgetCapabilityTransport } from "./widgetCapabilityTransport";
 
@@ -160,7 +161,13 @@ export const tauriWidgetCapabilityTransport: WidgetCapabilityTransport = {
           : {
               multiple: true,
               directory: false,
-              filters: [{ name: "Apps", extensions: ["exe", "lnk"] }],
+              filters: [
+                {
+                  name: "Apps",
+                  // A Mac app is an .app bundle, which the picker offers as one file.
+                  extensions: keyPlatform() === "mac" ? ["app"] : ["exe", "lnk"],
+                },
+              ],
             },
     ));
     if (selected == null) return [];

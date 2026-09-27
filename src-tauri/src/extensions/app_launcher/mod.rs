@@ -522,7 +522,7 @@ fn launch_path_windows(path: &str) -> Result<(), String> {
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
     if !is_http_url(path) && !is_shell_apps_folder(path) && !Path::new(path).exists() {
-        return Err("Pfad nicht gefunden".into());
+        return Err("Path not found".into());
     }
 
     let file = wide(path);
@@ -985,7 +985,7 @@ fn extract_icon_shgetfileinfo(path: &str, size: i32) -> Result<String, String> {
 #[cfg(target_os = "macos")]
 fn launch_path_macos(path: &str) -> Result<(), String> {
     if !is_http_url(path) && !Path::new(path).exists() {
-        return Err("Pfad nicht gefunden".into());
+        return Err("Path not found".into());
     }
 
     std::process::Command::new("open")
