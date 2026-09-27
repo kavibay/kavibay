@@ -64,6 +64,21 @@ export function newInstanceId(): string {
 }
 
 /**
+ * Whether anything in the app's keyspace belongs to this instance: runtime
+ * package storage, widget data or widget settings. Their keys all put the id
+ * last, alone or before a `\0` field separator, so a longer id never matches.
+ */
+export function instanceHoldsData(instanceId: string): boolean {
+  const own = `:${instanceId}`;
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (!key?.startsWith("kavibay:")) continue;
+    if (key.endsWith(own) || key.includes(`${own}\0`)) return true;
+  }
+  return false;
+}
+
+/**
  * Fresh-install default: empty desk (palette / search only).
  * Registry is accepted so callers can stay registry-driven if we seed again later.
  */
@@ -350,7 +365,7 @@ export function loadLayout(registry: RegisteredExtension[]): SavedLayoutV4 {
       if (v4) {
         markFirstOpenDone();
         // Drop soft-hidden orphans left behind by older New/Gallery stacks.
-        const cleaned = purgeRedundantHiddenInstances(v4);
+        const cleaned = purgeRedundantHiddenInstances(v4, instanceHoldsData);
         if (cleaned.removedInstanceIds.length > 0) {
           saveLayout(cleaned.layout);
           return cleaned.layout;
