@@ -7,6 +7,8 @@
  *   npx tsx extensions/widget-wizard/widgetWizardLogic.assert.ts
  */
 
+import type { Language } from "./highlight";
+
 /** Consent-facing endpoint shape returned by the host package scanner. */
 export interface ConsentEndpoint {
   description: string;
@@ -3239,6 +3241,21 @@ const FILE_KINDS: readonly (readonly [RegExp, FileKind])[] = [
 
 export function fileKind(path: string): FileKind {
   return FILE_KINDS.find(([pattern]) => pattern.test(path))?.[1] ?? "text";
+}
+
+/** Only SVG among the images is text, and it is markup. */
+const HIGHLIGHT_AS: Record<FileKind, Language | null> = {
+  json: "script",
+  script: "script",
+  markup: "markup",
+  style: "style",
+  image: "markup",
+  text: null,
+};
+
+/** Which scanner colours a file in the editor, or null to show it plain. */
+export function highlightLanguage(path: string): Language | null {
+  return HIGHLIGHT_AS[fileKind(path)];
 }
 
 /** One line of the file list: a folder, or a file inside the folder above it. */

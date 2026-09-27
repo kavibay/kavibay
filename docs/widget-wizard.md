@@ -359,11 +359,16 @@ Saving does not add an entry. It rewrites `ui.defaultSize` to whatever the
 preview was left at, which changes the bytes without being a step anybody took,
 so the live snapshot is patched in place instead.
 
-`.json` and `.js` files are syntax-highlighted by
-[`highlight.ts`](../extensions/widget-wizard/highlight.ts) — about a hundred
-lines, no dependency. It is a coloured `<pre>` under a textarea whose text is
-transparent, so the field stays a real textarea and keeps undo, selection and
-IME. Regular-expression literals, template interpolation and JSX are not
+JSON, script, HTML, CSS and SVG files are syntax-highlighted by
+[`highlight.ts`](../extensions/widget-wizard/highlight.ts), a few hundred lines
+with no dependency. `highlightLanguage` in `widgetWizardLogic.ts` picks the
+scanner from the file's kind. In HTML, the bodies of `<style>` and `<script>`
+are read as CSS and script, because that is most of a generated `index.html`.
+CSS colours what can be told apart by position alone: selectors, property
+names, numbers and colours, at-rules and `!important`. Value words such as
+`grid` stay plain. The editor is a coloured `<pre>` under a textarea whose text
+is transparent, so the field stays a real textarea and keeps undo, selection
+and IME. Regular-expression literals, template interpolation and JSX are not
 recognised and render plain; a highlighter this size is better unhelpful than
 confidently wrong.
 
