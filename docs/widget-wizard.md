@@ -295,7 +295,7 @@ the logo — Cloudflare serves other people's models), and the `authoring` flag.
 ## Seeing and editing the files
 
 The middle column switches between **Chat** and **Code**, plus **API** when the
-package declares endpoints; the preview is its own column on the right and never
+package declares endpoints or reads from a provider; the preview is its own column on the right and never
 moves. The switch is one segmented control with an icon per face, and the open
 face is lifted with the app's selected-row treatment. When the column is too
 narrow for the labels, only the icons stay, each with its name as a tooltip.
@@ -636,10 +636,27 @@ threading a prop through those would add a parameter to two generic components
 for one caller. The listener sits on the preview's own element, so a widget
 running on the desk cannot resize the wizard's card by reporting a size.
 
+## Providers and endpoints
+
+The **API** tab appears once the package declares endpoints or names a provider
+in `widget.requires.providers`.
+
+**Providers** come first. A widget on a provider calls no API of its own:
+Kavibay makes the requests and the widget asks for queries by name, so a weather
+widget built on `kavibay.weather/weather` has no `api.json` and, before this,
+showed no API tab at all. Each provider is a card with its state (no account
+needed, connected, not connected with a button to connect, or not available on
+this Kavibay) and its queries, each as a call and an answer shape, such as
+`places(name) → list of { id, name }`. All of it comes from the host's provider
+catalog; nothing is called. Running a provider query for a draft would be a new
+host capability, and the calls the preview makes are already listed under
+**Debug** beside it. `providersUsedBy` in `widgetWizardLogic.ts` reads the
+manifest and matches it against the catalog.
+
 ## Trying an endpoint
 
-Once the package declares endpoints, the middle column grows an **API** tab:
-every endpoint with its parameters, a **Try** button, and what came back.
+Every endpoint the package declares in `api.json` is listed below the providers
+with its parameters, a **Try** button, and what came back.
 
 This is the shortest fix for the longest loop in the wizard. Building against
 an API used to go: describe it, get a widget, run it, watch it render

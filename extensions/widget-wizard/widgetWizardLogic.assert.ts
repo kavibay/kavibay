@@ -13,6 +13,10 @@ import {
   fileKind,
   fileTreeRows,
   highlightLanguage,
+  argSignature,
+  describeResultShape,
+  providersUsedBy,
+  providerUseState,
   conversationIsWorthKeeping,
   conversationLabel,
   declaredDisplayName,
@@ -2617,6 +2621,71 @@ assert(
     ["script", "markup", "script", "style", "markup", null],
     "json and scripts share a scanner, svg is markup, and text stays plain",
   );
+}
+
+{
+  const weather = {
+    id: "kavibay.weather/weather",
+    displayName: "Weather (Open-Meteo)",
+    requiresCredential: false,
+    queries: [],
+  };
+  const tado = {
+    id: "kavibay.tado/tado",
+    displayName: "tado°",
+    requiresCredential: true,
+    credentialType: "tadoOAuth2",
+    queries: [],
+  };
+  const manifest = (providers: string[]) => ({
+    path: "manifest.json",
+    contents: JSON.stringify({ widget: { requires: { providers } } }),
+  });
+
+  const uses = providersUsedBy(
+    [manifest(["kavibay.weather/weather", "kavibay.tado/tado", "someone.else/gone"])],
+    [weather, tado],
+  );
+  assertEq(
+    uses.map((use) => [use.id, use.schema?.displayName ?? null]),
+    [
+      ["kavibay.weather/weather", "Weather (Open-Meteo)"],
+      ["kavibay.tado/tado", "tado°"],
+      ["someone.else/gone", null],
+    ],
+    "the manifest's providers, in its order, with the host's schema or none",
+  );
+  assertEq(providersUsedBy([], [weather]), [], "no manifest, no providers");
+  assertEq(
+    providersUsedBy([{ path: "manifest.json", contents: "{ half" }], [weather]),
+    [],
+    "a manifest that does not parse names no providers",
+  );
+  assertEq(
+    uses.map((use) => providerUseState(use, false)),
+    ["free", "disconnected", "missing"],
+    "a provider without an account is free, one with an account needs it, an unknown one is missing",
+  );
+  assertEq(providerUseState(uses[1]!, true), "connected", "a connected account");
+
+  assertEq(
+    argSignature({
+      location: { type: "string", label: "Place", required: true },
+      days: { type: "number", label: "Days" },
+    }),
+    "location, days?",
+    "optional arguments are marked",
+  );
+  assertEq(argSignature(undefined), "", "a query without arguments");
+  assertEq(
+    describeResultShape({
+      type: "list",
+      of: { type: "object", fields: { id: { type: "string" }, name: { type: "string" } } },
+    }),
+    "list of { id, name }",
+    "a list of objects names the fields",
+  );
+  assertEq(describeResultShape({ type: "number", nullable: true }), "number or null", "a nullable value");
 }
 
 console.log("widgetWizardLogic.assert.ts: ok");
