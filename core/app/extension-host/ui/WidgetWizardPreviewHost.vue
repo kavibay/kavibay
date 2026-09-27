@@ -12,7 +12,8 @@ import RuntimeExtensionFrame from "../../runtime/RuntimeExtensionFrame.vue";
 import ContractPackageWidget from "./ContractPackageWidget.vue";
 import { clearWidgetLog, widgetCalls, widgetFaults, type WidgetFault } from "../cockpit";
 import type { WidgetCall } from "../bridge";
-import { packageDefinitionId } from "../cockpit";
+import { extensionHost, packageDefinitionId } from "../cockpit";
+import { migrateWizardPreviewData, wizardPreviewIdentity } from "../wizardPreviewIdentity";
 import type { PackageFormat } from "../../runtime/runtimeTypes";
 import { CONTENT_OVERFLOW_EVENT } from "../../host/contentOverflow";
 import { fitToContent } from "../../host/resizeLogic";
@@ -201,7 +202,17 @@ function onContentScale(next: number) {
  * model to render better errors is the wrong fix: it is the party with the
  * least information, and it is also the party being debugged.
  */
-const instanceId = computed(() => `wizard-preview-${props.extId}`);
+const identity = computed(() => wizardPreviewIdentity(props.extId));
+const instanceId = computed(() => identity.value.instanceId);
+
+watch(
+  () => [instanceId.value, props.format] as const,
+  () => {
+    // Keep data written by older previews. Existing canonical values win.
+    migrateWizardPreviewData(props.extId, props.format, extensionHost.data, localStorage);
+  },
+  { immediate: true },
+);
 const calls = computed(() =>
   widgetCalls.value.filter((call) => call.instanceId === instanceId.value),
 );
@@ -300,9 +311,10 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
     -->
     <div class="stage-card" :style="cardStyle" @[CONTENT_OVERFLOW_EVENT]="onContentOverflow">
         <WidgetCard
+          :key="instanceId"
           :title="title"
           :hide-title="hideTitle"
-          :instance-id="`wizard-preview-${extId}`"
+          :instance-id="instanceId"
           :has-settings="false"
           :allow-duplicate="false"
           :resizable="true"
@@ -350,7 +362,8 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
             v-else
             :key="`${extId}:${nonce}`"
             :ext-id="extId"
-            :instance-id="`wizard-preview-${extId}`"
+            :instance-id="instanceId"
+            :storage-ext-id="identity.packageId"
             :entry-url="entryUrl"
             :granted-permissions="grantedPermissions"
           />

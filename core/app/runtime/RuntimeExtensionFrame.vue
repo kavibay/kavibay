@@ -35,6 +35,8 @@ import { reportContentOverflow } from "../host/contentOverflow";
 const props = defineProps<{
   extId: string;
   instanceId: string;
+  /** Host-owned stable namespace when draft and published code share a preview. */
+  storageExtId?: string;
   entryUrl: string;
   grantedPermissions: string[];
 }>();
@@ -133,6 +135,7 @@ function onMessage(event: MessageEvent) {
   const reply = handleBridgeMessage(message, {
     extId: props.extId,
     instanceId: props.instanceId,
+    storageExtId: props.storageExtId,
     grantedPermissions: props.grantedPermissions,
   });
   if (reply) postToExt(reply);
