@@ -161,6 +161,7 @@ import type {
   ExtensionInstanceAction,
 } from "@sdk/types";
 import { scheduleRegionSync, setClickThroughPaused } from "../system/clickThrough";
+import { isCardHeaderHit, useCardChromePosition } from "../host/useCardChromePosition";
 import { evaluate, formatResult } from "../../../extensions/calculator/widgets/calculator";
 import { useAppearance } from "../settings/useAppearance";
 import { useExtensionsPrefs } from "../settings/useExtensionsPrefs";
@@ -386,7 +387,8 @@ const paletteMenuOpen = ref(false);
 const paletteMenuAt = ref<{ x: number; y: number } | null>(null);
 const paletteMenuEl = ref<HTMLElement | null>(null);
 const paletteMenuTriggerEl = ref<HTMLElement | null>(null);
-const paletteHovered = ref(false);
+const paletteHeaderHovered = ref(false);
+const paletteChromeFocused = ref(false);
 const paletteRootEl = ref<HTMLElement | null>(null);
 
 /** Habitual palette launches (boost only after 2+ gap-debounced opens). */
@@ -600,10 +602,22 @@ watch(settingsOpen, async (isOpen, wasOpen) => {
 });
 const { toggleColorMode } = useAppearance();
 
-/** Grip + pin inside the palette on hover or while Ctrl-hold hints are visible. */
+/** Search focus and hovering results do not reveal the card controls. */
+function onPalettePointerMove(event: PointerEvent) {
+  const rect = paletteRootEl.value?.getBoundingClientRect();
+  if (!rect) return;
+  paletteHeaderHovered.value = isCardHeaderHit(event.clientY, rect.top);
+}
+
+/** Match widgets: header hover, focus on a control, an open menu, or shortcut hints. */
 const paletteChromeVisible = computed(
-  () => paletteHovered.value || shortcutHintVisible.value,
+  () =>
+    paletteHeaderHovered.value ||
+    paletteChromeFocused.value ||
+    paletteMenuOpen.value ||
+    shortcutHintVisible.value,
 );
+const paletteChromePositionStyle = useCardChromePosition(paletteRootEl, paletteChromeVisible);
 
 /** Effective palette outer width for resize handles. */
 const resizeWidth = computed(() => paletteWidth.value ?? DEFAULT_PALETTE_WIDTH);
@@ -3323,9 +3337,11 @@ onUnmounted(() => {
     ref="paletteRootEl"
     class="palette"
     :class="{ 'palette--drop-target': paletteDropActive }"
+    :style="paletteChromePositionStyle"
     data-interactive
-    @pointerenter="paletteHovered = true"
-    @pointerleave="paletteHovered = false"
+    @pointerenter="onPalettePointerMove"
+    @pointermove="onPalettePointerMove"
+    @pointerleave="paletteHeaderHovered = false"
     @pointerup="onPalettePointerUp"
     @contextmenu="onPaletteContextMenu"
   >
@@ -3357,6 +3373,8 @@ onUnmounted(() => {
       class="palette-card-chrome"
       data-interactive
       @pointerdown.stop
+      @focusin="paletteChromeFocused = true"
+      @focusout="paletteChromeFocused = false"
     >
       <button
         type="button"
@@ -4637,18 +4655,26 @@ onUnmounted(() => {
   cursor: grabbing;
 }
 
-/* Own ground behind the controls, as on widget cards (see .widget-card-chrome). */
+/* Outside controls, with an 8px hover bridge included in the interactive rect. */
 .palette-card-chrome {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: var(--card-chrome-top, -40px);
+  right: 0;
   z-index: 3;
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: 2px;
-  padding: 2px;
+  padding: 2px 2px 10px;
   border-radius: 999px;
+}
+
+.palette-card-chrome::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 8px;
+  z-index: -1;
+  border-radius: inherit;
   background: rgba(var(--surface-bg-rgb), 0.85);
 }
 
@@ -4720,8 +4746,8 @@ onUnmounted(() => {
 
 .palette-context-menu {
   position: absolute;
-  top: 42px;
-  right: 10px;
+  top: calc(var(--card-chrome-top, -40px) + 44px);
+  right: 0;
   z-index: 20;
   min-width: 140px;
   padding: 4px;
@@ -4787,7 +4813,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 0 56px 0 20px;
+  padding: 0 20px;
   box-shadow: rgba(0, 0, 0, 0.02) 1px 1px 3px 1px inset;
   border-bottom: 1px solid var(--border);
   border-radius: var(--surface-radius, 16px) var(--surface-radius, 16px) 0 0;
