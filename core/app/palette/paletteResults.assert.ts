@@ -21,6 +21,7 @@ import {
   typeMatchesWidgetFilter,
   buildOffDeskWidgetRows,
   mergePaletteCatalog,
+  buildInstanceSearchIndex,
 } from "./paletteResults";
 import type { PaletteRow } from "./paletteResults";
 import type { Command } from "./commands";
@@ -864,3 +865,55 @@ console.log("paletteResults.assert.ts: merge ok");
 }
 
 console.log("paletteResults.assert.ts: actions ok");
+
+// --- a runtime package's cards come up in search -----------------------------
+// Its type exists only in the merged catalog. When search looked instances up in
+// the bundled registry, the hidden card holding the values never matched, and
+// Enter on the only hit, New, opened an empty instance beside it every time.
+{
+  const catalog = [
+    { id: "clock", title: "Clock" },
+    { id: "water-tracker", title: "Wasser Tracker", keywords: ["trinken"] },
+  ];
+  const instances = [
+    { instanceId: "w1", typeId: "water-tracker", offset: { x: 0, y: 0 }, hidden: true, hiddenAt: 1 },
+    { instanceId: "gone", typeId: "uninstalled", offset: { x: 0, y: 0 } },
+  ] as WidgetInstance[];
+  const { rows } = buildInstanceSearchIndex(instances, catalog, () => "");
+  const hits = groupInstancesWithCreateRow(
+    filterPaletteRows("wasser", [], rows, buildOpenNewRows(catalog)),
+  );
+
+  assert(
+    JSON.stringify(hits.map((row) => row.id)) ===
+      JSON.stringify(["widget:w1", "type:water-tracker"]),
+    `the hidden card comes first, New after it: ${JSON.stringify(hits.map((row) => row.id))}`,
+  );
+  const first = hits[0];
+  assert(first.kind === "widget" && first.title === "Wasser Tracker", "the card is named after its package");
+  assert(first.kind === "widget" && first.subtitle === "Show widget", "Enter shows the hidden card");
+  assert(
+    filterPaletteRows("trinken", [], rows).some((row) => row.id === "widget:w1"),
+    "the package's keywords find its cards",
+  );
+  assert(!rows.some((row) => row.instanceId === "gone"), "a card of a type nobody offers stays out");
+}
+
+{
+  const asked: string[] = [];
+  const { searchTextFor } = buildInstanceSearchIndex(
+    [
+      { instanceId: "n1", typeId: "notes", offset: { x: 0, y: 0 } },
+      { instanceId: "off", typeId: "disabled-notes", offset: { x: 0, y: 0 } },
+    ] as WidgetInstance[],
+    [{ id: "notes", title: "Notes" }],
+    (instance) => {
+      asked.push(instance.instanceId);
+      return "buy milk";
+    },
+  );
+  assert(searchTextFor("n1") === "buy milk", "an offered card's text is searchable");
+  assert(JSON.stringify(asked) === JSON.stringify(["n1"]), "a type that is not offered is never asked for its text");
+}
+
+console.log("paletteResults.assert.ts: runtime instances ok");

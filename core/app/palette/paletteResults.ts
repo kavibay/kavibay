@@ -620,6 +620,43 @@ export function attachNotePreviews(
 }
 
 /**
+ * Search rows for every card whose type the palette catalog offers, with the
+ * text each card makes searchable.
+ *
+ * Resolved against the merged catalog, not the bundled registry: a runtime
+ * package exists only in the catalog. Its hidden card never matched, so Enter
+ * on the only hit, New, opened an empty instance beside the one holding its data.
+ */
+export function buildInstanceSearchIndex(
+  instances: WidgetInstance[],
+  catalog: readonly PaletteTypeCatalogEntry[],
+  bodyOf: (instance: WidgetInstance) => string,
+  desksLabelFor: (instanceId: string) => string = () => "",
+): { rows: PaletteWidgetRow[]; searchTextFor: (instanceId: string) => string } {
+  const types = new Map(catalog.map((entry) => [entry.id, entry]));
+  const offered = instances.filter((instance) => types.has(instance.typeId));
+  const bodies = new Map(offered.map((instance) => [instance.instanceId, bodyOf(instance)]));
+  const searchTextFor = (instanceId: string) => bodies.get(instanceId) ?? "";
+  const rows = buildWidgetRows(
+    offered,
+    (instance) => instance.title ?? types.get(instance.typeId)?.title ?? instance.typeId,
+    (instance) => {
+      const type = types.get(instance.typeId);
+      const body = searchTextFor(instance.instanceId);
+      return [
+        instance.typeId,
+        ...(type ? [type.title, ...(type.keywords ?? [])] : []),
+        ...(instance.title ? [instance.title] : []),
+        ...(body ? [body] : []),
+      ];
+    },
+    desksLabelFor,
+    (instance) => types.get(instance.typeId)?.actions?.[0],
+  );
+  return { rows: attachNotePreviews(rows, searchTextFor), searchTextFor };
+}
+
+/**
  * Build a short inline snippet around the query match in plain text.
  * Prefers a contiguous substring hit; falls back to the fuzzy-match span.
  */
