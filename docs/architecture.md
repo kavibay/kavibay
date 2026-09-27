@@ -298,7 +298,7 @@ a pomodoro deliberately ignores it and keeps ticking.
 through the open cards (`widgetFocusCycle.ts`), `Ctrl+Alt+S` jumps back into the
 palette search from wherever focus sits, and `Ctrl+W` / `Ctrl+H` / `Ctrl+R` act on
 the palette's selected row while you are typing there, and on the card you are
-working in otherwise. `Ctrl+S` pins that same card and `Ctrl+D`
+working in otherwise. `Ctrl+P` (`Cmd+P` on macOS) pins that same card and `Ctrl+D`
 duplicates it (skipped for types with `allowDuplicate: false`). `widgetCloseKeys.ts`
 holds the rule that decides which — palette focus first, then the card owning
 the DOM focus, then the card the host handed keyboard focus to, then the last

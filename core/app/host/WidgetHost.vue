@@ -1858,14 +1858,13 @@ function isCardChord(event: KeyboardEvent, letter: string): boolean {
 }
 
 /**
- * Ctrl/Cmd+S pins the widget you are working in, the same toggle the card's
- * pin dot offers. No Shift/Alt, so it stays clear of Ctrl+Alt+S (palette
- * search) — which on Windows layouts arrives as AltGr+S with ctrlKey set.
+ * Ctrl/Cmd+P pins the widget you are working in, the same toggle the card's
+ * pin dot offers. Shift/Alt combinations remain available to other actions.
  */
 function onPinKeydown(event: KeyboardEvent) {
   if (settingsOpen.value) return;
   if (drag) return;
-  if (!isCardChord(event, "s")) return;
+  if (!isCardChord(event, "p")) return;
 
   const target = widgetChordTarget();
   if (!target) return;

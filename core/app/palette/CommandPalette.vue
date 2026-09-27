@@ -487,7 +487,7 @@ const paletteListHeight = inject<Ref<number | undefined>>(
 );
 const shortcutHintTarget = inject(SHORTCUT_HINT_TARGET_KEY);
 const shortcutModifier = shortcutModifierLabel();
-const pinShortcutTip = `Pin\n${shortcutModifier}+S`;
+const pinShortcutTip = `Pin\n${shortcutModifier}+P`;
 const hidePaletteShortcutTip = `Hide\n${shortcutModifier}+W`;
 const shortcutHintVisible = computed(
   () => shortcutHintTarget?.value?.kind === "palette",
@@ -2608,7 +2608,7 @@ function onKeydown(event: KeyboardEvent) {
       event.key === "Enter" ||
       // The row chords below. Listed by key rather than "any modifier" so the
       // search field keeps Ctrl+A / Ctrl+V while the widget is up.
-      (mod && !event.altKey && ["n", "h", "r", "s", "t"].includes(key));
+      (mod && !event.altKey && ["n", "h", "r", "p", "t"].includes(key));
     if (actsOnARow) {
       event.preventDefault();
       event.stopPropagation();
@@ -2656,10 +2656,10 @@ function onKeydown(event: KeyboardEvent) {
     return;
   }
 
-  // The palette chrome is its own surface: pin with Ctrl/Cmd+S and hide it
+  // The palette chrome is its own surface: pin with Ctrl/Cmd+P and hide it
   // with Ctrl/Cmd+W when no row-specific action consumed the chord above.
   if (!folderScopeActive.value && mod && !event.altKey) {
-    if (key === "s") {
+    if (key === "p") {
       event.preventDefault();
       event.stopPropagation();
       togglePalettePinned?.();
@@ -3388,7 +3388,7 @@ onUnmounted(() => {
         <PinIcon :active="palettePinned" />
         <span v-if="shortcutHintVisible" class="palette-shortcut-hint" aria-hidden="true">
           <span>Pin</span>
-          <span>{{ shortcutModifier }}+S</span>
+          <span>{{ shortcutModifier }}+P</span>
         </span>
       </button>
       <button

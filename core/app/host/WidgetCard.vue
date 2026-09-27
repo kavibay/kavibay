@@ -147,7 +147,7 @@ const emit = defineEmits<{
 const slots = useSlots();
 const shortcutHintTarget = inject(SHORTCUT_HINT_TARGET_KEY);
 const shortcutModifier = shortcutModifierLabel();
-const pinShortcutTip = `Pin\n${shortcutModifier}+S`;
+const pinShortcutTip = `Pin\n${shortcutModifier}+P`;
 const hideShortcutTip = `Hide\n${shortcutModifier}+W`;
 
 /** Local flash class so re-highlighting restarts the CSS animation. */
@@ -877,7 +877,7 @@ watch(
         <PinIcon :active="pinned" />
         <span v-if="shortcutHintVisible" class="widget-card-shortcut-hint" aria-hidden="true">
           <span>Pin</span>
-          <span>{{ shortcutModifier }}+S</span>
+          <span>{{ shortcutModifier }}+P</span>
         </span>
       </button>
       <button
