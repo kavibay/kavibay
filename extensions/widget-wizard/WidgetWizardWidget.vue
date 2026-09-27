@@ -44,6 +44,7 @@ import {
 import { BrandMark, McpClientMark } from "@sdk/brand";
 import KavibaySelect from "@sdk/KavibaySelect.vue";
 import WizardModelMenu from "./WizardModelMenu.vue";
+import WizardMcpHelp from "./WizardMcpHelp.vue";
 import WizardChevron from "./WizardChevron.vue";
 import WizardGenerationStatus from "./WizardGenerationStatus.vue";
 import WizardPreviewStage, { type PreviewFault } from "./WizardPreviewStage.vue";
@@ -4182,6 +4183,10 @@ async function enablePackage(
           </div>
         </div>
       </div>
+      <WizardMcpHelp
+        v-if="!sidebarHidden && !tooNarrow"
+        @open-settings="wizard.openSettings('mcp')"
+      />
     </aside>
 
     <!-- Middle: name, chat, model -->
@@ -5162,6 +5167,10 @@ async function enablePackage(
           </button>
         </div>
       </div>
+      <WizardMcpHelp
+        v-if="sidebarHidden || tooNarrow"
+        @open-settings="wizard.openSettings('mcp')"
+      />
     </section>
 
     <!-- Right: the draft, in the chrome it will actually wear -->

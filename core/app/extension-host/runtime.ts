@@ -2,7 +2,7 @@ import type {
   ProviderId, ProviderStatus, ProviderHostContext, WidgetInstance, WidgetContext,
   WidgetProviderApi, QueryState, Subscription, ProviderError, ArgSpec, CommandContext,
   ArgBinding, ProviderQuery, FocusTrackerGroupBy, FocusTrackerIgnoreKind, FocusTrackerRange,
-  ColorPickerEvent, WizardCapability, WizardCompletionRequest,
+  ColorPickerEvent, WizardCapability, WizardCompletionRequest, SettingsOpenSection,
   ExtensionId,
   ProviderActions,
   TrustTier,
@@ -83,7 +83,7 @@ export class Host {
     /** Keeps generated package definitions in sync after a wizard operation. */
     private runtimePackageSync?: (rows: unknown, installs: unknown) => void,
     /** Opens the host-owned Settings surface without exposing its implementation. */
-    private settingsOpener?: (section: "credentials" | "ai", focus?: string) => void,
+    private settingsOpener?: (section: SettingsOpenSection, focus?: string) => void,
   ) {
     this.http = new HttpBroker(fetcher, transport);
   }

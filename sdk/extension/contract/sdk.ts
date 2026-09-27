@@ -276,7 +276,7 @@ export type LlmStreamEvent =
   | { type: "error"; message: string };
 
 /** Host Settings section a first-party widget may open, with an optional focus. */
-export type SettingsOpenSection = "credentials" | "ai";
+export type SettingsOpenSection = "credentials" | "ai" | "mcp";
 
 /**
  * Reviewed host surface for first-party LLM widgets.
