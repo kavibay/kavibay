@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { installContentZoom } from "./contentZoom";
 import {
   computed,
   inject,
@@ -15,7 +16,6 @@ import ResizeEdges from "./ResizeEdges.vue";
 import PinIcon from "./PinIcon.vue";
 import {
   clampContentScale,
-  contentScaleFromWheel,
   DEFAULT_CONTENT_SCALE,
   RESIZE_EDGES_HORIZONTAL,
   RESIZE_EDGES_NO_TOP,
@@ -373,25 +373,7 @@ function onResizeEnd() {
   void nextTick().then(() => scheduleRegionSync());
 }
 
-/**
- * Ctrl/Meta + wheel zooms widget content (same scale as Ctrl+resize).
- * Trackpad pinch arrives here too — the webview reports it as a wheel event
- * with ctrlKey set and small fractional deltas.
- * Capture phase so it still runs over scroll areas that use @wheel.stop.
- * Non-passive so preventDefault can block page zoom.
- */
-function onContentWheel(event: WheelEvent) {
-  if (!(event.ctrlKey || event.metaKey)) return;
-  event.preventDefault();
-  event.stopPropagation();
-  const next = contentScaleFromWheel(
-    resolvedContentScale.value,
-    event.deltaY,
-    event.deltaMode,
-  );
-  if (next === resolvedContentScale.value) return;
-  emit("update:contentScale", next);
-}
+let stopContentZoom: (() => void) | undefined;
 
 /**
  * Open the widget menu; closes settings when opening.
@@ -760,10 +742,13 @@ onMounted(() => {
   window.addEventListener(WIDGET_FOCUS_EVENT, onKavibayFocusWidget);
   void nextTick().then(() => {
     scheduleRegionSync();
-    rootEl.value?.addEventListener("wheel", onContentWheel, {
-      passive: false,
-      capture: true,
-    });
+    if (rootEl.value) {
+      stopContentZoom = installContentZoom(
+        rootEl.value,
+        () => resolvedContentScale.value,
+        (scale) => emit("update:contentScale", scale),
+      );
+    }
     if (rootEl.value && typeof ResizeObserver !== "undefined") {
       widthObserver = new ResizeObserver((entries) => {
         const entry = entries[0];
@@ -778,7 +763,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener(WIDGET_FOCUS_EVENT, onKavibayFocusWidget);
-  rootEl.value?.removeEventListener("wheel", onContentWheel, { capture: true });
+  stopContentZoom?.();
   widthObserver?.disconnect();
   widthObserver = undefined;
   resetHidePress();

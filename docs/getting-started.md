@@ -102,6 +102,13 @@ The gear menu only appears once more than one session exists.
 **Builds and runs from source**, and `npm run verify:rust` passes on a Mac.
 Packaging is not set up.
 
+After changing the runtime package protocol or its CSP, run
+`npm run verify:webkit` on macOS. It opens an ephemeral WebKit instance and checks
+button clicks, storage across an iframe reload, gesture forwarding, rendered
+iframe sizes after live zoom changes, local assets and sandbox restrictions.
+It does not read or change your Kavibay profile. This catches
+WebKit-specific failures that the TypeScript and Rust suites cannot reproduce.
+
 On a Mac the double tap is on the Control key (⌃), not Command. It needs no
 permission. Kavibay watches modifier keys through an `NSEvent` global monitor,
 which macOS serves without Input Monitoring or Accessibility access, so there is

@@ -15,6 +15,8 @@
  * - CI: scripts/runtimeSandboxGuard.assert.mjs greps this file for the
  *   forbidden same-origin sandbox token and requires the static attribute.
  */
+import { forwardFrameZoom } from "../host/contentZoom";
+import "./frameViewport.css";
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -79,6 +81,7 @@ async function runHttpCall(requestId: string, endpointId: string, args: unknown)
 function onMessage(event: MessageEvent) {
   const frameWin = iframeRef.value?.contentWindow;
   if (!frameWin || event.source !== frameWin) return;
+  if (forwardFrameZoom(iframeRef.value, event)) return;
   if (!isExtToHost(event.data)) return;
 
   const message = event.data;
@@ -139,23 +142,14 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <iframe
-    ref="iframeRef"
-    class="runtime-ext-frame"
-    :src="entryUrl"
-    :title="`Runtime extension ${extId}`"
-    sandbox="allow-scripts"
-    referrerpolicy="no-referrer"
-  />
+  <div class="widget-frame-viewport">
+    <iframe
+      ref="iframeRef"
+      class="runtime-ext-frame"
+      :src="entryUrl"
+      :title="`Runtime extension ${extId}`"
+      sandbox="allow-scripts"
+      referrerpolicy="no-referrer"
+    />
+  </div>
 </template>
-
-<style scoped>
-.runtime-ext-frame {
-  display: block;
-  width: 100%;
-  height: 100%;
-  min-height: 120px;
-  border: 0;
-  background: transparent;
-}
-</style>

@@ -34,14 +34,16 @@ use super::validate::safe_join;
 /// `http://kavibay-img.localhost` on Windows and Android. Naming only one is a
 /// CSP that works on the developer's machine.
 ///
-/// `'self'` is kept for the package's own files but is not what carries this:
-/// the frame is `sandbox="allow-scripts"`, so its origin is opaque and `'self'`
-/// resolves to something that matches nothing. The scheme sources are the ones
-/// doing the work.
+/// WebKit does not match `'self'` for package resources in an opaque sandbox.
+/// Name the local package protocol explicitly for scripts, styles and images;
+/// otherwise macOS renders the HTML but blocks both the SDK and widget script.
+/// These sources reach the host's protocol handlers, not arbitrary web hosts.
+/// The frame keeps its opaque origin and direct network access stays denied.
 const EXTENSION_FRAME_CSP: &str = concat!(
     "default-src 'none'; ",
-    "img-src 'self' data: blob: kavibay-img: http://kavibay-img.localhost; ",
-    "style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'none'"
+    "img-src 'self' kavibay-ext: http://kavibay-ext.localhost data: blob: kavibay-img: http://kavibay-img.localhost; ",
+    "style-src 'self' kavibay-ext: http://kavibay-ext.localhost 'unsafe-inline'; ",
+    "script-src 'self' kavibay-ext: http://kavibay-ext.localhost; connect-src 'none'"
 );
 
 /// Parsed `kavibay-ext` request target.
@@ -79,7 +81,7 @@ fn handle_kavibay_ext_request<R: Runtime>(
 /// not matter. `nosniff` keeps a `.txt` from being promoted to HTML.
 fn file_response(bytes: Vec<u8>, content_type: &'static str) -> Response<Vec<u8>> {
     let bytes = if content_type.starts_with("text/html") {
-        with_canvas_reset(bytes)
+        with_frame_defaults(bytes)
     } else {
         bytes
     };
@@ -152,6 +154,11 @@ const RUNTIME_SDK: &str = include_str!("../../../sdk/runtime/kavibay-runtime.js"
 const CONTRACT_GUEST_PATH: &str = "@kavibay/contract.js";
 const CONTRACT_GUEST: &str = include_str!("../../../sdk/contract-guest/kavibay-contract-guest.js");
 
+// Host gestures are shared by both package formats and installed before package
+// scripts, so a generated widget never has to implement zoom itself.
+const FRAME_GESTURES: &str = include_str!("../../../core/app/runtime/frameGestures.js");
+const FRAME_GESTURES_TAG: &str = "<script src=\"@kavibay/frame.js\"></script>";
+
 /// The canvas reset, injected into every HTML document this protocol serves.
 ///
 /// WHY HERE AND NOT ONLY IN THE GUESTS. Both guests inject the same rule, and
@@ -182,13 +189,13 @@ const CANVAS_RESET: &str = concat!(
     "</style>"
 );
 
-/// Put the reset as early in the document as it can legally go.
+/// Put the canvas reset and host gestures before the package's own code.
 ///
 /// After `<head>` where there is one, after `<html>` where there is not, and
 /// after the doctype otherwise — never before it, because a stray node ahead of
 /// the doctype drops the page into quirks mode, which changes far more than a
 /// background.
-fn with_canvas_reset(html: Vec<u8>) -> Vec<u8> {
+fn with_frame_defaults(html: Vec<u8>) -> Vec<u8> {
     let Ok(text) = std::str::from_utf8(&html) else {
         // Not text we can reason about; serve it untouched rather than corrupt it.
         return html;
@@ -203,17 +210,19 @@ fn with_canvas_reset(html: Vec<u8>) -> Vec<u8> {
         .or_else(|| lower.find("<!doctype").and_then(after_open_tag))
         .unwrap_or(0);
 
-    let mut out = String::with_capacity(text.len() + CANVAS_RESET.len());
+    let mut out = String::with_capacity(text.len() + CANVAS_RESET.len() + FRAME_GESTURES_TAG.len());
     out.push_str(&text[..at]);
     out.push_str(CANVAS_RESET);
+    out.push_str(FRAME_GESTURES_TAG);
     out.push_str(&text[at..]);
     out.into_bytes()
 }
 
 /// Scripts the host serves itself, under names no package file can claim.
-const HOST_SERVED: [(&str, &str); 2] = [
+const HOST_SERVED: [(&str, &str); 3] = [
     (RUNTIME_SDK_PATH, RUNTIME_SDK),
     (CONTRACT_GUEST_PATH, CONTRACT_GUEST),
+    ("@kavibay/frame.js", FRAME_GESTURES),
 ];
 
 /// The script body when a request is for one of the host-served names.
@@ -394,12 +403,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn package_documents_load_host_gestures_before_package_scripts() {
+        let response = super::file_response(
+            b"<!doctype html><html><head><script src=\"app.js\"></script></head></html>".to_vec(),
+            "text/html; charset=utf-8",
+        );
+        let html = std::str::from_utf8(response.body()).unwrap();
+        assert!(html.find("@kavibay/frame.js").unwrap() < html.find("app.js").unwrap());
+        assert!(super::host_served_script("ui/@kavibay/frame.js").is_some());
+        assert!(super::host_served_script("ui/not@kavibay/frame.js").is_none());
+    }
+
     /// The reset has to be in the document before the package's own CSS, or it
     /// is racing the parser — which is what made the black intermittent.
     #[test]
     fn the_canvas_reset_lands_at_the_top_of_the_head() {
         let html = b"<!doctype html><html lang=\"de\"><head><style>:root{color-scheme:dark}</style></head><body></body></html>";
-        let out = String::from_utf8(super::with_canvas_reset(html.to_vec())).unwrap();
+        let out = String::from_utf8(super::with_frame_defaults(html.to_vec())).unwrap();
 
         let reset = out
             .find("color-scheme:normal")
@@ -436,7 +457,7 @@ mod tests {
         ];
         for (input, expected) in cases {
             let out =
-                String::from_utf8(super::with_canvas_reset(input.as_bytes().to_vec())).unwrap();
+                String::from_utf8(super::with_frame_defaults(input.as_bytes().to_vec())).unwrap();
             assert!(
                 out.contains(expected),
                 "{input} did not place the reset: {out}"
@@ -447,13 +468,13 @@ mod tests {
     /// A fragment with neither is still served, and still gets the rule.
     #[test]
     fn a_document_with_no_tags_at_all_is_not_corrupted() {
-        let out = String::from_utf8(super::with_canvas_reset(b"<p>hi</p>".to_vec())).unwrap();
+        let out = String::from_utf8(super::with_frame_defaults(b"<p>hi</p>".to_vec())).unwrap();
         assert!(out.starts_with("<style>"));
         assert!(out.ends_with("<p>hi</p>"));
 
         // Bytes that are not text are served untouched rather than mangled.
         let binary = vec![0xff, 0xfe, 0x00];
-        assert_eq!(super::with_canvas_reset(binary.clone()), binary);
+        assert_eq!(super::with_frame_defaults(binary.clone()), binary);
     }
     use super::super::drafts::is_valid_package_id;
     use super::super::validate::safe_join;
