@@ -95,7 +95,8 @@ export const calendarWidget = defineWidget<CalendarConfig>({
   defaultSize: { w: 3, h: 4 },
   minSize: { w: 3, h: 3 },
   mode: "both",
-  requires: { providers: [PROVIDER_ID] },
+  // The quick-add form writes; the rest of the widget only reads.
+  requires: { providers: [PROVIDER_ID], actions: { [PROVIDER_ID]: ["createEvent"] } },
   capabilities: { openExternal: true },
   configuration: {
     calendars: {

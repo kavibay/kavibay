@@ -10,7 +10,7 @@ import { version as APP_VERSION } from "../../../src-tauri/tauri.conf.json";
 import type {
   ExtensionManifest, ExtensionSource, TrustTier, LoadedExtension, ExtensionId,
   ProviderId, ProviderDefinition, WidgetDefinition, WidgetDefinitionId,
-  CommandDefinition, ActionCommand,
+  CommandDefinition, ActionCommand, ProviderRequirements,
 } from "@sdk/contract/sdk";
 
 /**
@@ -241,6 +241,7 @@ export class ExtensionRegistry {
       for (const [wid, w] of ext.widgets) {
         const declared = w.requires?.providers ?? [];
         problems.push(...duplicateProviders(wid, declared));
+        problems.push(...this.declaredActionProblems(wid, w.requires));
         for (const pid of declared) {
           const owner = this.providers.get(pid)?.owner;
           if (!owner) { problems.push(`${wid}: unknown provider ${pid}`); continue; }
@@ -254,6 +255,7 @@ export class ExtensionRegistry {
         if (c.kind === "action") { problems.push(...this.validateActionCommand(cid, c)); continue; }
         const declared = c.requires?.providers ?? [];
         problems.push(...duplicateProviders(cid, declared));
+        problems.push(...this.declaredActionProblems(cid, c.requires));
         for (const pid of declared) {
           const p = this.providers.get(pid);
           if (!p) { problems.push(`${cid}: unknown provider ${pid}`); continue; }
@@ -270,6 +272,31 @@ export class ExtensionRegistry {
       }
     }
     return failed;
+  }
+
+  /**
+   * `requires.actions`, checked against the list beside it and the provider.
+   *
+   * A key outside `providers` is a write permission on an account the code never
+   * asked to read — FINDINGS §25's grant without a subject, one field over. An
+   * unknown name passes review and fails the first time the button is pressed,
+   * so it fails here instead, where the message can name the typo.
+   */
+  private declaredActionProblems(who: string, requires: ProviderRequirements | undefined): string[] {
+    const out: string[] = [];
+    for (const [pid, names] of Object.entries(requires?.actions ?? {})) {
+      if (!requires?.providers.includes(pid)) {
+        out.push(`${who}: requires.actions names ${pid}, which is not in requires.providers`);
+        continue;
+      }
+      const def = this.providers.get(pid)?.def;
+      // An unknown provider is already reported by the caller's loop.
+      if (!def) continue;
+      for (const name of names ?? []) {
+        if (!def.actions[name]) out.push(`${who}: unknown action ${pid}.${name}`);
+      }
+    }
+    return out;
   }
 
   private validateActionCommand(cid: string, c: ActionCommand): string[] {

@@ -685,6 +685,32 @@ export type ProviderStatus =
 
 // === 5. WIDGETS =============================================================
 
+/**
+ * The provider actions some code calls, keyed by provider.
+ *
+ * Keyed rather than a bare list for the reason FINDINGS §25 gives: with two
+ * providers, `["createEvent"]` is a permission with no stated subject.
+ */
+export type ProviderActions = Partial<Record<ProviderId, readonly string[]>>;
+
+/**
+ * What a widget or a code command reaches through providers.
+ *
+ * `providers` is the account: reading from it is granted by naming it
+ * (FINDINGS §27). `actions` is the one finer thing, because it is the one finer
+ * thing a person can decide about. "May read your heating" and "may change your
+ * heating" are two answers somebody actually has; "may use `zoneStates`" is not.
+ *
+ * FAIL CLOSED (invariant 2). An action that is not listed here is refused by
+ * `Host.action`, whoever wrote the code. Missing means none, never "unchecked".
+ * Every key must also be in `providers`, and every name must be an action that
+ * provider declares; the registry refuses the widget at link time otherwise.
+ */
+export interface ProviderRequirements {
+  providers: ProviderId[];
+  actions?: ProviderActions;
+}
+
 export interface WidgetDefinition<TConfig = Record<string, unknown>> {
   name: string;
   displayName: string;
@@ -696,23 +722,23 @@ export interface WidgetDefinition<TConfig = Record<string, unknown>> {
    * The providers this widget reads from. All of them are required: the gate
    * does not mount until every one is connected.
    *
-   * THIS LIST IS THE PERMISSION. There is no second, finer declaration —
-   * `permissions` used to name individual queries and actions, and it is gone
-   * (FINDINGS §27). The grant a person gives is "this widget may use tado°",
-   * which is a sentence they can decide about; "may it use zoneStates?" is not.
+   * THE PROVIDER LIST IS THE READ PERMISSION. `permissions` used to name
+   * individual queries and actions, and it is gone (FINDINGS §27). The grant a
+   * person gives is "this widget may use tado°", which is a sentence they can
+   * decide about; "may it use zoneStates?" is not. A widget granted a provider
+   * may call every query that provider declares.
    *
-   * What that costs, stated rather than buried: a widget granted a provider may
-   * call every query that provider declares. Writes are the part that would
-   * hurt, and they are refused for generated widgets by the host on the trust
-   * tier instead — see `Host.action`. Trust comes from the load source and
-   * cannot be declared, so that is a stronger guarantee than the list was.
+   * WRITES ARE DECLARED. `requires.actions` lists every provider action the
+   * widget calls, and the host refuses the rest (see `ProviderRequirements`).
+   * For a package the list that counts is the one in its grant, which the
+   * person approved separately from reading.
    *
    * A BARE LIST, NOT ROLES. Every provider named here is needed. The day a
    * widget wants one it can render without — GitHub issues visible while Linear
    * is unconnected — that arrives as an additional field with a default, which
    * changes no existing declaration. Additive later beats invented now.
    */
-  requires?: { providers: ProviderId[] };
+  requires?: ProviderRequirements;
   capabilities?: CapabilityDeclaration;
   configuration?: Record<string, ConfigField>;
   /** Copy all persisted ctx.data cells when the host duplicates an instance. */
@@ -963,7 +989,7 @@ export interface CodeCommand extends CommandBase {
    * provider. `when` is visibility, not capability — the two must not be
    * conflated, and this is the capability half.
    */
-  requires?: { providers: ProviderId[] };
+  requires?: ProviderRequirements;
   capabilities?: CapabilityDeclaration;
   run: (ctx: CommandContext) => Promise<void>;
 }

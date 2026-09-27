@@ -4,6 +4,7 @@ import type {
   ArgBinding, ProviderQuery, FocusTrackerGroupBy, FocusTrackerIgnoreKind, FocusTrackerRange,
   ColorPickerEvent, WizardCapability, WizardCompletionRequest,
   ExtensionId,
+  ProviderActions,
   TrustTier,
 } from "@sdk/contract/sdk";
 import { ExtensionRegistry } from "./registry";
@@ -39,10 +40,21 @@ export interface HostUi {
  * Who is asking, when it is not the host itself.
  *
  * `null` means the runtime is calling on its own behalf — resolving a settings
- * dropdown from a provider query, say — and no caller rule applies. Anything
- * originating in extension code passes one.
+ * dropdown from a provider query, or running an action command the person
+ * picked from the palette — and no caller rule applies. Anything originating in
+ * extension code passes one.
+ *
+ * `actions` is the caller's `requires.actions`, copied from the registry's
+ * definition (or, for a package, from its grant) where the caller is built.
+ * Required rather than optional, so a new place that builds a caller cannot
+ * leave it out and get "unchecked" by accident.
  */
-export type Caller = { extensionId: ExtensionId; trust: TrustTier; instanceId?: string } | null;
+export type Caller = {
+  extensionId: ExtensionId;
+  trust: TrustTier;
+  instanceId?: string;
+  actions: ProviderActions;
+} | null;
 const connectionOwner = (caller: Caller) => caller?.instanceId ? `widget:${caller.instanceId}` : "host:default";
 
 export class Host {
@@ -281,13 +293,25 @@ export class Host {
   }
 
   /**
-   * Provider actions run for whoever the user approved, including generated
-   * widgets. The grant is the account (FINDING 27): there is no per-action list
-   * and no poorer API for Wizard packages. What generated code still cannot do
-   * is contribute a provider, a command, or a palette callback — that is code
-   * the host would run, refused at load.
+   * A provider action, for a caller that declared it.
+   *
+   * The account is the read grant (FINDINGS §27); a write is one step further,
+   * and it has to be named in `requires.actions`. The check comes before the
+   * connection on purpose: an undeclared action is refused the same way whether
+   * or not the account is connected, so the answer does not depend on state the
+   * author cannot see while writing the widget.
+   *
+   * Generated widgets get the same API as bundled ones. What they still cannot
+   * do is contribute a provider, a command, or a palette callback — code the
+   * host would run, refused at load.
    */
   async action<T>(id: ProviderId, name: string, args: any, caller: Caller = null): Promise<T> {
+    if (caller && !(caller.actions[id] ?? []).includes(name)) {
+      fail({
+        kind: "permission-denied",
+        message: `${id}.${name} is not declared in requires.actions`,
+      });
+    }
     const connection = await this.requestConnection(id, caller);
     const def = this.registry.providers.get(id)!.def;
     const a = def.actions[name] ?? fail({ kind: "not-found", message: `unknown action ${name}` });
@@ -645,7 +669,12 @@ export class Host {
 
     const declared = w.requires?.providers ?? [];
     if (declared.length > 0) {
-      const caller = { extensionId: found.ext.id, trust: found.ext.trust, instanceId: instance.id };
+      const caller = {
+        extensionId: found.ext.id,
+        trust: found.ext.trust,
+        instanceId: instance.id,
+        actions: w.requires?.actions ?? {},
+      };
       ctx.providers = Object.fromEntries(
         declared.map((pid) => [pid, this.providerApi(pid, caller)]),
       );
@@ -687,7 +716,11 @@ export class Host {
       const ctx: CommandContext = { ui: this.ui };
       const declared = c.requires?.providers ?? [];
       if (declared.length > 0) {
-        const caller = { extensionId: found.ext.id, trust: found.ext.trust };
+        const caller = {
+          extensionId: found.ext.id,
+          trust: found.ext.trust,
+          actions: c.requires?.actions ?? {},
+        };
         ctx.providers = Object.fromEntries(
           declared.map((pid) => [pid, this.providerApi(pid, caller)]),
         );

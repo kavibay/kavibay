@@ -301,8 +301,15 @@ const install = (over: Record<string, unknown> = {}) => ({
   const alsoFine = await ctx.providers![TADO]!.query("roomState", { roomId: "living-room" });
   assert(alsoFine !== undefined, "any query on an approved account answers over the wire");
 
-  await ctx.providers![TADO]!.action("setTemperature", { roomId: "living-room", temperature: 25 });
-  assert(true, "a generated package may call provider actions on an approved account");
+  /**
+   * Reading is the account; writing is declared, and for a package the
+   * declaration that counts is the grant. This one approved the account and no
+   * action, so the write is refused over the wire.
+   */
+  const write = await ctx.providers![TADO]!
+    .action("setTemperature", { roomId: "living-room", temperature: 25 })
+    .then(() => undefined, (error: unknown) => error as { kind?: string });
+  assert(write?.kind === "permission-denied", "an action the grant does not name is refused over the wire");
 }
 
 // --- why it was black, kept as a fact rather than a memory ---
