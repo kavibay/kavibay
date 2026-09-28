@@ -6337,13 +6337,11 @@ async function enablePackage(
 */
 .wiz-bubble.system.note {
   /*
-    A floor as well as a ceiling. Centred boxes sized purely to their text turn
-    a column of notes into a zigzag — "Updated via MCP" is a third the width of
-    the one above it, and the eye follows the edges instead of the words.
+    Sized to its text. A 260px floor kept a column of notes from zigzagging,
+    but left a short note like "Saved …" floating in a wide empty box.
   */
-  min-width: min(260px, 100%);
   max-width: 80%;
-  padding: 4px 11px;
+  padding: 3px 10px;
   /* Not a pill: these wrap to two lines often enough, and a stadium shape
      around two lines reads as a shape rather than as a note. */
   border-radius: 9px;
