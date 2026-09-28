@@ -84,9 +84,10 @@ Kill Port invokes its fixed Rust command after validating the port).
 
 A provider-only extension is the same shape without a palette row: `provider.ts`
 plus `contributes.providers` in `extension.ts`, and no `view.ts`. The compiled
-allowlist is generated from that file. Linear, n8n, Spotify, Fitbit and Notion are the examples — Settings →
-Credentials and the Widget Wizard see it; the palette does not until a widget
-is written against it.
+allowlist is generated from that file. Linear, n8n, Fitbit and Notion are the
+examples — Settings → Credentials and the Widget Wizard see it; the palette does
+not until a widget is written against it. Spotify began this way and now ships
+its Playlists widget beside the provider.
 
 A definition is a plain object with a headless `setup(ctx)` that returns a view
 model. The split from its view is not taste: the contract must stay

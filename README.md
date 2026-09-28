@@ -118,21 +118,23 @@ npm run package:linux            # AppImage + .deb → src-tauri/target/release/
 
 ## Widgets
 
-30 widgets ship with the app, plus two palette-only actions. The full catalogue —
+31 widgets ship with the app, plus two palette-only actions. The full catalogue —
 what each one does, its tier, and what it needs — is in
 **[extensions/README.md](extensions/README.md)**.
 
 | Category | Widgets |
 |---|---|
 | **Productivity** | Alarm · Clipboard · Clock · Focus Tracker · Moodist · Notes · Single Purpose AI · Pomodoro · Snippets · Stopwatch · Time Tracker · Timer · Todo |
-| **Information** | Calendar · GitHub Actions · Stocks · Tado · Weather |
+| **Information** | Calendar · GitHub Actions · Spotify Playlists · Stocks · Tado · Weather |
 | **Tools** | Calculator · Color Picker · Emoji Picker · Widget Gallery · Redacted · Snake · Widget Wizard |
 | **System** | AI Usage · Launcher Buttons · System Info |
 | **Media** | Image · Now Playing |
 | **Actions** | Confetti · Kill Port |
 
 Some need an account — Anthropic, OpenAI, Cloudflare Workers AI, Google Calendar,
-GitHub, Tado. Those are entered once in **Settings → Integrations → Credentials**.
+GitHub, Spotify, Tado. Those are entered once in **Settings → Integrations → Credentials**.
+Linear, Notion, n8n and Fitbit connect there too. They have no widget of their
+own; a widget you build with the Wizard reads from them.
 
 ## Build your own
 
