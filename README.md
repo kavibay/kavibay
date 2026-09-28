@@ -13,14 +13,13 @@
 
 [![CI](https://github.com/kavibay/kavibay/actions/workflows/ci.yml/badge.svg)](https://github.com/kavibay/kavibay/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-GPL--3.0%20%C2%B7%20MIT-blue)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%C2%B7%20Linux-lightgrey)](#platforms)
+[![Platform](https://img.shields.io/badge/v0.1-Windows%20only-lightgrey)](#platforms)
 [![Tauri](https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
 [![Vue](https://img.shields.io/badge/Vue-3-42B883?logo=vuedotjs&logoColor=white)](https://vuejs.org)
 [![Rust](https://img.shields.io/badge/Rust-stable-000000?logo=rust&logoColor=white)](https://rustup.rs)
 
 Tap `Ctrl` twice. A command palette opens in the middle of the screen and brings
-your widgets with it. Tap twice again and everything is gone. On a Mac, that is
-the Control key (⌃), not Command.
+your widgets with it. Tap twice again and everything is gone.
 
 <img src="https://kavibay.com/videos/launcher-poster.jpg" width="80%" alt="The Kavibay command palette over a desktop wallpaper" />
 
@@ -79,60 +78,63 @@ fast, and the Vue side hot-reloads.
 
 **3. Open it**
 
-Nothing appears on screen — that is correct. The window starts invisible. Tap
-`Ctrl` twice, or double-click the tray icon. On a Mac, tap Control (⌃) twice, not
-Command, or click the menu bar icon and choose Open. On the very first start it
-opens by itself and asks two setup questions — start at login, and which screen
-to cover.
-Answer them and the desk arrives with a clock and a to-do list already on it,
-then a short tour teaches the double tap, the launcher and the widget desk.
+On the first start, setup opens automatically. Choose whether to start at login
+and, if you have multiple displays, which screen to cover. Continue with the
+tour or choose **Skip the tour**. The desk arrives with a clock and a to-do list
+already on it. The optional Windows tour teaches the double tap, app search
+using `notepad`, and the widget desk.
 It ends there and offers the six card gestures rather than insisting on them.
 `Settings → Behavior → Replay tour` brings it back, and the startup switch stays
 in `Settings → Behavior`.
+
+On later starts, Kavibay stays hidden in the tray. Tap `Ctrl` twice or
+double-click the tray icon to open it.
 
 > `npm run dev` on its own starts only Vite on <http://localhost:1420>. The UI
 > renders in a browser, but every `invoke` fails — use it for pure CSS work, not
 > for anything that talks to Rust.
 
-Full setup, per platform, plus what to do when it does not start:
+Full Windows setup, experimental port notes, and troubleshooting:
 **[docs/getting-started.md](docs/getting-started.md)**.
 
 ## Install
 
-**Option A — download a build.** Releases are built by
+**Option A — download a build.** Version 0.1 targets Windows only: an
+installer and a standalone `.exe`, plus `SHA256SUMS.txt`. Linux and macOS are
+outside the 0.1 release scope ([Platforms](#platforms)). Releases are built by
 [`release.yml`](.github/workflows/release.yml) when a `v*` tag is pushed, and land
-as a draft with both Windows artifacts, the Linux AppImage and `.deb`, plus
-`SHA256SUMS.txt`.
+as a draft.
 
 Everything is **unsigned** — no free code-signing option exists that Windows
 trusts — so SmartScreen warns on first run ("More info" → "Run anyway"). Check the
 published SHA256 if you want to be sure of what you downloaded.
 
-**Option B — build it yourself.**
+**Option B — build it yourself on Windows.**
 
 ```bash
 npm run package:win              # NSIS installer  → src-tauri/target/release/bundle/nsis/
 npm run package:win:standalone   # single .exe     → src-tauri/target/release/kavibay.exe
-npm run package:linux            # AppImage + .deb → src-tauri/target/release/bundle/
 ```
 
 ## Widgets
 
-30 widgets ship with the app, plus two palette-only actions. The full catalogue —
+31 widgets ship with the app, plus two palette-only actions. The full catalogue —
 what each one does, its tier, and what it needs — is in
 **[extensions/README.md](extensions/README.md)**.
 
 | Category | Widgets |
 |---|---|
 | **Productivity** | Alarm · Clipboard · Clock · Focus Tracker · Moodist · Notes · Single Purpose AI · Pomodoro · Snippets · Stopwatch · Time Tracker · Timer · Todo |
-| **Information** | Calendar · GitHub Actions · Stocks · Tado · Weather |
+| **Information** | Calendar · GitHub Actions · Spotify Playlists · Stocks · Tado · Weather |
 | **Tools** | Calculator · Color Picker · Emoji Picker · Widget Gallery · Redacted · Snake · Widget Wizard |
 | **System** | AI Usage · Launcher Buttons · System Info |
 | **Media** | Image · Now Playing |
 | **Actions** | Confetti · Kill Port |
 
 Some need an account — Anthropic, OpenAI, Cloudflare Workers AI, Google Calendar,
-GitHub, Tado. Those are entered once in **Settings → Integrations → Credentials**.
+GitHub, Spotify, Tado. Those are entered once in **Settings → Integrations → Credentials**.
+Linear, Notion, n8n and Fitbit connect there too. They have no widget of their
+own; a widget you build with the Wizard reads from them.
 
 ## Build your own
 
@@ -169,10 +171,12 @@ and permissions. → [docs/mcp-server.md](docs/mcp-server.md)
 
 ## Keys
 
+These are the Windows shortcuts for version 0.1.
+
 | Key | Does |
 |---|---|
-| `Ctrl` `Ctrl` | Show / hide the cockpit (Windows and macOS). On a Mac this is Control (⌃), not Command |
-| `Shift+Ctrl+Space` | Show / hide on the screen under the mouse — and the way in on Linux |
+| `Ctrl` `Ctrl` | Show / hide the cockpit |
+| `Shift+Ctrl+Space` | Show / hide on the screen under the mouse |
 | `Ctrl+Space` (hold) | Peek at the widgets, no palette |
 | `Ctrl+Shift+Q` | Quick actions on text selected in **any** app — translate, fix grammar, rewrite |
 | `↑` `↓` `Enter` | Move through results; on a widget row, put it on the desk |
@@ -202,11 +206,11 @@ and permissions. → [docs/mcp-server.md](docs/mcp-server.md)
 | `Ctrl`+mousewheel · pinch | Zoom a widget's content (`0.5`…`3`), remembered per card |
 | `Ctrl`+drag | Move the whole layout instead of one widget |
 | Double-click a widget title | Rename it |
-| Hold the card's `×` | Short release hides; holding arms **delete** |
+| Hold the card's `×` | Short release hides; hold until the trash icon appears, release, then confirm with the red trash icon in the controls |
 
 A few notes worth having: no OS can register a bare modifier as a hotkey, which
-is why the `Ctrl` double tap watches the keyboard directly and works on Windows
-and macOS only. `Ctrl+Space` releases the widgets again the moment you let go —
+is why the `Ctrl` double tap watches the keyboard directly. `Ctrl+Space` releases
+the widgets again the moment you let go —
 click one while holding and that one stays. `Ctrl+Enter` on a widget row opens
 it in the palette without touching your layout, and the ↗ button in that header
 promotes it to a card and takes the content with it. Hold `Ctrl` for 750ms in
@@ -217,12 +221,15 @@ widget you deleted comes back from `Ctrl+Z` empty.
 
 ## Platforms
 
+**Version 0.1 supports Windows 10 and 11 only.** Linux and macOS are outside its
+release scope. Their existing source ports are experimental and unsupported.
+The notes below describe development builds and their known limitations.
+
 | | Status |
 |---|---|
-| **Windows 11 / 10** | Supported. |
-| **Linux (X11)** | Works, except the `Ctrl` double tap. `Shift+Ctrl+Space` or the tray opens Kavibay instead. |
-| **Linux (Wayland)** | Runs, but **pinned widgets do not stay on top** — Wayland grants no client that right. No `Ctrl` double tap, as on X11. [How to get an X11 session](docs/getting-started.md#run-on-linux) |
-| **macOS** | **Builds and runs from source**, including the `Ctrl` double tap, which needs no permission. Packaging is not set up, and the transparent window relies on Apple private APIs, which rules out the App Store. [What to expect](docs/getting-started.md#run-on-macos) |
+| **Windows 11 / 10** | The supported v0.1 target, including the first-run tour and credential storage. |
+| **Linux (X11 / Wayland)** | Outside v0.1. Cannot save integration credentials: secure secret storage is not implemented. The tour still uses Windows examples such as `notepad`. Window behavior also depends on X11 vs. Wayland. [Experimental source-build notes](docs/getting-started.md#run-on-linux) |
+| **macOS** | Outside v0.1. Experimental source port; packaging and a platform-specific first-run tour are not part of this release. [Development notes](docs/getting-started.md#run-on-macos) |
 
 ## Where your things live
 

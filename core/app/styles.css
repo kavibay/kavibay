@@ -405,3 +405,32 @@ body {
   outline: 2px solid rgba(var(--fg-rgb), 0.55);
   outline-offset: 2px;
 }
+
+/* Keep the hover/click-through rect still while the pill emerges at the card's
+   top edge. Only clip below it so shortcut hints remain visible above and aside. */
+.card-chrome-reveal {
+  clip-path: inset(-100vh -100vw 0);
+}
+
+.card-chrome-reveal::before,
+.card-chrome-reveal > button {
+  animation: card-chrome-reveal 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes card-chrome-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-chrome-reveal::before,
+  .card-chrome-reveal > button {
+    animation: none;
+  }
+}

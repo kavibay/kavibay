@@ -73,7 +73,8 @@ import {
   spawnOffsetNearPalette,
 } from "./layoutLogic";
 import { renameRuntimeStorageExt } from "../runtime/runtimeStorage";
-import { extensionHost } from "../extension-host/cockpit";
+import { commandUi, extensionHost } from "../extension-host/cockpit";
+import { createWidgetRemoval, WIDGET_REMOVAL_KEY, type WidgetRemovalRequest } from "./widgetRemoval";
 import {
   LayoutGeometryHistory,
   applyLayoutGeometry,
@@ -101,7 +102,8 @@ import { useExtensionsPrefs } from "../settings/useExtensionsPrefs";
 import { useSettingsModal } from "../settings/useSettingsModal";
 import { useExtensionAboutModal } from "../extensions/useExtensionAboutModal";
 import { hostDismissHeld } from "@sdk";
-import { paletteDropActive, requestInlineWidget } from "../palette/inlineWidgetRequest";
+import { inlineWidgetInstanceId, paletteDropActive, requestInlineWidget } from "../palette/inlineWidgetRequest";
+import { withBackgroundWidgets } from "./backgroundWidgets";
 import { useOnboarding } from "../onboarding/useOnboarding";
 import { setupState, startSetupIfNeeded } from "../onboarding/setupSession";
 import { isSetupVisible } from "../onboarding/setupLogic";
@@ -168,6 +170,9 @@ const onboarding = useOnboarding();
 // All positions are centers. Widget offsets remain relative to the palette.
 /** Authoritative layout-v4 document; palette + instances mirror the active desk. */
 const layoutDoc = reactive<SavedLayoutV4>(loadLayout(extensionRegistry));
+const widgetRemoval = createWidgetRemoval();
+provide(WIDGET_REMOVAL_KEY, widgetRemoval);
+watch([() => layoutDoc.activeDeskId, settingsOpen], () => widgetRemoval.cancel());
 const palettePos = reactive<WidgetPosition>({ x: 0, y: 0 });
 const palettePinned = ref(false);
 const paletteWidth = ref<number | undefined>(undefined);
@@ -409,13 +414,14 @@ const paletteVisible = computed(
 
 /** Whether an instance would mount if its extension were enabled. */
 function wouldMountIgnoringEnable(instance: WidgetInstance): boolean {
+  if (keepsAliveWhenHidden(instance)) return true;
   if (instance.hidden) return false;
   if (instance.pinned) return true;
   if (peekKept.value.has(instance.instanceId)) return true;
-  return cockpitOpen.value || keepsAliveWhenHidden(instance);
+  return cockpitOpen.value;
 }
 
-/** Whether a widget needs to stay mounted while the cockpit is dismissed. */
+/** Background work continues while hidden, dismissed or on another desk. */
 function keepsAliveWhenHidden(instance: WidgetInstance): boolean {
   return defFor(instance.typeId)?.keepAliveWhenHidden === true;
 }
@@ -442,6 +448,7 @@ function suspendLeavingMountedSet(
   skipInstanceIds?: Set<string>,
 ) {
   for (const instance of instances) {
+    if (keepsAliveWhenHidden(instance)) continue;
     if (!prevMountedIds.has(instance.instanceId)) continue;
     if (nextMountedIds.has(instance.instanceId)) continue;
     if (skipInstanceIds?.has(instance.instanceId)) continue;
@@ -455,6 +462,7 @@ function resumeEnteringMountedSet(
   nextMountedIds: Set<string>,
 ) {
   for (const instance of instances) {
+    if (keepsAliveWhenHidden(instance)) continue;
     if (!nextMountedIds.has(instance.instanceId)) continue;
     if (prevMountedIds.has(instance.instanceId)) continue;
     runExtensionHook(getExtension(instance.typeId), "onResume", instance.instanceId);
@@ -462,19 +470,35 @@ function resumeEnteringMountedSet(
 }
 
 /**
- * Mounted widgets: enabled extension; not Hidden; pinned always; default only
- * while cockpit is open.
+ * Background work belongs to the instance, independent of which desk is visible.
+ * Keeping the keyed card here also preserves its model across desk switches.
  */
 const mountedInstances = computed(() =>
-  instances.filter((instance) => isMountedInstance(instance)),
+  withBackgroundWidgets(
+    instances.filter(isMountedInstance),
+    layoutDoc.catalog,
+    (typeId) => isEnabled(typeId) && defFor(typeId)?.keepAliveWhenHidden === true,
+    inlineWidgetInstanceId.value,
+  ),
 );
 
 /** Mounted widgets that are actually visible; background widgets are excluded. */
 const visibleMountedInstances = computed(() =>
   mountedInstances.value.filter(
-    (instance) => cockpitOpen.value || survivesDismiss(instance, peekKept.value),
+    (instance) => instances.some((active) => active.instanceId === instance.instanceId && !active.hidden)
+      && (cockpitOpen.value || survivesDismiss(instance, peekKept.value)),
   ),
 );
+
+// A background model may stay mounted after its card disappears.
+watch(() => {
+  const request = widgetRemoval.pending.value;
+  return !request || (request.surface === "palette"
+    ? paletteVisible.value
+    : visibleMountedInstances.value.some((instance) => instance.instanceId === request.instanceId));
+}, (visible) => {
+  if (!visible) widgetRemoval.cancel();
+});
 
 /** Rescan (or clear) AppData packages when the Developer Extensions gate changes. */
 watch(developerExtensionsEnabled, () => {
@@ -613,7 +637,7 @@ function isEditableKeyTarget(target: EventTarget | null): boolean {
 
 /** Ctrl/Cmd+Z undo close or geometry; Ctrl/Cmd+Y (or Shift+Z) redo geometry only. */
 function onLayoutHistoryKeydown(event: KeyboardEvent): void {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (isEditableKeyTarget(event.target)) return;
   if (drag) return;
   const mod = event.ctrlKey || event.metaKey;
@@ -1131,7 +1155,7 @@ function onAppearance(instanceId: string, patch: WidgetAppearance | null) {
  */
 function focusPaletteIfNoCardsLeft() {
   void nextTick(() => {
-    if (mountedInstances.value.length > 0) return;
+    if (visibleMountedInstances.value.length > 0) return;
     if (!paletteVisible.value) return;
     void emit("palette:show");
   });
@@ -1145,7 +1169,9 @@ function onHide(instanceId: string) {
   const instance = instances.find((item) => item.instanceId === instanceId);
   if (!instance || instance.hidden === true) return;
   pushCloseUndo({ kind: "hide", instanceId });
-  runExtensionHook(getExtension(instance.typeId), "onSuspend", instance.instanceId);
+  if (!keepsAliveWhenHidden(instance)) {
+    runExtensionHook(getExtension(instance.typeId), "onSuspend", instance.instanceId);
+  }
   instance.hidden = true;
   instance.hiddenAt = Date.now();
   if (focusedInstanceId.value === instanceId) focusedInstanceId.value = null;
@@ -1300,6 +1326,7 @@ async function openCockpit(alreadyShown = false, withPalette = true) {
 
 /** Hide only the palette; visible desk widgets remain mounted and running. */
 function onHidePalette() {
+  if (widgetRemoval.pending.value?.surface === "palette") widgetRemoval.cancel();
   paletteHidden.value = true;
   paletteFront.value = false;
   if (visibleMountedInstances.value.length === 0) {
@@ -1314,6 +1341,7 @@ function onHidePalette() {
  * Pinned UI stays; window hides only when nothing pinned remains.
  */
 function closeCockpit(options: { keepPeeked?: boolean } = {}) {
+  widgetRemoval.cancel();
   // Only the release of a peek hands its grabs forward; every other close is the
   // user putting the desk away, and that includes what they grabbed.
   const releasing = options.keepPeeked ? new Set<string>() : new Set(peekKept.value);
@@ -1355,6 +1383,7 @@ function closeCockpit(options: { keepPeeked?: boolean } = {}) {
  * clearing cockpitOpen).
  */
 function onPaletteHotkey(revealedByRust = false) {
+  if (commandUi.request.value) return;
   // The setup card owns the screen until it is answered, and `paletteHidden` is
   // true *on purpose* while it is up — so every branch below would read that as
   // "the palette is away, bring it back" and put a search field behind the one
@@ -1424,6 +1453,7 @@ function onCtrlTapKey(event: KeyboardEvent) {
  * already lives in `closeCockpit`.
  */
 function onPeekHotkey(pressed: boolean, revealedByRust: boolean) {
+  if (commandUi.request.value) return;
   const action = resolvePeek({
     pressed,
     cockpitOpen: cockpitOpen.value,
@@ -1444,7 +1474,7 @@ function onPeekHotkey(pressed: boolean, revealedByRust: boolean) {
 /** Outside click closes the cockpit session (non-pinned UI disappears). */
 function onDismissOutside() {
   // Settings / gallery own the fullscreen layer — don't dismiss the cockpit under them.
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value) return;
   closeCockpit();
 }
 
@@ -1483,6 +1513,11 @@ function onMoveToPanel(instanceId: string) {
 
 /** Clear persisted Hidden and open the cockpit so a default widget can appear. */
 function onRevealWidget(instanceId: string) {
+  if (!instances.some((item) => item.instanceId === instanceId)) {
+    // A background notification can originate from a widget on another desk.
+    const desk = layoutDoc.desks.find((row) => row.placements.some((item) => item.instanceId === instanceId));
+    if (desk) kavibaySwitchDesk(desk.id);
+  }
   const instance = instances.find((item) => item.instanceId === instanceId);
   if (!instance) return;
   const wasHidden = instance.hidden === true;
@@ -1563,12 +1598,10 @@ const NUDGE_PX = 10;
 
 /** Cycle keyboard focus through visible widgets on the active desk. */
 function onCycleWidgetFocusKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (!event.ctrlKey || event.altKey || event.metaKey || event.key !== "Tab") return;
 
-  const openIds = mountedInstances.value
-    .filter((instance) => instance.hidden !== true)
-    .map((instance) => instance.instanceId);
+  const openIds = visibleMountedInstances.value.map((instance) => instance.instanceId);
   const currentId = paletteFront.value ? null : (focusedInstanceId.value ?? frontInstanceId.value);
   const nextId = nextWidgetFocusId(openIds, currentId, event.shiftKey);
 
@@ -1592,7 +1625,7 @@ function onCycleWidgetFocusKeydown(event: KeyboardEvent) {
  * (Snake, Notes) cannot swallow it first.
  */
 function onFocusSearchKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (!event.ctrlKey || !event.altKey || event.metaKey || event.shiftKey) return;
   if (event.code !== "KeyS") return;
 
@@ -1626,7 +1659,7 @@ function onFocusPop(instanceId: string) {
  * Capture-phase so it works while Snake/Notes own normal arrow keys.
  */
 function onNudgeKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) return;
 
   let dx = 0;
@@ -1669,7 +1702,7 @@ function onNudgeKeydown(event: KeyboardEvent) {
 
 /** Move the active palette or widget by one drag-grid gap per arrow press. */
 function onGapMoveKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (!event.ctrlKey || !event.altKey || event.shiftKey || event.metaKey) return;
 
   let dx = 0;
@@ -1735,7 +1768,7 @@ function onGapMoveKeydown(event: KeyboardEvent) {
  * Uses event.code so Shift does not turn "1" into "!".
  */
 function onDeskSwitchKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) return;
   const match = /^Digit([1-9])$/.exec(event.code);
   if (!match) return;
@@ -1772,7 +1805,7 @@ function paletteHasDomFocus(): boolean {
  * (Snake, Notes) cannot swallow them first. Text fields inside a card are
  * deliberately *not* exempt the way Ctrl+Z is: neither chord means anything to
  * an editor, and Notes would otherwise be the one widget this never worked in.
- * Remove stays undoable (Ctrl+Z, five deep).
+ * Remove confirms content loss; Undo restores only the layout.
  */
 /**
  * The card a widget chord applies to: mounted, on screen, and resolved by the
@@ -1815,17 +1848,13 @@ function clearCtrlShortcutHint() {
 
 /** Show pin/hide shortcut hints once Ctrl has been held on an active surface. */
 function onCtrlShortcutHintKeydown(event: KeyboardEvent) {
-  // Ctrl+Alt is reserved for movement/search chords, never for discoverability
-  // hints. Cancel both a pending timer and already-visible hints immediately.
-  if (event.key === "Alt") {
+  // Shift/Alt chords (including macOS screenshots) must cancel pending and
+  // visible hints, regardless of which modifier was pressed first.
+  if (event.key === "Shift" || event.key === "Alt" || event.shiftKey || event.altKey) {
     clearCtrlShortcutHint();
     return;
   }
   if (event.key !== "Control" && event.key !== "Meta") return;
-  if (event.altKey) {
-    clearCtrlShortcutHint();
-    return;
-  }
   if (event.repeat || ctrlShortcutHintHeld) return;
   ctrlShortcutHintHeld = true;
   ctrlShortcutHintTimer = setTimeout(() => {
@@ -1862,7 +1891,7 @@ function isCardChord(event: KeyboardEvent, letter: string): boolean {
  * pin dot offers. Shift/Alt combinations remain available to other actions.
  */
 function onPinKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (drag) return;
   if (!isCardChord(event, "p")) return;
 
@@ -1881,7 +1910,7 @@ function onPinKeydown(event: KeyboardEvent) {
  * Duplicate for them, and a chord must not reach past what the UI offers.
  */
 function onDuplicateKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (drag) return;
   if (!isCardChord(event, "d")) return;
 
@@ -1896,7 +1925,7 @@ function onDuplicateKeydown(event: KeyboardEvent) {
 
 /** Ctrl/Cmd+O moves the focused desk card into the palette's inline surface. */
 function onMoveToPanelKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (drag) return;
   if (!isCardChord(event, "o")) return;
 
@@ -1909,7 +1938,7 @@ function onMoveToPanelKeydown(event: KeyboardEvent) {
 }
 
 function onWidgetCloseKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (drag) return;
 
   const action = matchWidgetCloseKey(event);
@@ -2284,6 +2313,7 @@ function onViewportResize() {
 }
 
 onUnmounted(() => {
+  widgetRemoval.cancel();
   layoutBoundsObserver?.disconnect();
   if (highlightClearTimer !== undefined) clearTimeout(highlightClearTimer);
   if (focusPopClearTimer !== undefined) clearTimeout(focusPopClearTimer);
@@ -2336,9 +2366,21 @@ function cloneLayoutDoc(): SavedLayoutV4 {
   return JSON.parse(JSON.stringify(toRaw(layoutDoc))) as SavedLayoutV4;
 }
 
-/** Remove from active desk or everywhere; onDispose when catalog entry is dropped. */
-function kavibayRemoveWidget(instanceId: string, mode: "desk" | "everywhere") {
+/** Confirm content loss inline at the surface that requested the deletion. */
+async function kavibayRemoveWidget(
+  instanceId: string,
+  mode: "desk" | "everywhere",
+  surface: WidgetRemovalRequest["surface"] = "card",
+) {
   const catalogEntry = layoutDoc.catalog.find((row) => row.instanceId === instanceId);
+  if (!catalogEntry || commandUi.request.value || widgetRemoval.pending.value) return;
+  const deskId = layoutDoc.activeDeskId;
+  const deletesContent = mode === "everywhere" || !isMultiDeskInstance(instanceId);
+  if (deletesContent) {
+    const confirmed = await widgetRemoval.request(instanceId, surface);
+    if (!confirmed || layoutDoc.activeDeskId !== deskId) return;
+    if (!layoutDoc.catalog.some((row) => row.instanceId === instanceId)) return;
+  }
   const typeId = catalogEntry?.typeId;
   flushToDoc();
   const closeUndo = snapshotRemoveUndo(instanceId, mode);
@@ -2356,7 +2398,7 @@ function kavibayRemoveWidget(instanceId: string, mode: "desk" | "everywhere") {
     if (focusedInstanceId.value === instanceId) focusedInstanceId.value = null;
     if (frontInstanceId.value === instanceId) frontInstanceId.value = null;
     releasePeekKept(instanceId);
-    if (wasMounted && !disposed && catalogEntry) {
+    if (wasMounted && !disposed && catalogEntry && !defFor(catalogEntry.typeId)?.keepAliveWhenHidden) {
       runExtensionHook(getExtension(catalogEntry.typeId), "onSuspend", instanceId);
     }
     if (disposed && catalogEntry) {
@@ -3074,7 +3116,9 @@ provide("kavibayPlaceOnActiveDesk", kavibayPlaceOnActiveDesk);
 provide("kavibayCatalogNotOnActiveDesk", kavibayCatalogNotOnActiveDesk);
 provide("kavibayAlsoOnDeskRows", kavibayAlsoOnDeskRows);
 provide("kavibayInstanceDeskLabels", kavibayInstanceDeskLabels);
-provide("kavibayRemoveWidget", kavibayRemoveWidget);
+provide("kavibayRemoveWidget", (instanceId: string, mode: "desk" | "everywhere") =>
+  kavibayRemoveWidget(instanceId, mode, "palette"),
+);
 // The palette's inline header renames the same way a card's title does.
 provide("kavibayRenameWidget", onRename);
 provide("kavibayPalettePinned", palettePinned);
@@ -3134,7 +3178,7 @@ provide("kavibayPaletteMovePointerdown", (event: PointerEvent) => {
         'widget-anchor--front': frontInstanceId === instance.instanceId,
       }"
       :style="widgetStyle(instance)"
-      v-show="cockpitOpen || survivesDismiss(instance, peekKept)"
+      v-show="visibleMountedInstances.some((visible) => visible.instanceId === instance.instanceId)"
       @pointerdown.capture="raiseWidget(instance.instanceId)"
       @focusin="onCardFocusIn(instance.instanceId)"
       @pointermove="onPointerMove"

@@ -12,6 +12,7 @@
       "keywords": ["alarm", "wecker", "reminder"],
       "categories": ["productivity"],
       "ui": {
+        "keepAliveWhenHidden": true,
         "defaultOffset": { "x": 720, "y": 400 },
         "defaultSize": { "w": 280, "h": 160 }
       },

@@ -1,7 +1,8 @@
 # AGENTS.md — Kavibay
 
 Raycast-style desktop widget host / launcher. Tauri v2 (Rust backend) + Vue 3
-`<script setup>` TypeScript + Vite. Windows-first (macOS port planned). Maintainer:
+`<script setup>` TypeScript + Vite. Version 0.1 targets Windows only; Linux and
+macOS are outside its release scope. Existing source ports are experimental. Maintainer:
 Alex (@aswetlow) — conversation in German is fine; code, comments, and docs are English.
 
 This is a learning-driven project: a clean, explained foundation beats feature count.
@@ -184,7 +185,7 @@ rationale: `docs/superpowers/plans/2026-08-08-ci-cd-open-source.md`.
   Wizard's system prompt (`src-tauri/src/wizard/prompt.rs`, `include_str!`) —
   editing them changes model behaviour, and moving them breaks the build.
 - Active roadmap: `docs/superpowers/plans/2026-07-23-architecture-security-hardening.md`
-  (P0.1 ✅, P0.2 ✅; P0.3+ pending) and
+  (P0–P2 ✅ or superseded; open: `http:` in the main CSP's `img-src`, and P3) and
   `docs/superpowers/plans/2026-07-23-repo-structure-licensing.md` (restructure ✅).
   After finishing a phase: run its verify steps, then mark it done in the plan doc
   with a short completion note.

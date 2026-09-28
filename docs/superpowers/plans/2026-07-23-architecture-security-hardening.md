@@ -63,7 +63,7 @@ load-bearing and untested (WebView2 can inject init scripts into subframes).
   steps. Automated verify green (`vue-tsc`, guard script, 105 lib tests). Manual
   probe UI confirmation still needed once Developer Extensions enables the package.
 
-### P0.3 Implement `network.client` with per-package CSP (MEDIUM)
+### P0.3 Implement `network.client` with per-package CSP (MEDIUM) — ✅ superseded (checked 2026-09-28)
 
 Today the permission is granted but the static frame CSP (`connect-src 'none'`) makes it
 a no-op.
@@ -79,24 +79,45 @@ a no-op.
   `connect-src https://<host1> …` for granted packages, `'none'` otherwise.
 - Verify: Rust tests for CSP assembly + validator rejections; probe package that fetches
   an allowed host (succeeds) and a non-listed host (CSP-blocked).
+- Superseded by the declarative HTTP API
+  (`docs/superpowers/specs/2026-08-01-declarative-http-api-design.md`). A package
+  never gets a `connect-src`: the frame CSP stays `connect-src 'none'`
+  (`runtime_extensions/protocol.rs`), and Rust makes the requests a package
+  declares (`runtime_extensions/http.rs`, address checks in `net_guard.rs`). The
+  Rust-owned grant store this phase asked for exists as
+  `{data_dir}/extensions/installs.json` (`runtime_extensions/installs.rs`).
 
-### P0.4 Permission consent on enable (LOW)
+### P0.4 Permission consent on enable (LOW) — ✅ done (checked 2026-09-28)
 
 Enabling a package currently auto-grants everything grantable from its manifest.
 
 - Enable flow shows a confirm step listing requested permissions and, for
   `network.client`, the exact hosts. Confirm → grant; cancel → stay disabled.
+- Done: enabling a package in Settings opens a consent step
+  (`core/app/settings/RuntimeExtensionsPanel.vue`). A contract package gets
+  `PermissionRequest.vue`, built by `buildPermissionRequest`, and only what the
+  user ticks is granted; a package in the older runtime format gets its
+  permission list. Cancel leaves the package disabled. A changed endpoint
+  declaration asks again (`needsReconsent`).
 
-### P0.5 Small hardening (LOW, batchable)
+### P0.5 Small hardening (LOW, batchable) — partly done (checked 2026-09-28)
 
 - `fetch_url_icon`: reject hosts that are IP literals in loopback/private/link-local
-  ranges (SSRF hygiene).
+  ranges (SSRF hygiene). ✅ Every hop dials only an address `net_guard` allows
+  (`src-tauri/src/extensions/app_launcher/mod.rs`).
 - Main-window CSP: drop `http:` from `img-src` (keep `https:` + local schemes) unless a
-  widget demonstrably needs it.
+  widget demonstrably needs it. **Open.**
 - FE manifest validation: folder ≠ `manifest.id` becomes a hard error (Rust already
-  rejects; FE only warns).
+  rejects; FE only warns). ✅ `manifestValidate.ts` returns `id_folder_mismatch`.
 
 ## P1 — Contributor foundation
+
+Status (checked 2026-09-28): done, with two deviations from the text below. CI
+runs the frontend on Ubuntu and Rust on Windows (`.github/workflows/ci.yml`), and
+`release.yml` builds Windows only. Linting is `oxlint` rather than ESLint
+with Prettier, and the import boundaries are enforced by
+`scripts/importBoundaries.assert.mjs`. `npm run verify` and
+`scripts/runAsserts.mjs` cover P1.3, and `CONTRIBUTING.md` exists.
 
 ### P1.1 CI (GitHub Actions)
 
@@ -134,6 +155,12 @@ Enabling a package currently auto-grants everything grantable from its manifest.
   and only with an explicit CSP review.
 
 ## P2 — SDK formalization
+
+Status (checked 2026-09-28): P2.1 and P2.2 are done. `@sdk` resolves to
+`sdk/extension/`, and the host serves `sdk/runtime/` to packages as
+`@kavibay/runtime.js`, documented in `docs/runtime-packages.md`. P2.3 is
+obsolete: first-party manifests no longer declare `commands`, and widgets reach
+Rust through `ctx` capabilities instead of `invoke`.
 
 ### P2.1 First-party SDK barrel
 

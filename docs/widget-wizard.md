@@ -7,6 +7,111 @@ can reach further than any other untrusted drop-in.
 
 Add it from the command palette like any other widget.
 
+## Suggested next changes
+
+After each successful generation, up to three contextual suggestion chips appear
+above the message box. The model creates a fresh set with its answer, based on the
+widget and the latest request. Clicking a chip adds its full request to the input
+and keeps anything already typed. Edit it and press **Send** when ready.
+
+The conversation menu sits above the message box on the right. Its **Show
+suggestions** switch hides or shows the chips; the choice is saved for this Wizard
+instance and defaults to on. Turning them back on shows the current suggestions.
+
+Suggestions stay with the conversation, but only the latest turn's suggestions
+for the current widget version are shown. They hide while a reply is running or
+the draft needs repair. Answers from older conversations without suggestions
+continue to work normally.
+
+## Point-and-prompt (development builds)
+
+In a development build, use **Select preview elements** above the Wizard preview,
+then click one or more elements you want to change. Hovering highlights the target,
+and picking a button does not run its normal action. Each element appears as a
+compact chip at the text cursor inside the message box. You can write around the
+chips, for example “make [element] larger and [element] blue”. Selecting the same
+element again does not duplicate it. Press Escape or toggle the picker off when
+finished, then press **Send** when the request is ready.
+
+The next request maps each inline reference to its CSS selector, tag, and a short
+text excerpt as context for the current source files. Form values are not collected.
+Remove individual chips with their × button or the keyboard. Escape ends picking
+without removing the chips. Selections are transient, excluded from saved drafts,
+and cleared when the preview or conversation changes and after sending.
+
+This is available only inside the Wizard preview in development builds. Both
+runtime and contract package previews keep their existing iframe sandbox. Normal
+desk widgets and release builds do not enable the picker.
+
+## Share a widget
+
+The **Share** entry in a desk widget's menu opens the same dialog as the Wizard.
+It uses the running widget, preserving its current content. All desk widgets can
+be copied as images; custom and installed packages also offer ZIP export.
+Moving, resizing, or zooming a desk widget inside Share only changes the image
+composition; closing the dialog restores its desk geometry.
+
+Click **Share** above the preview to open a dialog with the live widget and
+sharing actions:
+
+- **Export widget as file** uses the existing ZIP export, including the unsaved
+  draft when one exists. The collapsible **How to import** guide below the button
+  explains how to use **Import Widget** in the palette or drop the ZIP onto
+  Kavibay, then review access and choose **Install widget**.
+- **Copy preview image** in the footer copies a screenshot of the widget and its
+  canvas background to the system clipboard. Paste it into a chat, document, or
+  image editor. The button shows **Copied!** for two seconds, then fades back to
+  **Copy preview image**.
+
+The compact Share dialog starts with a bundled nebula background. **Upload
+background image** in the footer opens a file picker for a custom background
+(up to 20 MB). Images fill the canvas
+without stretching. They stay local and remain selected while this preview is
+open, including when closing and reopening Share. **Reset background** restores
+the bundled image. The Wizard's editing canvas keeps its grid.
+
+The canvas initially fills its original preview area. The **Preview size** icon
+beside **Record 5s clip** opens **Landscape** (16:9),
+**Portrait** (9:16), and **Custom**. Custom accepts width and height from 64 to
+4096 px; choose **Apply** to resize the canvas. Large canvases fit proportionally
+inside the dialog, so these dimensions describe the framing, not a guaranteed
+export resolution. The widget stays mounted and keeps its state. Size changes
+return playback to the live widget and are disabled during capture.
+
+Share uses the same resize handles as the Wizard preview. Drag the widget's
+edges or corners to resize it; Ctrl+resize also
+scales its content. Size changes carry back to the Wizard preview. The widget
+keeps its current state when opening and closing Share. Large cards shrink to fit
+the dialog automatically. Capture
+uses the desktop webview (WebView2 on Windows, WebKit on macOS/Linux), so sandboxed
+widget content appears in the image too. The canvas is included; the dialog's
+heading and action buttons are excluded.
+
+On Windows and macOS, **Record 5s clip** records the preview as an MP4 without audio.
+When the red timer starts counting down, click, type or scroll inside the widget. The
+background and pointer are included. Framing controls are disabled during the
+recording. **Cancel recording** or Escape stops it; Escape keeps Share open.
+Closing Share, hiding the app or changing its capture geometry cancels the job.
+
+After recording, the button becomes three icons: **Play**, **Save**, and **Copy**.
+Choose **Play** to watch it in the preview area. Native video controls provide play/pause, seeking and replay.
+**Back to widget** restores the live view with its state intact. **Record again**
+in the player starts a new clip. **Copy video**
+puts the completed MP4 file on the clipboard only when clicked; recording and
+playback do not change the clipboard. **Save clip** writes a copy to a chosen
+location. A copy error keeps the recording available for playback and retry.
+
+Recording uses the system H.264 encoder: Media Foundation on Windows and
+AVFoundation on macOS. macOS recording is experimental, outside the Windows-only
+v0.1 release scope. If the encoder is unavailable, Share explains why the
+recording button is disabled. No encoder package is installed. Completed files stay in `shared-clips/` under the Kavibay
+data directory so closing the dialog or restarting the app does not invalidate
+clipboard file references. Each clip is limited to 16 MiB. Native macOS capture
+and playback were verified with an isolated Share dialog, including 125% UI
+zoom. Windows performance and DPI/cursor accuracy still need Windows validation.
+Ctrl+V compatibility with Discord, Slack and WhatsApp remains unverified on both
+platforms; saving is a separate fallback.
+
 ## What happens when you type a sentence
 
 ```mermaid
@@ -232,10 +337,15 @@ hidden one is revealed, otherwise one is created — so the action itself only h
 to decide which project is showing, and the answer is a new one. The caret lands
 in the composer, because a new project is a question waiting to be typed.
 
+Once an AI key is configured, an empty chat offers six starting ideas:
+**Countdown**, **Water tracker**, **Weekly goal**, **Habits**, **Focus timer**
+and **Checklist**. Clicking one fills the composer with an editable sentence
+and places the caret at its end. Nothing is sent until you submit it.
+
 **It opens with the chrome folded away.** No project list, no name field, no
 Chat/Code switch — all three describe a package that does not exist
 yet, and somebody who just pressed "New Widget" has one thing to do. The caret
-is in the composer and there is nothing above it.
+is in the composer, with the starting ideas above it.
 
 The **header** comes back by itself once the first generation produces a
 package: the name field then names something and Code has files in it, so the

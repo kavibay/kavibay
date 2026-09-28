@@ -68,6 +68,7 @@ const PAGE_STYLE = `<style>
 export function buildPreviewDocument(
   files: readonly PreviewFile[],
   runtimeSource: string,
+  previewPickerSource?: string,
 ): string | null {
   const html = files.find((file) => file.path === "index.html")?.contents;
   if (!html) return null;
@@ -78,5 +79,6 @@ export function buildPreviewDocument(
     .replace(RUNTIME_TAG, `<script>${inlinable(runtimeSource)}</script>`)
     .replace(WIDGET_TAG, `<script>${inlinable(widgetScript)}</script>`);
 
-  return `<!doctype html><html><head><meta charset="utf-8">${PAGE_STYLE}</head><body>${inlined}</body></html>`;
+  const picker = previewPickerSource ? `<script>${inlinable(previewPickerSource)}</script>` : "";
+  return `<!doctype html><html><head><meta charset="utf-8">${picker}${PAGE_STYLE}</head><body>${inlined}</body></html>`;
 }

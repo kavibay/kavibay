@@ -17,6 +17,8 @@ import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { commands } from "./commands";
 import KbdHint from "./KbdHint.vue";
+import WidgetDeleteConfirmation from "../host/WidgetDeleteConfirmation.vue";
+import { WIDGET_REMOVAL_KEY } from "../host/widgetRemoval";
 import PaletteSearchActions from "./PaletteSearchActions.vue";
 import PaletteWidgetShortcuts from "./PaletteWidgetShortcuts.vue";
 import PaletteAnswerPanel from "./PaletteAnswerPanel.vue";
@@ -141,7 +143,8 @@ import {
   withInlineZoom,
   type InlineZoomMap,
 } from "./inlineWidgetZoom";
-import { inlineWidgetRequest, paletteDropActive } from "./inlineWidgetRequest";
+import { inlineWidgetRequest, inlineWidgetInstanceId, paletteDropActive } from "./inlineWidgetRequest";
+import { pickAndImport } from "../runtime/widgetImport";
 import {
   getExtension,
   runDuplicateHook,
@@ -298,6 +301,7 @@ function quitOnboarding() {
 
 /** Reset transient browse state after an accepted action (does not advance onboarding). */
 function afterPaletteAction() {
+  paletteActionError.value = null;
   selectedIndex.value = 0;
   // Opening something from inside a folder ends the browse — the next open
   // should not land back in a folder listing from minutes ago.
@@ -321,7 +325,16 @@ const searchActionsEl = ref<InstanceType<typeof PaletteSearchActions> | null>(nu
 const widgetShortcutsEl = ref<InstanceType<typeof PaletteWidgetShortcuts> | null>(null);
 const inlineWidgetBodyEl = ref<InstanceType<typeof InlineWidgetBody> | null>(null);
 const answerPanelEl = ref<InstanceType<typeof PaletteAnswerPanel> | null>(null);
-const searchActionError = ref<string | null>(null);
+const paletteActionError = ref<string | null>(null);
+
+/** A failed action keeps its query and arguments, and explains what went wrong. */
+function reportActionFailure(label: string, error?: unknown): void {
+  console.error(`[kavibay] ${label} failed:`, error);
+  const detail = error instanceof Error ? error.message
+    : typeof error === "string" ? error
+    : error && typeof error === "object" && "message" in error ? String(error.message) : "Try again.";
+  paletteActionError.value = `Could not ${label}. ${detail}`;
+}
 const { enabledActions: enabledSearchActions } = useSearchPrefs();
 const { selectedIds: widgetShortcutIds } = usePaletteWidgetPrefs();
 const widgetShortcuts = computed(() => widgetShortcutIds.value.flatMap((id) => {
@@ -349,7 +362,7 @@ function closeAiAnswer() {
 
 function askSearchAi() {
   if (!showSearchActions.value) return;
-  searchActionError.value = null;
+  paletteActionError.value = null;
   void paletteAi.ask(query.value);
   void nextTick(() => answerPanelEl.value?.focusComposer());
 }
@@ -364,13 +377,13 @@ function runSearchAction(id: SearchActionId) {
 async function searchWeb(id: WebSearchActionId) {
   if (!showSearchActions.value) return;
   paletteAi.reset();
-  searchActionError.value = null;
+  paletteActionError.value = null;
   try {
     await invoke("launch_path", { path: buildWebSearchUrl(id, query.value) });
     afterPaletteAction();
     dismissAfterAction();
   } catch {
-    searchActionError.value = "Could not open the browser. Try again.";
+    paletteActionError.value = "Could not open the browser. Try again.";
     focusSearchInput();
   }
 }
@@ -411,8 +424,10 @@ const widgetsOpen = ref(false);
 const inlineWidget = ref<{ instanceId: string; typeId: string } | null>(null);
 const inlineShortcutId = ref<string | null>(null);
 watch(inlineWidget, (target) => {
+  inlineWidgetInstanceId.value = target?.instanceId ?? null;
   if (!target) inlineShortcutId.value = null;
-});
+}, { flush: "sync" });
+onUnmounted(() => { inlineWidgetInstanceId.value = null; });
 
 /** Apps the user hid from search (still reachable via Show more). */
 const hiddenAppKeys = ref(loadHiddenApps());
@@ -464,6 +479,11 @@ const renameWidget = inject<(instanceId: string, title: string | undefined) => v
 const removeWidget = inject<(instanceId: string, mode: "desk" | "everywhere") => void>(
   "kavibayRemoveWidget",
 );
+const widgetRemoval = inject(WIDGET_REMOVAL_KEY, undefined);
+const deleteRequest = computed(() => {
+  const request = widgetRemoval?.pending.value;
+  return request?.surface === "palette" ? request : null;
+});
 const focusWidget = inject<(instanceId: string) => void | Promise<void>>("kavibayFocusWidget");
 const clearWidgetFocus = inject<() => void>("kavibayClearWidgetFocus");
 const closeCockpit = inject<() => void>("kavibayCloseCockpit");
@@ -1021,9 +1041,11 @@ function runInstanceAction(action: ExtensionInstanceAction, value = "") {
   if (action.param?.required && !value.trim()) {
     return;
   }
+  paletteActionError.value = null;
   try {
     action.run(value.trim());
-  } catch {
+  } catch (error) {
+    reportActionFailure("run this action", error);
     return;
   }
   exitActionChipMode();
@@ -1577,6 +1599,7 @@ watch(inlineWidgetRequest, (request) => {
 /** Show the results panel while searching, calc, browsing recents or a folder. */
 const showResultsList = computed(
   () =>
+    paletteActionError.value !== null ||
     query.value.trim().length > 0 ||
     calcDisplay.value !== null ||
     recentOpen.value ||
@@ -1600,7 +1623,6 @@ const showWidgetShortcuts = computed(() =>
 watch(showSearchActions, (visible) => {
   if (visible) return;
   paletteAi.reset();
-  searchActionError.value = null;
 });
 
 /** Keep host preview scale in sync with the selected palette row. */
@@ -1786,7 +1808,7 @@ function showAllSearchResults() {
 // Every query change resets the selection to the first (best) result.
 watch(query, (next) => {
   paletteAi.reset();
-  searchActionError.value = null;
+  paletteActionError.value = null;
   selectedIndex.value = 0;
   showHiddenApps.value = false;
   // Editing the query is a new search, not a search in the browsed folder.
@@ -1952,12 +1974,13 @@ async function revealRowInFileManager(
   row: Extract<PaletteRow, { kind: "folder" | "path" }>,
 ) {
   closeRowMenu(false);
+  paletteActionError.value = null;
   try {
     await revealInFileManager(row.path);
     afterPaletteAction();
     dismissAfterAction();
-  } catch {
-    // Keep the overlay open so another result can be tried.
+  } catch (error) {
+    reportActionFailure(`show “${row.title}” in the file manager`, error);
   }
 }
 
@@ -1967,12 +1990,13 @@ async function openFolderInTerminal(
 ) {
   if (row.kind === "path" && !row.isDir) return;
   closeRowMenu(false);
+  paletteActionError.value = null;
   try {
     await invoke("open_in_terminal", { path: row.path });
     afterPaletteAction();
     dismissAfterAction();
-  } catch {
-    // Keep overlay open so the user can try another result.
+  } catch (error) {
+    reportActionFailure(`open “${row.title}”`, error);
   }
 }
 
@@ -2094,6 +2118,7 @@ function dismissAfterAction() {
  * On failure, leave the window open and keep the query.
  */
 async function runPrefixSearch(match: PrefixSearchMatch) {
+  paletteActionError.value = null;
   try {
     if (match.kind === "google") {
       await invoke("launch_path", { path: buildGoogleSearchUrl(match.term) });
@@ -2102,8 +2127,8 @@ async function runPrefixSearch(match: PrefixSearchMatch) {
     }
     afterPaletteAction();
     dismissAfterAction();
-  } catch {
-    // Keep overlay visible so the user can edit the query and retry.
+  } catch (error) {
+    reportActionFailure("open the search", error);
   }
 }
 
@@ -2210,6 +2235,7 @@ function rowDisplayTitle(row: PaletteRow): string {
 /** Run the selected command, or open the selected widget inside the palette. */
 async function runResultAt(index: number) {
   if (settingsOpen.value) return;
+  paletteActionError.value = null;
 
   const row = results.value[index] as PaletteRow | undefined;
   if (!row) return;
@@ -2279,8 +2305,8 @@ async function runResultAt(index: number) {
       rememberRecentRun({ kind: "app", path: row.path, title: row.title });
       afterPaletteAction();
       dismissAfterAction();
-    } catch {
-      // Keep overlay open so the user can try another result.
+    } catch (error) {
+      reportActionFailure(`run “${row.title}”`, error);
     }
     return;
   }
@@ -2290,8 +2316,8 @@ async function runResultAt(index: number) {
       await invoke("launch_path", { path: row.path });
       afterPaletteAction();
       dismissAfterAction();
-    } catch {
-      // Keep overlay open so the user can try another result.
+    } catch (error) {
+      reportActionFailure(`run “${row.title}”`, error);
     }
     return;
   }
@@ -2319,8 +2345,8 @@ async function runResultAt(index: number) {
       rememberCommand();
       afterPaletteAction();
       dismissAfterAction();
-    } catch {
-      // Keep overlay open so the user can try another result.
+    } catch (error) {
+      reportActionFailure(`run “${row.title}”`, error);
     }
     return;
   }
@@ -2345,9 +2371,8 @@ async function runResultAt(index: number) {
     rememberCommand();
     try {
       await invoke("settings_file_open");
-    } catch {
-      // No handler for .json, or the file could not be written — keep the
-      // query so the user can pick Reveal Settings Folder instead.
+    } catch (error) {
+      reportActionFailure("open the settings file", error);
       return;
     }
     afterPaletteAction();
@@ -2359,7 +2384,8 @@ async function runResultAt(index: number) {
     rememberCommand();
     try {
       await revealInFileManager(await invoke<string>("settings_file_path"));
-    } catch {
+    } catch (error) {
+      reportActionFailure("reveal the settings folder", error);
       return;
     }
     afterPaletteAction();
@@ -2372,6 +2398,12 @@ async function runResultAt(index: number) {
     openSettingsSection(
       row.commandId.slice("open-settings-".length) as Parameters<typeof showSettingsSection>[0],
     );
+    return;
+  }
+
+  if (row.commandId === "import-widget") {
+    rememberCommand();
+    void pickAndImport();
     return;
   }
 
@@ -2409,8 +2441,8 @@ async function runResultAt(index: number) {
   try {
     // Params-free commands only — parameterized ones ran via runAction above.
     await invoke("execute_action", { actionId: row.commandId, args: {} });
-  } catch {
-    // Rust rejected it (unsupported platform, unknown id) — keep the query.
+  } catch (error) {
+    reportActionFailure(`run “${row.title}”`, error);
     return;
   }
   rememberCommand();
@@ -2425,13 +2457,14 @@ async function runResultAt(index: number) {
  * when it mounts — no waiting for a mounted component here.
  */
 async function runAction(action: PaletteRowAction, args: ActionArgs) {
+  paletteActionError.value = null;
   // OS command with parameters (set volume): straight to Rust.
   if (!action.extId) {
     try {
       if (action.invokeCommand) await invoke(action.invokeCommand);
       else await invoke("execute_action", { actionId: action.actionId, args });
-    } catch {
-      // Rust rejected it — keep the chips so the value can be corrected.
+    } catch (error) {
+      reportActionFailure(`run “${action.actionId}”`, error);
       return;
     }
     rememberRecentRun({ kind: "command", commandId: action.actionId, title: action.actionId });
@@ -2463,7 +2496,10 @@ async function runAction(action: PaletteRowAction, args: ActionArgs) {
   }
 
   const ok = await runExtensionAction(ext, action.actionId, { instanceId, args });
-  if (!ok) return;
+  if (!ok) {
+    reportActionFailure(`run “${action.actionId}”`);
+    return;
+  }
   // Draw the eye to what changed — same courtesy the type rows do on open.
   if (instanceId) await focusWidget?.(instanceId);
   exitArgMode(false);
@@ -2483,9 +2519,9 @@ function openSettings() {
   showSettings();
 }
 
-function openSettingsSection(section: Parameters<typeof showSettingsSection>[0]) {
+function openSettingsSection(section: Parameters<typeof showSettingsSection>[0], focus?: string) {
   prepareSettingsOpen();
-  showSettingsSection(section);
+  showSettingsSection(section, focus);
 }
 
 /** Smart-open the Widget Gallery desk widget (create / show / focus). */
@@ -2557,7 +2593,7 @@ function onFocusPaletteEvent(event: Event) {
 
 function onKeydown(event: KeyboardEvent) {
   // Prevent retained palette focus from navigating or running commands.
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || widgetRemoval?.pending.value) return;
   // The desk-name field is in this same capture tree; leave keys to it.
   if (renamingDeskId.value) return;
   if (event.isComposing) return;
@@ -2574,8 +2610,7 @@ function onKeydown(event: KeyboardEvent) {
 
   if (
     showWidgetShortcuts.value && !event.shiftKey && !mod && !event.altKey &&
-    (event.key === "Tab" ||
-      (event.key === "ArrowRight" && event.target === inputEl.value && query.value.length === 0))
+    event.key === "ArrowRight" && event.target === inputEl.value && query.value.length === 0
   ) {
     event.preventDefault();
     event.stopPropagation();
@@ -2918,6 +2953,14 @@ function onKeydown(event: KeyboardEvent) {
         enterActionChipMode();
         break;
       }
+      // Visible parameter/action chips take Tab before the widget shortcuts.
+      if (showWidgetShortcuts.value && !event.shiftKey && !mod && !event.altKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        leftSearchViaTab = false;
+        widgetShortcutsEl.value?.focusFirst();
+        break;
+      }
       // Shift+Tab return-to-search is handled by the document capture listener.
       if (event.shiftKey) break;
       // Jump to the previewed visible widget; keep palette/query open.
@@ -3177,6 +3220,7 @@ function onDocumentPointerDown(event: PointerEvent) {
 
 /** Close overlays on Escape before the window-hide handler runs. */
 function onDocumentKeydown(event: KeyboardEvent) {
+  if (widgetRemoval?.pending.value) return;
   if (event.key !== "Escape") return;
   if (inlineMenuOpen.value) {
     event.preventDefault();
@@ -3370,7 +3414,7 @@ onUnmounted(() => {
     />
     <div
       v-if="paletteChromeVisible"
-      class="palette-card-chrome"
+      class="palette-card-chrome card-chrome-reveal"
       data-interactive
       @pointerdown.stop
       @focusin="paletteChromeFocused = true"
@@ -3415,24 +3459,14 @@ onUnmounted(() => {
           <span>{{ shortcutModifier }}+W</span>
         </span>
         <svg class="palette-card-chrome-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <g>
-            <path
-              d="M17.94 17.94A10.07 10.07 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-            />
-            <line
-              x1="1"
-              y1="1"
-              x2="23"
-              y2="23"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-            />
-          </g>
+          <path
+            d="M18 6L6 18M6 6l12 12"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
       </button>
     </div>
@@ -3640,6 +3674,7 @@ onUnmounted(() => {
         @select="openWidgetShortcut"
         @enter="enterWidgetShortcut"
         @back="leaveWidgetShortcuts"
+        @settings="openSettingsSection('search', 'widgets')"
       />
     </div>
 
@@ -3701,8 +3736,8 @@ onUnmounted(() => {
           <button
             type="button"
             class="palette-add-hit-area palette-wizard-add-hit"
-            v-tip:below="'Open Widget Wizard'"
-            aria-label="Open Widget Wizard"
+            v-tip:below="'Create new widget'"
+            aria-label="Create new widget"
             @pointerdown.stop
             @click.stop="openWidgetWizard"
           >
@@ -3923,6 +3958,7 @@ onUnmounted(() => {
       :class="{ 'palette-results--inline-menu-open': inlineWidgetOpen && inlineMenuOpen }"
       data-interactive
     >
+      <p v-if="paletteActionError" class="palette-action-error" role="alert">{{ paletteActionError }}</p>
       <div v-if="calcDisplay !== null" class="palette-calc" aria-live="polite">
         <span class="palette-calc-eq">=</span>
         <span class="palette-calc-value">{{ calcDisplay }}</span>
@@ -4432,45 +4468,52 @@ onUnmounted(() => {
           <div
             v-else-if="row.kind === 'widget' && !row.snippet"
             class="palette-item-actions"
+            :class="{ 'palette-item-actions--confirm': deleteRequest?.instanceId === row.instanceId }"
             @click.stop
             @pointerdown.stop
           >
-            <button
-              type="button"
-              class="palette-item-action"
-              v-tip="row.hidden ? 'Put its card back on the desk' : 'Jump to its card'"
-              @click="focusWidgetRow(row)"
-            >
-              <KbdHint :keys="['enter']" />
-              <span>{{ row.hidden ? "Show" : "Focus" }}</span>
-            </button>
-            <button
-              type="button"
-              class="palette-item-action"
-              v-tip="'Open inside the palette'"
-              @click="openInlineWidget(index)"
-            >
-              <KbdHint :keys="modKeys('enter')" />
-              <span>Inline</span>
-            </button>
-            <!-- Hidden rows have nothing to hide; Enter already reveals them. -->
-            <button
-              v-if="!row.hidden"
-              type="button"
-              class="palette-item-action"
-              @click="toggleWidgetRow(row)"
-            >
-              <KbdHint :keys="modKeys('W')" />
-              <span>Hide</span>
-            </button>
-            <button
-              type="button"
-              class="palette-item-action palette-item-action--danger"
-              @click="removeWidgetRow(row)"
-            >
-              <KbdHint :keys="modKeys('R')" />
-              <span>Delete</span>
-            </button>
+            <WidgetDeleteConfirmation
+              v-if="deleteRequest?.instanceId === row.instanceId"
+              :request="deleteRequest"
+            />
+            <template v-else>
+              <button
+                type="button"
+                class="palette-item-action"
+                v-tip="row.hidden ? 'Put its card back on the desk' : 'Jump to its card'"
+                @click="focusWidgetRow(row)"
+              >
+                <KbdHint :keys="['enter']" />
+                <span>{{ row.hidden ? "Show" : "Focus" }}</span>
+              </button>
+              <button
+                type="button"
+                class="palette-item-action"
+                v-tip="'Open inside the palette'"
+                @click="openInlineWidget(index)"
+              >
+                <KbdHint :keys="modKeys('enter')" />
+                <span>Inline</span>
+              </button>
+              <!-- Hidden rows have nothing to hide; Enter already reveals them. -->
+              <button
+                v-if="!row.hidden"
+                type="button"
+                class="palette-item-action"
+                @click="toggleWidgetRow(row)"
+              >
+                <KbdHint :keys="modKeys('W')" />
+                <span>Hide</span>
+              </button>
+              <button
+                type="button"
+                class="palette-item-action palette-item-action--danger"
+                @click="removeWidgetRow(row)"
+              >
+                <KbdHint :keys="modKeys('R')" />
+                <span>Delete</span>
+              </button>
+            </template>
           </div>
           <!-- Parameterized commands advertise Tab; nobody discovers it otherwise. -->
           <div
@@ -4507,8 +4550,7 @@ onUnmounted(() => {
           "
           class="palette-empty"
         >
-          <span v-if="searchActionError" role="alert">{{ searchActionError }}</span>
-          <template v-else>{{ folderScopeActive ? folderScopeEmptyLabel : "No matches" }}</template>
+          {{ folderScopeActive ? folderScopeEmptyLabel : "No matches" }}
         </li>
         <li
           v-if="scopedSearchHasOtherResults"
@@ -4597,6 +4639,15 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.palette-action-error {
+  margin: 0;
+  padding: 10px 16px;
+  color: #e07a5f;
+  font-size: 12px;
+  line-height: 1.5;
+  border-bottom: 1px solid rgba(var(--fg-rgb), 0.1);
+  overflow-wrap: anywhere;
+}
 .palette {
   position: relative;
   isolation: isolate;
@@ -4731,8 +4782,8 @@ onUnmounted(() => {
 
 .palette-card-chrome-icon {
   display: block;
-  width: 12px;
-  height: 12px;
+  width: 15px;
+  height: 15px;
 }
 
 .palette-card-chrome-btn:hover {
@@ -4844,8 +4895,9 @@ onUnmounted(() => {
   color: var(--text-faint);
 }
 
-/* Keep a usable query field when many search actions wrap onto another line. */
-.palette-input-row--search-actions .palette-input { flex: 1 1 140px; }
+/* Keep a usable query field when actions wrap, without pushing preview chips
+   away from the query while widget shortcuts are visible. */
+.palette-input-row--search-actions .palette-input:not(.palette-input--sized) { flex: 1 1 140px; }
 
 /* Only while chips are on screen: hug the typed text so the first chip sits
    next to it. Alone, the input keeps filling the bar (bigger click target). */
@@ -5471,7 +5523,8 @@ onUnmounted(() => {
   visibility: hidden;
 }
 
-.palette-item--selected .palette-item-actions {
+.palette-item--selected .palette-item-actions,
+.palette-item-actions--confirm {
   visibility: visible;
 }
 

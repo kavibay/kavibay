@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { computed, onScopeDispose, ref, type ComputedRef, type Ref } from "vue";
+import { computed, onScopeDispose, ref, shallowReactive, type ComputedRef, type Ref } from "vue";
 import {
   defineWidget,
   type WidgetActionContext,
@@ -40,7 +40,8 @@ export interface TimerModel {
   setCustomDuration(ms: number): void;
 }
 
-const liveModels = new Map<string, TimerModel>();
+// Palette previews must follow a model handoff between the desk and inline panel.
+const liveModels = shallowReactive(new Map<string, TimerModel>());
 
 export function duplicateTimerData(key: string, value: unknown): unknown {
   if (key !== TIMER_STATE_KEY) return value;
@@ -201,6 +202,7 @@ export const timerWidget = defineWidget<Record<string, never>>({
       let deadlineAt: number | null = null;
       let tickTimer: ReturnType<typeof setInterval> | undefined;
       let hydrated = false;
+      let disposed = false;
 
       const clearTick = () => {
         if (tickTimer === undefined) return;
@@ -301,12 +303,14 @@ export const timerWidget = defineWidget<Record<string, never>>({
       liveModels.set(ctx.instanceId, model);
 
       onScopeDispose(() => {
+        disposed = true;
         clearTick();
         if (hydrated) persist();
         liveModels.delete(ctx.instanceId);
       });
 
       const saved = normalizeTimerState(await ctx.data.get<TimerStoredState>(TIMER_STATE_KEY));
+      if (disposed) return model;
       chosenDurationMs.value = saved.durationMs;
       remainingMs.value = saved.remainingMs;
       ringing.value = saved.ringing;

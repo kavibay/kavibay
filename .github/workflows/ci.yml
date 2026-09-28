@@ -72,8 +72,8 @@ jobs:
       - name: Tests
         run: cargo test --lib
 
-  # Not a required check yet: Linux support is X11-only and still settling. It exists
-  # so a Linux-breaking change is visible in the PR rather than at release time.
+  # Development check for the experimental Linux port, outside the v0.1 scope.
+  # Informational only; Windows is the sole supported release target.
   linux-build:
     name: Linux build check (non-blocking)
     runs-on: ubuntu-22.04

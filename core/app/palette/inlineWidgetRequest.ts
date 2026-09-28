@@ -18,6 +18,9 @@ export interface InlineWidgetRequest {
 
 export const inlineWidgetRequest = ref<InlineWidgetRequest | null>(null);
 
+/** The panel owns this live instance; background cards must not mount a second copy. */
+export const inlineWidgetInstanceId = ref<string | null>(null);
+
 /** Ask the palette to take this instance into its panel. */
 export function requestInlineWidget(instanceId: string, typeId: string): void {
   inlineWidgetRequest.value = { instanceId, typeId };
@@ -25,7 +28,8 @@ export function requestInlineWidget(instanceId: string, typeId: string): void {
 
 /**
  * True while a card is being dragged over the palette, which drops it into the
- * panel. Lives here so the palette can light up as a drop target — a drag that
- * changes meaning halfway needs to say so before the pointer is released.
+ * panel, or a widget archive is being dragged in from the OS. Lives here so the
+ * palette can light up as a drop target — a drag that changes meaning halfway
+ * needs to say so before the pointer is released.
  */
 export const paletteDropActive = ref(false);

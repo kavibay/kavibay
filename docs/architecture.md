@@ -218,8 +218,21 @@ The two surfaces swap in both directions. Every card's ⋯ menu carries **Move t
 main panel** (`onMoveToPanel`): the instance is hidden — the existing way to give
 up a card without ceasing to exist — and the palette takes it over via the
 `inlineWidgetRequest` ref, a typed channel in the same spirit as `widgetsMenuUi`.
-Hiding suspends a widget, so the host resumes it immediately: it is going off the
-desk, not off screen.
+Ordinary widgets suspend when hidden and resume in the panel. Widgets declaring
+`ui.keepAliveWhenHidden` keep their model running while hidden, while the cockpit
+is dismissed, and on other desks. Disabling or deleting the instance stops that
+background work. The host renders only one model for these instances, handing
+ownership to the inline panel while it is open. Timer, Alarm and Pomodoro use
+this flag so switching desks does not stop their clocks.
+
+Widget deletion shares one host confirmation state for the card menu, long press,
+palette and keyboard shortcut. The question replaces the card's controls or the
+palette row's actions inline: Cancel is focused first; the red trash button
+confirms. Escape or clicking outside the controls cancels; focus changes alone
+do not, because a button click can focus its ancestor before the click fires.
+Removing one placement of a shared widget keeps its data; deleting its final
+placement or deleting everywhere
+confirms content loss. Layout Undo does not restore deleted widget content.
 
 Double-clicking the panel title renames the widget through `kavibayRenameWidget`,
 the same catalog write a card's title does. Scratch copies have no catalog entry,

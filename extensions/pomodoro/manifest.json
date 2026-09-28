@@ -12,6 +12,7 @@
       "keywords": ["pomodoro", "focus", "timer", "session"],
       "categories": ["productivity"],
       "ui": {
+        "keepAliveWhenHidden": true,
         "defaultOffset": { "x": 480, "y": 200 },
         "defaultSize": { "w": 520, "h": 280 },
         "defaultHideTitle": true

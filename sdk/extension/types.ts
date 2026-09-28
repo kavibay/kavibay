@@ -279,7 +279,7 @@ export interface ExtensionManifest {
      * preference, not declaring a property of itself.
      */
     opaque?: boolean;
-    /** Keep the widget mounted while the cockpit is hidden, for background work such as audio. */
+    /** Keep running when hidden or on another desk; disabling/deleting ends background work. */
     keepAliveWhenHidden?: boolean;
     /**
      * The card's own surface, over the shared appearance. With `editable`, each
@@ -446,7 +446,7 @@ export interface RegisteredExtension {
   hugHeight: boolean;
   /** Card is drawn on an opaque ground rather than the shared glass. */
   opaque: boolean;
-  /** Keep the widget mounted while the cockpit is hidden. */
+  /** Keep running when hidden or on another desk; disabling/deleting ends background work. */
   keepAliveWhenHidden?: boolean;
   /** The card's own surface from `ui.appearance`. */
   appearance?: WidgetAppearance;

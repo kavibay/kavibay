@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import CommandPalette from "./palette/CommandPalette.vue";
 import WidgetHost from "./host/WidgetHost.vue";
 import ExtensionAboutModal from "./extensions/ExtensionAboutModal.vue";
+import WidgetImportModal from "./runtime/WidgetImportModal.vue";
 import OnboardingCoach from "./onboarding/OnboardingCoach.vue";
 import OnboardingSetup from "./onboarding/OnboardingSetup.vue";
 import SettingsModal from "./settings/SettingsModal.vue";
@@ -12,6 +13,7 @@ import { useSettingsModal } from "./settings/useSettingsModal";
 import { useRegionSync } from "./system/clickThrough";
 import FloatingTipHost from "./system/FloatingTipHost.vue";
 import CommandHost from "./extension-host/ui/CommandHost.vue";
+import DurableStorageNotice from "./system/DurableStorageNotice.vue";
 import { hostDismissHeld } from "@sdk";
 
 useRegionSync();
@@ -48,8 +50,10 @@ onUnmounted(() => {
       <template #overlay>
         <SettingsModal />
         <ExtensionAboutModal />
+        <WidgetImportModal />
         <OnboardingCoach />
         <OnboardingSetup />
+        <DurableStorageNotice />
       </template>
     </WidgetHost>
   </div>

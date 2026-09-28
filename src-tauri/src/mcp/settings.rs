@@ -23,8 +23,18 @@ pub struct McpServerConfig {
 impl Default for McpServerConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             port: DEFAULT_PORT,
+        }
+    }
+}
+
+impl McpServerConfig {
+    /// Invalid or unreadable preferences must not enable a listener.
+    pub fn disabled() -> Self {
+        Self {
+            enabled: false,
+            ..Self::default()
         }
     }
 }
@@ -45,7 +55,7 @@ pub fn validate_port(port: u16) -> Result<(), String> {
 pub fn parse_config(raw: &str) -> McpServerConfig {
     match serde_json::from_str::<McpServerConfig>(raw) {
         Ok(config) if valid_port(config.port) => config,
-        _ => McpServerConfig::default(),
+        _ => McpServerConfig::disabled(),
     }
 }
 
@@ -74,28 +84,37 @@ mod tests {
 
     #[test]
     fn a_missing_section_is_the_default_config() {
-        // `load` maps `None` to this; pinned here because the whole point of
-        // the default is that an absent preference does not start a listener.
-        assert!(!McpServerConfig::default().enabled);
+        // `load` maps an absent preference to an enabled local listener.
+        assert!(McpServerConfig::default().enabled);
         assert_eq!(McpServerConfig::default().port, DEFAULT_PORT);
     }
 
     #[test]
     fn corrupt_incomplete_or_out_of_range_config_defaults_safely() {
+        assert!(!McpServerConfig::disabled().enabled);
         assert_eq!(
             parse_config(r#"{"enabled":"yes","port":80,"extra":true}"#),
-            McpServerConfig::default()
+            McpServerConfig::disabled()
         );
         assert_eq!(
             parse_config(r#"{"enabled":true}"#),
-            McpServerConfig::default()
+            McpServerConfig::disabled()
         );
         assert_eq!(
             parse_config(r#"{"enabled":true,"port":80}"#),
-            McpServerConfig::default(),
+            McpServerConfig::disabled(),
             "a privileged port is out of range and must not be honoured"
         );
-        assert_eq!(parse_config("not json"), McpServerConfig::default());
+        assert_eq!(parse_config("not json"), McpServerConfig::disabled());
+    }
+
+    #[test]
+    fn explicitly_disabled_config_stays_disabled() {
+        let config = McpServerConfig {
+            enabled: false,
+            port: 45_000,
+        };
+        assert_eq!(round_trip(&config), config);
     }
 
     #[test]
@@ -110,7 +129,7 @@ mod tests {
         // know is refused rather than half-read — `deny_unknown_fields`.
         assert_eq!(
             parse_config(r#"{"enabled":true,"port":45000,"future":1}"#),
-            McpServerConfig::default()
+            McpServerConfig::disabled()
         );
     }
 

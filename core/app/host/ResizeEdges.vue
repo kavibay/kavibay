@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { onBeforeUnmount, ref } from "vue";
 import {
   RESIZE_CURSOR,
   RESIZE_EDGES,
@@ -55,16 +55,24 @@ const emit = defineEmits<{
 }>();
 
 const activeEdge = ref<ResizeEdge | null>(null);
+let finishResize: (() => void) | undefined;
+onBeforeUnmount(() => finishResize?.());
 
 /** Start an edge/corner resize gesture. */
 function onHandlePointerDown(event: PointerEvent, edge: ResizeEdge) {
   if (event.button !== 0) return;
   event.preventDefault();
   event.stopPropagation();
+  finishResize?.();
 
   const handle = event.currentTarget as HTMLElement;
   const startX = event.clientX;
   const startY = event.clientY;
+  // Preview fitting and ancestor zoom scale pointer pixels, but sizes stay in local CSS pixels.
+  const measured = props.measureEl;
+  const bounds = measured?.getBoundingClientRect();
+  const pointerScaleX = measured?.offsetWidth && bounds?.width ? bounds.width / measured.offsetWidth : 1;
+  const pointerScaleY = measured?.offsetHeight && bounds?.height ? bounds.height / measured.offsetHeight : 1;
 
   let startW = props.width;
   let startH = props.height;
@@ -76,8 +84,8 @@ function onHandlePointerDown(event: PointerEvent, edge: ResizeEdge) {
     const el = props.measureEl;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    if (needW) startW = rect.width;
-    if (needH) startH = rect.height;
+    if (needW) startW = rect.width / pointerScaleX;
+    if (needH) startH = rect.height / pointerScaleY;
   }
   if (
     startW === undefined ||
@@ -101,8 +109,8 @@ function onHandlePointerDown(event: PointerEvent, edge: ResizeEdge) {
     const raw = applyResizeDelta(
       edge,
       start,
-      ev.clientX - startX,
-      ev.clientY - startY,
+      (ev.clientX - startX) / pointerScaleX,
+      (ev.clientY - startY) / pointerScaleY,
       props.clamps,
     );
 
@@ -145,11 +153,13 @@ function onHandlePointerDown(event: PointerEvent, edge: ResizeEdge) {
   }
 
   /** End gesture and restore click-through. */
-  function onUp(ev: PointerEvent) {
-    handle.releasePointerCapture(ev.pointerId);
+  function onUp() {
     handle.removeEventListener("pointermove", onMove);
     handle.removeEventListener("pointerup", onUp);
     handle.removeEventListener("pointercancel", onUp);
+    handle.removeEventListener("lostpointercapture", onUp);
+    if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+    finishResize = undefined;
     activeEdge.value = null;
     setClickThroughPaused(false);
     emit("resize-end");
@@ -158,6 +168,8 @@ function onHandlePointerDown(event: PointerEvent, edge: ResizeEdge) {
   handle.addEventListener("pointermove", onMove);
   handle.addEventListener("pointerup", onUp);
   handle.addEventListener("pointercancel", onUp);
+  handle.addEventListener("lostpointercapture", onUp);
+  finishResize = onUp;
 }
 </script>
 

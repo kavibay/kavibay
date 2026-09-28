@@ -16,6 +16,9 @@ for (const base of [
     assert(before !== after && after.includes("/@run/second-run/"), `${relative} cannot reuse the previous frame's cached asset`);
   }
   assert(new URL(first).search === new URL(base).search, "package revision stays on the entry URL");
+  const preview = packageFrameUrl(base, "preview", true);
+  assert(new URL(preview).searchParams.get("wizardPreview") === "1", "Only opted-in previews request the inspector");
+  assert(!new URL(packageFrameUrl(preview, "desk")).searchParams.has("wizardPreview"), "Regular widgets strip a inherited preview marker");
 }
 assert(packageFrameUrl("https://fixture.test/widget.html", "first") !== packageFrameUrl("https://fixture.test/widget.html", "retry"), "Retry also reloads browser fixtures");
 console.log("packageFrameUrl.assert: ok");

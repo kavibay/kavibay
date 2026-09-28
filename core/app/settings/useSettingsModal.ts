@@ -16,6 +16,8 @@ const section: Ref<SettingsSectionId> = ref("appearance");
 const credentialType: Ref<string | null> = ref(null);
 /** Catalog provider id to select on the AI panel, or null. */
 const aiProvider: Ref<string | null> = ref(null);
+/** Part of the Search panel to scroll to, or null. */
+const searchPart: Ref<"widgets" | null> = ref(null);
 
 /** Shared open state for the app Settings modal. */
 export function useSettingsModal() {
@@ -23,6 +25,7 @@ export function useSettingsModal() {
     section.value = "appearance";
     credentialType.value = null;
     aiProvider.value = null;
+    searchPart.value = null;
     open.value = true;
   }
 
@@ -30,6 +33,7 @@ export function useSettingsModal() {
     section.value = targetSection;
     credentialType.value = targetSection === "credentials" ? (focus ?? null) : null;
     aiProvider.value = targetSection === "ai" ? (focus ?? null) : null;
+    searchPart.value = targetSection === "search" && focus === "widgets" ? "widgets" : null;
     open.value = true;
   }
 
@@ -37,5 +41,5 @@ export function useSettingsModal() {
     open.value = false;
   }
 
-  return { open, section, credentialType, aiProvider, show, showSection, hide };
+  return { open, section, credentialType, aiProvider, searchPart, show, showSection, hide };
 }

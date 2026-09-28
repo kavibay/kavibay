@@ -15,10 +15,15 @@ The intended workflow is:
 MCP can author drafts. The Wizard remains the human decision point for saving,
 permissions and enabling a widget.
 
-## Enable the server
+## Check the server
 
-Open **Settings → Integrations → MCP Server**. The server is off by default.
-Turn on **Enable MCP Server**, then wait for the status to become **Running**.
+Open **Settings → Integrations → MCP Server**. The server is enabled by default
+when no preference has been saved. A saved disabled preference is preserved;
+turn on **Enable MCP Server** if needed, then wait for **Running**.
+Invalid or unreadable settings leave the server disabled.
+The Widget Wizard's **Use MCP** dialog also shows the live server status and an
+on/off switch. It refreshes the status while open, offers a retry after a bind
+error, and uses the running server's address in the client setup commands.
 Kavibay must remain running while a client connects; enabling the setting does
 not start Kavibay for a client.
 
@@ -40,18 +45,29 @@ authentication and is intended for same-user local clients only.
 
 ## Configure a client
 
-The Settings panel copies a Codex `config.toml` entry using the selected port:
+Run the command for your local client in a terminal.
+
+Claude Code (run in the project where you want to use Kavibay):
+
+```sh
+claude mcp add --transport http kavibay http://127.0.0.1:43127/mcp
+```
+
+Codex:
+
+```sh
+codex mcp add kavibay --url http://127.0.0.1:43127/mcp
+```
+
+The Settings panel can also copy a Codex `config.toml` entry using the selected port:
 
 ```toml
 [mcp_servers.kavibay]
 url = "http://127.0.0.1:43127/mcp"
 ```
 
-Replace `43127` if a different port is configured. In Claude or another MCP
-client, add a custom **Streamable HTTP** server and use the same URL. Client
-configuration file names and keys vary by client/version, so Kavibay does not
-ship an unverified Claude-specific JSON snippet. The endpoint and transport are
-the same.
+Replace `43127` if a different port is configured. In another MCP client, add a
+custom **Streamable HTTP** server and use the same URL.
 
 After connecting, initialize the server and call `tools/list`. The server name
 is `kavibay-authoring`; the initialization instructions describe the complete
@@ -244,6 +260,12 @@ invalid draft or bypass the Wizard's preview and consent checks.
 sidecar process or background service; start Kavibay before connecting again.
 
 ## Security boundary
+
+The first-party TypeScript MCP adapters and presentation helpers, including
+their assertions, live in `sdk/extension/mcp/` so Settings and the Widget Wizard
+share one implementation. Moved from `core/app/settings/` in September 2026,
+these files use the SDK's MIT license. This does not expose server controls
+through the sandboxed runtime bridge.
 
 The server reads and writes only the custom authoring root. It accepts package
 ids and package-relative files, never absolute paths or a selectable root. It

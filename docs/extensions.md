@@ -507,6 +507,24 @@ FE-only drop-in loading (P1). Packages with a native sidecar backend are rejecte
 
 Disable in the same list unloads it from the palette; package files stay on disk until you delete the folder yourself.
 
+### Share a widget as a zip
+
+The Wizard's **Export** writes a widget to a `.zip`. To install one, drag the
+file onto the open palette, or run **Import Widget** from the palette. The
+archive may be an export, or the package folder compressed in Finder or
+Explorer.
+
+The install dialog lists everything the widget asks for. **Install widget**
+installs it into the custom root, grants exactly that list and puts the widget
+on the desk, so no Developer Extensions toggle and no second consent are
+involved. An id that already exists is refused, because grants are stored per
+id and would otherwise pass to the new code. The archive is held to the draft
+limits: 32 files, 512 KB per file, 2 MB in total.
+
+A widget from a file is untrusted code. The dialog shows what it may do; it
+does not review what it does. See the backend in
+`src-tauri/src/runtime_extensions/import.rs`.
+
 ### Declared HTTP endpoints
 
 A sandboxed package cannot `fetch` — its frame CSP is `connect-src 'none'`, and

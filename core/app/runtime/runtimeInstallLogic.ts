@@ -105,7 +105,8 @@ export function runtimeExtVisible(opts: {
  *
  * Developer Extensions gates the **installed** root — packages that appeared in
  * a folder, which the app has no other reason to trust. A package in the custom
- * root was built here, through the app's own UI, so requiring a developer
+ * root was built or imported here, through the app's own UI and, for an
+ * import, its install dialog, so requiring a developer
  * toggle for it would put a technical flag in front of the one audience the
  * wizard exists for. Origin, not trust level, is what the flag is really about.
  */
