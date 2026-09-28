@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import type { PaletteAnswer, PaletteMessage } from "./usePaletteAnswer";
+import PaletteAnswerText from "./PaletteAnswerText.vue";
 
 const props = defineProps<{ answer: PaletteAnswer; messages: PaletteMessage[]; busy: boolean }>();
 const emit = defineEmits<{ back: []; stop: []; retry: []; settings: []; followUp: [text: string] }>();
@@ -55,8 +56,8 @@ defineExpose({ focusComposer });
         class="palette-answer-text"
         :class="{ 'palette-answer-question': message.role === 'user' }"
         :aria-label="message.role === 'user' ? 'You' : 'AI answer'"
-      >{{ message.content }}</p>
-      <p v-if="answer.text" class="palette-answer-text">{{ answer.text }}</p>
+      ><PaletteAnswerText v-if="message.role === 'assistant'" :text="message.content" /><template v-else>{{ message.content }}</template></p>
+      <p v-if="answer.text" class="palette-answer-text"><PaletteAnswerText :text="answer.text" /></p>
       <p v-if="busy" class="palette-answer-status" role="status">{{ answer.text ? 'Answering…' : 'Thinking…' }}</p>
       <p v-else-if="answer.phase === 'stopped'" class="palette-answer-status" role="status">Stopped</p>
       <template v-if="answer.phase === 'error'">

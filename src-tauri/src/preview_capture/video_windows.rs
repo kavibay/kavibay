@@ -108,7 +108,13 @@ impl Encoder {
         write().map_err(|e| format!("Could not encode the video: {e}"))
     }
 
-    pub(super) fn finish(self) -> std::result::Result<(), String> {
+    pub(super) fn finish(
+        self,
+        image: &image::RgbaImage,
+        at_ms: u64,
+        duration_ms: u64,
+    ) -> std::result::Result<(), String> {
+        self.frame(image, at_ms, duration_ms)?;
         unsafe { self.writer.Finalize() }.map_err(|e| format!("Could not finish the video: {e}"))
     }
 }

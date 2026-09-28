@@ -58,20 +58,22 @@ sharing actions:
   draft when one exists. The collapsible **How to import** guide below the button
   explains how to use **Import Widget** in the palette or drop the ZIP onto
   Kavibay, then review access and choose **Install widget**.
-- **Copy preview image** in the footer copies a screenshot of the widget and its
-  canvas background to the system clipboard. Paste it into a chat, document, or
-  image editor. The button shows **Copied!** for two seconds, then fades back to
-  **Copy preview image**.
+- **Capture screenshot** captures the widget and its canvas background. The
+  button then becomes three icons: **Save screenshot** (PNG), **Copy screenshot
+  to clipboard**, and **Reset screenshot** (X). Save and Copy use the captured
+  image even if the live widget changes afterwards. X returns to **Capture screenshot**.
+  Capturing does not change the clipboard. Cancelling a save keeps the image
+  available in Share.
 
-The compact Share dialog starts with a bundled nebula background. **Upload
-background image** in the footer opens a file picker for a custom background
+The compact Share dialog starts with a bundled nebula background. **Update
+background image** in **Preview settings** opens a file picker for a custom background
 (up to 20 MB). Images fill the canvas
 without stretching. They stay local and remain selected while this preview is
 open, including when closing and reopening Share. **Reset background** restores
 the bundled image. The Wizard's editing canvas keeps its grid.
 
-The canvas initially fills its original preview area. The **Preview size** icon
-beside **Record 5s clip** opens **Landscape** (16:9),
+The canvas initially fills its original preview area. The **Preview settings** gear
+at the right of the footer opens **Landscape** (16:9),
 **Portrait** (9:16), and **Custom**. Custom accepts width and height from 64 to
 4096 px; choose **Apply** to resize the canvas. Large canvases fit proportionally
 inside the dialog, so these dimensions describe the framing, not a guaranteed
@@ -87,16 +89,20 @@ uses the desktop webview (WebView2 on Windows, WebKit on macOS/Linux), so sandbo
 widget content appears in the image too. The canvas is included; the dialog's
 heading and action buttons are excluded.
 
-On Windows and macOS, **Record 5s clip** records the preview as an MP4 without audio.
-When the red timer starts counting down, click, type or scroll inside the widget. The
-background and pointer are included. Framing controls are disabled during the
-recording. **Cancel recording** or Escape stops it; Escape keeps Share open.
+On Windows and macOS, **Record clip** records the preview as an MP4 without audio.
+Click the main button to start immediately, or open its dropdown and choose
+**Start recording in 1s** for a one-second countdown. When the red timer starts
+counting up, click, type or scroll inside the widget. The background and pointer
+are included. Framing controls are disabled during the recording. The **Stop recording**
+icon or Escape finishes the clip and keeps Share open. Recording also finishes
+automatically at 90 seconds. Escape during the countdown or preparation cancels
+the start without replacing the previous clip.
 Closing Share, hiding the app or changing its capture geometry cancels the job.
 
-After recording, the button becomes three icons: **Play**, **Save**, and **Copy**.
+After recording, the button becomes four icons: **Play**, **Save**, **Copy**, and **Reset recording** (X).
 Choose **Play** to watch it in the preview area. Native video controls provide play/pause, seeking and replay.
-**Back to widget** restores the live view with its state intact. **Record again**
-in the player starts a new clip. **Copy video**
+**Back to widget** restores the live view with its state intact. **Reset recording**
+in the footer or player stops playback and returns to **Record clip**. **Copy video**
 puts the completed MP4 file on the clipboard only when clicked; recording and
 playback do not change the clipboard. **Save clip** writes a copy to a chosen
 location. A copy error keeps the recording available for playback and retry.
@@ -106,7 +112,7 @@ AVFoundation on macOS. macOS recording is experimental, outside the Windows-only
 v0.1 release scope. If the encoder is unavailable, Share explains why the
 recording button is disabled. No encoder package is installed. Completed files stay in `shared-clips/` under the Kavibay
 data directory so closing the dialog or restarting the app does not invalidate
-clipboard file references. Each clip is limited to 16 MiB. Native macOS capture
+clipboard file references. Each clip is limited to 64 MiB. Native macOS capture
 and playback were verified with an isolated Share dialog, including 125% UI
 zoom. Windows performance and DPI/cursor accuracy still need Windows validation.
 Ctrl+V compatibility with Discord, Slack and WhatsApp remains unverified on both

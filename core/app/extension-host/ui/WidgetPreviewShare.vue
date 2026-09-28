@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import DialogCloseButton from "@sdk/ui/DialogCloseButton.vue";
 import IconBase from "@sdk/icons/IconBase.vue";
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { holdHostDismiss } from "@sdk/hostDismiss";
 import ResizeEdges from "../../host/ResizeEdges.vue";
@@ -30,6 +30,11 @@ const heading = ref<HTMLHeadingElement | null>(null);
 const video = ref<HTMLVideoElement | null>(null);
 const previewArea = ref<HTMLElement | null>(null);
 const sizePicker = ref<InstanceType<typeof PreviewSizePicker> | null>(null);
+const recordingControls = ref<HTMLElement | null>(null);
+const recordMenuTrigger = ref<HTMLButtonElement | null>(null);
+const recordMenuOption = ref<HTMLButtonElement | null>(null);
+const recordMenuOpen = ref(false);
+const recordMenuId = useId();
 const previewFraming = ref<PreviewFraming | null>(null);
 const previewSpace = ref({ width: 0, height: 0 });
 const recording = reactive(usePreviewRecording(undefined, () => {
@@ -43,8 +48,11 @@ const canvasStyle = computed(() => {
   const size = fitPreviewSize(previewFraming.value, previewSpace.value);
   return { width: `${size.width}px`, height: `${size.height}px` };
 });
-const copying = ref(false);
+const screenshot = shallowRef<ArrayBuffer | null>(null);
+const imageAction = ref<"capture" | "copy" | "save" | null>(null);
+const capturing = computed(() => imageAction.value === "capture");
 const copied = ref(false);
+const imageSaved = ref(false);
 const copyError = ref("");
 const previewScale = ref(1);
 const backgroundInput = ref<HTMLInputElement | null>(null);
@@ -53,13 +61,15 @@ const backgroundName = ref("");
 const backgroundError = ref("");
 const loadingBackground = ref(false);
 const backgroundSource = computed(() => customBackground.value ?? defaultBackground);
-const baseWorking = computed(() => !!props.busy || copying.value || loadingBackground.value);
+const baseWorking = computed(() => !!props.busy || imageAction.value !== null || loadingBackground.value);
 const working = computed(() => baseWorking.value || recording.active || recording.copyStatus === "copying" || recording.saving);
 const recordingLabel = computed(() => {
   if (recording.cancelling) return "Cancelling…";
+  if (recording.phase === "countdown") return "Starting in 1s…";
   if (recording.phase === "preparing") return "Preparing…";
   if (recording.phase === "encoding") return "Finishing…";
-  return `${((5000 - recording.elapsedMs) / 1000).toFixed(1)}s`;
+  const seconds = Math.floor(recording.elapsedMs / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 });
 const recordingFeedback = computed(() => recording.error || recording.copyError || recording.saveFeedback
   || recording.availability?.reason || (recording.copyStatus === "copied" ? "Video copied" : ""));
@@ -99,6 +109,7 @@ let resizeObserver: ResizeObserver | undefined;
 let previewAreaObserver: ResizeObserver | undefined;
 let previewAreaFrame = 0;
 let copyFeedbackTimeout: ReturnType<typeof setTimeout> | undefined;
+let imageGeneration = 0;
 let captureBounds: CaptureRegion | null = null;
 let geometryFrame = 0;
 let captureEpoch = 0;
@@ -128,8 +139,29 @@ function watchCaptureBounds(): void {
   geometryFrame = requestAnimationFrame(watchCaptureBounds);
 }
 
-async function recordVideo(): Promise<void> {
+function closeRecordMenu(restoreFocus = false): boolean {
+  if (!recordMenuOpen.value) return false;
+  recordMenuOpen.value = false;
+  if (restoreFocus) recordMenuTrigger.value?.focus();
+  return true;
+}
+
+async function toggleRecordMenu(): Promise<void> {
+  if (working.value || closeRecordMenu(true)) return;
+  sizePicker.value?.close();
+  recordMenuOpen.value = true;
+  await nextTick();
+  recordMenuOption.value?.focus();
+}
+
+function onRecordMenuOutside(event: Event): void {
+  if (event.target instanceof Node && !recordingControls.value?.contains(event.target)) closeRecordMenu();
+}
+function onRecordMenuBlur(): void { closeRecordMenu(); }
+
+async function recordVideo(delayMs = 0): Promise<void> {
   if (working.value) return;
+  closeRecordMenu(true);
   const epoch = ++captureEpoch;
   resetCopyFeedback();
   await recording.start(async () => {
@@ -141,7 +173,7 @@ async function recordVideo(): Promise<void> {
     captureBounds = readCaptureBounds();
     watchCaptureBounds();
     return captureBounds;
-  });
+  }, delayMs);
   // A previous background decode can finish after Share closes and reopens.
   // Its cleanup must not stop the next recording's geometry observer.
   if (epoch === captureEpoch) {
@@ -176,8 +208,9 @@ function requestClose(): void {
 }
 
 function cancelOrClose(): void {
+  if (closeRecordMenu(true)) return;
   if (sizePicker.value?.close(true)) return;
-  if (recording.active) recording.cancel();
+  if (recording.active) void recording.stop();
   else requestClose();
 }
 
@@ -253,6 +286,7 @@ function resetCopyFeedback(): void {
   clearTimeout(copyFeedbackTimeout);
   copyFeedbackTimeout = undefined;
   copied.value = false;
+  imageSaved.value = false;
   copyError.value = "";
 }
 
@@ -343,6 +377,7 @@ watch([previewArea, () => props.open], ([area, open]) => {
 async function syncDialog(): Promise<void> {
   const element = dialog.value;
   if (!element) return;
+  imageGeneration++;
   resetCopyFeedback();
   dialogBox.value = null;
   resizeStart = null;
@@ -375,6 +410,7 @@ function onKeydown(event: KeyboardEvent): void {
   if (!props.open || event.key !== "Escape") return;
   event.preventDefault();
   event.stopImmediatePropagation();
+  if (event.repeat) return;
   cancelOrClose();
 }
 
@@ -387,48 +423,78 @@ function onBackdrop(event: PointerEvent): void {
       event.clientY < bounds.top || event.clientY > bounds.bottom) requestClose();
 }
 
-/** Capture the canvas and widget together; keep the dialog's actions outside the image. */
-async function copyImage(): Promise<void> {
-  if (working.value || recording.view === "playback" || !props.captureTarget || !props.previewTarget) return;
-  copying.value = true;
+function resetScreenshot(): void {
+  if (working.value) return;
+  screenshot.value = null;
   resetCopyFeedback();
+}
+
+/** Keep the captured pixels unchanged until the user resets the screenshot. */
+async function captureImage(): Promise<void> {
+  if (working.value || !props.open || !props.captureTarget || !props.previewTarget) return;
+  const generation = imageGeneration;
+  imageAction.value = "capture";
+  resetCopyFeedback();
+  showRecordingFeedback.value = false;
+  recording.backToWidget();
   try {
     if (!("__TAURI_INTERNALS__" in window)) {
-      throw new Error("Copy preview image is available in the Kavibay desktop app.");
+      throw new Error("Screenshots are available in the Kavibay desktop app.");
     }
     await loadBackground(backgroundSource.value);
     await nextTick();
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    if (disposed || !props.open || generation !== imageGeneration) return;
     const rect = props.captureTarget.getBoundingClientRect();
-    await invoke("copy_preview_image", {
+    const image = await invoke<ArrayBuffer>("capture_preview_image", {
       region: {
         x: rect.x, y: rect.y, width: rect.width, height: rect.height,
         viewportWidth: window.innerWidth, viewportHeight: window.innerHeight,
       },
     });
-    if (disposed || !props.open) return;
-    copied.value = true;
-    copyFeedbackTimeout = setTimeout(() => {
-      copied.value = false;
-      copyFeedbackTimeout = undefined;
-    }, 2000);
+    if (!disposed && props.open && generation === imageGeneration) screenshot.value = image;
   } catch (error) {
-    if (!disposed && props.open) copyError.value = error instanceof Error ? error.message : String(error);
+    if (!disposed && props.open && generation === imageGeneration) copyError.value = error instanceof Error ? error.message : String(error);
   } finally {
-    copying.value = false;
+    imageAction.value = null;
   }
 }
 
-watch(() => props.open, syncDialog, { flush: "post" });
+async function exportImage(action: "copy" | "save"): Promise<void> {
+  if (working.value || !screenshot.value) return;
+  const generation = imageGeneration;
+  imageAction.value = action;
+  resetCopyFeedback();
+  try {
+    // Binary IPC avoids turning the PNG into a large JSON array of byte values.
+    const result = await invoke<boolean | void>(action === "copy" ? "copy_preview_image" : "save_preview_image", screenshot.value);
+    if (disposed || !props.open || generation !== imageGeneration || result === false) return;
+    copied.value = action === "copy";
+    imageSaved.value = action === "save";
+    copyFeedbackTimeout = setTimeout(resetCopyFeedback, 2000);
+  } catch (error) {
+    if (!disposed && props.open && generation === imageGeneration) copyError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    imageAction.value = null;
+  }
+}
+
+watch(() => props.open, () => { closeRecordMenu(); void syncDialog(); }, { flush: "post" });
+watch(working, (busy) => { if (busy) closeRecordMenu(); });
 watch(() => recording.view, async (view) => { if (view === "live") { await nextTick(); fitPreview(); } });
 onMounted(() => {
   void syncDialog();
   document.addEventListener("keydown", onKeydown, true);
   window.addEventListener("resize", onViewportResize);
   document.addEventListener("visibilitychange", onVisibilityChange);
+  document.addEventListener("pointerdown", onRecordMenuOutside, true);
+  document.addEventListener("focusin", onRecordMenuOutside);
+  window.addEventListener("blur", onRecordMenuBlur);
+  window.addEventListener("resize", onRecordMenuBlur);
 });
 onBeforeUnmount(() => {
   disposed = true;
+  screenshot.value = null;
   stopGeometryWatch();
   recording.dispose();
   resetCopyFeedback();
@@ -440,6 +506,10 @@ onBeforeUnmount(() => {
   document.removeEventListener("keydown", onKeydown, true);
   window.removeEventListener("resize", onViewportResize);
   document.removeEventListener("visibilitychange", onVisibilityChange);
+  document.removeEventListener("pointerdown", onRecordMenuOutside, true);
+  document.removeEventListener("focusin", onRecordMenuOutside);
+  window.removeEventListener("blur", onRecordMenuBlur);
+  window.removeEventListener("resize", onRecordMenuBlur);
   dialog.value?.close();
   releaseDismiss?.();
   restoreFocus?.focus();
@@ -448,16 +518,17 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!-- File inputs also emit cancel; only handle the dialog's own cancellation. -->
   <dialog
     ref="dialog"
     class="preview-dialog"
-    :class="{ 'preview-dialog--share': open, 'preview-dialog--copying': copying, 'preview-dialog--contents': !open && inlineLayout === 'contents' }"
+    :class="{ 'preview-dialog--share': open, 'preview-dialog--capturing': capturing, 'preview-dialog--contents': !open && inlineLayout === 'contents' }"
     :style="dialogStyle"
     :role="open ? 'dialog' : 'region'"
     :aria-label="open ? `Share ${title}` : 'Widget preview'"
     :aria-modal="open ? true : undefined"
     :data-interactive="open ? '' : undefined"
-    @cancel.prevent="cancelOrClose"
+    @cancel.self.prevent="cancelOrClose"
     @pointerdown="onBackdrop"
   >
     <!-- Make the native backdrop clickable even outside the Wizard's host card. -->
@@ -486,9 +557,8 @@ onBeforeUnmount(() => {
               <IconBase :size="14"><path d="m14 6-6 6 6 6" /></IconBase>
               Back to widget
             </button>
-            <button type="button" :disabled="working || !recording.availability?.available" @click="recordVideo">
-              <IconBase :size="14"><path d="M3 10a9 9 0 1 1 2.4 8.5M3 4v6h6" /></IconBase>
-              Record again
+            <button type="button" aria-label="Reset recording" title="Reset recording" :disabled="working" @click="recording.reset">
+              <IconBase :size="14"><path d="m6 6 12 12M6 18 18 6" /></IconBase>
             </button>
           </div>
           <span v-if="recording.playbackLoading" role="status">Loading video…</span>
@@ -496,40 +566,52 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <footer v-if="open" class="share-footer">
-        <div class="share-image-actions">
+        <div class="share-capture-actions">
           <input ref="backgroundInput" type="file" accept="image/*" aria-label="Choose canvas background" hidden @change="chooseBackground" />
-          <button type="button" :disabled="working" @click="backgroundInput?.click()">
-            <IconBase :size="14">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <path d="m21 15-5-5L5 21" />
-            </IconBase>
-            {{ loadingBackground ? 'Loading image…' : 'Upload background image' }}
-          </button>
-          <span v-if="backgroundName" class="share-background-name" :title="backgroundName">{{ backgroundName }}</span>
-          <button v-if="customBackground" type="button" :disabled="working" @click="resetBackground">Reset background</button>
-          <button type="button" :disabled="working || recording.view === 'playback' || !captureTarget || !previewTarget" @click="copyImage">
-            <IconBase :size="14">
-              <rect x="9" y="9" width="12" height="12" rx="2" />
-              <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
-            </IconBase>
-            <span class="share-copy-label" :class="{ 'share-copy-label--copied': copied }" aria-live="polite" aria-atomic="true">
-              <span class="share-copy-default" :aria-hidden="copied">{{ copying ? 'Copying…' : 'Copy preview image' }}</span>
-              <span class="share-copy-success" :aria-hidden="!copied">Copied!</span>
-            </span>
-          </button>
-        </div>
-        <div class="share-preview-actions">
-          <div v-if="recording.availability?.supported" class="share-recording" aria-label="Video recording">
+          <div class="share-screenshot share-media-actions">
+            <div v-if="screenshot" class="share-clip-actions" role="group" aria-label="Captured screenshot">
+              <button type="button" class="share-icon-button" aria-label="Save screenshot" :title="imageAction === 'save' ? 'Saving…' : 'Save screenshot'"
+                :disabled="working" :class="{ 'share-icon-button--success': imageSaved }" @click="exportImage('save')">
+                <IconBase :size="15">
+                  <path v-if="imageSaved" d="m5 12 4 4L19 6" />
+                  <path v-else d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4" />
+                </IconBase>
+              </button>
+              <button type="button" class="share-icon-button" aria-label="Copy screenshot to clipboard" :title="imageAction === 'copy' ? 'Copying…' : 'Copy screenshot to clipboard'"
+                :disabled="working" :class="{ 'share-icon-button--success': copied }" @click="exportImage('copy')">
+                <IconBase :size="15">
+                  <path v-if="copied" d="m5 12 4 4L19 6" />
+                  <template v-else><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" /></template>
+                </IconBase>
+              </button>
+              <button type="button" class="share-icon-button" aria-label="Reset screenshot" title="Reset screenshot" :disabled="working" @click="resetScreenshot">
+                <IconBase :size="15"><path d="m6 6 12 12M6 18 18 6" /></IconBase>
+              </button>
+            </div>
+            <button v-else type="button" class="share-capture-button" :disabled="working || !captureTarget || !previewTarget" @click="captureImage">
+              <IconBase :size="14">
+                <path d="M14.5 4h-5l-2 3H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3.5Z" />
+                <circle cx="12" cy="13" r="3" />
+              </IconBase>
+              {{ capturing ? 'Capturing…' : 'Capture screenshot' }}
+            </button>
+            <p v-if="copied || imageSaved" class="share-media-feedback share-media-feedback--success" role="status">{{ copied ? 'Screenshot copied' : 'Screenshot saved' }}</p>
+          </div>
+          <div v-if="recording.availability?.supported" ref="recordingControls" class="share-recording share-media-actions" aria-label="Video recording">
             <div v-if="recording.active" class="share-recording-active" :class="{ 'share-recording-active--capturing': recording.phase === 'recording' && !recording.cancelling }">
               <span class="share-recording-timer" role="status">
                 <span class="share-record-dot" aria-hidden="true"></span>
                 {{ recordingLabel }}
               </span>
-              <button type="button" class="share-icon-button" aria-label="Cancel recording" title="Cancel recording" :disabled="recording.cancelling" @click="recording.cancel">
-                <IconBase :size="14"><path d="m6 6 12 12M6 18 18 6" /></IconBase>
+              <button type="button" class="share-icon-button"
+                :aria-label="recording.phase === 'countdown' || recording.phase === 'preparing' ? 'Cancel recording start' : 'Stop recording'"
+                title="Stop recording (Esc)" :disabled="recording.cancelling || recording.stopping || recording.phase === 'encoding'" @click="recording.stop">
+                <IconBase :size="14">
+                  <path v-if="recording.phase === 'countdown' || recording.phase === 'preparing'" d="m6 6 12 12M6 18 18 6" />
+                  <rect v-else x="6" y="6" width="12" height="12" rx="1" fill="currentColor" stroke="none" />
+                </IconBase>
               </button>
-              <span v-if="recording.phase === 'recording'" class="share-recording-progress" :style="{ transform: `scaleX(${recording.elapsedMs / 5000})` }" aria-hidden="true"></span>
+              <span v-if="recording.phase === 'recording'" class="share-recording-progress" :style="{ transform: `scaleX(${recording.elapsedMs / 90000})` }" aria-hidden="true"></span>
             </div>
             <div v-else-if="recording.clip" class="share-clip-actions" role="group" aria-label="Recorded clip">
               <button type="button" class="share-icon-button" aria-label="Play recording" title="Play recording" :disabled="working || recording.playbackLoading" :aria-pressed="recording.view === 'playback'" @click="playRecording">
@@ -547,14 +629,37 @@ onBeforeUnmount(() => {
                   <template v-else><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" /></template>
                 </IconBase>
               </button>
+              <button type="button" class="share-icon-button" aria-label="Reset recording" title="Reset recording" :disabled="working" @click="recording.reset">
+                <IconBase :size="15"><path d="m6 6 12 12M6 18 18 6" /></IconBase>
+              </button>
             </div>
-            <button v-else type="button" class="share-record-button" :disabled="working || !recording.availability.available" :title="recording.availability.reason" @click="recordVideo">
-              <span class="share-record-dot" aria-hidden="true"></span>
-              Record 5s clip
-            </button>
-            <p v-if="showRecordingFeedback" class="share-recording-feedback" :class="{ 'share-recording-feedback--success': recordingSuccess }" :role="recordingSuccess ? 'status' : 'alert'">{{ recordingFeedback }}</p>
+            <div v-else class="share-record-split" role="group" aria-label="Start recording">
+              <button type="button" class="share-capture-button" :disabled="working || !recording.availability.available"
+                :title="recording.availability.reason || 'Record up to 90 seconds'" @click="recordVideo()">
+                <span class="share-record-dot" aria-hidden="true"></span>
+                Record clip
+              </button>
+              <button ref="recordMenuTrigger" type="button" class="share-record-options" aria-label="Recording options"
+                aria-haspopup="menu" :aria-expanded="recordMenuOpen" :aria-controls="recordMenuId"
+                :disabled="working || !recording.availability.available" @mousedown.prevent @click="toggleRecordMenu"
+                @keydown.down.prevent="toggleRecordMenu" @keydown.up.prevent="toggleRecordMenu">
+                <IconBase :size="12"><path d="m6 9 6 6 6-6" /></IconBase>
+              </button>
+              <div v-if="recordMenuOpen" :id="recordMenuId" class="share-record-menu" role="menu" aria-label="Recording options">
+                <button ref="recordMenuOption" type="button" role="menuitem" @mousedown.prevent @click="recordVideo(1000)"
+                  @keydown.down.prevent @keydown.up.prevent @keydown.home.prevent @keydown.end.prevent>
+                  <IconBase :size="14"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></IconBase>
+                  Start recording in 1s
+                </button>
+              </div>
+            </div>
+            <p v-if="showRecordingFeedback" class="share-media-feedback" :class="{ 'share-media-feedback--success': recordingSuccess }" :role="recordingSuccess ? 'status' : 'alert'">{{ recordingFeedback }}</p>
           </div>
-          <PreviewSizePicker ref="sizePicker" :model-value="previewFraming" :current-size="previewSpace" :disabled="working" @update:model-value="changePreviewSize" />
+        </div>
+        <div class="share-preview-actions">
+          <PreviewSizePicker ref="sizePicker" :model-value="previewFraming" :current-size="previewSpace" :disabled="working"
+            :background-name="backgroundName" :has-custom-background="!!customBackground"
+            @update:model-value="changePreviewSize" @upload-background="backgroundInput?.click()" @reset-background="resetBackground" />
         </div>
         <p v-if="copyError" class="share-feedback" role="alert">{{ copyError }}</p>
         <p v-if="backgroundError" class="share-feedback" role="alert">{{ backgroundError }}</p>
@@ -652,23 +757,29 @@ h2[tabindex="-1"] { outline: none; }
 .share-playback-actions button:disabled { opacity: 0.45; cursor: default; }
 .share-playback-actions button:focus-visible { outline: 2px solid #ffffff99; outline-offset: 2px; }
 /* An explicit width also reserves this space in WebKit's intrinsic flex sizing. */
-.share-recording { position: relative; display: flex; justify-content: flex-end; align-items: center; flex: none; width: 144px; min-height: 30px; }
-.share-recording button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; height: 30px; border: 0; border-radius: 7px; background: transparent; color: rgba(var(--fg-rgb), 0.7); font: inherit; font-size: 11px; cursor: pointer; transition: background 140ms ease, color 140ms ease; }
-.share-recording button:hover:not(:disabled) { background: rgba(var(--fg-rgb), 0.08); color: rgba(var(--fg-rgb), 0.95); }
-.share-recording button:disabled { opacity: 0.4; cursor: default; }
-.share-recording button:focus-visible { outline: 2px solid rgba(var(--fg-rgb), 0.6); outline-offset: 2px; }
-.share-recording .share-record-button { gap: 8px; padding: 0 10px; background: rgba(var(--fg-rgb), 0.045); box-shadow: inset 0 0 0 1px rgba(var(--fg-rgb), 0.08); white-space: nowrap; }
+.share-recording { position: relative; display: flex; justify-content: flex-start; align-items: center; flex: none; width: 144px; min-height: 30px; }
+.share-screenshot { position: relative; display: flex; align-items: center; flex: none; width: 156px; min-height: 30px; }
+.share-media-actions button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; height: 30px; border: 0; border-radius: 7px; background: transparent; color: rgba(var(--fg-rgb), 0.7); font: inherit; font-size: 11px; cursor: pointer; transition: background 140ms ease, color 140ms ease; }
+.share-media-actions button:hover:not(:disabled) { background: rgba(var(--fg-rgb), 0.08); color: rgba(var(--fg-rgb), 0.95); }
+.share-media-actions button:disabled { opacity: 0.4; cursor: default; }
+.share-media-actions button:focus-visible { outline: 2px solid rgba(var(--fg-rgb), 0.6); outline-offset: 2px; }
 .share-record-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: #f07878; }
 .share-clip-actions { display: flex; gap: 3px; align-items: center; }
-.share-recording .share-icon-button { width: 30px; padding: 0; }
+.share-media-actions .share-icon-button { width: 30px; padding: 0; }
 .share-icon-button[aria-pressed="true"] { background: rgba(var(--fg-rgb), 0.08); color: rgba(var(--fg-rgb), 0.95); }
-.share-recording .share-icon-button--success { color: #7dcba2; }
+.share-media-actions .share-icon-button--success { color: #7dcba2; }
+.share-record-split { position: relative; display: inline-flex; align-items: center; }
+.share-recording .share-record-options { position: relative; width: 26px; padding: 0; border-radius: 0 5px 5px 0; color: rgba(var(--fg-rgb), 0.5); }
+.share-record-options::before { content: ""; position: absolute; left: 0; top: 8px; height: 14px; border-left: 1px solid rgba(var(--fg-rgb), 0.12); }
+.share-recording .share-record-options[aria-expanded="true"] { background: rgba(var(--fg-rgb), 0.08); color: rgba(var(--fg-rgb), 0.95); }
+.share-record-menu { position: absolute; z-index: 3; left: 0; bottom: calc(100% + 8px); width: max-content; padding: 5px; border: 1px solid rgba(var(--fg-rgb), 0.13); border-radius: 9px; background: rgb(var(--surface-bg-rgb)); box-shadow: 0 8px 32px #0006; }
+.share-recording .share-record-menu button { justify-content: flex-start; gap: 8px; padding: 0 9px; white-space: nowrap; }
 .share-recording-active { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 144px; height: 30px; border-radius: 7px; background: rgba(var(--fg-rgb), 0.045); }
 .share-recording-timer { display: inline-flex; align-items: center; gap: 8px; padding-left: 10px; font-size: 11px; font-variant-numeric: tabular-nums; color: rgba(var(--fg-rgb), 0.65); }
 .share-recording-active--capturing .share-record-dot { animation: share-record-pulse 1.4s ease-in-out infinite; }
 .share-recording-progress { position: absolute; bottom: 0; left: 7px; right: 7px; height: 1px; background: #f07878; transform-origin: left; transition: transform 100ms linear; }
-.share-recording-feedback { position: absolute; z-index: 2; right: 0; bottom: calc(100% + 8px); width: max-content; max-width: min(300px, 65cqw); margin: 0; padding: 7px 10px; border: 1px solid rgba(var(--fg-rgb), 0.12); border-radius: 7px; background: rgb(var(--surface-bg-rgb)); box-shadow: 0 3px 12px #0003; color: rgba(var(--fg-rgb), 0.8); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
-.share-recording-feedback--success { color: #7dcba2; }
+.share-media-feedback { position: absolute; z-index: 2; left: 0; bottom: calc(100% + 8px); width: max-content; max-width: min(300px, 65cqw); margin: 0; padding: 7px 10px; border: 1px solid rgba(var(--fg-rgb), 0.12); border-radius: 7px; background: rgb(var(--surface-bg-rgb)); box-shadow: 0 3px 12px #0003; color: rgba(var(--fg-rgb), 0.8); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.share-media-feedback--success { color: #7dcba2; }
 @keyframes share-record-pulse { 50% { opacity: 0.4; } }
 .share-actions { grid-column: 2; grid-row: 1 / -1; display: flex; flex-direction: column; gap: 10px; width: 174px; flex-shrink: 0; overflow-y: auto; }
 .share-actions > * { flex-shrink: 0; }
@@ -693,20 +804,16 @@ h2[tabindex="-1"] { outline: none; }
 .share-feedback { margin: 4px 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; color: rgba(var(--fg-rgb), 0.65); }
 .share-footer { grid-column: 1; grid-row: 2; display: flex; align-items: flex-start; justify-content: space-between; gap: 4px 16px; flex-wrap: wrap; min-width: 0; }
 .share-preview-actions { display: flex; flex: none; align-items: center; gap: 8px; margin-left: auto; }
-.share-image-actions { display: flex; align-items: center; flex-wrap: wrap; flex: 1; gap: 4px 10px; min-width: 0; min-height: 30px; }
-.share-image-actions button { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 2px 4px; border: 0; border-radius: 5px; background: transparent; font: inherit; font-size: 11px; color: rgba(var(--fg-rgb), 0.5); cursor: pointer; white-space: nowrap; transition: background 140ms ease, color 140ms ease; }
-.share-image-actions button:hover:not(:disabled) { color: rgba(var(--fg-rgb), 0.85); background: rgba(var(--fg-rgb), 0.05); }
-.share-image-actions button:focus-visible { outline: 2px solid rgba(var(--fg-rgb), 0.6); outline-offset: 2px; }
-.share-image-actions button:disabled { opacity: 0.45; cursor: default; }
-.share-copy-label { display: grid; text-align: left; }
-.share-copy-label > span { grid-area: 1 / 1; transition: opacity 200ms ease; }
-.share-copy-success, .share-copy-label--copied .share-copy-default { opacity: 0; }
-.share-copy-label--copied .share-copy-success { opacity: 1; }
-.share-background-name { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: rgba(var(--fg-rgb), 0.45); }
+.share-capture-actions { display: flex; align-items: center; flex-wrap: wrap; flex: 1; gap: 4px 10px; min-width: 0; min-height: 30px; }
+.share-capture-actions .share-capture-button { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 2px 10px; border: 0; border-radius: 5px; background: transparent; font: inherit; font-size: 11px; color: rgba(var(--fg-rgb), 0.5); cursor: pointer; white-space: nowrap; transition: background 140ms ease, color 140ms ease; }
+.share-capture-actions .share-capture-button:hover:not(:disabled) { color: rgba(var(--fg-rgb), 0.85); background: rgba(var(--fg-rgb), 0.05); }
+.share-capture-actions .share-capture-button:focus-visible { outline: 2px solid rgba(var(--fg-rgb), 0.6); outline-offset: 2px; }
+.share-capture-actions .share-capture-button:disabled { opacity: 0.45; cursor: default; }
+.share-record-split .share-capture-button { border-radius: 5px 0 0 5px; }
 .share-footer .share-feedback { flex-basis: 100%; }
-.preview-dialog--copying .share-preview { pointer-events: none; }
+.preview-dialog--capturing .share-preview { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) {
-  .share-copy-label > span, .share-recording button, .share-image-actions button, .share-recording-progress { transition: none; }
+  .share-media-actions button, .share-capture-actions .share-capture-button, .share-recording-progress { transition: none; }
   .share-recording-active--capturing .share-record-dot { animation: none; }
 }
 @media (max-width: 640px) {
@@ -716,7 +823,7 @@ h2[tabindex="-1"] { outline: none; }
   .preview-dialog--share .share-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto; gap: 10px; }
   .preview-dialog--share .share-layout--preview-only { grid-template-rows: minmax(0, 1fr) auto; }
   .share-actions { grid-column: 1; grid-row: 3; width: auto; max-height: 140px; }
-  .share-image-actions { gap: 2px 6px; }
+  .share-capture-actions { gap: 2px 6px; }
 
 }
 </style>
