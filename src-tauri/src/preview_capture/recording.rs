@@ -1,4 +1,15 @@
-pub(super) const DURATION_MS: u64 = 5_000;
+pub(super) const MAX_DURATION_MS: u64 = 90_000;
+
+pub(super) fn recording_end_ms(
+    elapsed_ms: u64,
+    stopped_at_ms: Option<u64>,
+    last_frame_ms: u64,
+) -> Option<u64> {
+    let end =
+        stopped_at_ms.or_else(|| (elapsed_ms >= MAX_DURATION_MS).then_some(MAX_DURATION_MS))?;
+    // Frames and stop requests can share a millisecond; the last sample still needs a duration.
+    Some(end.clamp(last_frame_ms + 1, MAX_DURATION_MS))
+}
 
 #[cfg(any(windows, test))]
 pub(super) fn cursor_position(
@@ -34,7 +45,7 @@ pub(super) fn output_dimensions(width: u32, height: u32) -> Result<(u32, u32), S
 }
 
 pub(super) fn sample_duration(at_ms: u64, next_ms: u64) -> Result<i64, String> {
-    if next_ms <= at_ms || next_ms > DURATION_MS {
+    if next_ms <= at_ms || next_ms > MAX_DURATION_MS {
         return Err("Invalid recording timeline.".into());
     }
     Ok(((next_ms - at_ms) * 10_000) as i64)
@@ -109,16 +120,28 @@ mod tests {
     }
 
     #[test]
-    fn dropped_frames_preserve_five_second_timeline() {
-        let times = [0, 50, 150, 410, 4990, DURATION_MS];
+    fn dropped_frames_preserve_the_requested_timeline() {
+        let times = [0, 50, 150, 410, 4990, 7350, MAX_DURATION_MS];
         let duration: i64 = times
             .windows(2)
             .map(|t| sample_duration(t[0], t[1]).unwrap())
             .sum();
-        assert_eq!(duration, 50_000_000);
+        assert_eq!(duration, 900_000_000);
         assert!(sample_duration(50, 50).is_err());
         assert!(sample_duration(50, 49).is_err());
-        assert!(sample_duration(4900, 5100).is_err());
+        assert!(sample_duration(4900, 5100).is_ok());
+        assert!(sample_duration(MAX_DURATION_MS, MAX_DURATION_MS + 1).is_err());
+    }
+
+    #[test]
+    fn stops_at_the_user_timestamp_or_ninety_seconds() {
+        assert_eq!(recording_end_ms(5000, None, 4950), None);
+        assert_eq!(recording_end_ms(89_999, None, 89_950), None);
+        assert_eq!(recording_end_ms(90_100, None, 89_950), Some(90_000));
+        assert_eq!(recording_end_ms(7400, Some(7350), 7300), Some(7350));
+        assert_eq!(recording_end_ms(7400, Some(7350), 7350), Some(7351));
+        assert_eq!(recording_end_ms(1, Some(0), 0), Some(1));
+        assert_eq!(recording_end_ms(90_100, Some(90_050), 89_950), Some(90_000));
     }
 
     #[test]

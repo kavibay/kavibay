@@ -89,16 +89,20 @@ uses the desktop webview (WebView2 on Windows, WebKit on macOS/Linux), so sandbo
 widget content appears in the image too. The canvas is included; the dialog's
 heading and action buttons are excluded.
 
-On Windows and macOS, **Record 5s clip** records the preview as an MP4 without audio.
-When the red timer starts counting down, click, type or scroll inside the widget. The
-background and pointer are included. Framing controls are disabled during the
-recording. **Cancel recording** or Escape stops it; Escape keeps Share open.
+On Windows and macOS, **Record clip** records the preview as an MP4 without audio.
+Click the main button to start immediately, or open its dropdown and choose
+**Start recording in 1s** for a one-second countdown. When the red timer starts
+counting up, click, type or scroll inside the widget. The background and pointer
+are included. Framing controls are disabled during the recording. The **Stop recording**
+icon or Escape finishes the clip and keeps Share open. Recording also finishes
+automatically at 90 seconds. Escape during the countdown or preparation cancels
+the start without replacing the previous clip.
 Closing Share, hiding the app or changing its capture geometry cancels the job.
 
-After recording, the button becomes three icons: **Play**, **Save**, and **Copy**.
+After recording, the button becomes four icons: **Play**, **Save**, **Copy**, and **Reset recording** (X).
 Choose **Play** to watch it in the preview area. Native video controls provide play/pause, seeking and replay.
-**Back to widget** restores the live view with its state intact. **Record again**
-in the player starts a new clip. **Copy video**
+**Back to widget** restores the live view with its state intact. **Reset recording**
+in the footer or player stops playback and returns to **Record clip**. **Copy video**
 puts the completed MP4 file on the clipboard only when clicked; recording and
 playback do not change the clipboard. **Save clip** writes a copy to a chosen
 location. A copy error keeps the recording available for playback and retry.
@@ -108,7 +112,7 @@ AVFoundation on macOS. macOS recording is experimental, outside the Windows-only
 v0.1 release scope. If the encoder is unavailable, Share explains why the
 recording button is disabled. No encoder package is installed. Completed files stay in `shared-clips/` under the Kavibay
 data directory so closing the dialog or restarting the app does not invalidate
-clipboard file references. Each clip is limited to 16 MiB. Native macOS capture
+clipboard file references. Each clip is limited to 64 MiB. Native macOS capture
 and playback were verified with an isolated Share dialog, including 125% UI
 zoom. Windows performance and DPI/cursor accuracy still need Windows validation.
 Ctrl+V compatibility with Discord, Slack and WhatsApp remains unverified on both

@@ -757,6 +757,7 @@ pub fn run() {
             preview_capture::record_preview_clip,
             preview_capture::save_preview_clip,
             preview_capture::save_preview_image,
+            preview_capture::stop_preview_clip,
             wizard::wizard_models,
             wizard::wizard_complete,
             wizard::store::wizard_conversations_list,

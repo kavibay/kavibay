@@ -99,6 +99,13 @@ pub async fn record_preview_clip(
 }
 
 #[tauri::command]
+pub fn stop_preview_clip(window: tauri::WebviewWindow, recording_id: String) -> Result<(), String> {
+    require_main(window.label())?;
+    SESSIONS.stop(&recording_id);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn cancel_preview_clip(
     window: tauri::WebviewWindow,
     recording_id: String,

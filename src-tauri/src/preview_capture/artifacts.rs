@@ -4,7 +4,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub(super) const MAX_CLIP_BYTES: u64 = 16 * 1024 * 1024;
+// Allow a 90-second clip at the encoder's 3 Mbit/s target, including container overhead.
+pub(super) const MAX_CLIP_BYTES: u64 = 64 * 1024 * 1024;
 
 fn valid_id(id: &str) -> bool {
     id.len() == 32
@@ -21,7 +22,7 @@ pub(super) fn completed(root: &Path, id: &str) -> Result<PathBuf, String> {
     let metadata = fs::symlink_metadata(&path)
         .map_err(|_| "This video clip is no longer available.".to_string())?;
     if !metadata.file_type().is_file() || metadata.len() == 0 || metadata.len() > MAX_CLIP_BYTES {
-        return Err("The video is empty, invalid or exceeds 16 MiB.".into());
+        return Err("The video is empty, invalid or exceeds 64 MiB.".into());
     }
     Ok(path)
 }
@@ -53,7 +54,7 @@ pub(super) fn prepare(cache: &Path) -> Result<(String, PartialClip), String> {
 pub(super) fn publish(partial: &PartialClip, root: &Path, id: &str) -> Result<u64, String> {
     let bytes = fs::metadata(&partial.0).map_err(|e| e.to_string())?.len();
     if bytes == 0 || bytes > MAX_CLIP_BYTES {
-        return Err("The video is empty or exceeds 16 MiB. Try a smaller preview.".into());
+        return Err("The video is empty or exceeds 64 MiB. Try a smaller preview.".into());
     }
     fs::create_dir_all(root).map_err(|e| e.to_string())?;
     let destination = root.join(format!("{id}.mp4"));
@@ -73,7 +74,7 @@ pub(super) fn read(root: &Path, id: &str) -> Result<Vec<u8>, String> {
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
     if bytes.is_empty() || bytes.len() as u64 > MAX_CLIP_BYTES {
-        return Err("The video is empty or exceeds 16 MiB.".into());
+        return Err("The video is empty or exceeds 64 MiB.".into());
     }
     Ok(bytes)
 }

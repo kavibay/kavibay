@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import DialogCloseButton from "@sdk/ui/DialogCloseButton.vue";
 import IconBase from "@sdk/icons/IconBase.vue";
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { holdHostDismiss } from "@sdk/hostDismiss";
 import ResizeEdges from "../../host/ResizeEdges.vue";
@@ -30,6 +30,11 @@ const heading = ref<HTMLHeadingElement | null>(null);
 const video = ref<HTMLVideoElement | null>(null);
 const previewArea = ref<HTMLElement | null>(null);
 const sizePicker = ref<InstanceType<typeof PreviewSizePicker> | null>(null);
+const recordingControls = ref<HTMLElement | null>(null);
+const recordMenuTrigger = ref<HTMLButtonElement | null>(null);
+const recordMenuOption = ref<HTMLButtonElement | null>(null);
+const recordMenuOpen = ref(false);
+const recordMenuId = useId();
 const previewFraming = ref<PreviewFraming | null>(null);
 const previewSpace = ref({ width: 0, height: 0 });
 const recording = reactive(usePreviewRecording(undefined, () => {
@@ -60,9 +65,11 @@ const baseWorking = computed(() => !!props.busy || imageAction.value !== null ||
 const working = computed(() => baseWorking.value || recording.active || recording.copyStatus === "copying" || recording.saving);
 const recordingLabel = computed(() => {
   if (recording.cancelling) return "Cancelling…";
+  if (recording.phase === "countdown") return "Starting in 1s…";
   if (recording.phase === "preparing") return "Preparing…";
   if (recording.phase === "encoding") return "Finishing…";
-  return `${((5000 - recording.elapsedMs) / 1000).toFixed(1)}s`;
+  const seconds = Math.floor(recording.elapsedMs / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 });
 const recordingFeedback = computed(() => recording.error || recording.copyError || recording.saveFeedback
   || recording.availability?.reason || (recording.copyStatus === "copied" ? "Video copied" : ""));
@@ -132,8 +139,29 @@ function watchCaptureBounds(): void {
   geometryFrame = requestAnimationFrame(watchCaptureBounds);
 }
 
-async function recordVideo(): Promise<void> {
+function closeRecordMenu(restoreFocus = false): boolean {
+  if (!recordMenuOpen.value) return false;
+  recordMenuOpen.value = false;
+  if (restoreFocus) recordMenuTrigger.value?.focus();
+  return true;
+}
+
+async function toggleRecordMenu(): Promise<void> {
+  if (working.value || closeRecordMenu(true)) return;
+  sizePicker.value?.close();
+  recordMenuOpen.value = true;
+  await nextTick();
+  recordMenuOption.value?.focus();
+}
+
+function onRecordMenuOutside(event: Event): void {
+  if (event.target instanceof Node && !recordingControls.value?.contains(event.target)) closeRecordMenu();
+}
+function onRecordMenuBlur(): void { closeRecordMenu(); }
+
+async function recordVideo(delayMs = 0): Promise<void> {
   if (working.value) return;
+  closeRecordMenu(true);
   const epoch = ++captureEpoch;
   resetCopyFeedback();
   await recording.start(async () => {
@@ -145,7 +173,7 @@ async function recordVideo(): Promise<void> {
     captureBounds = readCaptureBounds();
     watchCaptureBounds();
     return captureBounds;
-  });
+  }, delayMs);
   // A previous background decode can finish after Share closes and reopens.
   // Its cleanup must not stop the next recording's geometry observer.
   if (epoch === captureEpoch) {
@@ -180,8 +208,9 @@ function requestClose(): void {
 }
 
 function cancelOrClose(): void {
+  if (closeRecordMenu(true)) return;
   if (sizePicker.value?.close(true)) return;
-  if (recording.active) recording.cancel();
+  if (recording.active) void recording.stop();
   else requestClose();
 }
 
@@ -381,6 +410,7 @@ function onKeydown(event: KeyboardEvent): void {
   if (!props.open || event.key !== "Escape") return;
   event.preventDefault();
   event.stopImmediatePropagation();
+  if (event.repeat) return;
   cancelOrClose();
 }
 
@@ -449,13 +479,18 @@ async function exportImage(action: "copy" | "save"): Promise<void> {
   }
 }
 
-watch(() => props.open, syncDialog, { flush: "post" });
+watch(() => props.open, () => { closeRecordMenu(); void syncDialog(); }, { flush: "post" });
+watch(working, (busy) => { if (busy) closeRecordMenu(); });
 watch(() => recording.view, async (view) => { if (view === "live") { await nextTick(); fitPreview(); } });
 onMounted(() => {
   void syncDialog();
   document.addEventListener("keydown", onKeydown, true);
   window.addEventListener("resize", onViewportResize);
   document.addEventListener("visibilitychange", onVisibilityChange);
+  document.addEventListener("pointerdown", onRecordMenuOutside, true);
+  document.addEventListener("focusin", onRecordMenuOutside);
+  window.addEventListener("blur", onRecordMenuBlur);
+  window.addEventListener("resize", onRecordMenuBlur);
 });
 onBeforeUnmount(() => {
   disposed = true;
@@ -471,6 +506,10 @@ onBeforeUnmount(() => {
   document.removeEventListener("keydown", onKeydown, true);
   window.removeEventListener("resize", onViewportResize);
   document.removeEventListener("visibilitychange", onVisibilityChange);
+  document.removeEventListener("pointerdown", onRecordMenuOutside, true);
+  document.removeEventListener("focusin", onRecordMenuOutside);
+  window.removeEventListener("blur", onRecordMenuBlur);
+  window.removeEventListener("resize", onRecordMenuBlur);
   dialog.value?.close();
   releaseDismiss?.();
   restoreFocus?.focus();
@@ -518,9 +557,8 @@ onBeforeUnmount(() => {
               <IconBase :size="14"><path d="m14 6-6 6 6 6" /></IconBase>
               Back to widget
             </button>
-            <button type="button" :disabled="working || !recording.availability?.available" @click="recordVideo">
-              <IconBase :size="14"><path d="M3 10a9 9 0 1 1 2.4 8.5M3 4v6h6" /></IconBase>
-              Record again
+            <button type="button" aria-label="Reset recording" title="Reset recording" :disabled="working" @click="recording.reset">
+              <IconBase :size="14"><path d="m6 6 12 12M6 18 18 6" /></IconBase>
             </button>
           </div>
           <span v-if="recording.playbackLoading" role="status">Loading video…</span>
@@ -559,16 +597,21 @@ onBeforeUnmount(() => {
             </button>
             <p v-if="copied || imageSaved" class="share-media-feedback share-media-feedback--success" role="status">{{ copied ? 'Screenshot copied' : 'Screenshot saved' }}</p>
           </div>
-          <div v-if="recording.availability?.supported" class="share-recording share-media-actions" aria-label="Video recording">
+          <div v-if="recording.availability?.supported" ref="recordingControls" class="share-recording share-media-actions" aria-label="Video recording">
             <div v-if="recording.active" class="share-recording-active" :class="{ 'share-recording-active--capturing': recording.phase === 'recording' && !recording.cancelling }">
               <span class="share-recording-timer" role="status">
                 <span class="share-record-dot" aria-hidden="true"></span>
                 {{ recordingLabel }}
               </span>
-              <button type="button" class="share-icon-button" aria-label="Cancel recording" title="Cancel recording" :disabled="recording.cancelling" @click="recording.cancel">
-                <IconBase :size="14"><path d="m6 6 12 12M6 18 18 6" /></IconBase>
+              <button type="button" class="share-icon-button"
+                :aria-label="recording.phase === 'countdown' || recording.phase === 'preparing' ? 'Cancel recording start' : 'Stop recording'"
+                title="Stop recording (Esc)" :disabled="recording.cancelling || recording.stopping || recording.phase === 'encoding'" @click="recording.stop">
+                <IconBase :size="14">
+                  <path v-if="recording.phase === 'countdown' || recording.phase === 'preparing'" d="m6 6 12 12M6 18 18 6" />
+                  <rect v-else x="6" y="6" width="12" height="12" rx="1" fill="currentColor" stroke="none" />
+                </IconBase>
               </button>
-              <span v-if="recording.phase === 'recording'" class="share-recording-progress" :style="{ transform: `scaleX(${recording.elapsedMs / 5000})` }" aria-hidden="true"></span>
+              <span v-if="recording.phase === 'recording'" class="share-recording-progress" :style="{ transform: `scaleX(${recording.elapsedMs / 90000})` }" aria-hidden="true"></span>
             </div>
             <div v-else-if="recording.clip" class="share-clip-actions" role="group" aria-label="Recorded clip">
               <button type="button" class="share-icon-button" aria-label="Play recording" title="Play recording" :disabled="working || recording.playbackLoading" :aria-pressed="recording.view === 'playback'" @click="playRecording">
@@ -586,11 +629,30 @@ onBeforeUnmount(() => {
                   <template v-else><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" /></template>
                 </IconBase>
               </button>
+              <button type="button" class="share-icon-button" aria-label="Reset recording" title="Reset recording" :disabled="working" @click="recording.reset">
+                <IconBase :size="15"><path d="m6 6 12 12M6 18 18 6" /></IconBase>
+              </button>
             </div>
-            <button v-else type="button" class="share-record-button" :disabled="working || !recording.availability.available" :title="recording.availability.reason" @click="recordVideo">
-              <span class="share-record-dot" aria-hidden="true"></span>
-              Record 5s clip
-            </button>
+            <div v-else class="share-record-split" role="group" aria-label="Start recording">
+              <button type="button" class="share-capture-button" :disabled="working || !recording.availability.available"
+                :title="recording.availability.reason || 'Record up to 90 seconds'" @click="recordVideo()">
+                <span class="share-record-dot" aria-hidden="true"></span>
+                Record clip
+              </button>
+              <button ref="recordMenuTrigger" type="button" class="share-record-options" aria-label="Recording options"
+                aria-haspopup="menu" :aria-expanded="recordMenuOpen" :aria-controls="recordMenuId"
+                :disabled="working || !recording.availability.available" @mousedown.prevent @click="toggleRecordMenu"
+                @keydown.down.prevent="toggleRecordMenu" @keydown.up.prevent="toggleRecordMenu">
+                <IconBase :size="12"><path d="m6 9 6 6 6-6" /></IconBase>
+              </button>
+              <div v-if="recordMenuOpen" :id="recordMenuId" class="share-record-menu" role="menu" aria-label="Recording options">
+                <button ref="recordMenuOption" type="button" role="menuitem" @mousedown.prevent @click="recordVideo(1000)"
+                  @keydown.down.prevent @keydown.up.prevent @keydown.home.prevent @keydown.end.prevent>
+                  <IconBase :size="14"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></IconBase>
+                  Start recording in 1s
+                </button>
+              </div>
+            </div>
             <p v-if="showRecordingFeedback" class="share-media-feedback" :class="{ 'share-media-feedback--success': recordingSuccess }" :role="recordingSuccess ? 'status' : 'alert'">{{ recordingFeedback }}</p>
           </div>
         </div>
@@ -702,11 +764,16 @@ h2[tabindex="-1"] { outline: none; }
 .share-media-actions button:disabled { opacity: 0.4; cursor: default; }
 .share-media-actions button:focus-visible { outline: 2px solid rgba(var(--fg-rgb), 0.6); outline-offset: 2px; }
 .share-record-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: #f07878; }
-.share-recording .share-record-button { gap: 8px; padding: 0 10px; background: rgba(var(--fg-rgb), 0.045); box-shadow: inset 0 0 0 1px rgba(var(--fg-rgb), 0.08); white-space: nowrap; }
 .share-clip-actions { display: flex; gap: 3px; align-items: center; }
 .share-media-actions .share-icon-button { width: 30px; padding: 0; }
 .share-icon-button[aria-pressed="true"] { background: rgba(var(--fg-rgb), 0.08); color: rgba(var(--fg-rgb), 0.95); }
 .share-media-actions .share-icon-button--success { color: #7dcba2; }
+.share-record-split { position: relative; display: inline-flex; align-items: center; }
+.share-recording .share-record-options { position: relative; width: 26px; padding: 0; border-radius: 0 5px 5px 0; color: rgba(var(--fg-rgb), 0.5); }
+.share-record-options::before { content: ""; position: absolute; left: 0; top: 8px; height: 14px; border-left: 1px solid rgba(var(--fg-rgb), 0.12); }
+.share-recording .share-record-options[aria-expanded="true"] { background: rgba(var(--fg-rgb), 0.08); color: rgba(var(--fg-rgb), 0.95); }
+.share-record-menu { position: absolute; z-index: 3; left: 0; bottom: calc(100% + 8px); width: max-content; padding: 5px; border: 1px solid rgba(var(--fg-rgb), 0.13); border-radius: 9px; background: rgb(var(--surface-bg-rgb)); box-shadow: 0 8px 32px #0006; }
+.share-recording .share-record-menu button { justify-content: flex-start; gap: 8px; padding: 0 9px; white-space: nowrap; }
 .share-recording-active { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 144px; height: 30px; border-radius: 7px; background: rgba(var(--fg-rgb), 0.045); }
 .share-recording-timer { display: inline-flex; align-items: center; gap: 8px; padding-left: 10px; font-size: 11px; font-variant-numeric: tabular-nums; color: rgba(var(--fg-rgb), 0.65); }
 .share-recording-active--capturing .share-record-dot { animation: share-record-pulse 1.4s ease-in-out infinite; }
@@ -742,6 +809,7 @@ h2[tabindex="-1"] { outline: none; }
 .share-capture-actions .share-capture-button:hover:not(:disabled) { color: rgba(var(--fg-rgb), 0.85); background: rgba(var(--fg-rgb), 0.05); }
 .share-capture-actions .share-capture-button:focus-visible { outline: 2px solid rgba(var(--fg-rgb), 0.6); outline-offset: 2px; }
 .share-capture-actions .share-capture-button:disabled { opacity: 0.45; cursor: default; }
+.share-record-split .share-capture-button { border-radius: 5px 0 0 5px; }
 .share-footer .share-feedback { flex-basis: 100%; }
 .preview-dialog--capturing .share-preview { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) {
