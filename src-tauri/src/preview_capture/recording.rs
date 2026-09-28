@@ -1,0 +1,132 @@
+pub(super) const DURATION_MS: u64 = 5_000;
+
+#[cfg(any(windows, test))]
+pub(super) fn cursor_position(
+    position: (i32, i32),
+    origin: (i32, i32),
+    window_size: (u32, u32),
+    snapshot: (u32, u32),
+    region: super::CaptureRegion,
+) -> Option<(f64, f64)> {
+    if window_size.0 == 0 || window_size.1 == 0 {
+        return None;
+    }
+    let (left, top, width, height) = region.pixels(snapshot.0, snapshot.1).ok()?;
+    let x = (f64::from(position.0) - f64::from(origin.0)) * f64::from(snapshot.0)
+        / f64::from(window_size.0)
+        - f64::from(left);
+    let y = (f64::from(position.1) - f64::from(origin.1)) * f64::from(snapshot.1)
+        / f64::from(window_size.1)
+        - f64::from(top);
+    (x >= 0.0 && y >= 0.0 && x < f64::from(width) && y < f64::from(height)).then_some((x, y))
+}
+
+pub(super) fn output_dimensions(width: u32, height: u32) -> Result<(u32, u32), String> {
+    let scale = (1280.0 / f64::from(width.max(height))).min(1.0);
+    let dimensions = (
+        (f64::from(width) * scale) as u32 & !1,
+        (f64::from(height) * scale) as u32 & !1,
+    );
+    if dimensions.0 < 2 || dimensions.1 < 2 {
+        return Err("The preview is too small to record.".into());
+    }
+    Ok(dimensions)
+}
+
+pub(super) fn sample_duration(at_ms: u64, next_ms: u64) -> Result<i64, String> {
+    if next_ms <= at_ms || next_ms > DURATION_MS {
+        return Err("Invalid recording timeline.".into());
+    }
+    Ok(((next_ms - at_ms) * 10_000) as i64)
+}
+
+#[cfg(any(windows, test))]
+pub(super) fn nv12(image: &image::RgbaImage) -> Vec<u8> {
+    // NV12 is top-down BT.601 limited-range Y, followed by subsampled UV pairs.
+    // Supplying the encoder's native format avoids an implicit RGB converter.
+    let (w, h) = image.dimensions();
+    let mut bytes = vec![0; (w * h * 3 / 2) as usize];
+    for y in (0..h).step_by(2) {
+        for x in (0..w).step_by(2) {
+            let mut rgb = [0i32; 3];
+            for dy in 0..2 {
+                for dx in 0..2 {
+                    let p = image.get_pixel(x + dx, y + dy);
+                    let [r, g, b] = [i32::from(p[0]), i32::from(p[1]), i32::from(p[2])];
+                    bytes[((y + dy) * w + x + dx) as usize] =
+                        (((66 * r + 129 * g + 25 * b + 128) >> 8) + 16) as u8;
+                    rgb[0] += r;
+                    rgb[1] += g;
+                    rgb[2] += b;
+                }
+            }
+            let [r, g, b] = rgb.map(|v| (v + 2) / 4);
+            let uv = (w * h + y / 2 * w + x) as usize;
+            bytes[uv] = (((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128) as u8;
+            bytes[uv + 1] = (((112 * r - 94 * g - 18 * b + 128) >> 8) + 128) as u8;
+        }
+    }
+    bytes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn pointer_maps_physical_monitors_to_cropped_snapshot() {
+        let region = super::super::CaptureRegion {
+            x: 10.0,
+            y: 20.0,
+            width: 30.0,
+            height: 40.0,
+            viewport_width: 100.0,
+            viewport_height: 100.0,
+        };
+        assert_eq!(
+            cursor_position((-270, 60), (-300, 0), (150, 150), (200, 200), region),
+            Some((20.0, 40.0))
+        );
+        assert_eq!(
+            cursor_position((-299, 60), (-300, 0), (150, 150), (200, 200), region),
+            None
+        );
+        assert_eq!(
+            cursor_position((-200, 60), (-300, 0), (150, 150), (200, 200), region),
+            None
+        );
+        assert_eq!(
+            cursor_position((0, 0), (0, 0), (0, 0), (200, 200), region),
+            None
+        );
+    }
+
+    #[test]
+    fn limits_dimensions_without_upscaling() {
+        assert_eq!(output_dimensions(1920, 1080).unwrap(), (1280, 720));
+        assert_eq!(output_dimensions(600, 801).unwrap(), (600, 800));
+        assert_eq!(output_dimensions(800, 1600).unwrap(), (640, 1280));
+        assert!(output_dimensions(1, 600).is_err());
+    }
+
+    #[test]
+    fn dropped_frames_preserve_five_second_timeline() {
+        let times = [0, 50, 150, 410, 4990, DURATION_MS];
+        let duration: i64 = times
+            .windows(2)
+            .map(|t| sample_duration(t[0], t[1]).unwrap())
+            .sum();
+        assert_eq!(duration, 50_000_000);
+        assert!(sample_duration(50, 50).is_err());
+        assert!(sample_duration(50, 49).is_err());
+        assert!(sample_duration(4900, 5100).is_err());
+    }
+
+    #[test]
+    fn nv12_has_top_down_luma_and_interleaved_chroma() {
+        let mut image = image::RgbaImage::from_pixel(2, 2, image::Rgba([255, 255, 255, 255]));
+        image.put_pixel(0, 0, image::Rgba([0, 0, 0, 255]));
+        assert_eq!(nv12(&image), vec![16, 235, 235, 235, 128, 128]);
+        let red = image::RgbaImage::from_pixel(2, 2, image::Rgba([255, 0, 0, 255]));
+        assert_eq!(nv12(&red), vec![82, 82, 82, 82, 90, 240]);
+    }
+}

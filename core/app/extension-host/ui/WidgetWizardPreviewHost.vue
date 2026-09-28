@@ -323,6 +323,7 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
 
 <template>
   <WidgetPreviewShare
+    v-slot="{ captureActive }"
     :open="!!sharing"
     :busy="shareBusy"
     :title="title"
@@ -342,6 +343,7 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
     -->
     <div v-if="entryUrl" ref="cardEl" class="stage-card" :style="cardStyle" @[CONTENT_OVERFLOW_EVENT]="onContentOverflow">
         <WidgetCard
+          :capture-active="captureActive"
           :key="instanceId"
           :title="title"
           :hide-title="hideTitle"

@@ -57,7 +57,7 @@ clipboard. No capture API is added to the runtime bridge or extension SDK.
 
 ### Share canvas refinement
 
-The modal is now 760 × 480 CSS pixels at most. It keeps the Wizard's grid and
+The modal opens at 760 × 480 CSS pixels, subject to the viewport limits. It keeps the Wizard's grid and
 resize/move controls, and capture uses the whole canvas. Resizing accounts for
 automatic preview fitting so scaled cards still follow pointer movement. The
 native capture command and platform adapters are unchanged.
@@ -80,3 +80,16 @@ Verified: local file chooser, replacement, reopening with the selected image,
 invalid-image feedback, and reset to the bundled image in the browser. Native
 macOS clipboard capture includes the nebula background around the widget.
 `npm run verify` passed (188 assert files).
+
+### Resizable Share dialog
+
+All four edges and corners resize the dialog with the opposite edge fixed.
+The preview canvas follows the available space; narrow dialogs stack the export
+actions below it. Minimum dimensions and viewport bounds account for host zoom.
+Closing restores the inline layout, and each opening starts at the default size.
+Resize capture is released if the dialog closes during a gesture.
+
+Browser smoke covered all eight handles, shrinking to the minimum, preview
+fitting, 150% host zoom, viewport bounds and window resizing, retained iframe
+state, export delegation, Escape and focus restoration. Native Windows execution
+was not tested for this change.
