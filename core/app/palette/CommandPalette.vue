@@ -142,6 +142,7 @@ import {
   type InlineZoomMap,
 } from "./inlineWidgetZoom";
 import { inlineWidgetRequest, paletteDropActive } from "./inlineWidgetRequest";
+import { pickAndImport } from "../runtime/widgetImport";
 import {
   getExtension,
   runDuplicateHook,
@@ -2372,6 +2373,12 @@ async function runResultAt(index: number) {
     openSettingsSection(
       row.commandId.slice("open-settings-".length) as Parameters<typeof showSettingsSection>[0],
     );
+    return;
+  }
+
+  if (row.commandId === "import-widget") {
+    rememberCommand();
+    void pickAndImport();
     return;
   }
 

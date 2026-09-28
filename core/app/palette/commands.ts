@@ -76,6 +76,12 @@ export const commands: Command[] = [
     keywords: ["settings", "folder", "appdata", "data", "reveal", "explorer"],
   },
   {
+    id: "import-widget",
+    title: "Import Widget",
+    subtitle: "Install a widget from a .zip file",
+    keywords: ["import", "install", "zip", "widget", "archive", "file"],
+  },
+  {
     id: "open-gallery",
     title: "Widget Gallery",
     subtitle: "Browse widgets with video previews",
