@@ -904,6 +904,9 @@ export function slugifyPackageId(text: string): string {
  */
 const FILE_FENCE = /^(\s*)(`{3,})[^\s`]*\s*path=("[^"]*"|'[^']*'|\S+)/;
 
+/** A file fence that follows text on the same line: the text, then the fence. */
+const GLUED_FILE_FENCE = /^(.*[^`\s])[ \t]*(`{3,}[^\s`]*\s*path=.*)$/;
+
 /**
  * `deleted=true` on the same info string: this file should be removed.
  *
@@ -975,7 +978,7 @@ export function parseGeneratedFiles(text: string): ParsedReply {
     deleted: boolean;
   } | null = null;
 
-  for (const line of lines) {
+  for (let line of lines) {
     if (current) {
       if (closesFence(line, current.ticks)) {
         if (current.deleted) removed.push(current.path);
@@ -987,6 +990,13 @@ export function parseGeneratedFiles(text: string): ParsedReply {
       continue;
     }
 
+    // A model sometimes glues the fence to the end of its sentence. Split it
+    // off, or the whole file is shown in the chat as prose.
+    const glued = GLUED_FILE_FENCE.exec(line);
+    if (glued) {
+      prose.push(glued[1]);
+      line = glued[2];
+    }
     const opening = FILE_FENCE.exec(line);
     if (opening) {
       current = {
