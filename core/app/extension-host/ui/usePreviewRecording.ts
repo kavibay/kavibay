@@ -8,6 +8,7 @@ export type RecordingAvailability = { supported: boolean; available: boolean; re
 export interface RecordingTransport {
   availability(): Promise<RecordingAvailability>;
   record(id: string, region: CaptureRegion, progress: (event: RecordingProgress) => void): Promise<RecordedClip>;
+  stop(id: string): Promise<void>;
   cancel(id: string): Promise<void>;
   copy(id: string): Promise<void>;
   save(id: string): Promise<boolean>;
@@ -21,6 +22,7 @@ const nativeTransport: RecordingTransport = {
     onEvent.onmessage = progress;
     return invoke("record_preview_clip", { recordingId, region, onEvent });
   },
+  stop: (recordingId) => invoke("stop_preview_clip", { recordingId }),
   cancel: (recordingId) => invoke("cancel_preview_clip", { recordingId }),
   copy: (clipId) => invoke("copy_preview_clip", { clipId }),
   save: (clipId) => invoke("save_preview_clip", { clipId }),
@@ -28,12 +30,13 @@ const nativeTransport: RecordingTransport = {
 };
 
 export function usePreviewRecording(transport = nativeTransport, detachVideo: () => void = () => {}) {
-  const phase = ref<"idle" | "preparing" | "recording" | "encoding" | "ready" | "error">("idle");
+  const phase = ref<"idle" | "countdown" | "preparing" | "recording" | "encoding" | "ready" | "error">("idle");
   const clip = ref<RecordedClip | null>(null);
   const error = ref("");
   const elapsedMs = ref(0);
   const cancelling = ref(false);
-  const active = computed(() => ["preparing", "recording", "encoding"].includes(phase.value));
+  const stopping = ref(false);
+  const active = computed(() => ["countdown", "preparing", "recording", "encoding"].includes(phase.value));
   const copyStatus = ref<"idle" | "copying" | "copied" | "error">("idle");
   const copyError = ref("");
   const saving = ref(false);
@@ -49,6 +52,7 @@ export function usePreviewRecording(transport = nativeTransport, detachVideo: ()
   let activeId: string | null = null;
   let disposed = false;
   let copyPending = false;
+  let finishCountdown: (() => void) | null = null;
   const message = (value: unknown) => value instanceof Error ? value.message : String(value);
 
   async function checkAvailability() {
@@ -70,14 +74,15 @@ export function usePreviewRecording(transport = nativeTransport, detachVideo: ()
     playbackError.value = "";
   }
 
-  async function start(prepare: () => Promise<CaptureRegion>) {
+  async function start(prepare: () => Promise<CaptureRegion>, delayMs = 0) {
     if (disposed || active.value || copyPending || saving.value || !availability.value?.available) return;
     const current = ++generation;
     const id = crypto.randomUUID();
     activeId = id;
     backToWidget();
     cancelling.value = false;
-    phase.value = "preparing";
+    stopping.value = false;
+    phase.value = delayMs > 0 ? "countdown" : "preparing";
     elapsedMs.value = 0;
     error.value = "";
     copyStatus.value = "idle";
@@ -85,6 +90,15 @@ export function usePreviewRecording(transport = nativeTransport, detachVideo: ()
     saveFeedback.value = "";
     const isCurrent = () => !disposed && generation === current && activeId === id && !cancelling.value;
     try {
+      if (delayMs > 0) {
+        await new Promise<void>((resolve) => {
+          const finish = () => { clearTimeout(timer); finishCountdown = null; resolve(); };
+          const timer = setTimeout(finish, delayMs);
+          finishCountdown = finish;
+        });
+        if (!isCurrent()) return;
+        phase.value = "preparing";
+      }
       const region = await prepare();
       if (!isCurrent()) return;
       const result = await transport.record(id, region, (event) => {
@@ -94,12 +108,14 @@ export function usePreviewRecording(transport = nativeTransport, detachVideo: ()
           void transport.cancel(id).catch(() => {});
           return;
         }
+        if (stopping.value && event.phase !== "encoding") return;
         phase.value = event.phase;
-        elapsedMs.value = Math.min(5000, Math.max(0, event.elapsedMs));
+        elapsedMs.value = Math.max(0, event.elapsedMs);
       });
       if (!isCurrent()) return;
       releaseVideo();
       clip.value = result;
+      error.value = "";
       phase.value = "ready";
     } catch (e) {
       if (isCurrent()) { error.value = message(e); phase.value = "error"; }
@@ -107,6 +123,7 @@ export function usePreviewRecording(transport = nativeTransport, detachVideo: ()
       if (generation === current) {
         if (cancelling.value) phase.value = clip.value ? "ready" : "idle";
         cancelling.value = false;
+        stopping.value = false;
         activeId = null;
       }
     }
@@ -115,7 +132,27 @@ export function usePreviewRecording(transport = nativeTransport, detachVideo: ()
   function cancel() {
     if (!activeId || !active.value) return;
     cancelling.value = true;
+    finishCountdown?.();
     void transport.cancel(activeId).catch(() => {});
+  }
+
+  async function stop() {
+    if (!activeId || !active.value || cancelling.value || stopping.value || phase.value === "encoding") return;
+    // Before frame zero there is no clip to keep; Escape only cancels the start.
+    if (phase.value !== "recording") { cancel(); return; }
+    const id = activeId;
+    error.value = "";
+    stopping.value = true;
+    phase.value = "encoding";
+    try {
+      await transport.stop(id);
+    } catch (e) {
+      if (activeId === id && !disposed && !cancelling.value) {
+        stopping.value = false;
+        phase.value = "recording";
+        error.value = message(e);
+      }
+    }
   }
 
   async function copyClip() {
@@ -174,6 +211,7 @@ export function usePreviewRecording(transport = nativeTransport, detachVideo: ()
     generation++;
     activeId = null;
     cancelling.value = false;
+    stopping.value = false;
     phase.value = clip.value ? "ready" : "idle";
     error.value = "";
     copyError.value = "";
@@ -183,9 +221,17 @@ export function usePreviewRecording(transport = nativeTransport, detachVideo: ()
     releaseVideo();
   }
 
+  function reset() {
+    if (active.value || copyPending || saving.value) return;
+    close();
+    clip.value = null;
+    phase.value = "idle";
+    elapsedMs.value = 0;
+  }
+
   function dispose() { close(); disposed = true; }
 
-  return { phase, clip, error, elapsedMs, cancelling, active, copyStatus, copyError, saving, saveFeedback,
+  return { phase, clip, error, elapsedMs, cancelling, stopping, active, copyStatus, copyError, saving, saveFeedback,
     view, videoUrl, playbackLoading, playbackError, availability, checkAvailability,
-    start, cancel, copyClip, saveClip, playRecording, backToWidget, close, dispose };
+    start, stop, cancel, copyClip, saveClip, playRecording, backToWidget, close, reset, dispose };
 }

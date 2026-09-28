@@ -8,9 +8,9 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::{
     artifacts, capture_snapshot,
-    recording::{output_dimensions, DURATION_MS},
+    recording::{output_dimensions, recording_end_ms, MAX_DURATION_MS},
     recording_commands::{RecordedClip, RecordingProgress},
-    recording_session::Session,
+    recording_session::{RecordingControl, Session},
     CaptureRegion,
 };
 
@@ -42,12 +42,11 @@ pub(super) fn availability(cache: &Path) -> Result<(), String> {
                 let (_, probe) = artifacts::prepare(cache)?;
                 let encoder = Encoder::new(&probe.0, 32, 32)
                     .map_err(|e| format!("The system H.264 encoder is unavailable: {e}"))?;
-                encoder.frame(
+                encoder.finish(
                     &image::RgbaImage::from_pixel(32, 32, image::Rgba([0, 0, 0, 255])),
                     0,
-                    DURATION_MS,
-                )?;
-                encoder.finish()
+                    50,
+                )
             };
             #[cfg(target_os = "macos")]
             {
@@ -85,6 +84,11 @@ struct Frame {
     png: Vec<u8>,
     at_ms: u64,
     cursor: Option<cursor::CursorSnapshot>,
+}
+
+enum EncoderInput {
+    Frame(Frame),
+    Finish(u64),
 }
 
 fn decode(
@@ -126,15 +130,15 @@ fn decode(
 
 fn encode(
     first: Frame,
-    mut frames: mpsc::Receiver<Frame>,
+    mut frames: mpsc::Receiver<EncoderInput>,
     ready: oneshot::Sender<(u32, u32)>,
-    cancelled: Arc<std::sync::atomic::AtomicBool>,
+    control: Arc<RecordingControl>,
     region: CaptureRegion,
     bounds: WindowBounds,
     path: &Path,
 ) -> Result<(u32, u32), String> {
     let check = || {
-        if cancelled.load(Ordering::Acquire) {
+        if control.cancelled.load(Ordering::Acquire) {
             Err("Recording cancelled.".to_string())
         } else {
             Ok(())
@@ -149,8 +153,16 @@ fn encode(
         .map_err(|e| format!("Could not start the H.264 encoder: {e}"))?;
     let _ = ready.send((width, height));
     let mut previous: Option<(image::RgbaImage, u64)> = None;
-    while let Some(frame) = frames.blocking_recv() {
+    let mut duration_ms = None;
+    while let Some(input) = frames.blocking_recv() {
         check()?;
+        let frame = match input {
+            EncoderInput::Frame(frame) => frame,
+            EncoderInput::Finish(duration) => {
+                duration_ms = Some(duration);
+                break;
+            }
+        };
         let next = decode(&frame, region, bounds)?;
         if next.dimensions() != (width, height) {
             return Err("The preview size changed during recording.".into());
@@ -160,13 +172,16 @@ fn encode(
         }
         previous = Some((next, frame.at_ms));
         if std::fs::metadata(path).map_err(|e| e.to_string())?.len() > artifacts::MAX_CLIP_BYTES {
-            return Err("The video exceeds 16 MiB. Try a smaller preview.".into());
+            return Err("The video exceeds 64 MiB. Try a smaller preview.".into());
         }
     }
     check()?;
     let (previous, at_ms) = previous.ok_or("No recording frames were captured.")?;
-    encoder.frame(&previous, at_ms, DURATION_MS)?;
-    encoder.finish()?;
+    encoder.finish(
+        &previous,
+        at_ms,
+        duration_ms.ok_or("Recording stopped unexpectedly.")?,
+    )?;
     check()?;
     Ok((width, height))
 }
@@ -200,7 +215,7 @@ pub(super) async fn record(
     session.check()?;
     let (sender, receiver) = mpsc::channel(2);
     let (ready_tx, ready_rx) = oneshot::channel();
-    let cancelled = session.cancelled.clone();
+    let control = session.control.clone();
     let output = partial.0.clone();
     let worker = tauri::async_runtime::spawn_blocking(move || {
         let work = || {
@@ -208,7 +223,7 @@ pub(super) async fn record(
                 first,
                 receiver,
                 ready_tx,
-                cancelled,
+                control,
                 region,
                 initial_bounds,
                 &output,
@@ -230,16 +245,16 @@ pub(super) async fn record(
             .map_err(|_| "The video encoder could not start.".to_string())?;
         session.check()?;
         // Encoder initialization is preparation. Only a fresh snapshot can
-        // establish frame zero and the five-second interaction clock.
+        // establish frame zero and the interaction clock.
         let png = capture_snapshot(window, Duration::from_millis(500), Some(region)).await?;
         let cursor = capture_cursor(window).await?;
         let start = Instant::now();
         sender
-            .send(Frame {
+            .send(EncoderInput::Frame(Frame {
                 png,
                 at_ms: 0,
                 cursor,
-            })
+            }))
             .await
             .map_err(|_| "The video encoder stopped.".to_string())?;
         let mut ticks = tokio::time::interval_at(
@@ -248,49 +263,67 @@ pub(super) async fn record(
         );
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         progress("recording", 0)?;
-        while start.elapsed().as_millis() < u128::from(DURATION_MS) {
+        let mut last_frame_ms = 0;
+        let duration_ms = loop {
             ticks.tick().await;
             session.check()?;
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+            let stopped_at_ms = session
+                .control
+                .stopped_at()
+                .map(|at| at.saturating_duration_since(start).as_millis() as u64);
+            if let Some(duration) = recording_end_ms(elapsed_ms, stopped_at_ms, last_frame_ms) {
+                break duration;
+            }
             if bounds(window)? != initial_bounds {
                 return Err("Recording cancelled because the window moved or resized.".into());
             }
-            let elapsed_ms = start.elapsed().as_millis() as u64;
-            if elapsed_ms >= DURATION_MS {
-                break;
-            }
             progress("recording", elapsed_ms)?;
+            if sender.is_closed() {
+                return Err("The video encoder stopped.".into());
+            }
             if sender.capacity() == 0 {
                 continue;
             }
             let png = capture_snapshot(window, Duration::from_millis(500), Some(region)).await?;
             let cursor = capture_cursor(window).await?;
             let at_ms = start.elapsed().as_millis() as u64;
-            // A final snapshot may finish after the deadline; extend the last accepted frame instead.
-            if start.elapsed().as_millis() >= u128::from(DURATION_MS) {
-                break;
+            // A snapshot can finish after Stop. Extend the last accepted frame
+            // to the stop timestamp instead of including interaction after it.
+            if session.control.stopped_at().is_some() || at_ms >= MAX_DURATION_MS {
+                continue;
             }
-            match sender.try_send(Frame { png, at_ms, cursor }) {
-                Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => (),
+            match sender.try_send(EncoderInput::Frame(Frame { png, at_ms, cursor })) {
+                Ok(()) => last_frame_ms = at_ms,
+                Err(mpsc::error::TrySendError::Full(_)) => (),
                 Err(mpsc::error::TrySendError::Closed(_)) => {
                     return Err("The video encoder stopped.".into())
                 }
             }
-        }
+        };
         session.check()?;
-        progress("encoding", DURATION_MS)
+        progress("encoding", duration_ms)?;
+        sender
+            .send(EncoderInput::Finish(duration_ms))
+            .await
+            .map_err(|_| "The video encoder stopped.".to_string())?;
+        Ok(duration_ms)
     }
     .await;
     if capture.is_err() {
-        session.cancelled.store(true, Ordering::Release);
+        session.control.cancelled.store(true, Ordering::Release);
     }
     drop(sender);
     let encoded = worker.await.map_err(|e| e.to_string())?;
-    if let Err(error) = capture {
-        return Err(encoded
-            .err()
-            .filter(|e| e != "Recording cancelled.")
-            .unwrap_or(error));
-    }
+    let duration_ms = match capture {
+        Ok(duration) => duration,
+        Err(error) => {
+            return Err(encoded
+                .err()
+                .filter(|e| e != "Recording cancelled.")
+                .unwrap_or(error))
+        }
+    };
     let (width, height) = encoded?;
     if bounds(window)? != initial_bounds {
         return Err("Recording cancelled because the window moved or resized.".into());
@@ -298,7 +331,7 @@ pub(super) async fn record(
     let bytes = session.publish(|| artifacts::publish(&partial, &root, &clip_id))?;
     Ok(RecordedClip {
         clip_id,
-        duration_ms: DURATION_MS,
+        duration_ms,
         width,
         height,
         bytes,
