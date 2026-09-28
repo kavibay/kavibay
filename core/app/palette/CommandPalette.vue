@@ -2581,8 +2581,7 @@ function onKeydown(event: KeyboardEvent) {
 
   if (
     showWidgetShortcuts.value && !event.shiftKey && !mod && !event.altKey &&
-    (event.key === "Tab" ||
-      (event.key === "ArrowRight" && event.target === inputEl.value && query.value.length === 0))
+    event.key === "ArrowRight" && event.target === inputEl.value && query.value.length === 0
   ) {
     event.preventDefault();
     event.stopPropagation();
@@ -2923,6 +2922,14 @@ function onKeydown(event: KeyboardEvent) {
         event.preventDefault();
         event.stopPropagation();
         enterActionChipMode();
+        break;
+      }
+      // Visible parameter/action chips take Tab before the widget shortcuts.
+      if (showWidgetShortcuts.value && !event.shiftKey && !mod && !event.altKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        leftSearchViaTab = false;
+        widgetShortcutsEl.value?.focusFirst();
         break;
       }
       // Shift+Tab return-to-search is handled by the document capture listener.
@@ -3709,8 +3716,8 @@ onUnmounted(() => {
           <button
             type="button"
             class="palette-add-hit-area palette-wizard-add-hit"
-            v-tip:below="'Open Widget Wizard'"
-            aria-label="Open Widget Wizard"
+            v-tip:below="'Create new widget'"
+            aria-label="Create new widget"
             @pointerdown.stop
             @click.stop="openWidgetWizard"
           >
@@ -4852,8 +4859,9 @@ onUnmounted(() => {
   color: var(--text-faint);
 }
 
-/* Keep a usable query field when many search actions wrap onto another line. */
-.palette-input-row--search-actions .palette-input { flex: 1 1 140px; }
+/* Keep a usable query field when actions wrap, without pushing preview chips
+   away from the query while widget shortcuts are visible. */
+.palette-input-row--search-actions .palette-input:not(.palette-input--sized) { flex: 1 1 140px; }
 
 /* Only while chips are on screen: hug the typed text so the first chip sits
    next to it. Alone, the input keeps filling the bar (bigger click target). */
