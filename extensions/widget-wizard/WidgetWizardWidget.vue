@@ -2462,6 +2462,7 @@ async function startProjectFromPalette(): Promise<void> {
  */
 function onFocusRequest(event: Event): void {
   if (!widgetFocusRequestMatches(event, props.model.instanceId)) return;
+  scrollDown();
   const openPackageId = (event as CustomEvent<WidgetFocusRequestDetail>).detail
     ?.openPackageId;
   if (openPackageId) {
@@ -3163,6 +3164,8 @@ onMounted(() => {
   // intended three-line starting size rather than something this function set.
   composerBaseHeight = composerEl.value?.offsetHeight ?? 0;
   resizeComposer();
+  // The active conversation is hydrated before this view mounts.
+  scrollDown();
 });
 
 // Covers typing, clearing after a send, and a conversation reopened with a
