@@ -10,6 +10,7 @@ pub mod export;
 pub mod first_party;
 pub mod http;
 mod image_protocol;
+pub mod import;
 pub mod installs;
 pub mod limits;
 pub mod net_guard;
