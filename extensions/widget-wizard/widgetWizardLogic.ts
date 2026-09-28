@@ -10,6 +10,7 @@
 import type { ArgSpec, ResultSchema } from "@sdk/contract/sdk";
 import type { Language } from "./highlight";
 import { parseWizardSuggestions, type WizardSuggestion } from "./wizardSuggestions";
+import type { PreviewElementReference } from "./wizardPointAndPrompt";
 
 /** Consent-facing endpoint shape returned by the host package scanner. */
 export interface ConsentEndpoint {
@@ -2340,6 +2341,8 @@ export function appendNote(bubbles: WizardBubble[], bubble: WizardBubble): void 
 export interface WizardBubble {
   role: "user" | "assistant" | "system";
   text: string;
+  /** Inline preview chips in submitted messages; an empty list means ordinary text. */
+  elementReferences?: PreviewElementReference[];
   /** Fresh next steps from this answer, shown only while its version is current. */
   suggestions?: WizardSuggestion[];
   /** Known MCP author for an externally updated system checkpoint. */

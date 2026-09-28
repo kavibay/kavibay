@@ -26,7 +26,7 @@ import {
 } from "vue";
 import type { DraftChanged, DraftPresence, WizardCapability } from "@sdk/contract/sdk";
 import type { WizardPreviewElement } from "@sdk/wizardPreview";
-import { pointAndPromptParts, pointAndPromptRequest, type PreviewSelection } from "./wizardPointAndPrompt";
+import { pointAndPromptParts, pointAndPromptRequest, pointAndPromptTranscript, splitPreviewTranscript, type PreviewSelection, type PreviewTranscriptPart } from "./wizardPointAndPrompt";
 import {
   BracesIcon,
   BrainIcon,
@@ -1211,9 +1211,12 @@ function chooseSuggestion(suggestion: WizardSuggestion): void {
   chooseStarter(appendWizardSuggestion(session.value.draft, suggestion.prompt));
 }
 
-/** Transcript copy of the composer chip: same split, same mark. */
-function mentionSegments(text: string): MentionSegment[] {
-  return splitProviderMentions(text, providerOptions.value);
+/** Preserve preview references while rendering provider mentions in the surrounding text. */
+function mentionSegments(bubble: WizardBubble): (MentionSegment | PreviewTranscriptPart)[] {
+  const parts: PreviewTranscriptPart[] = bubble.role === "user"
+    ? splitPreviewTranscript(bubble.text, bubble.elementReferences) : [{ kind: "text", text: bubble.text }];
+  return parts.flatMap<MentionSegment | PreviewTranscriptPart>((part) => part.kind === "text"
+    ? splitProviderMentions(part.text, providerOptions.value) : [part]);
 }
 
 function syncComposerDraft(): void {
@@ -2580,8 +2583,7 @@ async function send() {
   firstVersionGeneration.value = !session.value.hasDraft && !session.value.previewEntry;
   const request = session.value.draft;
   const elements = pointAndPromptEnabled ? selectedElements.value : [];
-  const text = pointAndPromptParts(request, elements)
-    .map((part) => part.kind === "text" ? part.text : `[${part.selection.element.selector}]`).join("").trim();
+  const { text, elementReferences } = pointAndPromptTranscript(request, elements);
   clearPreviewSelection();
   session.value.draft = "";
 
@@ -2605,6 +2607,7 @@ async function send() {
   session.value.bubbles.push({
     role: "user",
     text,
+    elementReferences,
     ...(images.length ? { images } : {}),
   });
   session.value.turns.push({
@@ -5021,8 +5024,12 @@ async function enablePackage(
                 :size="14"
                 class="wiz-bubble-source"
               />
-              <template v-for="(part, partAt) in mentionSegments(bubble.text)" :key="partAt">
+              <template v-for="(part, partAt) in mentionSegments(bubble)" :key="partAt">
                 <span v-if="part.kind === 'text'">{{ part.text }}</span>
+                <span v-else-if="part.kind === 'element'" class="wiz-inline-element wiz-inline-element--history" :title="part.selector">
+                  <IconBase :size="11" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M9 9l3 10 2-5 5-2Z" /></IconBase>
+                  <span class="wiz-inline-element__label">{{ part.selector.split(' > ').pop() }}</span>
+                </span>
                 <span v-else class="wiz-inline-mention">
                   <span class="wiz-inline-mention-mark">
                     <BrandMark :provider="part.id" :size="14" />
@@ -6909,6 +6916,23 @@ async function enablePackage(
 */
 .wiz-bubble .wiz-inline-mention {
   background: rgba(var(--fg-rgb), 0.16);
+}
+
+.wiz-bubble .wiz-inline-element--history {
+  gap: 5px;
+  max-width: min(190px, calc(100% - 8px));
+  margin: 1px 4px;
+  padding: 1px 6px;
+  border-color: rgba(var(--fg-rgb), 0.1);
+  background: rgba(var(--fg-rgb), 0.065);
+  font-size: 0.85em;
+  vertical-align: baseline;
+}
+
+.wiz-inline-element--history > svg {
+  flex-shrink: 0;
+  align-self: center;
+  opacity: 0.6;
 }
 
 .wiz-integrations-menu {
