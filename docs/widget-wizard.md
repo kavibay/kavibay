@@ -58,10 +58,12 @@ sharing actions:
   draft when one exists. The collapsible **How to import** guide below the button
   explains how to use **Import Widget** in the palette or drop the ZIP onto
   Kavibay, then review access and choose **Install widget**.
-- **Copy preview image** in the footer copies a screenshot of the widget and its
-  canvas background to the system clipboard. Paste it into a chat, document, or
-  image editor. The button shows **Copied!** for two seconds, then fades back to
-  **Copy preview image**.
+- **Capture screenshot** captures the widget and its canvas background. The
+  button then becomes three icons: **Save screenshot** (PNG), **Copy screenshot
+  to clipboard**, and **Reset screenshot** (X). Save and Copy use the captured
+  image even if the live widget changes afterwards. X returns to **Capture screenshot**.
+  Capturing does not change the clipboard. Cancelling a save keeps the image
+  available in Share.
 
 The compact Share dialog starts with a bundled nebula background. **Upload
 background image** in **Preview settings** opens a file picker for a custom background
