@@ -28,6 +28,8 @@ const props = defineProps<{
   shareBusy?: boolean;
   shareFeedback?: string;
   picking?: boolean;
+  /** Toolbar mount point for host-owned debug controls. */
+  debugTarget?: HTMLElement | null;
 }>();
 
 /** Mirrors what the host's preview chrome emits; see WidgetWizardPreviewHost. */

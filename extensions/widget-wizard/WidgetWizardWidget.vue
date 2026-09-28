@@ -952,6 +952,7 @@ onUnmounted(() => {
   presenceTimer = null;
 });
 const transcriptEl = ref<HTMLElement | null>(null);
+const previewDebugTarget = ref<HTMLElement | null>(null);
 const fileInputEl = ref<HTMLInputElement | null>(null);
 const composerEl = ref<HTMLDivElement | null>(null);
 const starterPrompts = [
@@ -5471,6 +5472,7 @@ async function enablePackage(
 
     <section v-show="!tooNarrow" class="wiz-preview wiz-c5">
       <div class="wiz-actions" role="group" aria-label="Widget actions">
+        <span ref="previewDebugTarget" class="wiz-debug-action"></span>
         <button
           v-if="pointAndPromptEnabled"
           type="button"
@@ -5536,6 +5538,7 @@ async function enablePackage(
           :share-busy="busy"
           :share-feedback="shareFeedback"
           :picking="pickingElement"
+          :debug-target="previewDebugTarget"
           @selected="selectPreviewElement"
           @cancel-pick="finishPreviewPick"
           @close-share="sharing = false"
@@ -5554,7 +5557,9 @@ async function enablePackage(
 
 <style scoped>
 .wiz-pick-hint { margin: 36px 4px 0; font-size: 11px; opacity: 0.65; }
-.wiz-actions button[aria-pressed="true"] { background: rgba(var(--fg-rgb), 0.12); opacity: 1; }
+.wiz-actions button[aria-pressed="true"],
+.wiz-actions :deep(button[aria-expanded="true"]) { background: rgba(var(--fg-rgb), 0.12); opacity: 1; }
+.wiz-debug-action { display: contents; }
 
 .wiz {
   display: grid;
@@ -7138,7 +7143,7 @@ async function enablePackage(
 }
 
 .wiz-tab,
-.wiz-actions button {
+.wiz-actions :deep(button) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -7160,12 +7165,12 @@ async function enablePackage(
 }
 
 .wiz-tab:hover:not(:disabled),
-.wiz-actions button:hover:not(:disabled) {
+.wiz-actions :deep(button:hover:not(:disabled)) {
   opacity: 1;
 }
 
 .wiz-tab:focus-visible,
-.wiz-actions button:focus-visible {
+.wiz-actions :deep(button:focus-visible) {
   outline: 1px solid rgba(var(--fg-rgb), 0.45);
   outline-offset: -1px;
 }
@@ -8024,7 +8029,7 @@ button:disabled {
 }
 
 .wiz-tab:disabled,
-.wiz-actions button:disabled {
+.wiz-actions :deep(button:disabled) {
   opacity: 0.3;
   cursor: default;
 }
