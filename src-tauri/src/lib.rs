@@ -373,7 +373,7 @@ pub fn run() {
                 Ok(config) => config,
                 Err(error) => {
                     eprintln!("[mcp] config load failed: {error}; using safe defaults");
-                    mcp::settings::McpServerConfig::default()
+                    mcp::settings::McpServerConfig::disabled()
                 }
             };
             #[cfg(not(test))]

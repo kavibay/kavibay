@@ -6,7 +6,7 @@ import {
   setMcpServerEnabled,
   setMcpServerPort,
   type McpServerStatus,
-} from "./mcpServerApi";
+} from "@sdk/mcp/mcpServerApi";
 import {
   MCP_DEFAULT_PORT,
   MCP_STATUS_POLL_MS,
@@ -15,7 +15,7 @@ import {
   mcpStatusPresentationFor,
   parseMcpPort,
   parseMcpUrlPort,
-} from "./mcpServerLogic";
+} from "@sdk/mcp/mcpServerLogic";
 
 type PendingAction = "enabled" | "port" | "retry";
 
@@ -138,7 +138,7 @@ onUnmounted(() => {
       <div class="mcp-card-header">
         <div>
           <div class="mcp-card-title">Embedded authoring server</div>
-          <div class="mcp-card-hint">Off by default · loopback only</div>
+          <div class="mcp-card-hint">On by default · loopback only</div>
         </div>
         <span class="mcp-status" :class="`mcp-status--${presentation.tone}`">
           {{ presentation.label }}
