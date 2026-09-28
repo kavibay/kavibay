@@ -53,6 +53,7 @@ const props = defineProps<{
   shareBusy?: boolean;
   shareFeedback?: string;
   picking?: boolean;
+  debugTarget?: HTMLElement | null;
 }>();
 
 const emit = defineEmits<{

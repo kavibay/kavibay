@@ -6,7 +6,8 @@
  * CockpitWidget provides this component as a narrow rendering seam; the
  * extension supplies only package identity, URL, format and geometry.
  */
-import { computed, ref, watch } from "vue";
+import { computed, ref, useId, watch } from "vue";
+import { IconBase } from "@sdk/icons";
 import type { WizardPreviewElement } from "@sdk/wizardPreview";
 import { provideWizardPreviewPicker } from "../wizardPreviewPicker";
 import WidgetCard from "../../host/WidgetCard.vue";
@@ -42,6 +43,7 @@ const props = defineProps<{
   shareBusy?: boolean;
   shareFeedback?: string;
   picking?: boolean;
+  debugTarget?: HTMLElement | null;
 }>();
 
 const emit = defineEmits<{
@@ -278,6 +280,10 @@ const failures = computed(
   () => calls.value.filter((call) => !call.ok).length + faults.value.length,
 );
 const debugOpen = ref(false);
+const debugId = useId();
+watch(failures, (count, previous) => {
+  if (count > (previous ?? 0)) debugOpen.value = true;
+}, { immediate: true });
 
 /**
  * Hand each new fault to whoever is listening, once.
@@ -333,7 +339,6 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
     @close="emit('close-share')"
     @export="emit('export')"
   >
-  <!-- The debug overlay stays anchored to the canvas while the card moves. -->
   <div class="preview" :class="{ 'preview--share': sharing }">
     <div ref="stageEl" class="stage">
     <!--
@@ -405,19 +410,30 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
       <p v-else class="stage-empty">Your widget will appear here.</p>
     </div>
 
-    <!-- Floating over the stage, outside the widget being previewed. -->
-    <!--
-      `open` bound and `toggle` listened to rather than `v-model`: `<details>`
-      has no value to model, and a failed call must be able to open the panel
-      without stealing it back from somebody who just closed it.
-    -->
-    <details v-show="!sharing && !!entryUrl" class="dbg" :open="debugOpen || failures > 0" @toggle="debugOpen = ($event.target as HTMLDetailsElement).open">
-      <summary>
-        Debug
+    <!-- The host owns the log; its control joins the Wizard's shared toolbar. -->
+    <Teleport v-if="debugTarget && !sharing && entryUrl" :to="debugTarget">
+      <button
+        type="button"
+        class="wiz-action--debug"
+        aria-label="Debug preview"
+        :aria-expanded="debugOpen"
+        :aria-controls="debugId"
+        v-tip="failures ? `Debug: ${failures} failed` : 'Debug preview'"
+        @click="debugOpen = !debugOpen"
+      >
+        <IconBase :size="14">
+          <path d="M8 7 6 4m10 3 2-3M4 12h4m8 0h4M4 18l4-2m8 0 4 2M12 7v13" />
+          <rect x="8" y="6" width="8" height="14" rx="4" />
+        </IconBase>
+        <span v-if="failures" class="dbg-bad dbg-count">{{ failures }}</span>
+      </button>
+      <section v-if="debugOpen" :id="debugId" class="dbg" role="region" aria-label="Preview debug">
+      <header class="dbg-heading">
+        <span>Debug</span>
         <span v-if="failures" class="dbg-bad">{{ failures }} failed</span>
         <span v-else-if="calls.length" class="dbg-ok">{{ calls.length }} calls</span>
         <span v-else class="dbg-idle">nothing yet</span>
-      </summary>
+      </header>
 
       <!--
         An empty panel is now itself a diagnosis, which it was not before the
@@ -481,7 +497,8 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
           </template>
         </li>
       </ol>
-    </details>
+      </section>
+    </Teleport>
   </div>
   </WidgetPreviewShare>
 </template>
@@ -552,14 +569,20 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
 }
 .dbg {
   position: absolute;
-  left: 0;
+  top: calc(100% + 6px);
   right: 0;
-  /* Match the composer bar's bottom inset: 7px padding plus its 1px border. */
-  bottom: 8px;
   z-index: 1;
-  font-size: 11px;
+  box-sizing: border-box;
+  width: 360px;
   max-width: 100%;
-  pointer-events: none;
+  max-height: min(300px, 70vh);
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid rgba(var(--fg-rgb), 0.1);
+  border-radius: 9px;
+  background: rgba(var(--surface-bg-rgb), var(--surface-alpha, 0.9));
+  backdrop-filter: blur(12px);
+  font-size: 11px;
   /*
    * The host sets `user-select: none` on the widget anchor so a drag never
    * turns into a text selection. That is right for a clock and wrong for a
@@ -570,39 +593,23 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
   cursor: text;
 }
 
-.dbg > summary {
-  box-sizing: border-box;
-  width: fit-content;
-  max-width: 100%;
-  height: 28px;
-  padding: 0 9px;
-  border-radius: 9px;
-  background: rgba(var(--fg-rgb), 0.06);
-  backdrop-filter: blur(12px);
-  font-size: 12px;
-  line-height: 28px;
-  list-style-position: inside;
-  pointer-events: auto;
-  cursor: pointer;
-  opacity: 0.8;
+.dbg-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-weight: 500;
 }
 
 .dbg > .dbg-empty,
 .dbg > .dbg-list {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  right: 0;
   margin: 0;
-  padding: 8px;
-  border: 1px solid rgba(var(--fg-rgb), 0.1);
-  border-radius: 9px;
-  background: rgba(var(--surface-bg-rgb), var(--surface-alpha, 0.72));
-  backdrop-filter: blur(12px);
-  max-height: 220px;
-  overflow: auto;
-  pointer-events: auto;
+  padding: 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
+
+.dbg-count { font-size: 10px; font-variant-numeric: tabular-nums; }
 
 .dbg-bad {
   color: var(--kavibay-danger, #f87171);
