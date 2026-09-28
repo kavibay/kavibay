@@ -17,7 +17,7 @@ use objc2::{
 };
 use objc2_foundation::{NSDictionary, NSError, NSNumber, NSString, NSURL};
 
-use super::recording::{sample_duration, DURATION_MS};
+use super::recording::sample_duration;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -248,21 +248,27 @@ impl Encoder {
         }
         let buffer = PixelBuffer::from_image(image)?;
         self.append(&buffer, at_ms)?;
-        // The adaptor has no sample-duration argument. A terminal duplicate keeps
-        // the last image visible even if capture dropped frames near the deadline.
-        if next_ms == DURATION_MS && at_ms < DURATION_MS - 1 {
-            self.append(&buffer, DURATION_MS - 1)?;
-        }
         Ok(())
     }
 
-    pub(super) fn finish(self) -> Result<(), String> {
+    pub(super) fn finish(
+        self,
+        image: &image::RgbaImage,
+        at_ms: u64,
+        duration_ms: u64,
+    ) -> Result<(), String> {
+        self.frame(image, at_ms, duration_ms)?;
+        // The adaptor has no sample-duration argument. Keep the last image visible
+        // until the user's stop time, even when capture has dropped frames.
+        if at_ms < duration_ms - 1 {
+            self.append(&PixelBuffer::from_image(image)?, duration_ms - 1)?;
+        }
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let completion = RcBlock::new(move || {
             let _ = sender.send(());
         });
         unsafe {
-            let _: () = msg_send![&*self.writer, endSessionAtSourceTime: time(DURATION_MS)];
+            let _: () = msg_send![&*self.writer, endSessionAtSourceTime: time(duration_ms)];
             let _: () = msg_send![&*self.input, markAsFinished];
             let _: () = msg_send![&*self.writer, finishWritingWithCompletionHandler: &*completion];
         }
@@ -308,8 +314,7 @@ mod tests {
         }
         encoder.frame(&frame, 0, 2300).unwrap();
         let green = image::RgbaImage::from_pixel(320, 180, image::Rgba([0, 255, 0, 255]));
-        encoder.frame(&green, 2300, DURATION_MS).unwrap();
-        encoder.finish().unwrap();
+        encoder.finish(&green, 2300, 7350).unwrap();
         assert!(Encoder::new(&partial.0, 320, 180).is_err());
         let script =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/shareRecordingMacSmoke.swift");

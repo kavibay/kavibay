@@ -1,5 +1,5 @@
 //! Main-webview snapshots for sharing a widget, including its sandboxed frame.
-//! Only the host calls this command; it is deliberately absent from both SDK bridges.
+//! Only the host calls these commands; they are deliberately absent from both SDK bridges.
 
 mod artifacts;
 #[cfg(windows)]
@@ -31,6 +31,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Deserialize;
+use tauri::ipc::{InvokeBody, Request, Response};
+use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
 
 type CaptureReply = Arc<Mutex<Option<oneshot::Sender<Result<Vec<u8>, String>>>>>;
@@ -101,20 +103,80 @@ fn finish(reply: &CaptureReply, result: Result<Vec<u8>, String>) {
     }
 }
 
-/// Capture only Kavibay's webview, crop the card and put its pixels on the clipboard.
+/// Capture once; the host retains this PNG for both Save and Copy.
 #[tauri::command]
-pub async fn copy_preview_image(
+pub async fn capture_preview_image(
     window: tauri::WebviewWindow,
     region: CaptureRegion,
-) -> Result<(), String> {
+) -> Result<Response, String> {
     if window.label() != "main" {
         return Err("Preview capture is only available in the main window.".into());
     }
     region.validate()?;
     let png = capture_snapshot(&window, Duration::from_secs(15), None).await?;
-    tauri::async_runtime::spawn_blocking(move || copy_cropped_image(&png, region))
+    tauri::async_runtime::spawn_blocking(move || {
+        let image = crop_image(&png, region)?;
+        let mut output = std::io::Cursor::new(Vec::new());
+        image
+            .write_to(&mut output, image::ImageFormat::Png)
+            .map_err(|e| e.to_string())?;
+        Ok(Response::new(output.into_inner()))
+    })
+    .await
+    .map_err(|error| format!("Could not capture the preview: {error}"))?
+}
+
+fn screenshot_bytes(
+    window: &tauri::WebviewWindow,
+    request: &Request<'_>,
+) -> Result<Vec<u8>, String> {
+    if window.label() != "main" {
+        return Err("Screenshot sharing is only available in the main window.".into());
+    }
+    let InvokeBody::Raw(png) = request.body() else {
+        return Err("A captured PNG screenshot is required.".into());
+    };
+    if !png.starts_with(b"\x89PNG\r\n\x1a\n") || png.len() > 64 * 1024 * 1024 {
+        return Err("The screenshot is invalid or exceeds 64 MiB.".into());
+    }
+    Ok(png.clone())
+}
+
+#[tauri::command]
+pub async fn copy_preview_image(
+    window: tauri::WebviewWindow,
+    request: Request<'_>,
+) -> Result<(), String> {
+    let png = screenshot_bytes(&window, &request)?;
+    tauri::async_runtime::spawn_blocking(move || copy_image(&png))
         .await
-        .map_err(|error| format!("Could not copy the preview: {error}"))?
+        .map_err(|error| format!("Could not copy the screenshot: {error}"))?
+}
+
+#[tauri::command]
+pub async fn save_preview_image(
+    window: tauri::WebviewWindow,
+    request: Request<'_>,
+) -> Result<bool, String> {
+    let png = screenshot_bytes(&window, &request)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let target = window
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_file_name("kavibay-screenshot.png")
+            .add_filter("PNG image", &["png"])
+            .blocking_save_file();
+        let Some(target) = target else {
+            return Ok(false);
+        };
+        let path = target.into_path().map_err(|error| error.to_string())?;
+        std::fs::write(path, png)
+            .map_err(|error| format!("Could not save the screenshot: {error}"))?;
+        Ok(true)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 async fn capture_snapshot(
@@ -171,8 +233,10 @@ fn crop_image(png: &[u8], region: CaptureRegion) -> Result<image::RgbaImage, Str
     Ok(image.crop_imm(x, y, width, height).into_rgba8())
 }
 
-fn copy_cropped_image(png: &[u8], region: CaptureRegion) -> Result<(), String> {
-    let image = crop_image(png, region)?;
+fn copy_image(png: &[u8]) -> Result<(), String> {
+    let image = image::load_from_memory_with_format(png, image::ImageFormat::Png)
+        .map_err(|error| format!("Could not read the screenshot: {error}"))?
+        .into_rgba8();
     let mut clipboard = arboard::Clipboard::new()
         .map_err(|error| format!("Could not open the clipboard: {error}"))?;
     // Clipboard managers can briefly own the Windows clipboard while reading it.
