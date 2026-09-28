@@ -72,7 +72,7 @@ core-foundation = "0.10"
 # outside click" counts mouse presses through a second monitor (`MouseButtons`
 # in lib.rs).
 block2 = { version = "0.6", default-features = false }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["NSEvent", "NSPasteboard", "NSRunningApplication", "NSScreen", "NSWorkspace", "NSImage", "NSImageRep", "NSBitmapImageRep", "block2", "libc"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSEvent", "NSCursor", "NSView", "NSWindow", "NSPasteboard", "NSRunningApplication", "NSScreen", "NSWorkspace", "NSImage", "NSImageRep", "NSBitmapImageRep", "block2", "libc"] }
 objc2-web-kit = { version = "0.3", default-features = false, features = ["WKWebView", "WKSnapshotConfiguration", "block2", "objc2-app-kit"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["CGDirectDisplay", "CGError", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation"] }
 # The Now Playing widget scripts Apple Music (`extensions/now_playing/macos.rs`),
@@ -81,7 +81,7 @@ objc2-core-graphics = { version = "0.3", default-features = false, features = ["
 # crates are already in the tree through tao.
 objc2 = { version = "0.6", default-features = false, features = ["std"] }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["CFCGTypes"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleScript", "NSArray", "NSData", "NSDictionary", "NSError", "NSString"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleScript", "NSArray", "NSData", "NSDictionary", "NSError", "NSString", "NSValue", "NSURL"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Global mouse button state for "Hide on outside click" (XQueryPointer). Already in
@@ -108,9 +108,11 @@ windows = { version = "0.62", features = [
   "Win32_Storage_FileSystem",
   "Win32_Media_Audio",
   "Win32_Media_Audio_Endpoints",
+  "Win32_Media_MediaFoundation",
   "Win32_NetworkManagement_IpHelper",
   "Win32_Networking_WinSock",
   "Win32_System_Com",
+  "Win32_System_LibraryLoader",
   "Win32_System_Com_StructuredStorage",
   "Win32_System_DataExchange",
   # Reading the CanIncludeInClipboardHistory flag password managers set.

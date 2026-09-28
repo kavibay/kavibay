@@ -48,6 +48,8 @@ const props = withDefaults(
     hasAbout?: boolean;
     /** The owner can present this live card in the shared preview dialog. */
     canShare?: boolean;
+    /** Freeze host framing while the widget body remains interactive for recording. */
+    captureActive?: boolean;
     /**
      * When true, offer "Edit in Wizard".
      *
@@ -386,6 +388,7 @@ let stopContentZoom: (() => void) | undefined;
  * Pass client coordinates to place it at the cursor (context menu).
  */
 function openMenu(at?: { clientX: number; clientY: number }) {
+  if (props.captureActive) return;
   if (at && rootEl.value) {
     const rect = rootEl.value.getBoundingClientRect();
     menuAnchor.value = {
@@ -423,6 +426,7 @@ function onHeaderContextMenu(event: MouseEvent) {
  * the open menu or settings nothing opens, so settings do not close under you.
  */
 function onCardContextMenu(event: MouseEvent) {
+  if (props.captureActive) return;
   if (event.defaultPrevented) return;
   event.preventDefault();
   const target = event.target as Node;
@@ -443,6 +447,7 @@ const menuPositionStyle = computed(() => {
 
 /** Forward pointerdown so the host can start a drag from the top strip only. */
 function onMovePointerDown(event: PointerEvent) {
+  if (props.captureActive) return;
   if (event.button !== 0) return;
   emit("move-pointerdown", event);
 }
@@ -771,7 +776,7 @@ onMounted(() => {
       stopContentZoom = installContentZoom(
         rootEl.value,
         () => resolvedContentScale.value,
-        (scale) => emit("update:contentScale", scale),
+        (scale) => { if (!props.captureActive) emit("update:contentScale", scale); },
       );
     }
     if (rootEl.value && typeof ResizeObserver !== "undefined") {
@@ -842,7 +847,7 @@ watch(
     <!-- Glass layer only — keeps backdrop-filter from clipping outside chrome. -->
     <div class="widget-card-surface" :style="surfaceVars" aria-hidden="true" />
     <ResizeEdges
-      v-if="resizable"
+      v-if="resizable && !captureActive"
       :width="width"
       :height="height"
       :content-scale="resolvedContentScale"
@@ -859,6 +864,7 @@ watch(
       Visually invisible — grab cursor only.
     -->
     <div
+      v-if="!captureActive"
       class="widget-card-drag"
       data-interactive
       :data-onboarding-target="coachTargets ? 'widget-drag' : undefined"
@@ -868,7 +874,7 @@ watch(
       @contextmenu="onHeaderContextMenu"
     />
     <div
-      v-if="chromeMounted"
+      v-if="chromeMounted && !captureActive"
       class="widget-card-chrome"
       :class="{
         'card-chrome-reveal': chromeVisible,
@@ -1512,13 +1518,13 @@ watch(
   }
 }
 
-/* Search-result ping: soft accent ring that fades out (on the glass layer). */
-.widget-card--flash .widget-card-surface {
+/* Rings belong to this card's glass, never to nested widget previews. */
+.widget-card--flash > .widget-card-surface {
   animation: widget-search-flash 0.9s ease-out forwards;
 }
 
 /* Palette ↑/↓ selection: same ring as the flash, held while the row is active. */
-.widget-card--preview:not(.widget-card--flash) .widget-card-surface {
+.widget-card--preview:not(.widget-card--flash) > .widget-card-surface {
   border-color: rgba(120, 180, 255, 0.55);
   outline: 1px solid rgba(120, 180, 255, 0.35);
   outline-offset: 2px;

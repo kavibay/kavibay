@@ -271,6 +271,7 @@ onBeforeUnmount(() => stopShareMove?.());
 
 <template>
   <WidgetPreviewShare
+    v-slot="{ captureActive }"
     :open="sharing"
     :busy="shareBusy"
     :title="displayTitle"
@@ -285,6 +286,7 @@ onBeforeUnmount(() => stopShareMove?.());
   <div ref="shareStage" class="instance-share-stage" :class="{ 'instance-share-stage--open': sharing }">
   <div ref="shareCard" class="instance-share-card" :style="sharing ? { transform: `scale(var(--share-preview-scale, 1)) translate(${shareOffset.x}px, ${shareOffset.y}px)` } : undefined">
   <WidgetCard
+    :capture-active="captureActive"
     :title="displayTitle"
     :hide-title="Boolean(instance.hideTitle)"
     :instance-id="instance.instanceId"
@@ -295,8 +297,8 @@ onBeforeUnmount(() => stopShareMove?.());
     :flush="Boolean(def.flush)"
     :compact="Boolean(def.compact)"
     :allow-duplicate="def.allowDuplicate !== false"
-    :highlighted="Boolean(highlighted)"
-    :previewed="Boolean(previewed)"
+    :highlighted="!sharing && Boolean(highlighted)"
+    :previewed="!sharing && Boolean(previewed)"
     :pinned="Boolean(instance.pinned)"
     :resizable="def.resizable !== false"
     :width="sharing ? shareSize.w : instance.width"

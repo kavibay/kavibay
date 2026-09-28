@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { onBeforeUnmount, ref } from "vue";
 import {
   RESIZE_CURSOR,
   RESIZE_EDGES,
@@ -55,12 +55,15 @@ const emit = defineEmits<{
 }>();
 
 const activeEdge = ref<ResizeEdge | null>(null);
+let finishResize: (() => void) | undefined;
+onBeforeUnmount(() => finishResize?.());
 
 /** Start an edge/corner resize gesture. */
 function onHandlePointerDown(event: PointerEvent, edge: ResizeEdge) {
   if (event.button !== 0) return;
   event.preventDefault();
   event.stopPropagation();
+  finishResize?.();
 
   const handle = event.currentTarget as HTMLElement;
   const startX = event.clientX;
@@ -150,11 +153,13 @@ function onHandlePointerDown(event: PointerEvent, edge: ResizeEdge) {
   }
 
   /** End gesture and restore click-through. */
-  function onUp(ev: PointerEvent) {
-    handle.releasePointerCapture(ev.pointerId);
+  function onUp() {
     handle.removeEventListener("pointermove", onMove);
     handle.removeEventListener("pointerup", onUp);
     handle.removeEventListener("pointercancel", onUp);
+    handle.removeEventListener("lostpointercapture", onUp);
+    if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+    finishResize = undefined;
     activeEdge.value = null;
     setClickThroughPaused(false);
     emit("resize-end");
@@ -163,6 +168,8 @@ function onHandlePointerDown(event: PointerEvent, edge: ResizeEdge) {
   handle.addEventListener("pointermove", onMove);
   handle.addEventListener("pointerup", onUp);
   handle.addEventListener("pointercancel", onUp);
+  handle.addEventListener("lostpointercapture", onUp);
+  finishResize = onUp;
 }
 </script>
 

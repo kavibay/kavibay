@@ -1,13 +1,32 @@
 //! Main-webview snapshots for sharing a widget, including its sandboxed frame.
 //! Only the host calls this command; it is deliberately absent from both SDK bridges.
 
+mod artifacts;
+#[cfg(windows)]
+mod cursor_windows;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(windows)]
+mod media_foundation;
+mod recording_commands;
+mod recording_session;
+#[cfg(windows)]
+mod video_windows;
+#[cfg(windows)]
 mod windows;
+pub use recording_commands::*;
+#[cfg(target_os = "macos")]
+mod cursor_macos;
+#[cfg(any(windows, target_os = "macos", test))]
+mod recording;
+#[cfg(any(windows, target_os = "macos"))]
+mod recording_pipeline;
+#[cfg(target_os = "macos")]
+mod video_macos;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -15,6 +34,7 @@ use serde::Deserialize;
 use tokio::sync::oneshot;
 
 type CaptureReply = Arc<Mutex<Option<oneshot::Sender<Result<Vec<u8>, String>>>>>;
+static CAPTURE_PENDING: AtomicBool = AtomicBool::new(false);
 
 /// DOM bounds are CSS pixels; the snapshot supplies its own physical scale.
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -76,6 +96,7 @@ fn finish(reply: &CaptureReply, result: Result<Vec<u8>, String>) {
         .unwrap_or_else(|error| error.into_inner())
         .take()
     {
+        CAPTURE_PENDING.store(false, Ordering::Release);
         let _ = sender.send(result);
     }
 }
@@ -90,34 +111,57 @@ pub async fn copy_preview_image(
         return Err("Preview capture is only available in the main window.".into());
     }
     region.validate()?;
-    let (sender, receiver) = oneshot::channel();
-    let reply = Arc::new(Mutex::new(Some(sender)));
-    window
-        .with_webview(move |webview| {
-            #[cfg(target_os = "macos")]
-            macos::capture(webview, reply);
-            #[cfg(windows)]
-            windows::capture(webview, reply);
-            #[cfg(target_os = "linux")]
-            linux::capture(webview, reply);
-            #[cfg(not(any(target_os = "macos", windows, target_os = "linux")))]
-            {
-                let _ = webview;
-                finish(
-                    &reply,
-                    Err("Preview capture is not available on this platform.".into()),
-                );
-            }
-        })
-        .map_err(|error| format!("Could not capture the preview: {error}"))?;
-
-    let png = tokio::time::timeout(Duration::from_secs(15), receiver)
-        .await
-        .map_err(|_| "Preview capture timed out. Please try again.".to_string())?
-        .map_err(|_| "The preview closed before capture finished.".to_string())??;
+    let png = capture_snapshot(&window, Duration::from_secs(15), None).await?;
     tauri::async_runtime::spawn_blocking(move || copy_cropped_image(&png, region))
         .await
         .map_err(|error| format!("Could not copy the preview: {error}"))?
+}
+
+async fn capture_snapshot(
+    window: &tauri::WebviewWindow,
+    timeout: Duration,
+    macos_region: Option<CaptureRegion>,
+) -> Result<Vec<u8>, String> {
+    if CAPTURE_PENDING
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return Err("Another preview snapshot is still finishing. Please try again.".into());
+    }
+    let (sender, receiver) = oneshot::channel();
+    let reply = Arc::new(Mutex::new(Some(sender)));
+    let dispatch_reply = reply.clone();
+    if let Err(error) = window.with_webview(move |webview| {
+        let reply = dispatch_reply;
+        #[cfg(target_os = "macos")]
+        macos::capture(webview, reply, macos_region);
+        #[cfg(not(target_os = "macos"))]
+        let _ = macos_region;
+        #[cfg(windows)]
+        windows::capture(webview, reply);
+        #[cfg(target_os = "linux")]
+        linux::capture(webview, reply);
+        #[cfg(not(any(target_os = "macos", windows, target_os = "linux")))]
+        {
+            let _ = webview;
+            finish(
+                &reply,
+                Err("Preview capture is not available on this platform.".into()),
+            );
+        }
+    }) {
+        finish(
+            &reply,
+            Err(format!("Could not capture the preview: {error}")),
+        );
+    }
+
+    // A timed-out native request retains the pending flag until its callback.
+    // A retry cannot queue overlapping compositor work behind that request.
+    tokio::time::timeout(timeout, receiver)
+        .await
+        .map_err(|_| "Preview capture timed out. Please try again.".to_string())?
+        .map_err(|_| "The preview closed before capture finished.".to_string())?
 }
 
 fn crop_image(png: &[u8], region: CaptureRegion) -> Result<image::RgbaImage, String> {

@@ -51,8 +51,8 @@ be copied as images; custom and installed packages also offer ZIP export.
 Moving, resizing, or zooming a desk widget inside Share only changes the image
 composition; closing the dialog restores its desk geometry.
 
-Click **Share** above the preview to open a dialog with the live widget and two
-actions:
+Click **Share** above the preview to open a dialog with the live widget and
+sharing actions:
 
 - **Export widget as file** uses the existing ZIP export, including the unsaved
   draft when one exists. The collapsible **How to import** guide below the button
@@ -70,6 +70,14 @@ without stretching. They stay local and remain selected while this preview is
 open, including when closing and reopening Share. **Reset background** restores
 the bundled image. The Wizard's editing canvas keeps its grid.
 
+The canvas initially fills its original preview area. The **Preview size** icon
+beside **Record 5s clip** opens **Landscape** (16:9),
+**Portrait** (9:16), and **Custom**. Custom accepts width and height from 64 to
+4096 px; choose **Apply** to resize the canvas. Large canvases fit proportionally
+inside the dialog, so these dimensions describe the framing, not a guaranteed
+export resolution. The widget stays mounted and keeps its state. Size changes
+return playback to the live widget and are disabled during capture.
+
 Share uses the same resize handles as the Wizard preview. Drag the widget's
 edges or corners to resize it; Ctrl+resize also
 scales its content. Size changes carry back to the Wizard preview. The widget
@@ -78,6 +86,31 @@ the dialog automatically. Capture
 uses the desktop webview (WebView2 on Windows, WebKit on macOS/Linux), so sandboxed
 widget content appears in the image too. The canvas is included; the dialog's
 heading and action buttons are excluded.
+
+On Windows and macOS, **Record 5s clip** records the preview as an MP4 without audio.
+When the red timer starts counting down, click, type or scroll inside the widget. The
+background and pointer are included. Framing controls are disabled during the
+recording. **Cancel recording** or Escape stops it; Escape keeps Share open.
+Closing Share, hiding the app or changing its capture geometry cancels the job.
+
+After recording, the button becomes three icons: **Play**, **Save**, and **Copy**.
+Choose **Play** to watch it in the preview area. Native video controls provide play/pause, seeking and replay.
+**Back to widget** restores the live view with its state intact. **Record again**
+in the player starts a new clip. **Copy video**
+puts the completed MP4 file on the clipboard only when clicked; recording and
+playback do not change the clipboard. **Save clip** writes a copy to a chosen
+location. A copy error keeps the recording available for playback and retry.
+
+Recording uses the system H.264 encoder: Media Foundation on Windows and
+AVFoundation on macOS. macOS recording is experimental, outside the Windows-only
+v0.1 release scope. If the encoder is unavailable, Share explains why the
+recording button is disabled. No encoder package is installed. Completed files stay in `shared-clips/` under the Kavibay
+data directory so closing the dialog or restarting the app does not invalidate
+clipboard file references. Each clip is limited to 16 MiB. Native macOS capture
+and playback were verified with an isolated Share dialog, including 125% UI
+zoom. Windows performance and DPI/cursor accuracy still need Windows validation.
+Ctrl+V compatibility with Discord, Slack and WhatsApp remains unverified on both
+platforms; saving is a separate fallback.
 
 ## What happens when you type a sentence
 
