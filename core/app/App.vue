@@ -13,6 +13,7 @@ import { useSettingsModal } from "./settings/useSettingsModal";
 import { useRegionSync } from "./system/clickThrough";
 import FloatingTipHost from "./system/FloatingTipHost.vue";
 import CommandHost from "./extension-host/ui/CommandHost.vue";
+import DurableStorageNotice from "./system/DurableStorageNotice.vue";
 import { hostDismissHeld } from "@sdk";
 
 useRegionSync();
@@ -52,6 +53,7 @@ onUnmounted(() => {
         <WidgetImportModal />
         <OnboardingCoach />
         <OnboardingSetup />
+        <DurableStorageNotice />
       </template>
     </WidgetHost>
   </div>
