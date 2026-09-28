@@ -64,14 +64,14 @@ sharing actions:
   **Copy preview image**.
 
 The compact Share dialog starts with a bundled nebula background. **Upload
-background image** in the footer opens a file picker for a custom background
+background image** in **Preview settings** opens a file picker for a custom background
 (up to 20 MB). Images fill the canvas
 without stretching. They stay local and remain selected while this preview is
 open, including when closing and reopening Share. **Reset background** restores
 the bundled image. The Wizard's editing canvas keeps its grid.
 
-The canvas initially fills its original preview area. The **Preview size** icon
-beside **Record 5s clip** opens **Landscape** (16:9),
+The canvas initially fills its original preview area. The **Preview settings** gear
+at the right of the footer opens **Landscape** (16:9),
 **Portrait** (9:16), and **Custom**. Custom accepts width and height from 64 to
 4096 px; choose **Apply** to resize the canvas. Large canvases fit proportionally
 inside the dialog, so these dimensions describe the framing, not a guaranteed
