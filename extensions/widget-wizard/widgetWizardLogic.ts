@@ -9,6 +9,7 @@
 
 import type { ArgSpec, ResultSchema } from "@sdk/contract/sdk";
 import type { Language } from "./highlight";
+import { parseWizardSuggestions, type WizardSuggestion } from "./wizardSuggestions";
 
 /** Consent-facing endpoint shape returned by the host package scanner. */
 export interface ConsentEndpoint {
@@ -752,6 +753,8 @@ export interface ParsedReply {
    * direction: a stale file is visible in the Files tab, a deleted one is gone.
    */
   removed: string[];
+  /** Follow-up metadata, never part of the generated package. */
+  suggestions?: WizardSuggestion[];
 }
 
 /** One image attached to a turn. Base64, with no `data:` prefix. */
@@ -968,6 +971,8 @@ export function parseGeneratedFiles(text: string): ParsedReply {
   const lines = text.split(/\r?\n/);
   const files: GeneratedFile[] = [];
   const prose: string[] = [];
+  let suggestions: WizardSuggestion[] = [];
+  let suggestionBlock: { ticks: number; body: string[] } | null = null;
 
   const removed: string[] = [];
   let current: {
@@ -987,6 +992,22 @@ export function parseGeneratedFiles(text: string): ParsedReply {
       } else {
         current.body.push(stripIndent(line, current.indent));
       }
+      continue;
+    }
+
+    if (suggestionBlock) {
+      if (closesFence(line, suggestionBlock.ticks)) {
+        suggestions = parseWizardSuggestions(suggestionBlock.body.join("\n"));
+        suggestionBlock = null;
+      } else {
+        suggestionBlock.body.push(line);
+      }
+      continue;
+    }
+
+    const suggestionOpening = /^\s*(`{3,})kavibay-suggestions\s*$/.exec(line);
+    if (suggestionOpening) {
+      suggestionBlock = { ticks: suggestionOpening[1].length, body: [] };
       continue;
     }
 
@@ -1019,6 +1040,7 @@ export function parseGeneratedFiles(text: string): ParsedReply {
     files,
     removed,
     unterminated: current ? current.path : null,
+    suggestions,
   };
 }
 
@@ -2318,6 +2340,8 @@ export function appendNote(bubbles: WizardBubble[], bubble: WizardBubble): void 
 export interface WizardBubble {
   role: "user" | "assistant" | "system";
   text: string;
+  /** Fresh next steps from this answer, shown only while its version is current. */
+  suggestions?: WizardSuggestion[];
   /** Known MCP author for an externally updated system checkpoint. */
   author?: DraftAuthor;
   /** Exact MCP clientInfo.name for an externally updated checkpoint. */

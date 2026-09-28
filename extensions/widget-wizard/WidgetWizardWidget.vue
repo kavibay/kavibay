@@ -30,7 +30,6 @@ import { pointAndPromptParts, pointAndPromptRequest, type PreviewSelection } fro
 import {
   BracesIcon,
   BrainIcon,
-  ClipboardCopyIcon,
   CodeXmlIcon,
   FileCodeIcon,
   FileIcon,
@@ -51,6 +50,9 @@ import WizardModelMenu from "./WizardModelMenu.vue";
 import WizardMcpHelp from "./WizardMcpHelp.vue";
 import WizardChevron from "./WizardChevron.vue";
 import WizardGenerationStatus from "./WizardGenerationStatus.vue";
+import WizardSuggestions from "./WizardSuggestions.vue";
+import WizardConversationMenu from "./WizardConversationMenu.vue";
+import { appendWizardSuggestion, currentWizardSuggestions, type WizardSuggestion } from "./wizardSuggestions";
 import WizardPreviewStage, { type PreviewFault } from "./WizardPreviewStage.vue";
 import { takeNewProjectRequest, type WidgetWizardModel } from "./widgets/widgetWizard";
 import {
@@ -265,6 +267,7 @@ const LAYOUT_KEY = "wizard:layout";
 const sideWidth = ref(180);
 const previewWidth = ref(360);
 const sidebarCollapsed = ref(false);
+const showSuggestions = ref(true);
 
 /**
  * Arrived here from the palette to start a widget, and nothing else.
@@ -313,7 +316,7 @@ const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, Math.round(value)));
 
 void props.model.data
-  .get<{ side?: number; preview?: number; collapsed?: boolean }>(LAYOUT_KEY)
+  .get<{ side?: number; preview?: number; collapsed?: boolean; showSuggestions?: boolean }>(LAYOUT_KEY)
   .then((saved) => {
     if (!saved) return;
     if (typeof saved.side === "number") sideWidth.value = clamp(saved.side, SIDE_MIN, SIDE_MAX);
@@ -321,6 +324,7 @@ void props.model.data
       previewWidth.value = clamp(saved.preview, PREVIEW_MIN, PREVIEW_MAX);
     }
     if (typeof saved.collapsed === "boolean") sidebarCollapsed.value = saved.collapsed;
+    if (typeof saved.showSuggestions === "boolean") showSuggestions.value = saved.showSuggestions;
   });
 
 function saveLayout() {
@@ -328,6 +332,7 @@ function saveLayout() {
     side: sideWidth.value,
     preview: previewWidth.value,
     collapsed: sidebarCollapsed.value,
+    showSuggestions: showSuggestions.value,
   });
 }
 
@@ -949,6 +954,14 @@ onUnmounted(() => {
 const transcriptEl = ref<HTMLElement | null>(null);
 const fileInputEl = ref<HTMLInputElement | null>(null);
 const composerEl = ref<HTMLDivElement | null>(null);
+const starterPrompts = [
+  { label: "Countdown", prompt: "A countdown to my next holiday with an editable date and days remaining." },
+  { label: "Water tracker", prompt: "A daily water tracker with a 2 litre goal and a button to log each glass." },
+  { label: "Weekly goal", prompt: "A weekly reading goal of 100 pages with a progress bar and buttons to log pages." },
+  { label: "Habits", prompt: "A habit tracker for reading, exercise and sleep with daily checkboxes and streaks." },
+  { label: "Focus timer", prompt: "A focus timer with 25 minute work sessions, 5 minute breaks and pause and reset buttons." },
+  { label: "Checklist", prompt: "A morning checklist with editable tasks that resets each day." },
+];
 const accountsEl = ref<HTMLDetailsElement | null>(null);
 const accountsOpen = ref(false);
 const integrationMenuEl = ref<HTMLElement | null>(null);
@@ -1172,6 +1185,30 @@ function renderComposer(): void {
       root.append(mention.kind === "text" ? document.createTextNode(mention.text) : createIntegrationMention(mention));
     }
   }
+}
+
+/** Fill an editable starting point and leave sending to the user. */
+function chooseStarter(prompt: string): void {
+  if (busy.value) return;
+  session.value.draft = prompt;
+  closeIntegrationMenu();
+  renderComposer();
+  const root = composerEl.value;
+  if (!root) return;
+  root.focus();
+  const range = document.createRange();
+  range.selectNodeContents(root);
+  range.collapse(false);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  resizeComposer();
+}
+
+/** Insert a next step for editing; generation still requires the Send button. */
+function chooseSuggestion(suggestion: WizardSuggestion): void {
+  if (busy.value) return;
+  chooseStarter(appendWizardSuggestion(session.value.draft, suggestion.prompt));
 }
 
 /** Transcript copy of the composer chip: same split, same mark. */
@@ -2024,6 +2061,11 @@ const canSend = computed(
     !busy.value &&
     (session.value.draft.trim().length > 0 || session.value.attachments.length > 0),
 );
+const suggestions = computed(() =>
+  busy.value || session.value.draftError || draftConflict.value || draftEditorDirty.value
+    ? []
+    : currentWizardSuggestions(session.value.bubbles, session.value.currentVersion),
+);
 const showFirstVersionGeneration = computed(
   () => firstVersionGeneration.value && busy.value,
 );
@@ -2791,6 +2833,9 @@ async function runTurn(mine: number, id: string, repairsLeft: number, repairFile
   }
 
   for (const each of outcome.problems) note(each);
+  if (mine === generation.value && outcome.written && outcome.problems.length === 0) {
+    answer.suggestions = parsed.suggestions;
+  }
   // Last, so the offer describes the package that is actually on disk. Skipped
   // entirely when a repair is coming: the next generation rewrites api.json,
   // and an offer for the version being replaced is one the person would be
@@ -3279,21 +3324,6 @@ function usageLine(usage: WizardUsage): string {
   return parts.join(" · ");
 }
 
-/**
- * The same numbers split the way they are billed, on hover.
- *
- * The line answers "how big, and how much"; this answers "why did it cost
- * that", which is a rarer question and does not deserve a third figure on
- * every message.
- */
-function usageDetail(usage: WizardUsage): string {
-  const parts = [`${usage.input} fresh`];
-  if (usage.cacheWrite > 0) parts.push(`${usage.cacheWrite} written to cache (1.25x)`);
-  if (usage.cached > 0) parts.push(`${usage.cached} read from cache (0.1x)`);
-  parts.push(`${usage.output} generated`);
-  return parts.join(" · ");
-}
-
 /** A stored cost, or nothing — never a fresh calculation at render time. */
 function costLabel(cost: WizardCost | null | undefined): string {
   return cost ? `~${formatCost(cost.amount, cost.currency)}` : "";
@@ -3324,11 +3354,6 @@ function usageTooltip(bubble: WizardBubble): string {
  */
 const sessionUsage = computed(() => session.value.usage ?? NO_USAGE);
 const sessionCost = computed(() => session.value.cost);
-const sessionTokens = computed(() => {
-  const u = sessionUsage.value;
-  return u.input + u.cached + u.cacheWrite + u.output;
-});
-
 const transcriptCopyState = ref<"idle" | "copying" | "copied" | "error">("idle");
 let transcriptCopyTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -4932,9 +4957,22 @@ async function enablePackage(
             </li>
           </ul>
         </div>
-        <p v-else-if="!session.bubbles.length" class="wiz-hint">
-          Describe a widget — for example: “a tracker for how much water I drink today”.
-        </p>
+        <div v-else-if="!session.bubbles.length" class="wiz-starters">
+          <p class="wiz-starters-title">What would you like to make?</p>
+          <p class="wiz-starters-hint">Describe your idea, or pick one and make it yours.</p>
+          <div class="wiz-starters-grid" role="group" aria-label="Widget ideas">
+            <button
+              v-for="starter in starterPrompts"
+              :key="starter.label"
+              type="button"
+              class="wiz-starter"
+              :disabled="busy"
+              @click="chooseStarter(starter.prompt)"
+            >
+              {{ starter.label }}
+            </button>
+          </div>
+        </div>
         <!--
           One turn: the message, and underneath it the footnotes about it.
 
@@ -5178,43 +5216,24 @@ async function enablePackage(
         </p>
       </div>
 
-      <!--
-        The conversation's total, beside the box the next message goes into —
-        the moment it is worth knowing is the moment before it grows.
-
-        Only once something has been spent: a zero here on an empty
-        conversation is a widget of chrome saying nothing.
-      -->
-      <p
-        v-if="middleTab === 'chat' && sessionTokens > 0"
-        class="wiz-usage wiz-usage--total"
-      >
-        <span class="wiz-copy-feedback" role="status">
-          {{ transcriptCopyState === 'copied' ? 'Copied' : transcriptCopyState === 'error' ? 'Could not copy. Try again.' : '' }}
-        </span>
-        <span class="wiz-usage-summary" :title="usageDetail(sessionUsage)">
-          This conversation: {{ formatTokens(sessionTokens) }} tokens
-          <template v-if="sessionUsage.cached > 0">
-            ({{ formatTokens(sessionUsage.cached) }} from cache)
-          </template>
-          <span v-if="costLabel(sessionCost)" class="wiz-usage-cost">
-            {{ costLabel(sessionCost) }}
-          </span>
-        </span>
-        <button
-          type="button"
-          class="wiz-copy-transcript"
-          :disabled="transcriptCopyState === 'copying'"
-          :aria-label="transcriptCopyState === 'copied' ? 'Transcript copied' : 'Copy transcript'"
-          v-tip="transcriptCopyState === 'copied' ? 'Copied' : 'Copy transcript'"
-          @click="copyTranscript"
-        >
-          <svg v-if="transcriptCopyState === 'copied'" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="m5 12 4 4L19 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          <ClipboardCopyIcon v-else :size="14" />
-        </button>
-      </p>
+      <div v-if="middleTab === 'chat'" class="wiz-compose-tools">
+        <WizardSuggestions
+          v-if="showSuggestions"
+          class="wiz-compose-suggestions"
+          :suggestions="suggestions"
+          @choose="chooseSuggestion"
+        />
+        <WizardConversationMenu
+          :key="session.id"
+          :usage="sessionUsage"
+          :cost="costLabel(sessionCost)"
+          :copy-state="transcriptCopyState"
+          :can-export="session.bubbles.length > 0"
+          :show-suggestions="showSuggestions"
+          @update:show-suggestions="showSuggestions = $event; saveLayout()"
+          @export="copyTranscript"
+        />
+      </div>
 
       <!-- Part of the conversation, so it goes with it. -->
       <div
@@ -6408,14 +6427,64 @@ async function enablePackage(
 
 .wiz-transcript--empty {
   align-items: center;
-  justify-content: center;
+  /* Keep the first suggestion reachable when a short card needs scrolling. */
+  justify-content: safe center;
 }
 
-.wiz-transcript--empty .wiz-hint {
-  max-width: 90%;
+.wiz-starters {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 420px;
+  padding: 4px;
+}
+
+.wiz-starters-title {
+  margin: 0;
   font-size: 16px;
+  font-weight: 600;
   line-height: 1.4;
-  text-align: center;
+  color: rgba(var(--fg-rgb), 0.92);
+}
+
+.wiz-starters-hint {
+  margin: 6px 0 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(var(--fg-rgb), 0.55);
+}
+
+.wiz-starters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr));
+  gap: 8px;
+}
+
+.wiz-starter {
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--fg-rgb), 0.1);
+  border-radius: 8px;
+  background: rgba(var(--fg-rgb), 0.05);
+  color: rgba(var(--fg-rgb), 0.85);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+
+.wiz-starter:hover:not(:disabled) {
+  background: rgba(var(--fg-rgb), 0.1);
+  border-color: rgba(var(--fg-rgb), 0.2);
+}
+
+.wiz-starter:focus-visible {
+  outline: 2px solid rgba(var(--fg-rgb), 0.6);
+  outline-offset: 2px;
+}
+
+.wiz-starter:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .wiz-working {
@@ -6705,6 +6774,15 @@ async function enablePackage(
 .wiz-bubble .wiz-thumbs {
   margin-bottom: 8px;
 }
+
+.wiz-compose-tools {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+.wiz-compose-suggestions { flex: 1; }
 
 .wiz-compose {
   position: relative;
@@ -7643,58 +7721,6 @@ button:disabled {
   }
 }
 
-.wiz-usage {
-  margin: 0;
-  font-size: 10px;
-  opacity: 0.45;
-}
-
-.wiz-usage--total {
-  display: flex;
-  align-items: center;
-  align-self: flex-end;
-  gap: 6px;
-  max-width: 100%;
-  flex: 0 0 auto;
-  margin: 0 0 2px;
-  text-align: right;
-  opacity: 1;
-}
-
-.wiz-usage-summary { opacity: 0.45; }
-.wiz-copy-feedback { color: rgba(var(--fg-rgb), 0.65); }
-.wiz-copy-feedback:empty { display: none; }
-
-.wiz-copy-transcript {
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: rgba(var(--fg-rgb), 0.7);
-  cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.wiz-usage--total:hover .wiz-copy-transcript,
-.wiz-usage--total:focus-within .wiz-copy-transcript {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.wiz-copy-transcript:hover { background: rgba(var(--fg-rgb), 0.08); }
-.wiz-copy-transcript:focus-visible { outline: 1px solid currentColor; outline-offset: 2px; }
-.wiz-copy-transcript:disabled { cursor: default; }
-
-@media (hover: none) {
-  .wiz-copy-transcript { opacity: 1; pointer-events: auto; }
-}
-
 .wiz-usage-mark,
 .wiz-cp-btn {
   display: inline-flex;
@@ -7722,11 +7748,6 @@ button:disabled {
   outline-offset: 2px;
 }
 
-.wiz-usage-cost {
-  /* The estimate, set apart from the counts, which are exact. */
-  margin-left: 6px;
-  opacity: 0.8;
-}
 
 .wiz-cp {
   display: flex;
