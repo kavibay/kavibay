@@ -1,7 +1,8 @@
 # AGENTS.md — Kavibay
 
 Raycast-style desktop widget host / launcher. Tauri v2 (Rust backend) + Vue 3
-`<script setup>` TypeScript + Vite. Windows-first (macOS port planned). Maintainer:
+`<script setup>` TypeScript + Vite. Version 0.1 targets Windows only; Linux and
+macOS are outside its release scope. Existing source ports are experimental. Maintainer:
 Alex (@aswetlow) — conversation in German is fine; code, comments, and docs are English.
 
 This is a learning-driven project: a clean, explained foundation beats feature count.
