@@ -481,6 +481,16 @@ pub fn run() {
             // `manage` makes it available to commands as managed state.
             let click_through: SharedClickThrough = Arc::new(Mutex::new(ClickThrough::default()));
             app.manage(click_through.clone());
+            // A file dragged in from the OS: the watcher reads this to tell a press
+            // that started a drag onto Kavibay from a click past it.
+            let drag_counter = click_through.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Enter { .. }) = event {
+                    if let Ok(mut state) = drag_counter.lock() {
+                        state.drags_entered = state.drags_entered.wrapping_add(1);
+                    }
+                }
+            });
             app.manage(color_picker::ColorPickerSession::default());
             // Managed before the watcher starts writing it and before the first fit.
             let active_window: SharedActiveWindow = Arc::new(Mutex::new(None));
@@ -1016,6 +1026,7 @@ fn spawn_click_through_watcher(
         let mut tick_ms = WATCH_TICK_MS;
         let mut last_cursor: Option<(f64, f64)> = None;
         let mut last_generation = 0u64;
+        let mut pending_outside_click: Option<commands::PendingOutsideClick> = None;
 
         // Read once: the display backend cannot change under a running process.
         let hit_test_usable = cursor_position_is_reliable(
@@ -1061,6 +1072,7 @@ fn spawn_click_through_watcher(
                 // No boundary to maintain while hidden — idle right down.
                 tick_ms = WATCH_HIDDEN_TICK_MS;
                 last_cursor = None;
+                pending_outside_click = None;
                 if last_ignore != Some(false) {
                     let _ = window.set_ignore_cursor_events(false);
                     last_ignore = Some(false);
@@ -1077,7 +1089,7 @@ fn spawn_click_through_watcher(
             let moved = cursor_now != last_cursor;
             last_cursor = cursor_now;
 
-            let (outside_click_armed, generation, interactive) = {
+            let (outside_click_armed, generation, interactive, drags_entered) = {
                 let s = state.lock().unwrap();
                 // Hit-test inside the lock. Cloning `rects` out just to test it
                 // outside meant a heap allocation on every single tick, for data
@@ -1101,7 +1113,12 @@ fn spawn_click_through_watcher(
                         None => true,
                     }
                 };
-                (s.outside_click_armed, s.generation, interactive)
+                (
+                    s.outside_click_armed,
+                    s.generation,
+                    interactive,
+                    s.drags_entered,
+                )
             };
 
             // Cadence for the *next* tick — rule and rationale in
@@ -1117,9 +1134,19 @@ fn spawn_click_through_watcher(
             }
 
             // Gap click while "Hide on outside click" is armed. The window is already
-            // click-through here, so Windows delivers this very click to the app below —
-            // we only tell the frontend to close in parallel.
-            if pressed && ignore && outside_click_armed {
+            // click-through here, so the OS delivers this very click to the app below —
+            // we only tell the frontend to close in parallel, once the release shows it
+            // was a click and not a file being dragged onto Kavibay.
+            let (pending, dismiss) = commands::outside_click_step(
+                pending_outside_click,
+                pressed && ignore,
+                outside_click_armed,
+                // Only read when a press is in play: on Linux it is a round trip to X.
+                (pressed || pending_outside_click.is_some()) && buttons.is_down(),
+                drags_entered,
+            );
+            pending_outside_click = pending;
+            if dismiss {
                 let _ = window.emit("cockpit:outside-click", ());
             }
         }
@@ -1373,6 +1400,20 @@ impl MouseButtons {
     fn pressed(&mut self) -> bool {
         let count = DELIVERED_PRESSES.load(Ordering::Relaxed);
         std::mem::replace(&mut self.seen, count) != count
+    }
+
+    /// Left or right button held right now.
+    ///
+    /// Quartz rather than the monitor: a drag session consumes the release it
+    /// ends with, so no release event would ever arrive. The answer only counts
+    /// after the monitor saw a press, which keeps a screenshot tool's selection,
+    /// whose press the monitor never sees, from counting.
+    fn is_down(&self) -> bool {
+        use objc2_core_graphics::{CGEventSource, CGEventSourceStateID, CGMouseButton};
+        let down = |button| {
+            CGEventSource::button_state(CGEventSourceStateID::CombinedSessionState, button)
+        };
+        down(CGMouseButton::Left) || down(CGMouseButton::Right)
     }
 }
 
