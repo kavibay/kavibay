@@ -18,9 +18,9 @@ use super::validate::safe_join;
 use super::{folder_time, root_path, PackageOrigin};
 
 const DRAFTS_DIR: &str = ".drafts";
-const MAX_FILES: usize = 32;
-const MAX_FILE_BYTES: usize = 512 * 1024;
-const MAX_TOTAL_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const MAX_FILES: usize = 32;
+pub(crate) const MAX_FILE_BYTES: usize = 512 * 1024;
+pub(crate) const MAX_TOTAL_BYTES: usize = 2 * 1024 * 1024;
 
 static NEXT_TRANSIENT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -271,7 +271,7 @@ fn forget_origin(root: &Path, id: &str) {
     let _ = fs::remove_file(origin_path(root, id));
 }
 
-fn validate_relative_path(path: &str) -> Result<(), String> {
+pub(crate) fn validate_relative_path(path: &str) -> Result<(), String> {
     if path.is_empty() {
         return Err("path_empty".into());
     }
@@ -306,7 +306,12 @@ fn validate_relative_path(path: &str) -> Result<(), String> {
 /// names the real problem next to the file.
 pub(crate) fn declared_package_id(files: &[DraftFile]) -> Option<String> {
     let manifest = files.iter().find(|file| file.path == "manifest.json")?;
-    let raw: serde_json::Value = serde_json::from_str(&manifest.contents).ok()?;
+    manifest_package_id(&manifest.contents)
+}
+
+/// The id one manifest's text claims, by the rule `declared_package_id` states.
+pub(crate) fn manifest_package_id(manifest: &str) -> Option<String> {
+    let raw: serde_json::Value = serde_json::from_str(manifest).ok()?;
     let field = if raw.get("widget").map(|w| w.is_object()).unwrap_or(false) {
         "name"
     } else {

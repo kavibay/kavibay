@@ -110,6 +110,16 @@ export const calendarWidget = defineWidget<CalendarConfig>({
   component: {
     async setup(ctx: WidgetContext<CalendarConfig>): Promise<CalendarModel> {
       const provider = ctx.providers![PROVIDER_ID]!;
+      let eventSubscriptions: Array<{ unsubscribe(): void }> = [];
+      let unsubscribeRefresh: (() => void) | undefined;
+      let disposed = false;
+      // An async setup leaves Vue's active scope at its first await.
+      onScopeDispose(() => {
+        disposed = true;
+        for (const subscription of eventSubscriptions) subscription.unsubscribe();
+        eventSubscriptions = [];
+        unsubscribeRefresh?.();
+      });
       const configuredCalendarIds = Array.isArray(ctx.config.calendars)
         ? [...new Set(ctx.config.calendars.map(String).filter(Boolean))]
         : [];
@@ -160,9 +170,7 @@ export const calendarWidget = defineWidget<CalendarConfig>({
       const createError = ref<string | null>(null);
       const titleHint = ref(false);
       const quickCalendarId = ref(selectedCalendarIds[0]!);
-      let eventSubscriptions: Array<{ unsubscribe(): void }> = [];
       let subscriptionSequence = 0;
-      let disposed = false;
       let loadSequence = 0;
 
       const eventArgs = (calendarId: string): CalendarQueryArgs => {
@@ -171,26 +179,31 @@ export const calendarWidget = defineWidget<CalendarConfig>({
       };
 
       const subscribeToVisibleMonth = async () => {
+        if (disposed) return;
         const sequence = ++subscriptionSequence;
         for (const subscription of eventSubscriptions) subscription.unsubscribe();
         eventSubscriptions = [];
-        const subscriptions = await Promise.all(
+        const results = await Promise.allSettled(
           selectedCalendarIds.map((calendarId) =>
             provider.subscribe<CalendarEvent[]>("events", eventArgs(calendarId), (state) => {
-              if (state.status === "success") {
+              if (!disposed && sequence === subscriptionSequence && state.status === "success") {
                 eventsByCalendar.value = { ...eventsByCalendar.value, [calendarId]: state.data };
               }
             }),
           ),
         );
-        if (disposed || sequence !== subscriptionSequence) {
+        const subscriptions = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+        const failure = results.find((result) => result.status === "rejected");
+        if (disposed || sequence !== subscriptionSequence || failure) {
           for (const subscription of subscriptions) subscription.unsubscribe();
+          if (failure && !disposed && sequence === subscriptionSequence) throw failure.reason;
           return;
         }
         eventSubscriptions = subscriptions;
       };
 
       const loadEvents = async (): Promise<void> => {
+        if (disposed) return;
         const sequence = ++loadSequence;
         loading.value = true;
         const next = await Promise.all(
@@ -199,7 +212,7 @@ export const calendarWidget = defineWidget<CalendarConfig>({
             await provider.query<CalendarEvent[]>("events", eventArgs(calendarId)),
           ] as const),
         );
-        if (sequence === loadSequence) {
+        if (!disposed && sequence === loadSequence) {
           eventsByCalendar.value = Object.fromEntries(next);
           loading.value = false;
         }
@@ -210,19 +223,11 @@ export const calendarWidget = defineWidget<CalendarConfig>({
         await subscribeToVisibleMonth();
       };
 
-      const unsubscribeRefresh = onCalendarRefreshRequest(ctx.instanceId, () => {
-        void refresh();
-      });
-
-      // Register cleanup before the first await. Vue's active effect scope is
-      // synchronous; registering after an awaited provider call would leak a
-      // subscription on remount.
-      onScopeDispose(() => {
-        disposed = true;
-        for (const subscription of eventSubscriptions) subscription.unsubscribe();
-        eventSubscriptions = [];
-        unsubscribeRefresh();
-      });
+      if (!disposed) {
+        unsubscribeRefresh = onCalendarRefreshRequest(ctx.instanceId, () => {
+          void refresh();
+        });
+      }
 
       await loadEvents();
       await subscribeToVisibleMonth();
@@ -278,6 +283,7 @@ export const calendarWidget = defineWidget<CalendarConfig>({
       };
 
       const quickAdd = async () => {
+        if (creating.value || disposed) return;
         const title = quickTitle.value.trim();
         if (!title) {
           titleHint.value = true;

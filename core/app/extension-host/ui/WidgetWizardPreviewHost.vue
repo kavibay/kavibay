@@ -6,10 +6,14 @@
  * CockpitWidget provides this component as a narrow rendering seam; the
  * extension supplies only package identity, URL, format and geometry.
  */
-import { computed, ref, watch } from "vue";
+import { computed, ref, useId, watch } from "vue";
+import { IconBase } from "@sdk/icons";
+import type { WizardPreviewElement } from "@sdk/wizardPreview";
+import { provideWizardPreviewPicker } from "../wizardPreviewPicker";
 import WidgetCard from "../../host/WidgetCard.vue";
 import RuntimeExtensionFrame from "../../runtime/RuntimeExtensionFrame.vue";
 import ContractPackageWidget from "./ContractPackageWidget.vue";
+import WidgetPreviewShare from "./WidgetPreviewShare.vue";
 import { clearWidgetLog, widgetCalls, widgetFaults, type WidgetFault } from "../cockpit";
 import type { WidgetCall } from "../bridge";
 import { extensionHost, packageDefinitionId } from "../cockpit";
@@ -35,11 +39,20 @@ const props = defineProps<{
    * manifest are both its to read, and this chrome has neither.
    */
   unmet?: string[];
+  sharing?: boolean;
+  shareBusy?: boolean;
+  shareFeedback?: string;
+  picking?: boolean;
+  debugTarget?: HTMLElement | null;
 }>();
 
 const emit = defineEmits<{
   rename: [title: string];
   resized: [size: { w: number; h: number }, scale?: number];
+  "close-share": [];
+  export: [];
+  selected: [element: WizardPreviewElement];
+  "cancel-pick": [];
   /**
    * One fault, as it arrives. Structural rather than `WidgetFault` because the
    * listener is an MIT extension: the wizard cannot import this file's types,
@@ -47,6 +60,12 @@ const emit = defineEmits<{
    */
   fault: [fault: { source: WidgetFault["source"]; message: string; where?: string }];
 }>();
+
+provideWizardPreviewPicker({
+  picking: computed(() => !!props.picking && !props.sharing),
+  select: (element) => emit("selected", element),
+  cancel: () => emit("cancel-pick"),
+});
 
 const MIN = { w: 160, h: 120 };
 const isLoaded = computed(() => packageDefinitionId(props.extId) !== undefined);
@@ -81,6 +100,7 @@ watch(
 const offset = ref({ x: 0, y: 0 });
 const hideTitle = ref(false);
 const stageEl = ref<HTMLElement | null>(null);
+const cardEl = ref<HTMLElement | null>(null);
 let resizeStartOffset: { x: number; y: number } | null = null;
 let resizeScaleChanged = false;
 
@@ -93,14 +113,21 @@ watch(
 );
 
 const cardStyle = computed(() => ({
-  transform: `translate(${offset.value.x}px, ${offset.value.y}px)`,
+  transform: `${props.sharing ? "scale(var(--share-preview-scale, 1)) " : ""}translate(${offset.value.x}px, ${offset.value.y}px)`,
 }));
+
+/** Movement and resize offsets use the card's local pixels, even when fitted to the canvas. */
+function renderedScale(): number {
+  const card = cardEl.value;
+  return card?.offsetWidth ? card.getBoundingClientRect().width / card.offsetWidth : 1;
+}
 
 function clampToStage(next: { x: number; y: number }) {
   const stage = stageEl.value?.getBoundingClientRect();
   if (!stage) return next;
-  const maxX = Math.max(0, (stage.width - size.value.w) / 2);
-  const maxY = Math.max(0, (stage.height - size.value.h) / 2);
+  const rendered = renderedScale();
+  const maxX = Math.max(0, (stage.width / rendered - size.value.w) / 2);
+  const maxY = Math.max(0, (stage.height / rendered - size.value.h) / 2);
   return {
     x: Math.min(maxX, Math.max(-maxX, next.x)),
     y: Math.min(maxY, Math.max(-maxY, next.y)),
@@ -110,10 +137,11 @@ function clampToStage(next: { x: number; y: number }) {
 function onMovePointerDown(event: PointerEvent) {
   const start = { x: event.clientX, y: event.clientY };
   const from = { ...offset.value };
+  const rendered = renderedScale();
   function onMove(move: PointerEvent) {
     offset.value = clampToStage({
-      x: from.x + move.clientX - start.x,
-      y: from.y + move.clientY - start.y,
+      x: from.x + (move.clientX - start.x) / rendered,
+      y: from.y + (move.clientY - start.y) / rendered,
     });
   }
   function onUp() {
@@ -176,7 +204,7 @@ let sizeIsChosen = false;
  * desk, which is the bug one step later.
  */
 function onContentOverflow(event: Event) {
-  if (sizeIsChosen) return;
+  if (sizeIsChosen || props.sharing) return;
   const overflow = (event as CustomEvent<number>).detail;
   const next = fitToContent(size.value.h, overflow);
   if (next === null) return;
@@ -252,6 +280,10 @@ const failures = computed(
   () => calls.value.filter((call) => !call.ok).length + faults.value.length,
 );
 const debugOpen = ref(false);
+const debugId = useId();
+watch(failures, (count, previous) => {
+  if (count > (previous ?? 0)) debugOpen.value = true;
+}, { immediate: true });
 
 /**
  * Hand each new fault to whoever is listening, once.
@@ -296,16 +328,27 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
 </script>
 
 <template>
-  <!-- The debug overlay stays anchored to the canvas while the card moves. -->
-  <div class="preview">
+  <WidgetPreviewShare
+    v-slot="{ captureActive }"
+    :open="!!sharing"
+    :busy="shareBusy"
+    :title="title"
+    :preview-target="cardEl"
+    :capture-target="stageEl"
+    :feedback="shareFeedback"
+    @close="emit('close-share')"
+    @export="emit('export')"
+  >
+  <div class="preview" :class="{ 'preview--share': sharing }">
     <div ref="stageEl" class="stage">
     <!--
       The listener is on the stage, not on window: a bubbling event stops here,
       so a widget running on the desk cannot resize the wizard's card by
       reporting a size of its own.
     -->
-    <div class="stage-card" :style="cardStyle" @[CONTENT_OVERFLOW_EVENT]="onContentOverflow">
+    <div v-if="entryUrl" ref="cardEl" class="stage-card" :style="cardStyle" @[CONTENT_OVERFLOW_EVENT]="onContentOverflow">
         <WidgetCard
+          :capture-active="captureActive"
           :key="instanceId"
           :title="title"
           :hide-title="hideTitle"
@@ -364,21 +407,33 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
           />
         </WidgetCard>
       </div>
+      <p v-else class="stage-empty">Your widget will appear here.</p>
     </div>
 
-    <!-- Floating over the stage, outside the widget being previewed. -->
-    <!--
-      `open` bound and `toggle` listened to rather than `v-model`: `<details>`
-      has no value to model, and a failed call must be able to open the panel
-      without stealing it back from somebody who just closed it.
-    -->
-    <details class="dbg" :open="debugOpen || failures > 0" @toggle="debugOpen = ($event.target as HTMLDetailsElement).open">
-      <summary>
-        Debug
+    <!-- The host owns the log; its control joins the Wizard's shared toolbar. -->
+    <Teleport v-if="debugTarget && !sharing && entryUrl" :to="debugTarget">
+      <button
+        type="button"
+        class="wiz-action--debug"
+        aria-label="Debug preview"
+        :aria-expanded="debugOpen"
+        :aria-controls="debugId"
+        v-tip="failures ? `Debug: ${failures} failed` : 'Debug preview'"
+        @click="debugOpen = !debugOpen"
+      >
+        <IconBase :size="14">
+          <path d="M8 7 6 4m10 3 2-3M4 12h4m8 0h4M4 18l4-2m8 0 4 2M12 7v13" />
+          <rect x="8" y="6" width="8" height="14" rx="4" />
+        </IconBase>
+        <span v-if="failures" class="dbg-bad dbg-count">{{ failures }}</span>
+      </button>
+      <section v-if="debugOpen" :id="debugId" class="dbg" role="region" aria-label="Preview debug">
+      <header class="dbg-heading">
+        <span>Debug</span>
         <span v-if="failures" class="dbg-bad">{{ failures }} failed</span>
         <span v-else-if="calls.length" class="dbg-ok">{{ calls.length }} calls</span>
         <span v-else class="dbg-idle">nothing yet</span>
-      </summary>
+      </header>
 
       <!--
         An empty panel is now itself a diagnosis, which it was not before the
@@ -442,8 +497,10 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
           </template>
         </li>
       </ol>
-    </details>
+      </section>
+    </Teleport>
   </div>
+  </WidgetPreviewShare>
 </template>
 
 <style scoped>
@@ -473,7 +530,17 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
 
 .stage-card {
   position: relative;
+  flex-shrink: 0;
 }
+
+.preview--share .stage {
+  background-image: var(--share-canvas-background);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.stage-empty { margin: 0; color: rgba(var(--fg-rgb), 0.55); }
 
 .stage-unapproved {
   display: flex;
@@ -502,14 +569,20 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
 }
 .dbg {
   position: absolute;
-  left: 0;
+  top: calc(100% + 6px);
   right: 0;
-  /* Match the composer bar's bottom inset: 7px padding plus its 1px border. */
-  bottom: 8px;
   z-index: 1;
-  font-size: 11px;
+  box-sizing: border-box;
+  width: 360px;
   max-width: 100%;
-  pointer-events: none;
+  max-height: min(300px, 70vh);
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid rgba(var(--fg-rgb), 0.1);
+  border-radius: 9px;
+  background: rgba(var(--surface-bg-rgb), var(--surface-alpha, 0.9));
+  backdrop-filter: blur(12px);
+  font-size: 11px;
   /*
    * The host sets `user-select: none` on the widget anchor so a drag never
    * turns into a text selection. That is right for a clock and wrong for a
@@ -520,39 +593,23 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
   cursor: text;
 }
 
-.dbg > summary {
-  box-sizing: border-box;
-  width: fit-content;
-  max-width: 100%;
-  height: 28px;
-  padding: 0 9px;
-  border-radius: 9px;
-  background: rgba(var(--fg-rgb), 0.06);
-  backdrop-filter: blur(12px);
-  font-size: 12px;
-  line-height: 28px;
-  list-style-position: inside;
-  pointer-events: auto;
-  cursor: pointer;
-  opacity: 0.8;
+.dbg-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-weight: 500;
 }
 
 .dbg > .dbg-empty,
 .dbg > .dbg-list {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  right: 0;
   margin: 0;
-  padding: 8px;
-  border: 1px solid rgba(var(--fg-rgb), 0.1);
-  border-radius: 9px;
-  background: rgba(var(--surface-bg-rgb), var(--surface-alpha, 0.72));
-  backdrop-filter: blur(12px);
-  max-height: 220px;
-  overflow: auto;
-  pointer-events: auto;
+  padding: 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
+
+.dbg-count { font-size: 10px; font-variant-numeric: tabular-nums; }
 
 .dbg-bad {
   color: var(--kavibay-danger, #f87171);

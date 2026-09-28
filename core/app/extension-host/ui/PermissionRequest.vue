@@ -19,6 +19,10 @@ const props = defineProps<{
   /** What the package is called, for the sentence at the top. */
   displayName: string;
   request: PermissionRequest;
+  /** Replaces "Add …?", for a caller whose question is a different one. */
+  title?: string;
+  /** Replaces the counted "Add with …" label on the approve button. */
+  confirmLabel?: string;
 }>();
 
 const emit = defineEmits<{
@@ -52,7 +56,7 @@ function approve() {
 <template>
   <section class="permission">
     <header>
-      <h2 class="title">Add {{ displayName }}?</h2>
+      <h2 class="title">{{ title ?? `Add ${displayName}?` }}</h2>
       <p class="sub">
         <template v-if="choices.length">
           Choose which accounts it may read from<template v-if="asksForChanges">,
@@ -98,10 +102,16 @@ function approve() {
       {{ request.refused.join(", ") }}
     </p>
 
+    <!-- What the caller has to add, such as the endpoints an imported widget calls. -->
+    <slot />
+
     <footer class="actions">
       <button type="button" class="ghost" @click="emit('cancel')">Cancel</button>
       <button type="button" class="primary" @click="approve">
-        {{ granted === 0 ? "Add without access" : `Add with ${granted} permission${granted === 1 ? "" : "s"}` }}
+        {{
+          confirmLabel ??
+          (granted === 0 ? "Add without access" : `Add with ${granted} permission${granted === 1 ? "" : "s"}`)
+        }}
       </button>
     </footer>
   </section>

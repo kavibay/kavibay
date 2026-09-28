@@ -23,12 +23,13 @@ body:
     id: os
     attributes:
       label: Operating system
+      description: Version 0.1 supports Windows only. Linux and macOS source builds are experimental and outside the release scope.
       options:
         - Windows 11
         - Windows 10
-        - Linux (X11)
-        - Linux (Wayland)
-        - macOS
+        - Linux (X11, experimental source build)
+        - Linux (Wayland, experimental source build)
+        - macOS (experimental source build)
     validations:
       required: true
 

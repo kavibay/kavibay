@@ -45,6 +45,10 @@ pub struct ClickThrough {
     /// Also bumped when Rust makes the window interactive itself, so the watcher
     /// rewrites its answer instead of trusting the one it wrote last.
     pub generation: u64,
+    /// OS file drags that have entered the window, counted by its `DragDrop`
+    /// handler. A press in a gap followed by one of these is somebody dragging a
+    /// file onto Kavibay, not clicking past it.
+    pub drags_entered: u64,
 }
 
 pub type SharedClickThrough = Arc<Mutex<ClickThrough>>;
@@ -134,6 +138,49 @@ pub fn click_through_needs_write(
     generation_changed: bool,
 ) -> bool {
     generation_changed || last_written != Some(ignore)
+}
+
+/// A press in a gap, waiting for its release to say whether it was a click.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PendingOutsideClick {
+    drags_at_press: u64,
+}
+
+/// Advance the outside-click answer by one watcher tick.
+///
+/// Returns the press still waiting, and whether to dismiss now. A gap press
+/// used to dismiss at once, which closed the palette the moment somebody
+/// pressed on a file in Finder to drag it over. Now the release decides: a
+/// press that ends without a file drag having reached the window was a click,
+/// and one that brought a drag in was not.
+///
+/// The release is read from the button state rather than from a release event,
+/// because a drag session swallows the release it ends with. A press the
+/// watcher never saw (a screenshot tool's selection) starts nothing, so its
+/// release dismisses nothing.
+pub fn outside_click_step(
+    pending: Option<PendingOutsideClick>,
+    pressed_in_gap: bool,
+    armed: bool,
+    button_down: bool,
+    drags_entered: u64,
+) -> (Option<PendingOutsideClick>, bool) {
+    if !armed {
+        return (None, false);
+    }
+    let pending = if pressed_in_gap {
+        Some(PendingOutsideClick {
+            drags_at_press: drags_entered,
+        })
+    } else {
+        pending
+    };
+    match pending {
+        Some(press) if press.drags_at_press != drags_entered => (None, false),
+        Some(press) if button_down => (Some(press), false),
+        Some(_) => (None, true),
+        None => (None, false),
+    }
 }
 
 /// Can the click-through hit test trust `window.cursor_position()`?
@@ -414,6 +461,78 @@ mod action_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Run a sequence of ticks, each `(pressed_in_gap, button_down, drags_entered)`,
+    /// and return the tick indexes that dismissed.
+    fn dismissals(ticks: &[(bool, bool, u64)]) -> Vec<usize> {
+        let mut pending = None;
+        let mut out = Vec::new();
+        for (index, &(pressed, down, drags)) in ticks.iter().enumerate() {
+            let (next, dismiss) = outside_click_step(pending, pressed, true, down, drags);
+            pending = next;
+            if dismiss {
+                out.push(index);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_gap_click_dismisses_on_release() {
+        assert_eq!(
+            dismissals(&[(true, true, 0), (false, true, 0), (false, false, 0)]),
+            vec![2]
+        );
+    }
+
+    #[test]
+    fn a_click_shorter_than_a_tick_dismisses_at_once() {
+        assert_eq!(dismissals(&[(true, false, 0)]), vec![0]);
+    }
+
+    #[test]
+    fn a_press_that_drags_a_file_in_never_dismisses() {
+        assert_eq!(
+            dismissals(&[
+                (true, true, 3),
+                (false, true, 4),
+                (false, false, 4),
+                (false, false, 4)
+            ]),
+            Vec::<usize>::new()
+        );
+    }
+
+    #[test]
+    fn a_later_click_after_a_file_drag_still_dismisses() {
+        assert_eq!(
+            dismissals(&[
+                (true, true, 0),
+                (false, true, 1),
+                (false, false, 1),
+                (true, false, 1)
+            ]),
+            vec![3]
+        );
+    }
+
+    #[test]
+    fn a_release_without_a_seen_press_dismisses_nothing() {
+        assert_eq!(
+            dismissals(&[(false, true, 0), (false, false, 0)]),
+            Vec::<usize>::new()
+        );
+    }
+
+    #[test]
+    fn disarming_forgets_the_press() {
+        let (pending, dismiss) = outside_click_step(None, true, true, true, 0);
+        assert!(pending.is_some() && !dismiss);
+        assert_eq!(
+            outside_click_step(pending, false, false, false, 0),
+            (None, false)
+        );
+    }
 
     #[test]
     fn foreground_window_is_remembered() {

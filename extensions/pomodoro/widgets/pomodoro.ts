@@ -197,6 +197,7 @@ export const pomodoroWidget = defineWidget<PomodoroConfig>({
       let deadlineAt: number | null = null;
       let tickTimer: ReturnType<typeof setInterval> | undefined;
       let hydrated = false;
+      let disposed = false;
 
       const clearTick = () => {
         if (tickTimer === undefined) return;
@@ -261,25 +262,28 @@ export const pomodoroWidget = defineWidget<PomodoroConfig>({
       };
 
       onScopeDispose(() => {
+        disposed = true;
         clearTick();
         if (hydrated) persist();
       });
 
       const saved = normalizePomodoroState(await ctx.data.get(POMODORO_STATE_KEY), config);
-      phase.value = saved.phase;
-      completedFocusSessions.value = saved.completedFocusSessions;
-      remainingMs.value = saved.remainingMs;
-      if (saved.running && saved.deadlineAt !== null && saved.deadlineAt > Date.now()) {
-        deadlineAt = saved.deadlineAt;
-        running.value = true;
-        tickTimer = setInterval(onTick, 250);
-      } else if (saved.running) {
-        const next = advanceAfterComplete(saved.phase, saved.completedFocusSessions);
-        phase.value = next.phase;
-        completedFocusSessions.value = next.completedFocusSessions;
-        remainingMs.value = durationMs(next.phase, config);
+      if (!disposed) {
+        phase.value = saved.phase;
+        completedFocusSessions.value = saved.completedFocusSessions;
+        remainingMs.value = saved.remainingMs;
+        if (saved.running && saved.deadlineAt !== null && saved.deadlineAt > Date.now()) {
+          deadlineAt = saved.deadlineAt;
+          running.value = true;
+          tickTimer = setInterval(onTick, 250);
+        } else if (saved.running) {
+          const next = advanceAfterComplete(saved.phase, saved.completedFocusSessions);
+          phase.value = next.phase;
+          completedFocusSessions.value = next.completedFocusSessions;
+          remainingMs.value = durationMs(next.phase, config);
+        }
+        hydrated = true;
       }
-      hydrated = true;
 
       return {
         phase,

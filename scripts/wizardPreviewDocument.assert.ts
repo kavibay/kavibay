@@ -53,6 +53,11 @@ for (const [index, text] of DEMO_REPLIES.entries()) {
 
 const doc = buildPreviewDocument(files, runtimeSource);
 
+const pickerSource = readFileSync(new URL("../core/app/extension-host/previewPickerGuest.js", import.meta.url), "utf8");
+const inspected = buildPreviewDocument(files, runtimeSource, pickerSource)!;
+assert(!doc?.includes("kavibay.preview.ready"), "Ordinary previews never load the picker");
+assert(inspected.indexOf("kavibay.preview.ready") < inspected.indexOf("GOAL_ML"), "Opted-in previews install capture handlers before widget code");
+
 assert(doc !== null, "the scripted package produces a document");
 
 /**

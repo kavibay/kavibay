@@ -12,6 +12,7 @@
       "keywords": ["timer", "countdown", "duration", "start"],
       "categories": ["productivity"],
       "ui": {
+        "keepAliveWhenHidden": true,
         "defaultOffset": { "x": 720, "y": -70 },
         "defaultSize": { "w": 200, "h": 160 }
       },

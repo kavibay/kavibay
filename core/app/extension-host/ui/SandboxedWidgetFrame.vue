@@ -23,6 +23,7 @@
  */
 import { forwardFrameZoom } from "../../host/contentZoom";
 import "../../runtime/frameViewport.css";
+import { useWizardPreviewPicker } from "../wizardPreviewPicker";
 import { packageFrameUrl } from "../../runtime/packageFrameUrl";
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import type { ProviderError, QueryState, WidgetInstance } from "@sdk/contract/sdk";
@@ -50,7 +51,8 @@ const props = defineProps<{
 
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 const runId = ref(crypto.randomUUID());
-const frameUrl = computed(() => packageFrameUrl(props.entryUrl, runId.value));
+const wizardPreview = useWizardPreviewPicker(iframeRef, runId);
+const frameUrl = computed(() => packageFrameUrl(props.entryUrl, runId.value, wizardPreview));
 watch(() => props.entryUrl, () => { runId.value = crypto.randomUUID(); });
 let port: SandboxHostPort | undefined;
 

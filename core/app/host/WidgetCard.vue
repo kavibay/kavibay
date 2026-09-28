@@ -14,6 +14,8 @@ import {
 import { scheduleRegionSync, setClickThroughPaused } from "../system/clickThrough";
 import ResizeEdges from "./ResizeEdges.vue";
 import PinIcon from "./PinIcon.vue";
+import WidgetDeleteConfirmation from "./WidgetDeleteConfirmation.vue";
+import { WIDGET_REMOVAL_KEY } from "./widgetRemoval";
 import { isCardHeaderHit, useCardChromePosition } from "./useCardChromePosition";
 import {
   clampContentScale,
@@ -30,7 +32,7 @@ import {
 } from "./hidePressLogic";
 import { onboardingState } from "../onboarding/onboardingSession";
 import { WIDGET_FOCUS_EVENT, widgetFocusRequestMatches } from "@sdk";
-import { SparklesIcon, SquareArrowDownRightIcon } from "@sdk/icons";
+import { IconBase, SparklesIcon, SquareArrowDownRightIcon } from "@sdk/icons";
 import {
   SHORTCUT_HINT_TARGET_KEY,
   shortcutModifierLabel,
@@ -44,6 +46,10 @@ const props = withDefaults(
     hasSettings: boolean;
     /** When true, offer the extension's README in the widget menu. */
     hasAbout?: boolean;
+    /** The owner can present this live card in the shared preview dialog. */
+    canShare?: boolean;
+    /** Freeze host framing while the widget body remains interactive for recording. */
+    captureActive?: boolean;
     /**
      * When true, offer "Edit in Wizard".
      *
@@ -123,6 +129,7 @@ const emit = defineEmits<{
   "update:hideTitle": [hideTitle: boolean];
   duplicate: [];
   about: [];
+  share: [];
   /** Reopen this widget's own package in the Widget Wizard. */
   "edit-in-wizard": [];
   hide: [];
@@ -146,6 +153,11 @@ const emit = defineEmits<{
 
 const slots = useSlots();
 const shortcutHintTarget = inject(SHORTCUT_HINT_TARGET_KEY);
+const widgetRemoval = inject(WIDGET_REMOVAL_KEY, undefined);
+const deleteRequest = computed(() => {
+  const request = widgetRemoval?.pending.value;
+  return request?.surface === "card" && request.instanceId === props.instanceId ? request : null;
+});
 const shortcutModifier = shortcutModifierLabel();
 const pinShortcutTip = `Pin\n${shortcutModifier}+P`;
 const hideShortcutTip = `Hide\n${shortcutModifier}+W`;
@@ -171,9 +183,9 @@ const draftTitle = ref("");
 /** Pointer sits in the card's header band (see `onCardPointerMove`). */
 const headerHovered = ref(false);
 const chromeFocused = ref(false);
-/** Chrome Hide long-press: idle → pressing → armed (eye-off → × morph). */
+/** Chrome Hide long-press: idle → pressing → armed (× → trash). */
 const hidePressPhase = ref<HidePressPhase>("idle");
-/** False while the pointer is dragged off the control (show eye-off again). */
+/** False while the pointer is dragged off the control (show × again). */
 const hidePressOver = ref(true);
 /** Press outlived the hint delay: the tip points at the long press. */
 const hidePressHinting = ref(false);
@@ -206,6 +218,7 @@ const chromeVisible = computed(
   () =>
     headerHovered.value ||
     chromeFocused.value ||
+    deleteRequest.value !== null ||
     menuOpen.value ||
     settingsOpen.value ||
     renaming.value ||
@@ -375,6 +388,7 @@ let stopContentZoom: (() => void) | undefined;
  * Pass client coordinates to place it at the cursor (context menu).
  */
 function openMenu(at?: { clientX: number; clientY: number }) {
+  if (props.captureActive) return;
   if (at && rootEl.value) {
     const rect = rootEl.value.getBoundingClientRect();
     menuAnchor.value = {
@@ -412,6 +426,7 @@ function onHeaderContextMenu(event: MouseEvent) {
  * the open menu or settings nothing opens, so settings do not close under you.
  */
 function onCardContextMenu(event: MouseEvent) {
+  if (props.captureActive) return;
   if (event.defaultPrevented) return;
   event.preventDefault();
   const target = event.target as Node;
@@ -432,6 +447,7 @@ const menuPositionStyle = computed(() => {
 
 /** Forward pointerdown so the host can start a drag from the top strip only. */
 function onMovePointerDown(event: PointerEvent) {
+  if (props.captureActive) return;
   if (event.button !== 0) return;
   emit("move-pointerdown", event);
 }
@@ -462,6 +478,14 @@ function onAbout() {
   menuOpen.value = false;
   removeChoiceOpen.value = false;
   emit("about");
+}
+
+/** Close the menu before moving the live widget into its share presentation. */
+function onShare() {
+  menuOpen.value = false;
+  removeChoiceOpen.value = false;
+  triggerEl.value?.focus();
+  emit("share");
 }
 
 /** Hand this widget's package back to the Wizard; close the menu first. */
@@ -515,14 +539,14 @@ function isPointerOverHideControl(event: PointerEvent): boolean {
   return el === btn || Boolean(el && btn.contains(el));
 }
 
-/** Track drag-off so × morph / ring only show while the pointer stays on the control. */
+/** Track drag-off so trash / ring only show while the pointer stays on the control. */
 function onHidePointerMove(event: PointerEvent) {
   if (hidePressPhase.value === "idle") return;
   hidePressOver.value = isPointerOverHideControl(event);
 }
 
 /**
- * Start Hide long-press: arm after the hold delay (morph to ×). Capture so
+ * Start Hide long-press: arm after the hold delay (switch to trash). Capture so
  * drag-off still delivers pointerup to this control.
  */
 function onHidePointerDown(event: PointerEvent) {
@@ -576,16 +600,14 @@ function onTogglePin() {
   emit("toggle-pin");
 }
 
-/** Ask for inline confirmation before deleting; shared widgets then offer the scope. */
+/** Shared cards choose a scope; the host confirms before deleting any content. */
 function onRemove() {
-  // Keep the menu open so the confirmation stays anchored to the action.
-  menuOpen.value = true;
-  removeChoiceOpen.value = true;
-}
-
-/** Leave the menu open when a one-widget deletion is cancelled. */
-function cancelRemove() {
-  removeChoiceOpen.value = false;
+  if (props.multiDeskRemove) {
+    menuOpen.value = true;
+    removeChoiceOpen.value = true;
+  } else {
+    onRemoveAllDesks();
+  }
 }
 
 /** Remove placement from the active desk only (catalog kept when shared). */
@@ -754,7 +776,7 @@ onMounted(() => {
       stopContentZoom = installContentZoom(
         rootEl.value,
         () => resolvedContentScale.value,
-        (scale) => emit("update:contentScale", scale),
+        (scale) => { if (!props.captureActive) emit("update:contentScale", scale); },
       );
     }
     if (rootEl.value && typeof ResizeObserver !== "undefined") {
@@ -804,7 +826,7 @@ watch(
     class="widget-card"
     tabindex="-1"
     :class="{
-      'widget-card--menu-open': menuOpen || settingsOpen || renaming || hidePressPhase !== 'idle',
+      'widget-card--menu-open': menuOpen || settingsOpen || renaming || hidePressPhase !== 'idle' || deleteRequest,
       'widget-card--flush': flush,
       'widget-card--compact': compact,
       'widget-card--flash': flashing,
@@ -825,7 +847,7 @@ watch(
     <!-- Glass layer only — keeps backdrop-filter from clipping outside chrome. -->
     <div class="widget-card-surface" :style="surfaceVars" aria-hidden="true" />
     <ResizeEdges
-      v-if="resizable"
+      v-if="resizable && !captureActive"
       :width="width"
       :height="height"
       :content-scale="resolvedContentScale"
@@ -842,6 +864,7 @@ watch(
       Visually invisible — grab cursor only.
     -->
     <div
+      v-if="!captureActive"
       class="widget-card-drag"
       data-interactive
       :data-onboarding-target="coachTargets ? 'widget-drag' : undefined"
@@ -851,9 +874,10 @@ watch(
       @contextmenu="onHeaderContextMenu"
     />
     <div
-      v-if="chromeMounted"
+      v-if="chromeMounted && !captureActive"
       class="widget-card-chrome"
       :class="{
+        'card-chrome-reveal': chromeVisible,
         'widget-card-chrome--dormant': !chromeVisible,
         'widget-card-chrome--coach': forceCoachChrome,
       }"
@@ -863,141 +887,112 @@ watch(
       @focusout="chromeFocused = false"
       @contextmenu="onHeaderContextMenu"
     >
-      <button
-        v-if="!chromeCompact || coachTargets"
-        type="button"
-        class="widget-card-chrome-btn"
-        :class="{ 'widget-card-chrome-btn--pin-on': pinned }"
-        :data-onboarding-target="coachTargets ? 'widget-pin' : undefined"
-        v-tip="shortcutHinting ? pinShortcutTip : 'Pin'"
-        aria-label="Toggle pin"
-        :aria-pressed="pinned"
-        @click.stop="emit('toggle-pin')"
-      >
-        <PinIcon :active="pinned" />
-        <span v-if="shortcutHintVisible" class="widget-card-shortcut-hint" aria-hidden="true">
-          <span>Pin</span>
-          <span>{{ shortcutModifier }}+P</span>
-        </span>
-      </button>
-      <button
-        ref="triggerEl"
-        type="button"
-        class="widget-card-chrome-btn"
-        v-tip="'Widget menu'"
-        aria-label="Widget menu"
-        aria-haspopup="menu"
-        :aria-expanded="menuOpen"
-        @click.stop="toggleMenu"
-      >
-        ⋯
-      </button>
-      <button
-        v-if="!chromeCompact || coachTargets"
-        type="button"
-        class="widget-card-chrome-btn"
-        :class="{
-          'widget-card-chrome-btn--pressing':
-            hidePressPhase === 'pressing' && hidePressOver,
-          'widget-card-chrome-btn--armed-remove':
-            hidePressPhase === 'armed' && hidePressOver,
-          'widget-card-chrome-btn--coach-hide':
-            forceCoachChrome &&
-            (onboardingState?.step === 8 || onboardingState?.step === 10),
-        }"
-        :style="{ '--hide-press-arm-ms': `${HIDE_PRESS_ARM_MS}ms` }"
-        :data-onboarding-target="coachTargets ? 'widget-hide' : undefined"
-        v-tip="
-          shortcutHinting
-            ? hideShortcutTip
-            : hidePressTipLabel(hidePressPhase, hidePressOver, hidePressHinting)
-        "
-        :aria-label="
-          hidePressPhase === 'armed' && hidePressOver ? 'Delete widget' : 'Hide widget'
-        "
-        @pointerdown.stop="onHidePointerDown"
-        @pointermove.stop="onHidePointerMove"
-        @pointerup.stop="onHidePointerUp"
-        @pointercancel.stop="onHidePointerCancel"
-      >
-        <!-- 1px border arc: stroke draws clockwise from top over the arm delay. -->
-        <svg
-          v-if="
-            (hidePressPhase === 'pressing' || hidePressPhase === 'armed') && hidePressOver
+      <WidgetDeleteConfirmation v-if="deleteRequest" :request="deleteRequest" />
+      <template v-else>
+        <button
+          v-if="!chromeCompact || coachTargets"
+          type="button"
+          class="widget-card-chrome-btn"
+          :class="{ 'widget-card-chrome-btn--pin-on': pinned }"
+          :data-onboarding-target="coachTargets ? 'widget-pin' : undefined"
+          v-tip="shortcutHinting ? pinShortcutTip : 'Pin'"
+          aria-label="Toggle pin"
+          :aria-pressed="pinned"
+          @click.stop="emit('toggle-pin')"
+        >
+          <PinIcon :active="pinned" />
+          <span v-if="shortcutHintVisible" class="widget-card-shortcut-hint" aria-hidden="true">
+            <span>Pin</span>
+            <span>{{ shortcutModifier }}+P</span>
+          </span>
+        </button>
+        <button
+          ref="triggerEl"
+          type="button"
+          class="widget-card-chrome-btn"
+          v-tip="'Widget menu'"
+          aria-label="Widget menu"
+          aria-haspopup="menu"
+          :aria-expanded="menuOpen"
+          @click.stop="toggleMenu"
+        >
+          ⋯
+        </button>
+        <button
+          v-if="!chromeCompact || coachTargets"
+          type="button"
+          class="widget-card-chrome-btn"
+          :class="{
+            'widget-card-chrome-btn--pressing':
+              hidePressPhase === 'pressing' && hidePressOver,
+            'widget-card-chrome-btn--armed-remove':
+              hidePressPhase === 'armed' && hidePressOver,
+            'widget-card-chrome-btn--coach-hide':
+              forceCoachChrome &&
+              (onboardingState?.step === 8 || onboardingState?.step === 10),
+          }"
+          :style="{ '--hide-press-arm-ms': `${HIDE_PRESS_ARM_MS}ms` }"
+          :data-onboarding-target="coachTargets ? 'widget-hide' : undefined"
+          v-tip="
+            shortcutHinting
+              ? hideShortcutTip
+              : hidePressTipLabel(hidePressPhase, hidePressOver, hidePressHinting)
           "
-          class="widget-card-chrome-press-ring"
-          viewBox="0 0 28 28"
-          aria-hidden="true"
+          :aria-label="
+            hidePressPhase === 'armed' && hidePressOver ? 'Delete widget' : 'Hide widget'
+          "
+          @pointerdown.stop="onHidePointerDown"
+          @pointermove.stop="onHidePointerMove"
+          @pointerup.stop="onHidePointerUp"
+          @pointercancel.stop="onHidePointerCancel"
         >
-          <rect
-            class="widget-card-chrome-press-ring-path"
-            x="0.5"
-            y="0.5"
-            width="27"
-            height="27"
-            rx="7.5"
-            ry="7.5"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1"
-            pathLength="100"
-            stroke-linecap="round"
-          />
-        </svg>
-        <!-- Armed long-press → Remove (×); else Hide: open eye → eye-off on hover. -->
-        <svg
-          v-if="hidePressPhase === 'armed' && hidePressOver"
-          class="widget-card-chrome-action-icon"
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-        >
-          <path
-            d="M18 6L6 18M6 6l12 12"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-          />
-        </svg>
-        <svg
-          v-else
-          class="widget-card-chrome-action-icon widget-card-chrome-action-icon--eye"
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-        >
-          <g class="widget-card-chrome-eye-open">
-            <path
-              d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"
+          <!-- 1px border arc: stroke draws clockwise from top over the arm delay. -->
+          <svg
+            v-if="
+              (hidePressPhase === 'pressing' || hidePressPhase === 'armed') && hidePressOver
+            "
+            class="widget-card-chrome-press-ring"
+            viewBox="0 0 28 28"
+            aria-hidden="true"
+          >
+            <rect
+              class="widget-card-chrome-press-ring-path"
+              x="0.5"
+              y="0.5"
+              width="27"
+              height="27"
+              rx="7.5"
+              ry="7.5"
               fill="none"
               stroke="currentColor"
-              stroke-width="2"
+              stroke-width="1"
+              pathLength="100"
+              stroke-linecap="round"
             />
-            <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2" />
-          </g>
-          <g class="widget-card-chrome-eye-off">
+          </svg>
+          <!-- Short press hides (×); an armed long press offers deletion (trash). -->
+          <svg
+            class="widget-card-chrome-action-icon"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
             <path
-              d="M17.94 17.94A10.07 10.07 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19"
+              :d="hidePressPhase === 'armed' && hidePressOver
+                ? 'M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13'
+                : 'M18 6L6 18M6 6l12 12'"
               fill="none"
               stroke="currentColor"
               stroke-width="2"
               stroke-linecap="round"
+              stroke-linejoin="round"
             />
-            <line
-              x1="1"
-              y1="1"
-              x2="23"
-              y2="23"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-            />
-          </g>
-        </svg>
-        <span v-if="shortcutHintVisible" class="widget-card-shortcut-hint" aria-hidden="true">
-          <span>Hide</span>
-          <span>{{ shortcutModifier }}+W</span>
-        </span>
-      </button>
+          </svg>
+          <span v-if="shortcutHintVisible" class="widget-card-shortcut-hint" aria-hidden="true">
+            <span>Hide</span>
+            <span>{{ shortcutModifier }}+W</span>
+          </span>
+        </button>
+      </template>
     </div>
 
     <div
@@ -1097,45 +1092,6 @@ watch(
           </svg>
           Delete widget
         </button>
-        <div
-          v-else-if="!multiDeskRemove"
-          class="widget-menu-delete-confirm"
-          role="group"
-          aria-label="Confirm delete widget"
-        >
-          <svg class="widget-menu-tool-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-          <span>Confirm</span>
-          <button type="button" aria-label="Cancel delete" @click="cancelRemove">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M18 6L6 18M6 6l12 12"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-              />
-            </svg>
-          </button>
-          <button
-            type="button"
-            class="widget-menu-delete-confirm-action"
-            aria-label="Confirm delete widget"
-            @click="onRemoveAllDesks"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="m5 12 4 4L19 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-          </button>
-        </div>
         <button
           v-if="chromeCompact"
           type="button"
@@ -1145,37 +1101,17 @@ watch(
           @click="onHide"
         >
           <svg
-            class="widget-menu-tool-icon widget-menu-tool-icon--eye"
+            class="widget-menu-tool-icon"
             viewBox="0 0 24 24"
             aria-hidden="true"
           >
-            <g class="widget-card-chrome-eye-open">
-              <path
-                d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              />
-              <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2" />
-            </g>
-            <g class="widget-card-chrome-eye-off">
-              <path
-                d="M17.94 17.94A10.07 10.07 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-              />
-              <line
-                x1="1"
-                y1="1"
-                x2="23"
-                y2="23"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-              />
-            </g>
+            <path
+              d="M18 6L6 18M6 6l12 12"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
           </svg>
           Hide widget
         </button>
@@ -1206,6 +1142,24 @@ watch(
             <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2" />
           </svg>
           Settings
+        </button>
+      </div>
+      <div
+        v-if="canShare"
+        class="widget-menu-toolbar widget-menu-toolbar--settings"
+        role="group"
+        aria-label="Widget sharing"
+      >
+        <button
+          type="button"
+          role="menuitem"
+          class="widget-menu-tool widget-menu-tool--labeled"
+          @click="onShare"
+        >
+          <IconBase class="widget-menu-tool-icon" :size="16">
+            <path d="M12 16V3m-4 4 4-4 4 4M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
+          </IconBase>
+          Share
         </button>
       </div>
       <div
@@ -1531,36 +1485,7 @@ watch(
   flex-shrink: 0;
 }
 
-/* Hide affordance: slightly smaller than × / other chrome icons. */
-.widget-card-chrome-action-icon--eye {
-  width: 12px;
-  height: 12px;
-}
-
-.widget-card-chrome-eye-off {
-  opacity: 0;
-}
-
-.widget-card-chrome-btn:hover .widget-card-chrome-eye-open,
-.widget-card-chrome-btn:focus-visible .widget-card-chrome-eye-open,
-.widget-menu-tool:hover .widget-card-chrome-eye-open,
-.widget-menu-tool:focus-visible .widget-card-chrome-eye-open {
-  opacity: 0;
-}
-
-.widget-card-chrome-btn:hover .widget-card-chrome-eye-off,
-.widget-card-chrome-btn:focus-visible .widget-card-chrome-eye-off,
-.widget-menu-tool:hover .widget-card-chrome-eye-off,
-.widget-menu-tool:focus-visible .widget-card-chrome-eye-off {
-  opacity: 1;
-}
-
-.widget-menu-tool-icon--eye {
-  width: 13px;
-  height: 13px;
-}
-
-/* Armed: red × only — no red background fill. */
+/* Armed: red trash icon — no red background fill. */
 .widget-card-chrome-btn--armed-remove {
   color: #e07a5f;
   background: transparent;
@@ -1593,13 +1518,13 @@ watch(
   }
 }
 
-/* Search-result ping: soft accent ring that fades out (on the glass layer). */
-.widget-card--flash .widget-card-surface {
+/* Rings belong to this card's glass, never to nested widget previews. */
+.widget-card--flash > .widget-card-surface {
   animation: widget-search-flash 0.9s ease-out forwards;
 }
 
 /* Palette ↑/↓ selection: same ring as the flash, held while the row is active. */
-.widget-card--preview:not(.widget-card--flash) .widget-card-surface {
+.widget-card--preview:not(.widget-card--flash) > .widget-card-surface {
   border-color: rgba(120, 180, 255, 0.55);
   outline: 1px solid rgba(120, 180, 255, 0.35);
   outline-offset: 2px;
@@ -1920,66 +1845,6 @@ watch(
   white-space: nowrap;
   font-size: 13px;
   color: rgba(var(--fg-rgb), 0.9);
-}
-
-/* The destructive row swaps in place, keeping confirmation close to its action. */
-.widget-menu-delete-confirm {
-  display: grid;
-  grid-template-columns: 15px minmax(0, 1fr) 22px 22px;
-  align-items: center;
-  gap: 4px;
-  height: 30px;
-  padding: 0 4px 0 8px;
-  border-radius: 8px;
-  background: rgba(224, 122, 95, 0.14);
-  box-shadow: inset 0 0 0 1px rgba(224, 122, 95, 0.1);
-  color: #e07a5f;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.widget-menu-delete-confirm span {
-  min-width: 0;
-}
-
-.widget-menu-delete-confirm button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 1px solid rgba(var(--fg-rgb), 0.16);
-  border-radius: 6px;
-  background: rgba(var(--fg-rgb), 0.06);
-  color: rgba(var(--fg-rgb), 0.85);
-  font: inherit;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.widget-menu-delete-confirm button svg {
-  width: 13px;
-  height: 13px;
-}
-
-.widget-menu-delete-confirm button:hover,
-.widget-menu-delete-confirm button:focus-visible {
-  border-color: rgba(var(--fg-rgb), 0.28);
-  background: rgba(var(--fg-rgb), 0.14);
-}
-
-.widget-menu-delete-confirm .widget-menu-delete-confirm-action {
-  border-color: transparent;
-  background: #e07a5f;
-  color: #251c1b;
-  font-weight: 700;
-}
-
-.widget-menu-delete-confirm .widget-menu-delete-confirm-action:hover,
-.widget-menu-delete-confirm .widget-menu-delete-confirm-action:focus-visible {
-  background: #ee9279;
 }
 
 .widget-menu-tool:hover {

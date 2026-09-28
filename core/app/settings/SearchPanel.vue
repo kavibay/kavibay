@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import PaletteSearchActionIcon from "../palette/PaletteSearchActionIcon.vue";
 import { SEARCH_ACTIONS, searchActionLabel } from "../palette/searchActions";
 import { getQuickActionModelDefinition } from "./ai/aiApi";
@@ -9,6 +9,7 @@ import { mergePaletteCatalog } from "../palette/paletteResults";
 import { useRuntimeExtensions } from "../runtime/useRuntimeExtensions";
 import { useExtensionsPrefs } from "./useExtensionsPrefs";
 import { usePaletteWidgetPrefs } from "./usePaletteWidgetPrefs";
+import { useSettingsModal } from "./useSettingsModal";
 
 const { prefs, enabledActions, setEnabled, move } = useSearchPrefs();
 const aiProvider = ref<string>();
@@ -30,6 +31,19 @@ const widgetRows = computed(() => [
     .sort((a, b) => a.title.localeCompare(b.title))
     .map((widget) => ({ ...widget, available: true, enabled: false, index: -1 })),
 ].filter((widget) => `${widget.title} ${widget.id}`.toLowerCase().includes(widgetFilter.value.trim().toLowerCase())));
+const { searchPart } = useSettingsModal();
+const widgetSection = ref<HTMLElement | null>(null);
+const widgetFilterInput = ref<HTMLInputElement | null>(null);
+
+/** Opened from the palette's shortcut row: land on the shortcut list. */
+watch(searchPart, async (part) => {
+  if (part !== "widgets") return;
+  searchPart.value = null;
+  await nextTick();
+  widgetSection.value?.scrollIntoView({ block: "start" });
+  widgetFilterInput.value?.focus({ preventScroll: true });
+}, { immediate: true });
+
 onMounted(async () => {
   try { aiProvider.value = (await getQuickActionModelDefinition())?.credentialType; }
   catch { /* The generic AI icon remains usable before a provider is configured. */ }
@@ -77,7 +91,7 @@ onMounted(async () => {
       </ol>
       <p class="hint">Tab selects the first visible action, then the next. Enter runs it.</p>
     </section>
-    <section aria-labelledby="widget-shortcuts-heading">
+    <section ref="widgetSection" aria-labelledby="widget-shortcuts-heading">
       <h3 id="widget-shortcuts-heading">Widget shortcuts</h3>
       <p class="hint">Show these icons when the search field is empty. Choose from your enabled widgets and set their order from left to right.</p>
       <div class="preview" role="group" aria-label="Widget shortcut order preview">
@@ -87,7 +101,7 @@ onMounted(async () => {
         </span>
         <span v-if="!selectedWidgets.some((widget) => widget.available)" class="hint">No widget shortcuts shown</span>
       </div>
-      <input v-model="widgetFilter" type="search" class="widget-filter" placeholder="Find widgets…" aria-label="Find widget shortcuts" />
+      <input ref="widgetFilterInput" v-model="widgetFilter" type="search" class="widget-filter" placeholder="Find widgets…" aria-label="Find widget shortcuts" />
       <ol class="action-list widget-list" aria-label="Widget shortcuts">
         <li v-for="row in widgetRows" :key="row.id" class="action-row">
           <PaletteWidgetIcon :widget="row" />

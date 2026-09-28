@@ -39,6 +39,7 @@
  * localStorage itself stays unencrypted — see SECURITY.md, "Data at rest".
  */
 import { invoke } from "@tauri-apps/api/core";
+import { computed, ref } from "vue";
 
 import { fromSections, isSettingsKey, toSections } from "./settingsSections";
 
@@ -62,6 +63,18 @@ let hooked = false;
  * what a single flag used to do.
  */
 const mirroring = { settings: false, state: false };
+type DurableFile = keyof typeof mirroring;
+type StorageFailure = { file: DurableFile; operation: "load" | "save"; detail: string };
+const failures = ref<Partial<Record<DurableFile, StorageFailure>>>({});
+export const durableStorageFailures = computed(() => Object.values(failures.value));
+let saveChain = Promise.resolve();
+
+/** Keep failed files visible until that same file has been saved successfully. */
+function reportFailure(file: DurableFile, operation: "load" | "save", error: unknown): void {
+  const detail = error instanceof Error ? error.message : String(error);
+  failures.value[file] = { file, operation, detail };
+  console.error(`[kavibay] ${file} ${operation} failed:`, error);
+}
 
 /** Current value of every mirrored key, split by which file owns it. */
 function snapshot(): { settings: Record<string, string>; state: Record<string, string> } {
@@ -84,38 +97,46 @@ function snapshot(): { settings: Record<string, string>; state: Record<string, s
  * Both files are attempted even when one fails: they hold different things, and
  * a settings write that cannot land is no reason to drop the user's notes.
  */
-async function save(): Promise<void> {
+function save(): Promise<void> {
   if (saveTimer !== undefined) {
     clearTimeout(saveTimer);
     saveTimer = undefined;
   }
-  if (!hasTauri()) return;
+  if (!hasTauri()) return Promise.resolve();
 
-  const current = snapshot();
-  const writes: Promise<unknown>[] = [];
+  // A flush can overlap a debounced save. Take each snapshot only after the
+  // previous write finishes, so an older snapshot cannot land last.
+  saveChain = saveChain.then(writeSnapshot);
+  return saveChain;
+}
 
-  if (mirroring.state) {
-    writes.push(
-      // Nothing useful to do on failure — localStorage still holds the value,
-      // and the next write retries the whole snapshot anyway. Log so a broken
-      // durable store shows up in the console instead of only at the next
-      // restart.
-      invoke("web_storage_save", { value: JSON.stringify(current.state) }).catch(
-        (error: unknown) => console.error("[kavibay] durable storage save failed:", error),
-      ),
-    );
+/** Write each readable file independently, preserving failures on the other. */
+async function writeSnapshot(): Promise<void> {
+  try {
+    const current = snapshot();
+    await Promise.all((["state", "settings"] as const).map(async (file) => {
+      if (!mirroring[file]) return;
+      try {
+        if (file === "state") {
+          await invoke("web_storage_save", { value: JSON.stringify(current.state) });
+        } else {
+          await invoke("settings_save_sections", { sections: toSections(current.settings) });
+        }
+        delete failures.value[file];
+      } catch (error) {
+        reportFailure(file, "save", error);
+      }
+    }));
+  } catch (error) {
+    for (const file of ["state", "settings"] as const) {
+      if (mirroring[file]) reportFailure(file, "save", error);
+    }
   }
-  if (mirroring.settings) {
-    writes.push(
-      // Sections only: the host merges them, so sections this build does not
-      // know — a newer version's, or the file's own `version` — stay put.
-      invoke("settings_save_sections", { sections: toSections(current.settings) }).catch(
-        (error: unknown) => console.error("[kavibay] settings save failed:", error),
-      ),
-    );
-  }
+}
 
-  await Promise.all(writes);
+/** Retry saves only: an unreadable file must never be replaced by this session. */
+export function retryDurableStorage(): Promise<void> {
+  return save();
 }
 
 /** Flush pending changes without waiting for the debounce. */
@@ -186,30 +207,28 @@ function hookWrites(): void {
  * from beats a confidently wrong one.
  */
 async function loadDurableFile(
+  file: DurableFile,
   command: string,
-  label: string,
-): Promise<{ ok: boolean; raw: string | null }> {
+): Promise<{ ok: boolean; values?: Record<string, unknown> }> {
   try {
-    return { ok: true, raw: await invoke<string | null>(command) };
+    const raw = await invoke<string | null>(command);
+    const values = parseDocument(raw);
+    delete failures.value[file];
+    return { ok: true, values };
   } catch (error) {
-    console.error(`[kavibay] ${label} unreadable, mirroring disabled:`, error);
-    return { ok: false, raw: null };
+    reportFailure(file, "load", error);
+    return { ok: false };
   }
 }
 
-/** Parse a durable payload into an object, or nothing if it is unusable. */
-function parseDocument(raw: string | null, label: string): Record<string, unknown> | undefined {
-  if (!raw) return undefined;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-    console.error(`[kavibay] ${label} is not an object — ignoring it`);
-  } catch (error) {
-    console.error(`[kavibay] ${label} could not be parsed:`, error);
+/** An invalid response is a failed load, never permission to overwrite a file. */
+function parseDocument(raw: string | null): Record<string, unknown> | undefined {
+  if (raw === null) return undefined;
+  const parsed: unknown = JSON.parse(raw);
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    return parsed as Record<string, unknown>;
   }
-  return undefined;
+  throw new Error("Saved data is not an object.");
 }
 
 /** Copy string entries under the durable prefix into localStorage. */
@@ -243,14 +262,12 @@ export async function hydrateDurableStorage(
 ): Promise<void> {
   if (!hasTauri()) return;
 
-  const state = await loadDurableFile("web_storage_load", "durable storage");
-  const settings = await loadDurableFile("settings_load", "settings");
+  const state = await loadDurableFile("state", "web_storage_load");
+  const settings = await loadDurableFile("settings", "settings_load");
 
-  const stateValues = parseDocument(state.raw, "durable storage");
-  if (stateValues) restore(stateValues);
+  if (state.values) restore(state.values);
 
-  const document = parseDocument(settings.raw, "settings");
-  if (document) restore(fromSections(document));
+  if (settings.values) restore(fromSections(settings.values));
 
   // Only one window may own the mirror. The quick-action popup hydrates
   // read-only (`mirror: false`) so it renders with the real appearance and

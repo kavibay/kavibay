@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DialogCloseButton from "@sdk/ui/DialogCloseButton.vue";
 import {
   computed,
   nextTick,
@@ -327,14 +328,7 @@ onUnmounted(() => {
           </p>
         </aside>
         <section class="settings-content">
-          <button
-            type="button"
-            class="settings-close"
-            aria-label="Close settings"
-            @click="hide"
-          >
-            ×
-          </button>
+          <DialogCloseButton class="settings-close" label="Close settings" @click="hide" />
           <div class="settings-body">
             <AppearancePanel v-if="activeSection === 'appearance'" />
             <BehaviorPanel v-else-if="activeSection === 'behavior'" />
@@ -539,19 +533,5 @@ onUnmounted(() => {
   top: 12px;
   right: 14px;
   z-index: 2;
-  width: 32px;
-  height: 32px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: rgba(var(--fg-rgb), 0.55);
-  font-size: 22px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.settings-close:hover {
-  background: rgba(var(--fg-rgb), 0.08);
-  color: rgba(var(--fg-rgb), 0.9);
 }
 </style>

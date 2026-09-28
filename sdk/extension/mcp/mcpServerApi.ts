@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 /** Typed adapters for the backend-owned global MCP server setting. */
 import { invoke } from "@tauri-apps/api/core";
 

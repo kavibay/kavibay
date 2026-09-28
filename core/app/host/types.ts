@@ -21,7 +21,7 @@ export interface WidgetInstance {
   /** This instance's own surface, over the manifest's `ui.appearance`. */
   appearance?: WidgetAppearance;
   /**
-   * Persisted Hidden: not mounted; settings/offset kept; can be shown again
+   * Persisted Hidden: not visible; background widgets may stay mounted. Can be shown again
    * from the palette. Distinct from session cockpit close (Ctrl double tap / outside click).
    */
   hidden?: boolean;
@@ -102,4 +102,3 @@ export interface SavedLayoutV4 {
   desks: Desk[];
   catalog: WidgetCatalogEntry[];
 }
-

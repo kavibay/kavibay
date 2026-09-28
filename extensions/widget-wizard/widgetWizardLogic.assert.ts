@@ -2901,4 +2901,22 @@ assert(
   assertEq(bubbles.length, 7, "a note with a button is never merged away");
 }
 
+// --- a file block glued to the end of a sentence -----------------------------
+// A model wrote "…zum Beispiel `26.677`.```json path=manifest.json" with no line
+// break. The block was not recognised, and the manifest showed up in the chat.
+{
+  const reply = parseGeneratedFiles(
+    "Die Tage stehen mit Tausenderpunkt da, zum Beispiel `26.677`.```json path=manifest.json\n" +
+      '{ "id": "holiday-countdown" }\n' +
+      "```\n```js path=ui/app.js\nlet days = 1;\n```",
+  );
+  assertEq(
+    reply.prose,
+    "Die Tage stehen mit Tausenderpunkt da, zum Beispiel `26.677`.",
+    "the sentence stays prose",
+  );
+  assertEq(reply.files.map((f) => f.path).join(","), "manifest.json,ui/app.js", "and the glued block is a file");
+  assertEq(reply.files[0].contents, '{ "id": "holiday-countdown" }', "with its contents intact");
+}
+
 console.log("widgetWizardLogic.assert.ts: ok");

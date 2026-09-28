@@ -81,6 +81,36 @@ pub fn provider_schema_document() -> String {
 /// escaping at all.
 pub const FILE_FENCE_HINT: &str = "```<lang> path=<package-relative path>";
 
+/// Both package formats return suggestions in the same completion as the files.
+const SUGGESTIONS_HINT: &str = r#"
+# Suggested next changes
+
+After the final file block, emit one fenced `kavibay-suggestions` block with a
+JSON array of three objects. Each object has a `label` (at most 48 characters,
+ideally 2–5 words) and a `prompt` (at most 300 characters, one specific request).
+These are metadata for the Wizard, not a package file: never add `path=`.
+
+Generate a fresh set for every reply, including repair turns. Base it on the
+widget you just produced and the person's latest request. Suggest useful next
+changes that are not already implemented; avoid repeating earlier suggestions
+or undoing what the person just asked for. Use the person's language. Stay within
+this package format's capabilities and the available providers. The person can
+edit the inserted prompt before sending; do not apply suggested changes now.
+
+For example, after creating a basic water tracker:
+
+```kavibay-suggestions
+[
+  {"label":"Weekly view", "prompt":"Add a weekly view showing how much water I logged each day."},
+  {"label":"Adjustable goal", "prompt":"Let me change my daily water goal in the widget settings."},
+  {"label":"More compact", "prompt":"Make the widget more compact while keeping the total and add-water button easy to read."}
+]
+```
+
+No prose after this block. Do not copy these examples unless they fit the
+current widget and would add something it does not already have.
+"#;
+
 /// Full system prompt for a widget-authoring turn.
 pub fn system_prompt() -> String {
     format!(
@@ -141,6 +171,8 @@ The rules for your reply:
   a stand-in defines nothing and every call throws on the first click.
 - Draw from defaults immediately and reconcile when storage answers. Never gate
   the interface on a reply that may not come.
+
+{SUGGESTIONS_HINT}
 
 # Images
 
@@ -319,6 +351,8 @@ The rules for your reply:
   you do not: it is what the person is shown when they approve the widget.
 - **Never draw a spinner, an error, a retry or a connect screen.** The host
   draws all of those around your widget. Yours would be the second one.
+
+{SUGGESTIONS_HINT}
 
 # The format
 

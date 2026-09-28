@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
+import type { WizardPreviewElement } from "@sdk/wizardPreview";
+import { provideWizardPreviewPicker, useWizardPreviewPicker } from "../../app/extension-host/wizardPreviewPicker";
+import PREVIEW_PICKER_SOURCE from "../../app/extension-host/previewPickerGuest.js?raw";
 import WidgetCard from "../../app/host/WidgetCard.vue";
+import WidgetPreviewShare from "../../app/extension-host/ui/WidgetPreviewShare.vue";
 import { demoDraftFiles } from "./wizardFixture";
 import { buildPreviewDocument } from "./wizardPreviewDocument";
 import RUNTIME_SOURCE from "../../../sdk/runtime/kavibay-runtime.js?raw";
@@ -45,13 +49,31 @@ const props = defineProps<{
   initialSize?: { w: number; h: number } | null;
   initialScale?: number | null;
   unmet?: string[];
+  sharing?: boolean;
+  shareBusy?: boolean;
+  shareFeedback?: string;
+  picking?: boolean;
+  debugTarget?: HTMLElement | null;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   rename: [title: string];
   resized: [size: { w: number; h: number }, scale?: number];
   fault: [fault: { source: "error" | "rejection" | "console"; message: string; where?: string }];
+  "close-share": [];
+  export: [];
+  selected: [element: WizardPreviewElement];
+  "cancel-pick": [];
 }>();
+const cardEl = ref<HTMLElement | null>(null);
+const stageEl = ref<HTMLElement | null>(null);
+const iframeEl = ref<HTMLIFrameElement | null>(null);
+const picker = provideWizardPreviewPicker({
+  picking: computed(() => !!props.picking && !props.sharing),
+  select: (element) => emit("selected", element),
+  cancel: () => emit("cancel-pick"),
+});
+useWizardPreviewPicker(iframeEl, computed(() => `${props.extId}:${props.nonce}`), picker);
 
 /**
  * Rebuilt whenever the draft changes, which is what makes the preview follow
@@ -71,7 +93,8 @@ const draftId = computed(() => props.extId.replace(/^__draft__/, ""));
 
 const srcdoc = computed(() => {
   void props.nonce;
-  return buildPreviewDocument(demoDraftFiles(draftId.value), RUNTIME_SOURCE);
+  return buildPreviewDocument(demoDraftFiles(draftId.value), RUNTIME_SOURCE,
+    import.meta.env.DEV ? PREVIEW_PICKER_SOURCE : undefined);
 });
 
 const size = computed(() => ({
@@ -81,7 +104,17 @@ const size = computed(() => ({
 </script>
 
 <template>
-  <div class="embed-preview">
+  <WidgetPreviewShare
+    :open="!!sharing"
+    :busy="shareBusy"
+    :title="title"
+    :preview-target="cardEl"
+    :capture-target="stageEl"
+    :feedback="shareFeedback"
+    @close="emit('close-share')"
+    @export="emit('export')"
+  >
+  <div ref="stageEl" class="embed-preview" :class="{ 'embed-preview--share': sharing }">
     <!--
       The app's own card, so a generated widget is judged in the frame it will
       actually live in rather than against a blank rectangle.
@@ -91,8 +124,8 @@ const size = computed(() => ({
       title. A widget that wants the whole card says so in its own manifest;
       the preview should not decide that for it.
     -->
+    <div v-if="srcdoc" ref="cardEl" class="embed-preview__card">
     <WidgetCard
-      v-if="srcdoc"
       :title="title"
       :hide-title="false"
       :instance-id="`preview-${extId}`"
@@ -105,6 +138,7 @@ const size = computed(() => ({
       :coach-targets="false"
     >
       <iframe
+        ref="iframeEl"
         :key="nonce"
         class="embed-preview__frame"
         sandbox="allow-scripts"
@@ -112,9 +146,11 @@ const size = computed(() => ({
         :title="title"
       ></iframe>
     </WidgetCard>
+    </div>
 
     <p v-else class="embed-preview__empty">Your widget will appear here.</p>
   </div>
+  </WidgetPreviewShare>
 </template>
 
 <style scoped>
@@ -170,6 +206,15 @@ const size = computed(() => ({
    */
   color-scheme: normal;
 }
+
+.embed-preview__card { flex-shrink: 0; }
+.embed-preview--share {
+  background-image: var(--share-canvas-background);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.embed-preview--share .embed-preview__card { transform: scale(var(--share-preview-scale, 1)); }
 
 .embed-preview__empty {
   margin: 0;

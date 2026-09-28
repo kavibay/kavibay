@@ -153,6 +153,10 @@ const POLL_MS: u64 = 400;
 const INDEX_FILE: &str = "index.json";
 const CLIPBOARD_WRITE_ATTEMPTS: usize = 4;
 const CLIPBOARD_RETRY_DELAY: Duration = Duration::from_millis(20);
+/// How long the history waits after the pasteboard changed before reading it
+/// (see `read_clipboard_for_history`).
+#[cfg(target_os = "macos")]
+const PASTEBOARD_SETTLE: Duration = Duration::from_millis(50);
 
 /// Serialize Kavibay's own clipboard reads and writes. Windows can reject a
 /// write while another thread still has the clipboard open, and the watcher
@@ -293,7 +297,15 @@ pub(crate) fn clipboard_sequence() -> Option<u32> {
     }
 }
 
-#[cfg(not(windows))]
+/// The general pasteboard's change count, which moves on every
+/// `clearContents` a writer starts with. Only compared for equality, so the
+/// truncation to `u32` is harmless.
+#[cfg(target_os = "macos")]
+pub(crate) fn clipboard_sequence() -> Option<u32> {
+    Some(objc2_app_kit::NSPasteboard::generalPasteboard().changeCount() as u32)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub(crate) fn clipboard_sequence() -> Option<u32> {
     None
 }
@@ -419,9 +431,47 @@ fn excluded_from_history() -> bool {
     }
 }
 
-#[cfg(not(windows))]
+/// Pasteboard types a writer adds to keep a copy out of clipboard histories.
+/// The `org.nspasteboard.*` pair is the nspasteboard.org convention, which
+/// password managers and arboard's own `exclude_from_history` follow;
+/// `com.agilebits.onepassword` is 1Password's older marker, and
+/// `de.petermaurer.TransientPasteboardType` the name the transient type
+/// started as.
+#[cfg(any(target_os = "macos", test))]
+const PASTEBOARD_HISTORY_MARKERS: &[&str] = &[
+    "org.nspasteboard.ConcealedType",
+    "org.nspasteboard.TransientType",
+    "com.agilebits.onepassword",
+    "de.petermaurer.TransientPasteboardType",
+];
+
+#[cfg(any(target_os = "macos", test))]
+fn has_history_marker<S: AsRef<str>>(types: &[S]) -> bool {
+    types
+        .iter()
+        .any(|kind| PASTEBOARD_HISTORY_MARKERS.contains(&kind.as_ref()))
+}
+
+#[cfg(target_os = "macos")]
 fn excluded_from_history() -> bool {
-    false
+    pasteboard_excluded(&objc2_app_kit::NSPasteboard::generalPasteboard())
+}
+
+#[cfg(target_os = "macos")]
+fn pasteboard_excluded(pasteboard: &objc2_app_kit::NSPasteboard) -> bool {
+    let types: Vec<String> = pasteboard
+        .types()
+        .map(|types| types.iter().map(|kind| kind.to_string()).collect())
+        .unwrap_or_default();
+    has_history_marker(&types)
+}
+
+/// No marker check here yet. Linux password managers mark a secret with the
+/// `x-kde-passwordManagerHint` target, which arboard cannot read back, so the
+/// history keeps nothing rather than every copied password.
+#[cfg(not(any(windows, target_os = "macos")))]
+fn excluded_from_history() -> bool {
+    true
 }
 
 fn lock_clipboard_io() -> std::sync::MutexGuard<'static, ()> {
@@ -441,6 +491,14 @@ fn read_clipboard() -> ClipSnapshot {
 /// the user's own content back afterwards, and a copied password must survive
 /// that even though it never enters the history.
 fn read_clipboard_for_history() -> ClipSnapshot {
+    // macOS has no open and close around a write. After `clearContents` a
+    // writer adds its types one call at a time while the change count stays
+    // put; arboard itself sets the text first and the concealed marker second.
+    // The watcher only gets here after the count moved, so waiting a moment
+    // lets such a write finish before the marker is looked for.
+    #[cfg(target_os = "macos")]
+    std::thread::sleep(PASTEBOARD_SETTLE);
+
     let _clipboard_io = lock_clipboard_io();
     let snap = read_clipboard_locked();
     // After the read, not before: a writer holds the clipboard open for its
@@ -1080,6 +1138,78 @@ mod tests {
             .text("hunter3")
             .unwrap();
         assert!(matches!(read_clipboard_for_history(), ClipSnapshot::Empty));
+
+        clipboard.set_text("plain").unwrap();
+        assert!(
+            matches!(read_clipboard_for_history(), ClipSnapshot::Text(ref text) if text == "plain")
+        );
+
+        if let Some(before) = before {
+            let _ = clipboard.set_text(before);
+        }
+    }
+
+    #[test]
+    fn a_pasteboard_marker_keeps_the_copy_out_of_the_history() {
+        assert!(has_history_marker(&[
+            "public.utf8-plain-text",
+            "org.nspasteboard.ConcealedType",
+        ]));
+        assert!(has_history_marker(&["org.nspasteboard.TransientType"]));
+        assert!(has_history_marker(&["com.agilebits.onepassword"]));
+        assert!(!has_history_marker(&[
+            "public.utf8-plain-text",
+            "public.html"
+        ]));
+        assert!(!has_history_marker::<&str>(&[]));
+    }
+
+    /// A private pasteboard, so the test reads real pasteboard types without
+    /// touching what the user copied.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_concealed_pasteboard_is_excluded() {
+        use objc2_app_kit::{NSPasteboard, NSPasteboardTypeString};
+        use objc2_foundation::ns_string;
+
+        let pasteboard = NSPasteboard::pasteboardWithUniqueName();
+        pasteboard.clearContents();
+        // SAFETY: an immutable AppKit constant.
+        let text_type = unsafe { NSPasteboardTypeString };
+        assert!(pasteboard.setString_forType(ns_string!("hunter2"), text_type));
+        assert!(!pasteboard_excluded(&pasteboard));
+
+        assert!(pasteboard
+            .setString_forType(ns_string!(""), ns_string!("org.nspasteboard.ConcealedType")));
+        assert!(pasteboard_excluded(&pasteboard));
+        // Not bound by objc2-app-kit. Frees the pasteboard in the server,
+        // which would otherwise keep it after the test ends.
+        // SAFETY: a void, argument-free method NSPasteboard declares.
+        unsafe {
+            let _: () = objc2::msg_send![&*pasteboard, releaseGlobally];
+        }
+    }
+
+    /// Writes the way arboard's `exclude_from_history` does on macOS, text
+    /// first and the concealed marker second, and checks the watcher's read.
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "replaces the real system clipboard; run with --ignored"]
+    fn concealed_copies_never_reach_the_history_on_macos() {
+        use arboard::SetExtApple;
+        let mut clipboard = Clipboard::new().unwrap();
+        let before = clipboard.get_text().ok();
+
+        clipboard
+            .set()
+            .exclude_from_history()
+            .text("hunter2")
+            .unwrap();
+        assert!(matches!(read_clipboard_for_history(), ClipSnapshot::Empty));
+        assert!(
+            matches!(read_clipboard(), ClipSnapshot::Text(ref text) if text == "hunter2"),
+            "quick actions still see it, to put it back"
+        );
 
         clipboard.set_text("plain").unwrap();
         assert!(

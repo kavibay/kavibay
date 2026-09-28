@@ -118,7 +118,7 @@ const DOS_DATE: u16 = 0x0021;
 
 /// Assemble the archive: every local record, then the central directory, then
 /// the end-of-central-directory record.
-fn zip_archive(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+pub(super) fn zip_archive(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
     let mut out: Vec<u8> = Vec::new();
     let mut entries: Vec<Entry> = Vec::with_capacity(files.len());
 

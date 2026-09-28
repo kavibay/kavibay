@@ -1,9 +1,8 @@
 # Extensions
 
 Every widget on the Kavibay desk is an extension. One folder per widget, no
-registry file — the host scans `extensions/*/manifest.json` at build time. A
-Contract extension's folder name **must** equal `manifest.name`; legacy
-extensions use `manifest.id` until they are ported.
+registry file — the host scans `extensions/*/manifest.json` at build time. The
+folder name **must** equal `manifest.name`.
 
 
 - **How to write one:** [../docs/widget-tutorial.md](../docs/widget-tutorial.md)
@@ -19,7 +18,7 @@ metadata lives in `manifest.json` and their handlers in `extension.ts`.
 - **Untrusted drop-ins:** [../docs/runtime-packages.md](../docs/runtime-packages.md)
 - **Design contract:** [../docs/superpowers/specs/2026-07-18-extension-system-design.md](../docs/superpowers/specs/2026-07-18-extension-system-design.md)
 
-Add a widget from the command palette (`Ctrl+Space`) or from the **Widget
+Add a widget from the command palette (tap `Ctrl` twice) or from the **Widget
 Gallery** widget.
 
 ## Tiers
@@ -41,7 +40,7 @@ as a starting point.
 | Widget | `id` | What it does | Tier | Notes |
 |--------|------|--------------|:----:|-------|
 | Alarm | `alarm` | Alarms that ring at a chosen time. | S | Per-instance alarm list |
-| Clipboard | `clipboard` | Recent clipboard history. | L | Contract `ctx.clipboard` capability; backend-owned history |
+| Clipboard | `clipboard` | Recent clipboard history. | L | Contract `ctx.clipboard` capability; backend-owned history; skips copies a password manager marks as secret (Windows, macOS) and records nothing on Linux |
 | Clock | `clock` | Local time, optional seconds and timezone. | M | Settings |
 | Focus Tracker | `focus-tracker` | Day/week/month focus time per app or window title, with habit limits. | L | Tracks the foreground window; habit rules live in settings |
 | Moodist | `moodist` | Mix looping ambient sounds for focused work. | S | Vendored sounds — see [`moodist/LICENSES.md`](moodist/LICENSES.md) |
@@ -60,6 +59,7 @@ as a starting point.
 |--------|------|--------------|:----:|-------|
 | Calendar | `calendar` | Google Calendar month view with day list and quick add. | L | Needs a **Google Calendar OAuth2** credential; polls per instance, pauses on suspend |
 | GitHub Actions | `github-actions` | Spotlight workflow run with job and step progress for one repo. | L | First widget in the Contract extension **GitHub**; needs a **GitHub PAT** |
+| Spotify Playlists | `spotify` | Your Spotify playlists; a click opens one in Spotify. | L | Widget `playlists` in the extension **Spotify**; needs a **Spotify** credential |
 | Stocks | `stocks` | Watchlist with Yahoo quotes and expandable detail. | S | Declared endpoint — [`stocks/api.json`](stocks/api.json) |
 | Tado | `tado` | Read-only thermostat tiles for Tado heating zones. | L | Needs a **Tado OAuth2** credential; one zone per instance |
 | Weather | `weather` | Current weather for a chosen location. | S | Declared endpoints — [`weather/api.json`](weather/api.json), Open-Meteo |
@@ -82,6 +82,19 @@ as a starting point.
 |-----------|------|--------------|:----:|-------|
 | Confetti | `confetti` | Fullscreen confetti burst from the command palette. | S | Optional intensity 1–5 |
 | Kill Port | `kill-port` | Stop the process listening on a TCP port. | L | Tab (or Enter), then the port; Windows and Linux |
+
+### Providers (no widget)
+
+These connect an account and answer queries, but draw nothing. A widget built
+with the Widget Wizard, or a first-party widget written later, reads from them.
+What each one returns is in [../docs/provider-schema.md](../docs/provider-schema.md).
+
+| Extension | `id` | What it reads | Needs |
+|-----------|------|---------------|-------|
+| Fitbit | `fitbit` | Profile, activity and sleep | **Fitbit** credential |
+| Linear | `linear` | Issues and teams | **Linear API Key** credential |
+| n8n | `n8n` | Workflows and executions | **n8n** credential |
+| Notion | `notion` | Pages and databases | **Notion** credential |
 
 ### System
 
@@ -110,9 +123,14 @@ learns *whether* it is connected.
 | `anthropicApi` | Single Purpose AI, Widget Wizard | API key, entered in settings |
 | `openaiApi` | Single Purpose AI, Widget Wizard | API key, entered in settings |
 | `cloudflareWorkersAi` | Single Purpose AI | Account ID + API token, entered in settings |
-| `googleCalendarOAuth2` | Calendar | OAuth flow from the widget's auth panel |
+| `googleCalendarOAuth2` | Calendar | Your own Google OAuth client, then sign-in; setup in [`calendar/README.md`](calendar/README.md) |
 | `githubPat` | GitHub Actions | Personal access token, entered in settings |
+| `spotifyOAuth2` | Spotify Playlists, Spotify provider | Your own Spotify app's Client ID, then sign-in |
 | `tadoOAuth2` | Tado | Device-code OAuth flow |
+| `fitbitOAuth2` | Fitbit provider | Your own Fitbit app, then sign-in |
+| `linearApi` | Linear provider | Personal API key, entered in settings |
+| `n8nApi` | n8n provider | Instance URL + API key, entered in settings |
+| `notionApi` | Notion provider | Internal integration secret, entered in settings |
 
 ## Anatomy
 
@@ -124,7 +142,6 @@ extensions/<id>/
   manifest.json          # identity, catalog metadata, actions, credentials
   extension.ts            # Contract assembly + framework-free handlers
   view.ts                 # Contract widget name → Vue component + icon
-  index.ts                # legacy only; absent after a Contract migration
   icon.svg               # palette and gallery icon
   <Name>Widget.vue       # the widget surface
   <Name>Settings.vue     # optional — rendered in the settings popover (gear)
@@ -150,7 +167,7 @@ per-instance value once the widget is on a desk.
 npx vue-tsc --noEmit
 ```
 
-Run the colocated tests of the widget you touched — 19 of the 30 have one:
+Run the colocated tests of the widget you touched — 30 of the 31 have one:
 
 ```bash
 npx tsx extensions/todo/todoLogic.assert.ts
