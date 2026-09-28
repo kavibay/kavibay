@@ -55,6 +55,9 @@ user without admin rights, and is **unsigned** — SmartScreen warns on first ru
 
 ## Run on Linux
 
+Linux is not part of the 0.1 release. It builds and runs from source as
+described here.
+
 ### Prerequisites
 
 - **Rust stable** ([rustup](https://rustup.rs/)) and **Node 20+** — the `node`
@@ -100,7 +103,7 @@ The gear menu only appears once more than one session exists.
 ## Run on macOS
 
 **Builds and runs from source**, and `npm run verify:rust` passes on a Mac.
-Packaging is not set up.
+Packaging is not set up, so macOS is not part of the 0.1 release.
 
 After changing the runtime package protocol or its CSP, run
 `npm run verify:webkit` on macOS. It opens an ephemeral WebKit instance and checks
