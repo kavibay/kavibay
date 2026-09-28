@@ -6,6 +6,7 @@
  * runtime frame. This keeps the MIT extension independent from GPL host files.
  */
 import { inject, type Component } from "vue";
+import type { WizardPreviewElement } from "@sdk/wizardPreview";
 
 const props = defineProps<{
   extId: string;
@@ -23,6 +24,10 @@ const props = defineProps<{
    * both the wizard's to read, and the host's preview chrome has neither.
    */
   unmet?: string[];
+  sharing?: boolean;
+  shareBusy?: boolean;
+  shareFeedback?: string;
+  picking?: boolean;
 }>();
 
 /** Mirrors what the host's preview chrome emits; see WidgetWizardPreviewHost. */
@@ -36,6 +41,10 @@ const emit = defineEmits<{
   rename: [title: string];
   resized: [size: { w: number; h: number }, scale?: number];
   fault: [fault: PreviewFault];
+  "close-share": [];
+  export: [];
+  selected: [element: WizardPreviewElement];
+  "cancel-pick": [];
 }>();
 
 function onResized(size: { w: number; h: number }, scale?: number) {
@@ -53,6 +62,10 @@ const previewHost = inject<Component>("kavibay:widget-wizard-preview");
     @rename="emit('rename', $event)"
     @resized="onResized"
     @fault="emit('fault', $event)"
+    @close-share="emit('close-share')"
+    @export="emit('export')"
+    @selected="emit('selected', $event)"
+    @cancel-pick="emit('cancel-pick')"
   />
   <div v-else class="missing-host">
     Widget preview is unavailable.
