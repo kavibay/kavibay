@@ -65,7 +65,7 @@ sharing actions:
   Capturing does not change the clipboard. Cancelling a save keeps the image
   available in Share.
 
-The compact Share dialog starts with a bundled nebula background. **Upload
+The compact Share dialog starts with a bundled nebula background. **Update
 background image** in **Preview settings** opens a file picker for a custom background
 (up to 20 MB). Images fill the canvas
 without stretching. They stay local and remain selected while this preview is
