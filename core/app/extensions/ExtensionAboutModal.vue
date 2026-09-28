@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import DialogCloseButton from "@sdk/ui/DialogCloseButton.vue";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { setClickThroughPaused, syncInteractiveRegions } from "../system/clickThrough";
 import { useExtensionAboutModal } from "./useExtensionAboutModal";
 
 const { content, open, hide } = useExtensionAboutModal();
-const closeButtonEl = ref<HTMLButtonElement | null>(null);
+const headingEl = ref<HTMLHeadingElement | null>(null);
 const debugOpen = ref(false);
 
 /** The dialog title already renders the README's leading H1. */
@@ -28,7 +29,7 @@ watch(open, async (isOpen) => {
   debugOpen.value = false;
   setClickThroughPaused(isOpen);
   await nextTick();
-  if (isOpen) closeButtonEl.value?.focus();
+  if (isOpen) headingEl.value?.focus();
   syncInteractiveRegions();
 });
 
@@ -55,8 +56,8 @@ onUnmounted(() => {
       @pointerdown.stop
     >
       <header class="extension-about-header">
-        <h2>About {{ content.title }}</h2>
-        <button ref="closeButtonEl" type="button" aria-label="Close about dialog" @click="hide">×</button>
+        <h2 ref="headingEl" tabindex="-1">About {{ content.title }}</h2>
+        <DialogCloseButton label="Close about dialog" @click="hide" />
       </header>
       <p v-if="readmeBody" class="extension-about-readme">{{ readmeBody }}</p>
       <footer class="extension-about-footer">
@@ -75,6 +76,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+h2[tabindex="-1"] { outline: none; }
+
 .extension-about-backdrop {
   position: fixed;
   inset: 0;
@@ -108,25 +111,6 @@ onUnmounted(() => {
 .extension-about-header h2 {
   margin: 0;
   font-size: 16px;
-}
-
-.extension-about-header button {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: rgba(var(--fg-rgb), 0.7);
-  font-size: 22px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.extension-about-header button:hover,
-.extension-about-header button:focus-visible {
-  background: rgba(var(--fg-rgb), 0.1);
-  color: rgba(var(--fg-rgb), 0.95);
 }
 
 .extension-about-readme {
