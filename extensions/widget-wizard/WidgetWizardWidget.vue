@@ -5329,10 +5329,12 @@ async function enablePackage(
               type="button"
               class="wiz-attach"
               v-tip="'Add'"
+              aria-label="Add attachment"
+              :aria-expanded="attachMenuOpen"
               :disabled="busy"
               @click="attachMenuOpen = !attachMenuOpen"
             >
-              +
+              <IconBase :size="16"><path d="M12 5v14M5 12h14" /></IconBase>
             </button>
             <div v-if="attachMenuOpen" class="wiz-plus-menu">
               <button
@@ -5347,7 +5349,6 @@ async function enablePackage(
               </button>
             </div>
           </div>
-          <span class="wiz-spacer" />
           <!--
             Which accounts the widget reads from — and, implicitly, which
             package format is being authored: any account makes it a contract
@@ -5373,7 +5374,7 @@ async function enablePackage(
               control is for, which the dot never did.
             -->
             <summary :aria-label="selectedProviderAria">
-              <ServerPlusIcon class="wiz-accounts-icon" :size="14" :stroke-width="1.9" />
+              <ServerPlusIcon class="wiz-accounts-icon" :size="16" />
               <span class="wiz-accounts-label">{{ selectedProviderLabel }}</span>
               <WizardChevron
                 class="wiz-accounts-chevron"
@@ -5423,12 +5424,14 @@ async function enablePackage(
               </li>
             </ul>
           </details>
+          <span class="wiz-spacer" />
           <!--
             One control, not two. Model and effort are read together and answer
             one question — what is about to run — so the trigger states both and
             the settings live a level down.
           -->
           <WizardModelMenu
+            class="wiz-compose-model"
             v-model="session.model"
             :models="models"
             :effort="effort ?? ''"
@@ -5437,7 +5440,18 @@ async function enablePackage(
             @update:effort="effort = $event"
             @add-key="wizard.openSettings('ai', $event)"
           />
-          <button v-if="busy" type="button" @click="stop">Stop</button>
+          <button
+            v-if="busy"
+            type="button"
+            class="wiz-send"
+            title="Stop generation"
+            aria-label="Stop generation"
+            @click="stop"
+          >
+            <IconBase :size="16">
+              <rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor" stroke="none" />
+            </IconBase>
+          </button>
           <button
             v-else
             type="button"
@@ -5447,7 +5461,7 @@ async function enablePackage(
             aria-label="Send"
             @click="send"
           >
-            Send
+            <IconBase :size="16"><path d="M12 19V5m-6 6 6-6 6 6" /></IconBase>
           </button>
         </div>
       </div>
@@ -6801,7 +6815,7 @@ async function enablePackage(
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px 11px 7px;
+  padding: 10px;
   border: 1px solid rgba(var(--fg-rgb), 0.14);
   border-radius: 16px;
   background: rgba(var(--fg-rgb), 0.045);
@@ -6991,21 +7005,59 @@ async function enablePackage(
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   min-height: 28px;
 }
 
-.wiz-compose-bar :deep(.picker-button) {
+.wiz-compose-model {
+  min-width: 0;
   max-width: 240px;
-  padding: 4px 5px;
-  border: none;
-  background: transparent;
-  font-size: 12px;
-  opacity: 0.8;
+  flex: 0 1 auto;
 }
 
-.wiz-compose-bar :deep(.picker-button:hover:not(:disabled)) {
+/* Both menus share one control height and type scale; only their labels shrink. */
+.wiz-compose-bar :deep(.picker-button),
+.wiz-compose-bar .wiz-accounts > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(var(--fg-rgb), 0.7);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.wiz-compose-bar :deep(.picker-button) {
+  width: 100%;
+}
+
+.wiz-compose-bar :deep(.wizard-chevron) {
+  flex: 0 0 10px;
+  width: 10px;
+  height: 10px;
+}
+
+.wiz-compose-bar :deep(.picker-button:hover:not(:disabled)),
+.wiz-compose-bar :deep(.picker-button[aria-expanded="true"]),
+.wiz-compose-bar .wiz-accounts > summary:hover,
+.wiz-compose-bar .wiz-accounts[open] > summary {
   background: rgba(var(--fg-rgb), 0.08);
-  opacity: 1;
+  color: rgba(var(--fg-rgb), 0.95);
+}
+
+.wiz-compose-bar :deep(.picker-button:focus-visible),
+.wiz-accounts > summary:focus-visible,
+.wiz-attach:focus-visible,
+.wiz-send:focus-visible {
+  outline: 1px solid rgba(var(--fg-rgb), 0.5);
+  outline-offset: 2px;
 }
 
 .wiz-send {
@@ -7013,21 +7065,15 @@ async function enablePackage(
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: none;
   border-radius: 50%;
   background: rgba(var(--fg-rgb), 0.9);
   color: var(--bg, #111);
-  font-size: 0;
   line-height: 1;
   cursor: pointer;
-}
-
-.wiz-send::before {
-  content: "↑";
-  font-size: 16px;
 }
 
 .wiz-send:hover:not(:disabled) {
@@ -7042,11 +7088,12 @@ async function enablePackage(
 }
 
 .wiz-spacer {
-  flex: 1;
+  flex: 1 1 0;
 }
 
 .wiz-plus {
   position: relative;
+  flex: 0 0 auto;
 }
 
 .wiz-attach {
@@ -7059,14 +7106,13 @@ async function enablePackage(
   border: none;
   border-radius: 50%;
   background: transparent;
-  font-size: 21px;
   line-height: 1;
-  opacity: 0.7;
+  color: rgba(var(--fg-rgb), 0.7);
 }
 
 .wiz-attach:hover:not(:disabled) {
   background: rgba(var(--fg-rgb), 0.1);
-  opacity: 1;
+  color: rgba(var(--fg-rgb), 0.95);
 }
 
 .wiz-plus-menu {
@@ -7575,34 +7621,21 @@ button:disabled {
 }
 .wiz-accounts {
   position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 180px;
   font-size: 12px;
 }
 
 .wiz-accounts > summary {
-  display: flex;
-  align-items: center;
-  gap: 5px;
   cursor: pointer;
-  padding: 4px 6px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  max-width: 180px;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-  opacity: 0.6;
   list-style: none;
 }
 
 .wiz-accounts > summary::-webkit-details-marker {
   display: none;
-}
-
-.wiz-accounts > summary:hover,
-.wiz-accounts[open] > summary {
-  background: rgba(var(--fg-rgb), 0.08);
-  opacity: 1;
 }
 
 /*
