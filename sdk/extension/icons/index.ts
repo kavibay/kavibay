@@ -53,6 +53,7 @@ export { default as RotateCwFadingClockIcon } from "./RotateCwFadingClockIcon.vu
 export { default as SearchIcon } from "./SearchIcon.vue";
 export { default as ServerIcon } from "./ServerIcon.vue";
 export { default as ServerPlusIcon } from "./ServerPlusIcon.vue";
+export { default as SettingsIcon } from "./SettingsIcon.vue";
 export { default as SlidersHorizontalIcon } from "./SlidersHorizontalIcon.vue";
 export { default as SparklesIcon } from "./SparklesIcon.vue";
 export { default as SquareArrowDownRightIcon } from "./SquareArrowDownRightIcon.vue";
