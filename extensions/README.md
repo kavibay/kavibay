@@ -40,7 +40,7 @@ as a starting point.
 | Widget | `id` | What it does | Tier | Notes |
 |--------|------|--------------|:----:|-------|
 | Alarm | `alarm` | Alarms that ring at a chosen time. | S | Per-instance alarm list |
-| Clipboard | `clipboard` | Recent clipboard history. | L | Contract `ctx.clipboard` capability; backend-owned history |
+| Clipboard | `clipboard` | Recent clipboard history. | L | Contract `ctx.clipboard` capability; backend-owned history; skips copies a password manager marks as secret (Windows, macOS) and records nothing on Linux |
 | Clock | `clock` | Local time, optional seconds and timezone. | M | Settings |
 | Focus Tracker | `focus-tracker` | Day/week/month focus time per app or window title, with habit limits. | L | Tracks the foreground window; habit rules live in settings |
 | Moodist | `moodist` | Mix looping ambient sounds for focused work. | S | Vendored sounds — see [`moodist/LICENSES.md`](moodist/LICENSES.md) |

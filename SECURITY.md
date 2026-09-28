@@ -71,6 +71,10 @@ Safe Storage"; the key never leaves that keychain except into this process.
 Stored unencrypted:
 
 - `clipboard-widget/` — clipboard history, including whatever you last copied.
+  A copy that its writer marks as secret never gets there. Password managers
+  set that marker: registered clipboard formats on Windows,
+  `org.nspasteboard.ConcealedType` and its relatives on macOS. Linux has no
+  such check yet, so the history records nothing there.
 - `focus_tracker.db` — which application had focus, and when.
 - `image-widget/`, `palette-app-icons/`, `wizard/`, `extensions*/`.
 - The WebView's own `localStorage` copy under
