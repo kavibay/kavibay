@@ -65,6 +65,11 @@ function onHandlePointerDown(event: PointerEvent, edge: ResizeEdge) {
   const handle = event.currentTarget as HTMLElement;
   const startX = event.clientX;
   const startY = event.clientY;
+  // Preview fitting and ancestor zoom scale pointer pixels, but sizes stay in local CSS pixels.
+  const measured = props.measureEl;
+  const bounds = measured?.getBoundingClientRect();
+  const pointerScaleX = measured?.offsetWidth && bounds?.width ? bounds.width / measured.offsetWidth : 1;
+  const pointerScaleY = measured?.offsetHeight && bounds?.height ? bounds.height / measured.offsetHeight : 1;
 
   let startW = props.width;
   let startH = props.height;
@@ -76,8 +81,8 @@ function onHandlePointerDown(event: PointerEvent, edge: ResizeEdge) {
     const el = props.measureEl;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    if (needW) startW = rect.width;
-    if (needH) startH = rect.height;
+    if (needW) startW = rect.width / pointerScaleX;
+    if (needH) startH = rect.height / pointerScaleY;
   }
   if (
     startW === undefined ||
@@ -101,8 +106,8 @@ function onHandlePointerDown(event: PointerEvent, edge: ResizeEdge) {
     const raw = applyResizeDelta(
       edge,
       start,
-      ev.clientX - startX,
-      ev.clientY - startY,
+      (ev.clientX - startX) / pointerScaleX,
+      (ev.clientY - startY) / pointerScaleY,
       props.clamps,
     );
 

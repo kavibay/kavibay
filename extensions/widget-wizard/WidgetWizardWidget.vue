@@ -850,6 +850,12 @@ async function deleteRow(row: ProjectRow): Promise<void> {
   await discardDraftById(row.packageId);
 }
 const busy = ref(false);
+const sharing = ref(false);
+const shareFeedback = ref("");
+watch(() => session.value.id, () => {
+  sharing.value = false;
+  shareFeedback.value = "";
+});
 const firstVersionGeneration = ref(false);
 const draftWritePending = ref(0);
 const draftConflict = ref<DraftConflict | null>(null);
@@ -3992,7 +3998,7 @@ async function onSaveKeydown(event: KeyboardEvent) {
 
   event.preventDefault();
   event.stopPropagation();
-  if (event.repeat || busy.value || (!canSave.value && !draftEditorDirty.value)) return;
+  if (event.repeat || sharing.value || busy.value || (!canSave.value && !draftEditorDirty.value)) return;
 
   const targetSession = session.value;
   if (draftEditorDirty.value) await applyFile();
@@ -4034,6 +4040,7 @@ async function exportWidget() {
   const id = session.value.packageId;
   if (!id || busy.value) return;
   busy.value = true;
+  shareFeedback.value = "";
   try {
     const report = await wizard.exportPackage(id);
     // A dismissed dialog is an answer, not a failure. Saying anything here
@@ -4041,8 +4048,10 @@ async function exportWidget() {
     if (!report) return;
     const what = report.source === "draft" ? `the unsaved draft of "${id}"` : `"${id}"`;
     note(`Exported ${what} — ${report.files} files — to ${report.path}`, "success");
+    shareFeedback.value = "Widget exported.";
   } catch (error) {
-    note(describeExportError(String(error)));
+    shareFeedback.value = describeExportError(String(error));
+    note(shareFeedback.value);
   } finally {
     busy.value = false;
   }
@@ -5451,13 +5460,14 @@ async function enablePackage(
         <button
           type="button"
           :disabled="!canExport"
-          v-tip="'Save this widget as a .zip — the whole folder, ready to hand on'"
-          @click="exportWidget"
+          class="wiz-action--share"
+          v-tip="'Share this widget as a file or preview image'"
+          @click="shareFeedback = ''; sharing = true"
         >
           <IconBase :size="13">
             <path d="M12 16V3m-4 4 4-4 4 4M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4" />
           </IconBase>
-          Export
+          Share
         </button>
         <button
           type="button"
@@ -5486,9 +5496,9 @@ async function enablePackage(
           <WizardGenerationStatus />
         </div>
         <WizardPreviewStage
-          v-else-if="previewUrl"
+          v-else-if="previewExtId"
           :ext-id="previewExtId"
-          :entry-url="previewUrl"
+          :entry-url="previewUrl ?? ''"
           :title="previewTitle"
           :nonce="previewNonce"
           :granted-permissions="session.previewPermissions"
@@ -5496,6 +5506,14 @@ async function enablePackage(
           :initial-size="session.previewSize"
           :initial-scale="session.previewScale"
           :unmet="previewUnmet"
+          :sharing="sharing"
+          :share-busy="busy"
+          :share-feedback="shareFeedback"
+          :picking="pickingElement"
+          @selected="selectPreviewElement"
+          @cancel-pick="finishPreviewPick"
+          @close-share="sharing = false"
+          @export="exportWidget"
           @resized="onPreviewResized"
           @rename="session.widgetName = $event"
           @fault="onPreviewFault"

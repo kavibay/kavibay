@@ -24,7 +24,7 @@
  * component's own state — and forking the component to add a demo flag would
  * cost more than the case is worth.
  */
-kavibay-widget .wiz-actions button {
+kavibay-widget .wiz-actions button:not(.wiz-action--share):not(.wiz-action--pick) {
   pointer-events: none;
   opacity: 0.55;
   cursor: default;

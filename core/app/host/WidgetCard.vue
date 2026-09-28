@@ -30,7 +30,7 @@ import {
 } from "./hidePressLogic";
 import { onboardingState } from "../onboarding/onboardingSession";
 import { WIDGET_FOCUS_EVENT, widgetFocusRequestMatches } from "@sdk";
-import { SparklesIcon, SquareArrowDownRightIcon } from "@sdk/icons";
+import { IconBase, SparklesIcon, SquareArrowDownRightIcon } from "@sdk/icons";
 import {
   SHORTCUT_HINT_TARGET_KEY,
   shortcutModifierLabel,
@@ -44,6 +44,8 @@ const props = withDefaults(
     hasSettings: boolean;
     /** When true, offer the extension's README in the widget menu. */
     hasAbout?: boolean;
+    /** The owner can present this live card in the shared preview dialog. */
+    canShare?: boolean;
     /**
      * When true, offer "Edit in Wizard".
      *
@@ -123,6 +125,7 @@ const emit = defineEmits<{
   "update:hideTitle": [hideTitle: boolean];
   duplicate: [];
   about: [];
+  share: [];
   /** Reopen this widget's own package in the Widget Wizard. */
   "edit-in-wizard": [];
   hide: [];
@@ -462,6 +465,14 @@ function onAbout() {
   menuOpen.value = false;
   removeChoiceOpen.value = false;
   emit("about");
+}
+
+/** Close the menu before moving the live widget into its share presentation. */
+function onShare() {
+  menuOpen.value = false;
+  removeChoiceOpen.value = false;
+  triggerEl.value?.focus();
+  emit("share");
 }
 
 /** Hand this widget's package back to the Wizard; close the menu first. */
@@ -1207,6 +1218,24 @@ watch(
             <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2" />
           </svg>
           Settings
+        </button>
+      </div>
+      <div
+        v-if="canShare"
+        class="widget-menu-toolbar widget-menu-toolbar--settings"
+        role="group"
+        aria-label="Widget sharing"
+      >
+        <button
+          type="button"
+          role="menuitem"
+          class="widget-menu-tool widget-menu-tool--labeled"
+          @click="onShare"
+        >
+          <IconBase class="widget-menu-tool-icon" :size="16">
+            <path d="M12 16V3m-4 4 4-4 4 4M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
+          </IconBase>
+          Share
         </button>
       </div>
       <div

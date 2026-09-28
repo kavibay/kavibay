@@ -12,6 +12,7 @@ import { provideWizardPreviewPicker } from "../wizardPreviewPicker";
 import WidgetCard from "../../host/WidgetCard.vue";
 import RuntimeExtensionFrame from "../../runtime/RuntimeExtensionFrame.vue";
 import ContractPackageWidget from "./ContractPackageWidget.vue";
+import WidgetPreviewShare from "./WidgetPreviewShare.vue";
 import { clearWidgetLog, widgetCalls, widgetFaults, type WidgetFault } from "../cockpit";
 import type { WidgetCall } from "../bridge";
 import { extensionHost, packageDefinitionId } from "../cockpit";
@@ -37,11 +38,19 @@ const props = defineProps<{
    * manifest are both its to read, and this chrome has neither.
    */
   unmet?: string[];
+  sharing?: boolean;
+  shareBusy?: boolean;
+  shareFeedback?: string;
+  picking?: boolean;
 }>();
 
 const emit = defineEmits<{
   rename: [title: string];
   resized: [size: { w: number; h: number }, scale?: number];
+  "close-share": [];
+  export: [];
+  selected: [element: WizardPreviewElement];
+  "cancel-pick": [];
   /**
    * One fault, as it arrives. Structural rather than `WidgetFault` because the
    * listener is an MIT extension: the wizard cannot import this file's types,
@@ -89,6 +98,7 @@ watch(
 const offset = ref({ x: 0, y: 0 });
 const hideTitle = ref(false);
 const stageEl = ref<HTMLElement | null>(null);
+const cardEl = ref<HTMLElement | null>(null);
 let resizeStartOffset: { x: number; y: number } | null = null;
 let resizeScaleChanged = false;
 
@@ -101,14 +111,21 @@ watch(
 );
 
 const cardStyle = computed(() => ({
-  transform: `translate(${offset.value.x}px, ${offset.value.y}px)`,
+  transform: `${props.sharing ? "scale(var(--share-preview-scale, 1)) " : ""}translate(${offset.value.x}px, ${offset.value.y}px)`,
 }));
+
+/** Movement and resize offsets use the card's local pixels, even when fitted to the canvas. */
+function renderedScale(): number {
+  const card = cardEl.value;
+  return card?.offsetWidth ? card.getBoundingClientRect().width / card.offsetWidth : 1;
+}
 
 function clampToStage(next: { x: number; y: number }) {
   const stage = stageEl.value?.getBoundingClientRect();
   if (!stage) return next;
-  const maxX = Math.max(0, (stage.width - size.value.w) / 2);
-  const maxY = Math.max(0, (stage.height - size.value.h) / 2);
+  const rendered = renderedScale();
+  const maxX = Math.max(0, (stage.width / rendered - size.value.w) / 2);
+  const maxY = Math.max(0, (stage.height / rendered - size.value.h) / 2);
   return {
     x: Math.min(maxX, Math.max(-maxX, next.x)),
     y: Math.min(maxY, Math.max(-maxY, next.y)),
@@ -118,10 +135,11 @@ function clampToStage(next: { x: number; y: number }) {
 function onMovePointerDown(event: PointerEvent) {
   const start = { x: event.clientX, y: event.clientY };
   const from = { ...offset.value };
+  const rendered = renderedScale();
   function onMove(move: PointerEvent) {
     offset.value = clampToStage({
-      x: from.x + move.clientX - start.x,
-      y: from.y + move.clientY - start.y,
+      x: from.x + (move.clientX - start.x) / rendered,
+      y: from.y + (move.clientY - start.y) / rendered,
     });
   }
   function onUp() {
@@ -184,7 +202,7 @@ let sizeIsChosen = false;
  * desk, which is the bug one step later.
  */
 function onContentOverflow(event: Event) {
-  if (sizeIsChosen) return;
+  if (sizeIsChosen || props.sharing) return;
   const overflow = (event as CustomEvent<number>).detail;
   const next = fitToContent(size.value.h, overflow);
   if (next === null) return;
@@ -304,15 +322,25 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
 </script>
 
 <template>
+  <WidgetPreviewShare
+    :open="!!sharing"
+    :busy="shareBusy"
+    :title="title"
+    :preview-target="cardEl"
+    :capture-target="stageEl"
+    :feedback="shareFeedback"
+    @close="emit('close-share')"
+    @export="emit('export')"
+  >
   <!-- The debug overlay stays anchored to the canvas while the card moves. -->
-  <div class="preview">
+  <div class="preview" :class="{ 'preview--share': sharing }">
     <div ref="stageEl" class="stage">
     <!--
       The listener is on the stage, not on window: a bubbling event stops here,
       so a widget running on the desk cannot resize the wizard's card by
       reporting a size of its own.
     -->
-    <div class="stage-card" :style="cardStyle" @[CONTENT_OVERFLOW_EVENT]="onContentOverflow">
+    <div v-if="entryUrl" ref="cardEl" class="stage-card" :style="cardStyle" @[CONTENT_OVERFLOW_EVENT]="onContentOverflow">
         <WidgetCard
           :key="instanceId"
           :title="title"
@@ -372,6 +400,7 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
           />
         </WidgetCard>
       </div>
+      <p v-else class="stage-empty">Your widget will appear here.</p>
     </div>
 
     <!-- Floating over the stage, outside the widget being previewed. -->
@@ -380,7 +409,7 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
       has no value to model, and a failed call must be able to open the panel
       without stealing it back from somebody who just closed it.
     -->
-    <details class="dbg" :open="debugOpen || failures > 0" @toggle="debugOpen = ($event.target as HTMLDetailsElement).open">
+    <details v-show="!sharing && !!entryUrl" class="dbg" :open="debugOpen || failures > 0" @toggle="debugOpen = ($event.target as HTMLDetailsElement).open">
       <summary>
         Debug
         <span v-if="failures" class="dbg-bad">{{ failures }} failed</span>
@@ -452,6 +481,7 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
       </ol>
     </details>
   </div>
+  </WidgetPreviewShare>
 </template>
 
 <style scoped>
@@ -481,7 +511,17 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
 
 .stage-card {
   position: relative;
+  flex-shrink: 0;
 }
+
+.preview--share .stage {
+  background-image: var(--share-canvas-background);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.stage-empty { margin: 0; color: rgba(var(--fg-rgb), 0.55); }
 
 .stage-unapproved {
   display: flex;

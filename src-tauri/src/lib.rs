@@ -19,6 +19,7 @@ mod mcp;
 mod notifications;
 mod palette_app_icons;
 mod paths;
+mod preview_capture;
 mod quick_action;
 mod runtime_extensions;
 mod security;
@@ -747,6 +748,7 @@ pub fn run() {
             mcp::server::mcp_server_set_enabled,
             mcp::server::mcp_server_set_port,
             mcp::server::mcp_server_retry,
+            preview_capture::copy_preview_image,
             wizard::wizard_models,
             wizard::wizard_complete,
             wizard::store::wizard_conversations_list,

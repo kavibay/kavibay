@@ -72,7 +72,8 @@ core-foundation = "0.10"
 # outside click" counts mouse presses through a second monitor (`MouseButtons`
 # in lib.rs).
 block2 = { version = "0.6", default-features = false }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["NSEvent", "NSPasteboard", "NSRunningApplication", "NSScreen", "NSWorkspace", "block2", "libc"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSEvent", "NSPasteboard", "NSRunningApplication", "NSScreen", "NSWorkspace", "NSImage", "NSImageRep", "NSBitmapImageRep", "block2", "libc"] }
+objc2-web-kit = { version = "0.3", default-features = false, features = ["WKWebView", "WKSnapshotConfiguration", "block2", "objc2-app-kit"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["CGDirectDisplay", "CGError", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation"] }
 # The Now Playing widget scripts Apple Music (`extensions/now_playing/macos.rs`),
 # autostart registers the login item (`autostart.rs`), and quick actions read
@@ -87,8 +88,11 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 # the tree via arboard/global-hotkey, so this pins no new version — and its own
 # connection keeps the read off GDK, which is not safe from the watcher thread.
 x11rb = "0.14"
+webkit2gtk = "2.0"
+cairo-rs = { version = "0.18", features = ["png"] }
 
 [target.'cfg(windows)'.dependencies]
+webview2-com = "0.38"
 winreg = "0.55"
 tauri-winrt-notification = "0.8.1"
 windows = { version = "0.62", features = [
