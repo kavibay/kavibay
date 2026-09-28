@@ -854,6 +854,7 @@ watch(
       v-if="chromeMounted"
       class="widget-card-chrome"
       :class="{
+        'card-chrome-reveal': chromeVisible,
         'widget-card-chrome--dormant': !chromeVisible,
         'widget-card-chrome--coach': forceCoachChrome,
       }"

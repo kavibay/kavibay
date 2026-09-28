@@ -3377,7 +3377,7 @@ onUnmounted(() => {
     />
     <div
       v-if="paletteChromeVisible"
-      class="palette-card-chrome"
+      class="palette-card-chrome card-chrome-reveal"
       data-interactive
       @pointerdown.stop
       @focusin="paletteChromeFocused = true"
