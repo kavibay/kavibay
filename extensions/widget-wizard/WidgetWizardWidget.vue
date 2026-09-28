@@ -4916,13 +4916,13 @@ async function enablePackage(
           <div v-if="bubble.run && index === latestRunIndex" class="wiz-run-actions">
             <button
               type="button"
-              class="wiz-consent-btn"
+              class="wiz-run-btn"
               :disabled="bubble.run.done || busy"
+              v-tip="'Or find it in the palette (Ctrl+Space)'"
               @click="runFromBubble(bubble)"
             >
               {{ bubble.run.done ? "On the desk" : "Add to desk" }}
             </button>
-            <span class="wiz-consent-note">or find it in the palette (Ctrl+Space).</span>
           </div>
 
           <template v-if="bubble.enable">
@@ -6381,8 +6381,20 @@ async function enablePackage(
   opacity: 0.6;
 }
 
+/* A report with one action reads as one line: the sentence, then its button. */
+.wiz-bubble.note:has(> .wiz-run-actions) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 8px;
+}
+
+.wiz-bubble.note .wiz-run-actions {
+  margin-top: 0;
+}
+
 /* One optional button under a report, centred under it like everything else. */
-.wiz-bubble.note .wiz-run-actions,
 .wiz-bubble.note .wiz-consent-actions {
   flex-wrap: wrap;
   justify-content: center;
@@ -6404,8 +6416,30 @@ async function enablePackage(
   margin-top: 8px;
 }
 
-.wiz-run-actions .wiz-consent-note {
-  margin: 0;
+.wiz-run-btn {
+  height: 20px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(var(--fg-rgb), 0.1);
+  color: inherit;
+  font-size: 11px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.wiz-run-btn:hover:not(:disabled) {
+  background: rgba(var(--fg-rgb), 0.18);
+}
+
+.wiz-run-btn:focus-visible {
+  outline: 1px solid rgba(var(--fg-rgb), 0.45);
+  outline-offset: 1px;
+}
+
+.wiz-run-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .wiz-consent-list {
