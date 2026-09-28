@@ -115,8 +115,13 @@ which macOS serves without Input Monitoring or Accessibility access, so there is
 nothing to grant.
 
 Pinning, click-through and the global hotkey should work — macOS supports all
-three, unlike Wayland. Quick actions, Now Playing, the colour picker and the
-focus tracker are Windows-only and stay inert.
+three, unlike Wayland. Quick actions work too. The first `Ctrl+Shift+Q`
+(Control, not Command) asks for Accessibility access, which they need to read
+the selection and paste the answer. Now Playing shows Apple Music only: since
+macOS 15.4 the system-wide now-playing API no longer answers other apps, so
+Kavibay scripts Music instead and asks for Automation access when you click
+Connect in the widget. The colour picker and the focus tracker are Windows-only
+and stay inert, and Kill Port answers with an error.
 
 Credentials and `web-storage.json` are encrypted with a key kept in your login
 keychain as "Kavibay Safe Storage". A debug build is ad-hoc signed, so every
