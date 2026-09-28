@@ -13,7 +13,7 @@
 
 [![CI](https://github.com/kavibay/kavibay/actions/workflows/ci.yml/badge.svg)](https://github.com/kavibay/kavibay/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-GPL--3.0%20%C2%B7%20MIT-blue)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%C2%B7%20Linux-lightgrey)](#platforms)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%C2%B7%20macOS%20and%20Linux%20from%20source-lightgrey)](#platforms)
 [![Tauri](https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
 [![Vue](https://img.shields.io/badge/Vue-3-42B883?logo=vuedotjs&logoColor=white)](https://vuejs.org)
 [![Rust](https://img.shields.io/badge/Rust-stable-000000?logo=rust&logoColor=white)](https://rustup.rs)
@@ -99,10 +99,11 @@ Full setup, per platform, plus what to do when it does not start:
 
 ## Install
 
-**Option A — download a build.** Releases are built by
+**Option A — download a build.** Version 0.1 is released for Windows only: an
+installer and a standalone `.exe`, plus `SHA256SUMS.txt`. macOS and Linux build
+and run from source ([Platforms](#platforms)). Releases are built by
 [`release.yml`](.github/workflows/release.yml) when a `v*` tag is pushed, and land
-as a draft with both Windows artifacts, the Linux AppImage and `.deb`, plus
-`SHA256SUMS.txt`.
+as a draft.
 
 Everything is **unsigned** — no free code-signing option exists that Windows
 trusts — so SmartScreen warns on first run ("More info" → "Run anyway"). Check the
@@ -221,10 +222,10 @@ widget you deleted comes back from `Ctrl+Z` empty.
 
 | | Status |
 |---|---|
-| **Windows 11 / 10** | Supported. |
-| **Linux (X11)** | Works, except the `Ctrl` double tap. `Shift+Ctrl+Space` or the tray opens Kavibay instead. |
-| **Linux (Wayland)** | Runs, but **pinned widgets do not stay on top** — Wayland grants no client that right. No `Ctrl` double tap, as on X11. [How to get an X11 session](docs/getting-started.md#run-on-linux) |
-| **macOS** | **Builds and runs from source**, including the `Ctrl` double tap, which needs no permission. Packaging is not set up, and the transparent window relies on Apple private APIs, which rules out the App Store. [What to expect](docs/getting-started.md#run-on-macos) |
+| **Windows 11 / 10** | Supported. The 0.1 release is Windows only. |
+| **Linux (X11)** | Builds and runs from source; not part of the 0.1 release. Works, except the `Ctrl` double tap. `Shift+Ctrl+Space` or the tray opens Kavibay instead. |
+| **Linux (Wayland)** | Builds and runs from source, but **pinned widgets do not stay on top** — Wayland grants no client that right. No `Ctrl` double tap, as on X11. [How to get an X11 session](docs/getting-started.md#run-on-linux) |
+| **macOS** | **Builds and runs from source**, including the `Ctrl` double tap, which needs no permission; not part of the 0.1 release. Packaging is not set up, and the transparent window relies on Apple private APIs, which rules out the App Store. [What to expect](docs/getting-started.md#run-on-macos) |
 
 ## Where your things live
 
