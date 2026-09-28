@@ -470,6 +470,41 @@ mod tests {
         assert_eq!(paths, vec!["manifest.json", "index.html"]);
     }
 
+    /// Archives from the tools people actually use, not from our own writer.
+    /// Finder's Compress (made with `ditto -c -k --keepParent`) writes data
+    /// descriptors and a top folder; Info-ZIP writes 24-byte extra fields.
+    #[test]
+    fn archives_from_finder_and_info_zip_read_back() {
+        let finder =
+            normalize(unzip(include_bytes!("import_fixtures/finder-compress.zip")).unwrap())
+                .unwrap();
+        let paths: Vec<&str> = finder.iter().map(|(path, _)| path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec!["ui/index.html", "ui/main.js", "icon.svg", "manifest.json"]
+        );
+        assert_eq!(package_id(&finder).unwrap(), "runtime-extension-s");
+
+        let info_zip =
+            normalize(unzip(include_bytes!("import_fixtures/info-zip.zip")).unwrap()).unwrap();
+        let paths: Vec<&str> = info_zip.iter().map(|(path, _)| path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec![
+                "ui/kavibay-runtime.js",
+                "ui/index.html",
+                "api.json",
+                "manifest.json"
+            ]
+        );
+        assert_eq!(package_id(&info_zip).unwrap(), "http-probe");
+        let (_, api) = info_zip
+            .iter()
+            .find(|(path, _)| path == "api.json")
+            .unwrap();
+        assert_eq!(api.len(), 817);
+    }
+
     #[test]
     fn paths_that_leave_the_package_are_refused() {
         for (path, error) in [
