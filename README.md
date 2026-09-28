@@ -206,7 +206,7 @@ These are the Windows shortcuts for version 0.1.
 | `Ctrl`+mousewheel · pinch | Zoom a widget's content (`0.5`…`3`), remembered per card |
 | `Ctrl`+drag | Move the whole layout instead of one widget |
 | Double-click a widget title | Rename it |
-| Hold the card's `×` | Short release hides; holding arms **delete** |
+| Hold the card's `×` | Short release hides; hold until the trash icon appears, release, then confirm with the red trash icon in the controls |
 
 A few notes worth having: no OS can register a bare modifier as a hotkey, which
 is why the `Ctrl` double tap watches the keyboard directly. `Ctrl+Space` releases

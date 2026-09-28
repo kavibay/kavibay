@@ -74,6 +74,7 @@ import {
 } from "./layoutLogic";
 import { renameRuntimeStorageExt } from "../runtime/runtimeStorage";
 import { commandUi, extensionHost } from "../extension-host/cockpit";
+import { createWidgetRemoval, WIDGET_REMOVAL_KEY, type WidgetRemovalRequest } from "./widgetRemoval";
 import {
   LayoutGeometryHistory,
   applyLayoutGeometry,
@@ -169,6 +170,9 @@ const onboarding = useOnboarding();
 // All positions are centers. Widget offsets remain relative to the palette.
 /** Authoritative layout-v4 document; palette + instances mirror the active desk. */
 const layoutDoc = reactive<SavedLayoutV4>(loadLayout(extensionRegistry));
+const widgetRemoval = createWidgetRemoval();
+provide(WIDGET_REMOVAL_KEY, widgetRemoval);
+watch([() => layoutDoc.activeDeskId, settingsOpen], () => widgetRemoval.cancel());
 const palettePos = reactive<WidgetPosition>({ x: 0, y: 0 });
 const palettePinned = ref(false);
 const paletteWidth = ref<number | undefined>(undefined);
@@ -486,6 +490,16 @@ const visibleMountedInstances = computed(() =>
   ),
 );
 
+// A background model may stay mounted after its card disappears.
+watch(() => {
+  const request = widgetRemoval.pending.value;
+  return !request || (request.surface === "palette"
+    ? paletteVisible.value
+    : visibleMountedInstances.value.some((instance) => instance.instanceId === request.instanceId));
+}, (visible) => {
+  if (!visible) widgetRemoval.cancel();
+});
+
 /** Rescan (or clear) AppData packages when the Developer Extensions gate changes. */
 watch(developerExtensionsEnabled, () => {
   void rescanRuntimeExtensions();
@@ -623,7 +637,7 @@ function isEditableKeyTarget(target: EventTarget | null): boolean {
 
 /** Ctrl/Cmd+Z undo close or geometry; Ctrl/Cmd+Y (or Shift+Z) redo geometry only. */
 function onLayoutHistoryKeydown(event: KeyboardEvent): void {
-  if (settingsOpen.value || commandUi.request.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (isEditableKeyTarget(event.target)) return;
   if (drag) return;
   const mod = event.ctrlKey || event.metaKey;
@@ -1312,6 +1326,7 @@ async function openCockpit(alreadyShown = false, withPalette = true) {
 
 /** Hide only the palette; visible desk widgets remain mounted and running. */
 function onHidePalette() {
+  if (widgetRemoval.pending.value?.surface === "palette") widgetRemoval.cancel();
   paletteHidden.value = true;
   paletteFront.value = false;
   if (visibleMountedInstances.value.length === 0) {
@@ -1326,6 +1341,7 @@ function onHidePalette() {
  * Pinned UI stays; window hides only when nothing pinned remains.
  */
 function closeCockpit(options: { keepPeeked?: boolean } = {}) {
+  widgetRemoval.cancel();
   // Only the release of a peek hands its grabs forward; every other close is the
   // user putting the desk away, and that includes what they grabbed.
   const releasing = options.keepPeeked ? new Set<string>() : new Set(peekKept.value);
@@ -1582,7 +1598,7 @@ const NUDGE_PX = 10;
 
 /** Cycle keyboard focus through visible widgets on the active desk. */
 function onCycleWidgetFocusKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value || commandUi.request.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (!event.ctrlKey || event.altKey || event.metaKey || event.key !== "Tab") return;
 
   const openIds = visibleMountedInstances.value.map((instance) => instance.instanceId);
@@ -1609,7 +1625,7 @@ function onCycleWidgetFocusKeydown(event: KeyboardEvent) {
  * (Snake, Notes) cannot swallow it first.
  */
 function onFocusSearchKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value || commandUi.request.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (!event.ctrlKey || !event.altKey || event.metaKey || event.shiftKey) return;
   if (event.code !== "KeyS") return;
 
@@ -1643,7 +1659,7 @@ function onFocusPop(instanceId: string) {
  * Capture-phase so it works while Snake/Notes own normal arrow keys.
  */
 function onNudgeKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value || commandUi.request.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) return;
 
   let dx = 0;
@@ -1686,7 +1702,7 @@ function onNudgeKeydown(event: KeyboardEvent) {
 
 /** Move the active palette or widget by one drag-grid gap per arrow press. */
 function onGapMoveKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value || commandUi.request.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (!event.ctrlKey || !event.altKey || event.shiftKey || event.metaKey) return;
 
   let dx = 0;
@@ -1752,7 +1768,7 @@ function onGapMoveKeydown(event: KeyboardEvent) {
  * Uses event.code so Shift does not turn "1" into "!".
  */
 function onDeskSwitchKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value || commandUi.request.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) return;
   const match = /^Digit([1-9])$/.exec(event.code);
   if (!match) return;
@@ -1789,7 +1805,7 @@ function paletteHasDomFocus(): boolean {
  * (Snake, Notes) cannot swallow them first. Text fields inside a card are
  * deliberately *not* exempt the way Ctrl+Z is: neither chord means anything to
  * an editor, and Notes would otherwise be the one widget this never worked in.
- * Remove stays undoable (Ctrl+Z, five deep).
+ * Remove confirms content loss; Undo restores only the layout.
  */
 /**
  * The card a widget chord applies to: mounted, on screen, and resolved by the
@@ -1875,7 +1891,7 @@ function isCardChord(event: KeyboardEvent, letter: string): boolean {
  * pin dot offers. Shift/Alt combinations remain available to other actions.
  */
 function onPinKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value || commandUi.request.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (drag) return;
   if (!isCardChord(event, "p")) return;
 
@@ -1894,7 +1910,7 @@ function onPinKeydown(event: KeyboardEvent) {
  * Duplicate for them, and a chord must not reach past what the UI offers.
  */
 function onDuplicateKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value || commandUi.request.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (drag) return;
   if (!isCardChord(event, "d")) return;
 
@@ -1909,7 +1925,7 @@ function onDuplicateKeydown(event: KeyboardEvent) {
 
 /** Ctrl/Cmd+O moves the focused desk card into the palette's inline surface. */
 function onMoveToPanelKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value || commandUi.request.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (drag) return;
   if (!isCardChord(event, "o")) return;
 
@@ -1922,7 +1938,7 @@ function onMoveToPanelKeydown(event: KeyboardEvent) {
 }
 
 function onWidgetCloseKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value || commandUi.request.value) return;
+  if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
   if (drag) return;
 
   const action = matchWidgetCloseKey(event);
@@ -2297,6 +2313,7 @@ function onViewportResize() {
 }
 
 onUnmounted(() => {
+  widgetRemoval.cancel();
   layoutBoundsObserver?.disconnect();
   if (highlightClearTimer !== undefined) clearTimeout(highlightClearTimer);
   if (focusPopClearTimer !== undefined) clearTimeout(focusPopClearTimer);
@@ -2349,9 +2366,21 @@ function cloneLayoutDoc(): SavedLayoutV4 {
   return JSON.parse(JSON.stringify(toRaw(layoutDoc))) as SavedLayoutV4;
 }
 
-/** Remove from active desk or everywhere; onDispose when catalog entry is dropped. */
-function kavibayRemoveWidget(instanceId: string, mode: "desk" | "everywhere") {
+/** Confirm content loss inline at the surface that requested the deletion. */
+async function kavibayRemoveWidget(
+  instanceId: string,
+  mode: "desk" | "everywhere",
+  surface: WidgetRemovalRequest["surface"] = "card",
+) {
   const catalogEntry = layoutDoc.catalog.find((row) => row.instanceId === instanceId);
+  if (!catalogEntry || commandUi.request.value || widgetRemoval.pending.value) return;
+  const deskId = layoutDoc.activeDeskId;
+  const deletesContent = mode === "everywhere" || !isMultiDeskInstance(instanceId);
+  if (deletesContent) {
+    const confirmed = await widgetRemoval.request(instanceId, surface);
+    if (!confirmed || layoutDoc.activeDeskId !== deskId) return;
+    if (!layoutDoc.catalog.some((row) => row.instanceId === instanceId)) return;
+  }
   const typeId = catalogEntry?.typeId;
   flushToDoc();
   const closeUndo = snapshotRemoveUndo(instanceId, mode);
@@ -3087,7 +3116,9 @@ provide("kavibayPlaceOnActiveDesk", kavibayPlaceOnActiveDesk);
 provide("kavibayCatalogNotOnActiveDesk", kavibayCatalogNotOnActiveDesk);
 provide("kavibayAlsoOnDeskRows", kavibayAlsoOnDeskRows);
 provide("kavibayInstanceDeskLabels", kavibayInstanceDeskLabels);
-provide("kavibayRemoveWidget", kavibayRemoveWidget);
+provide("kavibayRemoveWidget", (instanceId: string, mode: "desk" | "everywhere") =>
+  kavibayRemoveWidget(instanceId, mode, "palette"),
+);
 // The palette's inline header renames the same way a card's title does.
 provide("kavibayRenameWidget", onRename);
 provide("kavibayPalettePinned", palettePinned);

@@ -17,6 +17,8 @@ import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { commands } from "./commands";
 import KbdHint from "./KbdHint.vue";
+import WidgetDeleteConfirmation from "../host/WidgetDeleteConfirmation.vue";
+import { WIDGET_REMOVAL_KEY } from "../host/widgetRemoval";
 import PaletteSearchActions from "./PaletteSearchActions.vue";
 import PaletteWidgetShortcuts from "./PaletteWidgetShortcuts.vue";
 import PaletteAnswerPanel from "./PaletteAnswerPanel.vue";
@@ -477,6 +479,11 @@ const renameWidget = inject<(instanceId: string, title: string | undefined) => v
 const removeWidget = inject<(instanceId: string, mode: "desk" | "everywhere") => void>(
   "kavibayRemoveWidget",
 );
+const widgetRemoval = inject(WIDGET_REMOVAL_KEY, undefined);
+const deleteRequest = computed(() => {
+  const request = widgetRemoval?.pending.value;
+  return request?.surface === "palette" ? request : null;
+});
 const focusWidget = inject<(instanceId: string) => void | Promise<void>>("kavibayFocusWidget");
 const clearWidgetFocus = inject<() => void>("kavibayClearWidgetFocus");
 const closeCockpit = inject<() => void>("kavibayCloseCockpit");
@@ -2586,7 +2593,7 @@ function onFocusPaletteEvent(event: Event) {
 
 function onKeydown(event: KeyboardEvent) {
   // Prevent retained palette focus from navigating or running commands.
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || widgetRemoval?.pending.value) return;
   // The desk-name field is in this same capture tree; leave keys to it.
   if (renamingDeskId.value) return;
   if (event.isComposing) return;
@@ -3213,6 +3220,7 @@ function onDocumentPointerDown(event: PointerEvent) {
 
 /** Close overlays on Escape before the window-hide handler runs. */
 function onDocumentKeydown(event: KeyboardEvent) {
+  if (widgetRemoval?.pending.value) return;
   if (event.key !== "Escape") return;
   if (inlineMenuOpen.value) {
     event.preventDefault();
@@ -3451,24 +3459,14 @@ onUnmounted(() => {
           <span>{{ shortcutModifier }}+W</span>
         </span>
         <svg class="palette-card-chrome-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <g>
-            <path
-              d="M17.94 17.94A10.07 10.07 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-            />
-            <line
-              x1="1"
-              y1="1"
-              x2="23"
-              y2="23"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-            />
-          </g>
+          <path
+            d="M18 6L6 18M6 6l12 12"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
       </button>
     </div>
@@ -4470,45 +4468,52 @@ onUnmounted(() => {
           <div
             v-else-if="row.kind === 'widget' && !row.snippet"
             class="palette-item-actions"
+            :class="{ 'palette-item-actions--confirm': deleteRequest?.instanceId === row.instanceId }"
             @click.stop
             @pointerdown.stop
           >
-            <button
-              type="button"
-              class="palette-item-action"
-              v-tip="row.hidden ? 'Put its card back on the desk' : 'Jump to its card'"
-              @click="focusWidgetRow(row)"
-            >
-              <KbdHint :keys="['enter']" />
-              <span>{{ row.hidden ? "Show" : "Focus" }}</span>
-            </button>
-            <button
-              type="button"
-              class="palette-item-action"
-              v-tip="'Open inside the palette'"
-              @click="openInlineWidget(index)"
-            >
-              <KbdHint :keys="modKeys('enter')" />
-              <span>Inline</span>
-            </button>
-            <!-- Hidden rows have nothing to hide; Enter already reveals them. -->
-            <button
-              v-if="!row.hidden"
-              type="button"
-              class="palette-item-action"
-              @click="toggleWidgetRow(row)"
-            >
-              <KbdHint :keys="modKeys('W')" />
-              <span>Hide</span>
-            </button>
-            <button
-              type="button"
-              class="palette-item-action palette-item-action--danger"
-              @click="removeWidgetRow(row)"
-            >
-              <KbdHint :keys="modKeys('R')" />
-              <span>Delete</span>
-            </button>
+            <WidgetDeleteConfirmation
+              v-if="deleteRequest?.instanceId === row.instanceId"
+              :request="deleteRequest"
+            />
+            <template v-else>
+              <button
+                type="button"
+                class="palette-item-action"
+                v-tip="row.hidden ? 'Put its card back on the desk' : 'Jump to its card'"
+                @click="focusWidgetRow(row)"
+              >
+                <KbdHint :keys="['enter']" />
+                <span>{{ row.hidden ? "Show" : "Focus" }}</span>
+              </button>
+              <button
+                type="button"
+                class="palette-item-action"
+                v-tip="'Open inside the palette'"
+                @click="openInlineWidget(index)"
+              >
+                <KbdHint :keys="modKeys('enter')" />
+                <span>Inline</span>
+              </button>
+              <!-- Hidden rows have nothing to hide; Enter already reveals them. -->
+              <button
+                v-if="!row.hidden"
+                type="button"
+                class="palette-item-action"
+                @click="toggleWidgetRow(row)"
+              >
+                <KbdHint :keys="modKeys('W')" />
+                <span>Hide</span>
+              </button>
+              <button
+                type="button"
+                class="palette-item-action palette-item-action--danger"
+                @click="removeWidgetRow(row)"
+              >
+                <KbdHint :keys="modKeys('R')" />
+                <span>Delete</span>
+              </button>
+            </template>
           </div>
           <!-- Parameterized commands advertise Tab; nobody discovers it otherwise. -->
           <div
@@ -4777,8 +4782,8 @@ onUnmounted(() => {
 
 .palette-card-chrome-icon {
   display: block;
-  width: 12px;
-  height: 12px;
+  width: 15px;
+  height: 15px;
 }
 
 .palette-card-chrome-btn:hover {
@@ -5518,7 +5523,8 @@ onUnmounted(() => {
   visibility: hidden;
 }
 
-.palette-item--selected .palette-item-actions {
+.palette-item--selected .palette-item-actions,
+.palette-item-actions--confirm {
   visibility: visible;
 }
 
