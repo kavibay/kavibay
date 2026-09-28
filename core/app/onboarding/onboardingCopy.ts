@@ -80,7 +80,7 @@ const fixedCopy = (
     title: "Clear the clutter",
     segments: [
       {
-        text: "Not gone — just out of the way. Tap the eye to hide a widget; it’s waiting when you need it again.",
+        text: "Tap × to hide a widget; it’s waiting when you need it again.",
       },
     ],
   },
@@ -96,7 +96,7 @@ const fixedCopy = (
     title: "Start fresh when you need to",
     segments: [
       {
-        text: "Really done with a widget? Press and hold the eye until it becomes ×, then let go. That one’s gone for good — data included.",
+        text: "Press and hold × until the trash icon appears, then release. Click the red trash icon in the controls to confirm. This also deletes the widget’s content.",
       },
     ],
   },

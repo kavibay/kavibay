@@ -225,6 +225,15 @@ background work. The host renders only one model for these instances, handing
 ownership to the inline panel while it is open. Timer, Alarm and Pomodoro use
 this flag so switching desks does not stop their clocks.
 
+Widget deletion shares one host confirmation state for the card menu, long press,
+palette and keyboard shortcut. The question replaces the card's controls or the
+palette row's actions inline: Cancel is focused first; the red trash button
+confirms. Escape or clicking outside the controls cancels; focus changes alone
+do not, because a button click can focus its ancestor before the click fires.
+Removing one placement of a shared widget keeps its data; deleting its final
+placement or deleting everywhere
+confirms content loss. Layout Undo does not restore deleted widget content.
+
 Double-clicking the panel title renames the widget through `kavibayRenameWidget`,
 the same catalog write a card's title does. Scratch copies have no catalog entry,
 so they do not offer the gesture.
