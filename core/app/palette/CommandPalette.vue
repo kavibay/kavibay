@@ -2490,9 +2490,9 @@ function openSettings() {
   showSettings();
 }
 
-function openSettingsSection(section: Parameters<typeof showSettingsSection>[0]) {
+function openSettingsSection(section: Parameters<typeof showSettingsSection>[0], focus?: string) {
   prepareSettingsOpen();
-  showSettingsSection(section);
+  showSettingsSection(section, focus);
 }
 
 /** Smart-open the Widget Gallery desk widget (create / show / focus). */
@@ -3647,6 +3647,7 @@ onUnmounted(() => {
         @select="openWidgetShortcut"
         @enter="enterWidgetShortcut"
         @back="leaveWidgetShortcuts"
+        @settings="openSettingsSection('search', 'widgets')"
       />
     </div>
 
