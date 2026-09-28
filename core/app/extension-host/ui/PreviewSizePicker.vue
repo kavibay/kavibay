@@ -1,11 +1,22 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from "vue";
 import IconBase from "@sdk/icons/IconBase.vue";
+import SettingsIcon from "@sdk/icons/SettingsIcon.vue";
 import { MAX_PREVIEW_SIZE, MIN_PREVIEW_SIZE, PREVIEW_PRESETS, validPreviewDimension,
   type PreviewFormat, type PreviewFraming, type PreviewSize } from "./previewSize";
 
-const props = defineProps<{ modelValue: PreviewFraming | null; currentSize: PreviewSize; disabled: boolean }>();
-const emit = defineEmits<{ "update:modelValue": [value: PreviewFraming] }>();
+const props = defineProps<{
+  modelValue: PreviewFraming | null;
+  currentSize: PreviewSize;
+  disabled: boolean;
+  backgroundName: string;
+  hasCustomBackground: boolean;
+}>();
+const emit = defineEmits<{
+  "update:modelValue": [value: PreviewFraming];
+  "upload-background": [];
+  "reset-background": [];
+}>();
 const panelId = useId();
 const root = ref<HTMLElement | null>(null);
 const trigger = ref<HTMLButtonElement | null>(null);
@@ -66,6 +77,16 @@ function applyCustom(): void {
   close(true);
 }
 
+function uploadBackground(): void {
+  close(true);
+  emit("upload-background");
+}
+
+function resetBackground(): void {
+  close(true);
+  emit("reset-background");
+}
+
 function moveFocus(event: KeyboardEvent, index: number): void {
   let next = index;
   if (event.key === "ArrowDown") next = (index + 1) % options.length;
@@ -99,12 +120,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="root" class="preview-size-picker">
-    <button ref="trigger" type="button" class="size-trigger" aria-label="Preview size"
-      :title="`Preview size · ${Math.round(currentSize.width)} × ${Math.round(currentSize.height)}`" :disabled="disabled"
+    <button ref="trigger" type="button" class="size-trigger" aria-label="Preview settings"
+      :title="`Preview settings · ${Math.round(currentSize.width)} × ${Math.round(currentSize.height)}`" :disabled="disabled"
       aria-haspopup="dialog" :aria-expanded="open" :aria-controls="panelId" @mousedown.prevent @click="toggle">
-      <IconBase :size="16"><path d="M8 3H3v5m13 13h5v-5M3 3l6 6m12 12-6-6" /><path d="M14 3h5a2 2 0 0 1 2 2v5M3 14v5a2 2 0 0 0 2 2h5" /></IconBase>
+      <SettingsIcon :size="16" />
     </button>
-    <div v-if="open" :id="panelId" class="size-panel" :style="{ maxHeight: `${maxPanelHeight}px` }" role="dialog" aria-label="Preview size options">
+    <div v-if="open" :id="panelId" class="size-panel" :style="{ maxHeight: `${maxPanelHeight}px` }" role="dialog" aria-label="Preview settings">
       <div class="size-heading">Preview size</div>
       <div role="group" aria-label="Preview format">
         <!-- WebKit otherwise focuses the dialog on mouse-down, dismissing this panel before click. -->
@@ -138,6 +159,22 @@ onBeforeUnmount(() => {
           <button type="submit" class="size-apply" :disabled="!valid" @mousedown.prevent>Apply</button>
         </div>
       </form>
+      <div class="background-options" role="group" aria-label="Preview background">
+        <div class="size-heading">Background</div>
+        <button type="button" class="size-option" :disabled="disabled" @mousedown.prevent @click="uploadBackground">
+          <IconBase :size="17" :stroke-width="1.5">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <path d="m21 15-5-5L5 21" />
+          </IconBase>
+          Update background image
+        </button>
+        <span v-if="backgroundName" class="background-name" :title="backgroundName">{{ backgroundName }}</span>
+        <button v-if="hasCustomBackground" type="button" class="size-option" :disabled="disabled" @mousedown.prevent @click="resetBackground">
+          <IconBase :size="17" :stroke-width="1.5"><path d="M3 10a9 9 0 1 1 2.4 8.5M3 4v6h6" /></IconBase>
+          Reset background
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -168,4 +205,6 @@ button:disabled { opacity: 0.4; cursor: default; }
 .size-input > span { color: rgba(var(--fg-rgb), 0.3); }
 .size-custom-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; font-size: 9px; color: rgba(var(--fg-rgb), 0.35); }
 .size-apply { padding: 6px 13px; background: rgba(var(--fg-rgb), 0.09); color: rgba(var(--fg-rgb), 0.9); }
+.background-options { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(var(--fg-rgb), 0.08); }
+.background-name { display: block; margin: 0 8px 5px 35px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: rgba(var(--fg-rgb), 0.4); }
 </style>

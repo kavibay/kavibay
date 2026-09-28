@@ -448,6 +448,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!-- File inputs also emit cancel; only handle the dialog's own cancellation. -->
   <dialog
     ref="dialog"
     class="preview-dialog"
@@ -457,7 +458,7 @@ onBeforeUnmount(() => {
     :aria-label="open ? `Share ${title}` : 'Widget preview'"
     :aria-modal="open ? true : undefined"
     :data-interactive="open ? '' : undefined"
-    @cancel.prevent="cancelOrClose"
+    @cancel.self.prevent="cancelOrClose"
     @pointerdown="onBackdrop"
   >
     <!-- Make the native backdrop clickable even outside the Wizard's host card. -->
@@ -498,16 +499,6 @@ onBeforeUnmount(() => {
       <footer v-if="open" class="share-footer">
         <div class="share-image-actions">
           <input ref="backgroundInput" type="file" accept="image/*" aria-label="Choose canvas background" hidden @change="chooseBackground" />
-          <button type="button" :disabled="working" @click="backgroundInput?.click()">
-            <IconBase :size="14">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <path d="m21 15-5-5L5 21" />
-            </IconBase>
-            {{ loadingBackground ? 'Loading image…' : 'Upload background image' }}
-          </button>
-          <span v-if="backgroundName" class="share-background-name" :title="backgroundName">{{ backgroundName }}</span>
-          <button v-if="customBackground" type="button" :disabled="working" @click="resetBackground">Reset background</button>
           <button type="button" :disabled="working || recording.view === 'playback' || !captureTarget || !previewTarget" @click="copyImage">
             <IconBase :size="14">
               <rect x="9" y="9" width="12" height="12" rx="2" />
@@ -554,7 +545,9 @@ onBeforeUnmount(() => {
             </button>
             <p v-if="showRecordingFeedback" class="share-recording-feedback" :class="{ 'share-recording-feedback--success': recordingSuccess }" :role="recordingSuccess ? 'status' : 'alert'">{{ recordingFeedback }}</p>
           </div>
-          <PreviewSizePicker ref="sizePicker" :model-value="previewFraming" :current-size="previewSpace" :disabled="working" @update:model-value="changePreviewSize" />
+          <PreviewSizePicker ref="sizePicker" :model-value="previewFraming" :current-size="previewSpace" :disabled="working"
+            :background-name="backgroundName" :has-custom-background="!!customBackground"
+            @update:model-value="changePreviewSize" @upload-background="backgroundInput?.click()" @reset-background="resetBackground" />
         </div>
         <p v-if="copyError" class="share-feedback" role="alert">{{ copyError }}</p>
         <p v-if="backgroundError" class="share-feedback" role="alert">{{ backgroundError }}</p>
@@ -702,7 +695,6 @@ h2[tabindex="-1"] { outline: none; }
 .share-copy-label > span { grid-area: 1 / 1; transition: opacity 200ms ease; }
 .share-copy-success, .share-copy-label--copied .share-copy-default { opacity: 0; }
 .share-copy-label--copied .share-copy-success { opacity: 1; }
-.share-background-name { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: rgba(var(--fg-rgb), 0.45); }
 .share-footer .share-feedback { flex-basis: 100%; }
 .preview-dialog--copying .share-preview { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) {
