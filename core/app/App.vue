@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import CommandPalette from "./palette/CommandPalette.vue";
 import WidgetHost from "./host/WidgetHost.vue";
 import ExtensionAboutModal from "./extensions/ExtensionAboutModal.vue";
+import WidgetImportModal from "./runtime/WidgetImportModal.vue";
 import OnboardingCoach from "./onboarding/OnboardingCoach.vue";
 import OnboardingSetup from "./onboarding/OnboardingSetup.vue";
 import SettingsModal from "./settings/SettingsModal.vue";
@@ -48,6 +49,7 @@ onUnmounted(() => {
       <template #overlay>
         <SettingsModal />
         <ExtensionAboutModal />
+        <WidgetImportModal />
         <OnboardingCoach />
         <OnboardingSetup />
       </template>
