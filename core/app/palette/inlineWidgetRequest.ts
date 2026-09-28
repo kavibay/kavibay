@@ -18,6 +18,9 @@ export interface InlineWidgetRequest {
 
 export const inlineWidgetRequest = ref<InlineWidgetRequest | null>(null);
 
+/** The panel owns this live instance; background cards must not mount a second copy. */
+export const inlineWidgetInstanceId = ref<string | null>(null);
+
 /** Ask the palette to take this instance into its panel. */
 export function requestInlineWidget(instanceId: string, typeId: string): void {
   inlineWidgetRequest.value = { instanceId, typeId };

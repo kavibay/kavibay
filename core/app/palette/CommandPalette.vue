@@ -141,7 +141,7 @@ import {
   withInlineZoom,
   type InlineZoomMap,
 } from "./inlineWidgetZoom";
-import { inlineWidgetRequest, paletteDropActive } from "./inlineWidgetRequest";
+import { inlineWidgetRequest, inlineWidgetInstanceId, paletteDropActive } from "./inlineWidgetRequest";
 import { pickAndImport } from "../runtime/widgetImport";
 import {
   getExtension,
@@ -422,8 +422,10 @@ const widgetsOpen = ref(false);
 const inlineWidget = ref<{ instanceId: string; typeId: string } | null>(null);
 const inlineShortcutId = ref<string | null>(null);
 watch(inlineWidget, (target) => {
+  inlineWidgetInstanceId.value = target?.instanceId ?? null;
   if (!target) inlineShortcutId.value = null;
-});
+}, { flush: "sync" });
+onUnmounted(() => { inlineWidgetInstanceId.value = null; });
 
 /** Apps the user hid from search (still reachable via Show more). */
 const hiddenAppKeys = ref(loadHiddenApps());
