@@ -366,7 +366,11 @@ const GOOGLE_CALENDAR: CredentialTypeDef = CredentialTypeDef {
             kind: FieldKind::Text,
             required: true,
             placeholder: Some("…apps.googleusercontent.com"),
-            help: None,
+            // Without the 7-day note, the weekly sign-in a Testing client
+            // forces looks like a Kavibay bug.
+            help: Some(
+                "A Desktop app client, with the Google Calendar API enabled and your account added as a test user. While its publishing status is Testing, Google ends the sign-in after 7 days; switch it to In production to stay connected.",
+            ),
         },
         FieldDef {
             key: "clientSecret",
