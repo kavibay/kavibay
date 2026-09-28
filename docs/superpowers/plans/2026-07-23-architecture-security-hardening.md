@@ -114,7 +114,7 @@ Enabling a package currently auto-grants everything grantable from its manifest.
 
 Status (checked 2026-09-28): done, with two deviations from the text below. CI
 runs the frontend on Ubuntu and Rust on Windows (`.github/workflows/ci.yml`), and
-`release.yml` builds Windows and Linux. Linting is `oxlint` rather than ESLint
+`release.yml` builds Windows only. Linting is `oxlint` rather than ESLint
 with Prettier, and the import boundaries are enforced by
 `scripts/importBoundaries.assert.mjs`. `npm run verify` and
 `scripts/runAsserts.mjs` cover P1.3, and `CONTRIBUTING.md` exists.
