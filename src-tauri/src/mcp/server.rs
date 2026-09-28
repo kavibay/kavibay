@@ -108,7 +108,7 @@ impl McpServerState {
         self.inner
             .lock()
             .map(|inner| inner.config)
-            .unwrap_or_default()
+            .unwrap_or_else(|_| settings::McpServerConfig::disabled())
     }
 
     pub fn status(&self) -> McpServerStatus {

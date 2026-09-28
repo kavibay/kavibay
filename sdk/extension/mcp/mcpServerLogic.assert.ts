@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import {
   MCP_DEFAULT_PORT,
   MCP_HOST,

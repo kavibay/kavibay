@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import type { McpServerState, McpServerStatus } from "./mcpServerApi";
 
 export const MCP_DEFAULT_PORT = 43_127;
