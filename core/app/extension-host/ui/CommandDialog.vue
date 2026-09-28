@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import type { ArgSpec } from "@sdk/contract/sdk";
+import { holdHostDismiss } from "@sdk/hostDismiss";
 
 /**
  * PHASE 5 — the runtime's own `HostUi`, for the two questions a command can ask
@@ -38,17 +39,25 @@ const emit = defineEmits<{
 
 const draft = ref<string>("");
 const field = ref<HTMLInputElement | HTMLSelectElement | null>(null);
+const dialog = ref<HTMLElement | null>(null);
+const cancelButton = ref<HTMLButtonElement | null>(null);
 
 const spec = computed(() => (props.request?.kind === "prompt" ? props.request.spec : undefined));
 const options = computed(() => spec.value?.options ?? []);
 
 watch(
   () => props.request,
-  async (request) => {
+  async (request, _previous, onCleanup) => {
     if (!request) return;
+    const previousFocus = document.activeElement;
+    const release = holdHostDismiss("command dialog");
+    onCleanup(() => {
+      release();
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
+    });
     draft.value = "";
     await nextTick();
-    field.value?.focus();
+    if (props.request === request) (field.value ?? cancelButton.value)?.focus();
   },
   { immediate: true },
 );
@@ -81,21 +90,41 @@ function cancel() {
   if (props.request?.kind === "confirm") emit("confirm", false);
   else emit("answer", undefined);
 }
+
+/** Keep Tab inside the question and keep Escape from dismissing the cockpit. */
+function onKeydown(event: KeyboardEvent) {
+  event.stopPropagation();
+  if (event.key === "Escape") {
+    event.preventDefault();
+    cancel();
+  } else if (event.key === "Tab") {
+    const controls = [...(dialog.value?.querySelectorAll<HTMLElement>("button:not(:disabled), input, select") ?? [])];
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  }
+}
 </script>
 
 <template>
-  <div v-if="request" class="scrim" @click.self="cancel" @keydown.esc="cancel">
-    <div class="dialog" role="dialog" aria-modal="true">
+  <div v-if="request" class="scrim" data-interactive @click.self="cancel" @keydown="onKeydown">
+    <div ref="dialog" class="dialog" role="dialog" aria-modal="true" aria-labelledby="command-question">
       <template v-if="request.kind === 'confirm'">
-        <p class="question">{{ request.message }}</p>
+        <p id="command-question" class="question">{{ request.message }}</p>
         <div class="row">
-          <button type="button" class="btn" @click="emit('confirm', false)">Cancel</button>
+          <button ref="cancelButton" type="button" class="btn" @click="emit('confirm', false)">Cancel</button>
           <button type="button" class="btn primary" @click="emit('confirm', true)">Confirm</button>
         </div>
       </template>
 
       <form v-else class="form" @submit.prevent="submit">
-        <label class="question" :for="'arg-' + spec!.name">{{ spec!.label }}</label>
+        <label id="command-question" class="question" :for="'arg-' + spec!.name">{{ spec!.label }}</label>
 
         <!-- Options come from a query the runtime ran a moment ago, not from
              the manifest — that is the whole point of asking here. -->
@@ -134,7 +163,8 @@ function cancel() {
 .scrim {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 1100;
+  pointer-events: auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -146,7 +176,7 @@ function cancel() {
   max-width: 380px;
   padding: 16px;
   border-radius: 12px;
-  background: rgb(28, 30, 34);
+  background: rgb(var(--surface-bg-rgb));
   border: 1px solid rgba(var(--fg-rgb), 0.16);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
 }

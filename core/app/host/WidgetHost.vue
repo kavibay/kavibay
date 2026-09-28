@@ -73,7 +73,7 @@ import {
   spawnOffsetNearPalette,
 } from "./layoutLogic";
 import { renameRuntimeStorageExt } from "../runtime/runtimeStorage";
-import { extensionHost } from "../extension-host/cockpit";
+import { commandUi, extensionHost } from "../extension-host/cockpit";
 import {
   LayoutGeometryHistory,
   applyLayoutGeometry,
@@ -613,7 +613,7 @@ function isEditableKeyTarget(target: EventTarget | null): boolean {
 
 /** Ctrl/Cmd+Z undo close or geometry; Ctrl/Cmd+Y (or Shift+Z) redo geometry only. */
 function onLayoutHistoryKeydown(event: KeyboardEvent): void {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value) return;
   if (isEditableKeyTarget(event.target)) return;
   if (drag) return;
   const mod = event.ctrlKey || event.metaKey;
@@ -1355,6 +1355,7 @@ function closeCockpit(options: { keepPeeked?: boolean } = {}) {
  * clearing cockpitOpen).
  */
 function onPaletteHotkey(revealedByRust = false) {
+  if (commandUi.request.value) return;
   // The setup card owns the screen until it is answered, and `paletteHidden` is
   // true *on purpose* while it is up — so every branch below would read that as
   // "the palette is away, bring it back" and put a search field behind the one
@@ -1424,6 +1425,7 @@ function onCtrlTapKey(event: KeyboardEvent) {
  * already lives in `closeCockpit`.
  */
 function onPeekHotkey(pressed: boolean, revealedByRust: boolean) {
+  if (commandUi.request.value) return;
   const action = resolvePeek({
     pressed,
     cockpitOpen: cockpitOpen.value,
@@ -1444,7 +1446,7 @@ function onPeekHotkey(pressed: boolean, revealedByRust: boolean) {
 /** Outside click closes the cockpit session (non-pinned UI disappears). */
 function onDismissOutside() {
   // Settings / gallery own the fullscreen layer — don't dismiss the cockpit under them.
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value) return;
   closeCockpit();
 }
 
@@ -1563,7 +1565,7 @@ const NUDGE_PX = 10;
 
 /** Cycle keyboard focus through visible widgets on the active desk. */
 function onCycleWidgetFocusKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value) return;
   if (!event.ctrlKey || event.altKey || event.metaKey || event.key !== "Tab") return;
 
   const openIds = mountedInstances.value
@@ -1592,7 +1594,7 @@ function onCycleWidgetFocusKeydown(event: KeyboardEvent) {
  * (Snake, Notes) cannot swallow it first.
  */
 function onFocusSearchKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value) return;
   if (!event.ctrlKey || !event.altKey || event.metaKey || event.shiftKey) return;
   if (event.code !== "KeyS") return;
 
@@ -1626,7 +1628,7 @@ function onFocusPop(instanceId: string) {
  * Capture-phase so it works while Snake/Notes own normal arrow keys.
  */
 function onNudgeKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value) return;
   if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) return;
 
   let dx = 0;
@@ -1669,7 +1671,7 @@ function onNudgeKeydown(event: KeyboardEvent) {
 
 /** Move the active palette or widget by one drag-grid gap per arrow press. */
 function onGapMoveKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value) return;
   if (!event.ctrlKey || !event.altKey || event.shiftKey || event.metaKey) return;
 
   let dx = 0;
@@ -1735,7 +1737,7 @@ function onGapMoveKeydown(event: KeyboardEvent) {
  * Uses event.code so Shift does not turn "1" into "!".
  */
 function onDeskSwitchKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value) return;
   if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) return;
   const match = /^Digit([1-9])$/.exec(event.code);
   if (!match) return;
@@ -1858,7 +1860,7 @@ function isCardChord(event: KeyboardEvent, letter: string): boolean {
  * pin dot offers. Shift/Alt combinations remain available to other actions.
  */
 function onPinKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value) return;
   if (drag) return;
   if (!isCardChord(event, "p")) return;
 
@@ -1877,7 +1879,7 @@ function onPinKeydown(event: KeyboardEvent) {
  * Duplicate for them, and a chord must not reach past what the UI offers.
  */
 function onDuplicateKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value) return;
   if (drag) return;
   if (!isCardChord(event, "d")) return;
 
@@ -1892,7 +1894,7 @@ function onDuplicateKeydown(event: KeyboardEvent) {
 
 /** Ctrl/Cmd+O moves the focused desk card into the palette's inline surface. */
 function onMoveToPanelKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value) return;
   if (drag) return;
   if (!isCardChord(event, "o")) return;
 
@@ -1905,7 +1907,7 @@ function onMoveToPanelKeydown(event: KeyboardEvent) {
 }
 
 function onWidgetCloseKeydown(event: KeyboardEvent) {
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || commandUi.request.value) return;
   if (drag) return;
 
   const action = matchWidgetCloseKey(event);
