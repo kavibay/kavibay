@@ -5322,6 +5322,7 @@ async function enablePackage(
           aria-keyshortcuts="Meta+S Control+S"
           @click="() => keep()"
         >
+          <IconBase :size="13"><path d="M20 6 9 17l-5-5" /></IconBase>
           Save
         </button>
       </div>
@@ -6834,14 +6835,26 @@ async function enablePackage(
   outline-offset: -1px;
 }
 
-.wiz-tab--on,
-.wiz-actions .wiz-action--primary {
+.wiz-tab--on {
   background-color: var(--row-selected-bg, rgba(var(--fg-rgb), 0.1));
   background-image: var(--row-selected-sheen, none);
   box-shadow:
     var(--row-selected-rim, inset 0 0 0 1px rgba(255, 255, 255, 0.05)),
     var(--row-selected-shadow, 0 1px 3px rgba(0, 0, 0, 0.3));
   opacity: 1;
+}
+
+/*
+  The main action, not a selected segment: the raised pill of an open tab made
+  Save read as a toggle that was switched on. Flat fill and full ink instead.
+*/
+.wiz-actions .wiz-action--primary {
+  background-color: rgba(var(--fg-rgb), 0.1);
+  opacity: 1;
+}
+
+.wiz-actions .wiz-action--primary:hover:not(:disabled) {
+  background-color: rgba(var(--fg-rgb), 0.16);
 }
 
 @container (max-width: 340px) {
