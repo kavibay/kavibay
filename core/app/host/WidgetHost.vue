@@ -101,7 +101,8 @@ import { useExtensionsPrefs } from "../settings/useExtensionsPrefs";
 import { useSettingsModal } from "../settings/useSettingsModal";
 import { useExtensionAboutModal } from "../extensions/useExtensionAboutModal";
 import { hostDismissHeld } from "@sdk";
-import { paletteDropActive, requestInlineWidget } from "../palette/inlineWidgetRequest";
+import { inlineWidgetInstanceId, paletteDropActive, requestInlineWidget } from "../palette/inlineWidgetRequest";
+import { withBackgroundWidgets } from "./backgroundWidgets";
 import { useOnboarding } from "../onboarding/useOnboarding";
 import { setupState, startSetupIfNeeded } from "../onboarding/setupSession";
 import { isSetupVisible } from "../onboarding/setupLogic";
@@ -409,13 +410,14 @@ const paletteVisible = computed(
 
 /** Whether an instance would mount if its extension were enabled. */
 function wouldMountIgnoringEnable(instance: WidgetInstance): boolean {
+  if (keepsAliveWhenHidden(instance)) return true;
   if (instance.hidden) return false;
   if (instance.pinned) return true;
   if (peekKept.value.has(instance.instanceId)) return true;
-  return cockpitOpen.value || keepsAliveWhenHidden(instance);
+  return cockpitOpen.value;
 }
 
-/** Whether a widget needs to stay mounted while the cockpit is dismissed. */
+/** Background work continues while hidden, dismissed or on another desk. */
 function keepsAliveWhenHidden(instance: WidgetInstance): boolean {
   return defFor(instance.typeId)?.keepAliveWhenHidden === true;
 }
@@ -442,6 +444,7 @@ function suspendLeavingMountedSet(
   skipInstanceIds?: Set<string>,
 ) {
   for (const instance of instances) {
+    if (keepsAliveWhenHidden(instance)) continue;
     if (!prevMountedIds.has(instance.instanceId)) continue;
     if (nextMountedIds.has(instance.instanceId)) continue;
     if (skipInstanceIds?.has(instance.instanceId)) continue;
@@ -455,6 +458,7 @@ function resumeEnteringMountedSet(
   nextMountedIds: Set<string>,
 ) {
   for (const instance of instances) {
+    if (keepsAliveWhenHidden(instance)) continue;
     if (!nextMountedIds.has(instance.instanceId)) continue;
     if (prevMountedIds.has(instance.instanceId)) continue;
     runExtensionHook(getExtension(instance.typeId), "onResume", instance.instanceId);
@@ -462,17 +466,23 @@ function resumeEnteringMountedSet(
 }
 
 /**
- * Mounted widgets: enabled extension; not Hidden; pinned always; default only
- * while cockpit is open.
+ * Background work belongs to the instance, independent of which desk is visible.
+ * Keeping the keyed card here also preserves its model across desk switches.
  */
 const mountedInstances = computed(() =>
-  instances.filter((instance) => isMountedInstance(instance)),
+  withBackgroundWidgets(
+    instances.filter(isMountedInstance),
+    layoutDoc.catalog,
+    (typeId) => isEnabled(typeId) && defFor(typeId)?.keepAliveWhenHidden === true,
+    inlineWidgetInstanceId.value,
+  ),
 );
 
 /** Mounted widgets that are actually visible; background widgets are excluded. */
 const visibleMountedInstances = computed(() =>
   mountedInstances.value.filter(
-    (instance) => cockpitOpen.value || survivesDismiss(instance, peekKept.value),
+    (instance) => instances.some((active) => active.instanceId === instance.instanceId && !active.hidden)
+      && (cockpitOpen.value || survivesDismiss(instance, peekKept.value)),
   ),
 );
 
@@ -1131,7 +1141,7 @@ function onAppearance(instanceId: string, patch: WidgetAppearance | null) {
  */
 function focusPaletteIfNoCardsLeft() {
   void nextTick(() => {
-    if (mountedInstances.value.length > 0) return;
+    if (visibleMountedInstances.value.length > 0) return;
     if (!paletteVisible.value) return;
     void emit("palette:show");
   });
@@ -1145,7 +1155,9 @@ function onHide(instanceId: string) {
   const instance = instances.find((item) => item.instanceId === instanceId);
   if (!instance || instance.hidden === true) return;
   pushCloseUndo({ kind: "hide", instanceId });
-  runExtensionHook(getExtension(instance.typeId), "onSuspend", instance.instanceId);
+  if (!keepsAliveWhenHidden(instance)) {
+    runExtensionHook(getExtension(instance.typeId), "onSuspend", instance.instanceId);
+  }
   instance.hidden = true;
   instance.hiddenAt = Date.now();
   if (focusedInstanceId.value === instanceId) focusedInstanceId.value = null;
@@ -1485,6 +1497,11 @@ function onMoveToPanel(instanceId: string) {
 
 /** Clear persisted Hidden and open the cockpit so a default widget can appear. */
 function onRevealWidget(instanceId: string) {
+  if (!instances.some((item) => item.instanceId === instanceId)) {
+    // A background notification can originate from a widget on another desk.
+    const desk = layoutDoc.desks.find((row) => row.placements.some((item) => item.instanceId === instanceId));
+    if (desk) kavibaySwitchDesk(desk.id);
+  }
   const instance = instances.find((item) => item.instanceId === instanceId);
   if (!instance) return;
   const wasHidden = instance.hidden === true;
@@ -1568,9 +1585,7 @@ function onCycleWidgetFocusKeydown(event: KeyboardEvent) {
   if (settingsOpen.value || commandUi.request.value) return;
   if (!event.ctrlKey || event.altKey || event.metaKey || event.key !== "Tab") return;
 
-  const openIds = mountedInstances.value
-    .filter((instance) => instance.hidden !== true)
-    .map((instance) => instance.instanceId);
+  const openIds = visibleMountedInstances.value.map((instance) => instance.instanceId);
   const currentId = paletteFront.value ? null : (focusedInstanceId.value ?? frontInstanceId.value);
   const nextId = nextWidgetFocusId(openIds, currentId, event.shiftKey);
 
@@ -2354,7 +2369,7 @@ function kavibayRemoveWidget(instanceId: string, mode: "desk" | "everywhere") {
     if (focusedInstanceId.value === instanceId) focusedInstanceId.value = null;
     if (frontInstanceId.value === instanceId) frontInstanceId.value = null;
     releasePeekKept(instanceId);
-    if (wasMounted && !disposed && catalogEntry) {
+    if (wasMounted && !disposed && catalogEntry && !defFor(catalogEntry.typeId)?.keepAliveWhenHidden) {
       runExtensionHook(getExtension(catalogEntry.typeId), "onSuspend", instanceId);
     }
     if (disposed && catalogEntry) {
@@ -3132,7 +3147,7 @@ provide("kavibayPaletteMovePointerdown", (event: PointerEvent) => {
         'widget-anchor--front': frontInstanceId === instance.instanceId,
       }"
       :style="widgetStyle(instance)"
-      v-show="cockpitOpen || survivesDismiss(instance, peekKept)"
+      v-show="visibleMountedInstances.some((visible) => visible.instanceId === instance.instanceId)"
       @pointerdown.capture="raiseWidget(instance.instanceId)"
       @focusin="onCardFocusIn(instance.instanceId)"
       @pointermove="onPointerMove"
