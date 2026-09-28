@@ -7,6 +7,8 @@
  * extension supplies only package identity, URL, format and geometry.
  */
 import { computed, ref, watch } from "vue";
+import type { WizardPreviewElement } from "@sdk/wizardPreview";
+import { provideWizardPreviewPicker } from "../wizardPreviewPicker";
 import WidgetCard from "../../host/WidgetCard.vue";
 import RuntimeExtensionFrame from "../../runtime/RuntimeExtensionFrame.vue";
 import ContractPackageWidget from "./ContractPackageWidget.vue";
@@ -47,6 +49,12 @@ const emit = defineEmits<{
    */
   fault: [fault: { source: WidgetFault["source"]; message: string; where?: string }];
 }>();
+
+provideWizardPreviewPicker({
+  picking: computed(() => !!props.picking && !props.sharing),
+  select: (element) => emit("selected", element),
+  cancel: () => emit("cancel-pick"),
+});
 
 const MIN = { w: 160, h: 120 };
 const isLoaded = computed(() => packageDefinitionId(props.extId) !== undefined);

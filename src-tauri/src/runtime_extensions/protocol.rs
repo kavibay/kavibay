@@ -66,9 +66,19 @@ fn handle_kavibay_ext_request<R: Runtime>(
     request: &Request<Vec<u8>>,
 ) -> Response<Vec<u8>> {
     match load_kavibay_ext_file(app, request.uri()) {
-        Ok((bytes, content_type)) => file_response(bytes, content_type),
+        Ok((bytes, content_type)) => {
+            file_response(bytes, content_type, preview_requested(request.uri()))
+        }
         Err(_) => status_response(StatusCode::NOT_FOUND),
     }
+}
+
+// Only the host's Wizard preview URL opts in; release builds never inject it.
+fn preview_requested(uri: &Uri) -> bool {
+    cfg!(debug_assertions)
+        && uri
+            .query()
+            .is_some_and(|query| query.split('&').any(|part| part == "wizardPreview=1"))
 }
 
 /// The CSP goes on every response, not only on HTML.
@@ -79,9 +89,13 @@ fn handle_kavibay_ext_request<R: Runtime>(
 /// network: navigate there, `fetch` out whatever the page had read. A CSP on
 /// a script, style or image is ignored, so this costs nothing where it does
 /// not matter. `nosniff` keeps a `.txt` from being promoted to HTML.
-fn file_response(bytes: Vec<u8>, content_type: &'static str) -> Response<Vec<u8>> {
+fn file_response(
+    bytes: Vec<u8>,
+    content_type: &'static str,
+    wizard_preview: bool,
+) -> Response<Vec<u8>> {
     let bytes = if content_type.starts_with("text/html") {
-        with_frame_defaults(bytes)
+        with_frame_defaults(bytes, wizard_preview)
     } else {
         bytes
     };
@@ -196,7 +210,7 @@ const CANVAS_RESET: &str = concat!(
 /// after the doctype otherwise — never before it, because a stray node ahead of
 /// the doctype drops the page into quirks mode, which changes far more than a
 /// background.
-fn with_frame_defaults(html: Vec<u8>) -> Vec<u8> {
+fn with_frame_defaults(html: Vec<u8>, wizard_preview: bool) -> Vec<u8> {
     let Ok(text) = std::str::from_utf8(&html) else {
         // Not text we can reason about; serve it untouched rather than corrupt it.
         return html;
@@ -215,15 +229,23 @@ fn with_frame_defaults(html: Vec<u8>) -> Vec<u8> {
     out.push_str(&text[..at]);
     out.push_str(CANVAS_RESET);
     out.push_str(FRAME_GESTURES_TAG);
+    if cfg!(debug_assertions) && wizard_preview {
+        out.push_str("<script src=\"@kavibay/preview.js\"></script>");
+    }
     out.push_str(&text[at..]);
     out.into_bytes()
 }
 
 /// Scripts the host serves itself, under names no package file can claim.
-const HOST_SERVED: [(&str, &str); 3] = [
+const HOST_SERVED: &[(&str, &str)] = &[
     (RUNTIME_SDK_PATH, RUNTIME_SDK),
     (CONTRACT_GUEST_PATH, CONTRACT_GUEST),
     ("@kavibay/frame.js", FRAME_GESTURES),
+    #[cfg(debug_assertions)]
+    (
+        "@kavibay/preview.js",
+        include_str!("../../../core/app/extension-host/previewPickerGuest.js"),
+    ),
 ];
 
 /// The script body when a request is for one of the host-served names.
@@ -430,7 +452,7 @@ mod tests {
     #[test]
     fn package_files_and_misses_are_never_cached() {
         for response in [
-            super::file_response(b"script".to_vec(), "text/javascript"),
+            super::file_response(b"script".to_vec(), "text/javascript", false),
             super::status_response(tauri::http::StatusCode::NOT_FOUND),
         ] {
             assert_eq!(
@@ -454,7 +476,7 @@ mod tests {
             "text/plain; charset=utf-8",
             "application/octet-stream",
         ] {
-            let response = super::file_response(b"<svg/>".to_vec(), content_type);
+            let response = super::file_response(b"<svg/>".to_vec(), content_type, false);
             assert_eq!(
                 response
                     .headers()
@@ -471,6 +493,7 @@ mod tests {
         let response = super::file_response(
             b"<!doctype html><html><head><script src=\"app.js\"></script></head></html>".to_vec(),
             "text/html; charset=utf-8",
+            false,
         );
         let html = std::str::from_utf8(response.body()).unwrap();
         assert!(html.find("@kavibay/frame.js").unwrap() < html.find("app.js").unwrap());
@@ -478,12 +501,44 @@ mod tests {
         assert!(super::host_served_script("ui/not@kavibay/frame.js").is_none());
     }
 
+    #[test]
+    fn picker_is_only_in_development_preview_documents() {
+        let html = b"<!doctype html><html><head><script src=\"app.js\"></script></head></html>";
+        let regular = super::file_response(html.to_vec(), "text/html", false);
+        assert!(!std::str::from_utf8(regular.body())
+            .unwrap()
+            .contains("@kavibay/preview.js"));
+        let preview = super::file_response(html.to_vec(), "text/html", true);
+        let body = std::str::from_utf8(preview.body()).unwrap();
+        assert_eq!(body.contains("@kavibay/preview.js"), cfg!(debug_assertions));
+        if cfg!(debug_assertions) {
+            assert!(body.find("@kavibay/preview.js").unwrap() < body.find("app.js").unwrap());
+        }
+        assert_eq!(
+            super::host_served_script("ui/@kavibay/preview.js").is_some(),
+            cfg!(debug_assertions)
+        );
+        assert!(super::host_served_script("ui/not@kavibay/preview.js").is_none());
+        for query in ["", "?wizardPreview=0", "?other=wizardPreview=1"] {
+            let uri: Uri = format!("kavibay-ext://localhost/demo/index.html{query}")
+                .parse()
+                .unwrap();
+            assert!(!super::preview_requested(&uri));
+        }
+        let uri: Uri = "kavibay-ext://localhost/demo/index.html?revision=a&wizardPreview=1"
+            .parse()
+            .unwrap();
+        assert_eq!(super::preview_requested(&uri), cfg!(debug_assertions));
+        let script = super::file_response(b"app code".to_vec(), "text/javascript", true);
+        assert_eq!(script.body(), b"app code");
+    }
+
     /// The reset has to be in the document before the package's own CSS, or it
     /// is racing the parser — which is what made the black intermittent.
     #[test]
     fn the_canvas_reset_lands_at_the_top_of_the_head() {
         let html = b"<!doctype html><html lang=\"de\"><head><style>:root{color-scheme:dark}</style></head><body></body></html>";
-        let out = String::from_utf8(super::with_frame_defaults(html.to_vec())).unwrap();
+        let out = String::from_utf8(super::with_frame_defaults(html.to_vec(), false)).unwrap();
 
         let reset = out
             .find("color-scheme:normal")
@@ -520,7 +575,8 @@ mod tests {
         ];
         for (input, expected) in cases {
             let out =
-                String::from_utf8(super::with_frame_defaults(input.as_bytes().to_vec())).unwrap();
+                String::from_utf8(super::with_frame_defaults(input.as_bytes().to_vec(), false))
+                    .unwrap();
             assert!(
                 out.contains(expected),
                 "{input} did not place the reset: {out}"
@@ -531,13 +587,14 @@ mod tests {
     /// A fragment with neither is still served, and still gets the rule.
     #[test]
     fn a_document_with_no_tags_at_all_is_not_corrupted() {
-        let out = String::from_utf8(super::with_frame_defaults(b"<p>hi</p>".to_vec())).unwrap();
+        let out =
+            String::from_utf8(super::with_frame_defaults(b"<p>hi</p>".to_vec(), false)).unwrap();
         assert!(out.starts_with("<style>"));
         assert!(out.ends_with("<p>hi</p>"));
 
         // Bytes that are not text are served untouched rather than mangled.
         let binary = vec![0xff, 0xfe, 0x00];
-        assert_eq!(super::with_frame_defaults(binary.clone()), binary);
+        assert_eq!(super::with_frame_defaults(binary.clone(), false), binary);
     }
     use super::super::drafts::is_valid_package_id;
     use super::super::validate::safe_join;

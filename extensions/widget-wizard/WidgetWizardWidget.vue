@@ -25,6 +25,8 @@ import {
   watch,
 } from "vue";
 import type { DraftChanged, DraftPresence, WizardCapability } from "@sdk/contract/sdk";
+import type { WizardPreviewElement } from "@sdk/wizardPreview";
+import { pointAndPromptParts, pointAndPromptRequest, type PreviewSelection } from "./wizardPointAndPrompt";
 import {
   BracesIcon,
   BrainIcon,
@@ -852,6 +854,78 @@ const firstVersionGeneration = ref(false);
 const draftWritePending = ref(0);
 const draftConflict = ref<DraftConflict | null>(null);
 const previewNonce = ref(0);
+const pointAndPromptEnabled = import.meta.env.DEV;
+const pickingElement = ref(false);
+const selectedElements = ref<PreviewSelection[]>([]);
+let composerCaret: Range | null = null;
+
+function clearPreviewSelection() {
+  pickingElement.value = false;
+  selectedElements.value = [];
+  composerCaret = null;
+  composerEl.value?.querySelectorAll("[data-preview-id]").forEach((chip) => chip.remove());
+}
+
+function selectPreviewElement(element: WizardPreviewElement) {
+  if (!canPickElement.value || !pickingElement.value) return;
+  const root = composerEl.value;
+  if (!root || selectedElements.value.some((selection) => selection.element.selector === element.selector)) return;
+  closeIntegrationMenu();
+  middleTab.value = "chat";
+  const range = composerCaret && root.contains(composerCaret.endContainer)
+    ? composerCaret.cloneRange() : document.createRange();
+  if (!composerCaret || !root.contains(composerCaret.endContainer)) range.selectNodeContents(root);
+  range.collapse(false);
+  const selection: PreviewSelection = { id: crypto.randomUUID(), offset: 0, element };
+  selectedElements.value.push(selection);
+  const chip = createPreviewMention(selection);
+  range.insertNode(chip);
+  range.setStartAfter(chip);
+  range.collapse(true);
+  composerCaret = range;
+  syncComposerDraft();
+  void nextTick(focusComposerCaret);
+}
+
+function rememberComposerCaret() {
+  const selection = window.getSelection();
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+  if (!range || !composerEl.value?.contains(range.endContainer)) return;
+  composerCaret = range.cloneRange();
+  const container = range.endContainer instanceof Element ? range.endContainer : range.endContainer.parentElement;
+  const mention = container?.closest("[data-preview-id], [data-integration-id]");
+  if (mention) composerCaret.setEndAfter(mention);
+  composerCaret.collapse(false);
+}
+
+function focusComposerCaret() {
+  const root = composerEl.value;
+  if (!root) return;
+  root.focus();
+  if (composerCaret && root.contains(composerCaret.endContainer)) {
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(composerCaret);
+  }
+  resizeComposer();
+}
+
+function finishPreviewPick() {
+  if (!pickingElement.value) return;
+  pickingElement.value = false;
+  void nextTick(focusComposerCaret);
+}
+
+function cancelPreviewPick(event: KeyboardEvent) {
+  if (event.key !== "Escape" || !pickingElement.value) return;
+  event.preventDefault();
+  event.stopPropagation();
+  finishPreviewPick();
+}
+onMounted(() => {
+  if (pointAndPromptEnabled) window.addEventListener("keydown", cancelPreviewPick, true);
+});
+onUnmounted(() => window.removeEventListener("keydown", cancelPreviewPick, true));
 let stopDraftEvents: (() => void) | null = null;
 let stopDraftPresenceEvents: (() => void) | null = null;
 let presenceTimer: ReturnType<typeof setInterval> | null = null;
@@ -892,14 +966,20 @@ function closeIntegrationMenu(): void {
 }
 
 /** The editor's plain-text value, including line breaks and mention labels. */
-function composerText(): string {
+function composerText(onElement?: (id: string, offset: number) => void): string {
   const root = composerEl.value;
   if (!root) return "";
   const parts: string[] = [];
+  let lastElementOffset = 0;
 
   const visit = (node: Node): void => {
     if (node.nodeType === Node.TEXT_NODE) {
       parts.push(node.textContent ?? "");
+      return;
+    }
+    if (node instanceof HTMLElement && node.dataset.previewId) {
+      lastElementOffset = parts.join("").length;
+      onElement?.(node.dataset.previewId, lastElementOffset);
       return;
     }
     if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).dataset.integrationId) {
@@ -920,10 +1000,13 @@ function composerText(): string {
   };
 
   visit(root);
-  return parts.join("").replace(/\n+$/, "");
+  const text = parts.join("");
+  // A line break before an inline element is content, even with no text after it.
+  return text.slice(0, Math.max(text.replace(/\n+$/, "").length, lastElementOffset));
 }
 
 function nodeTextLength(node: Node): number {
+  if (node instanceof HTMLElement && node.dataset.previewId) return 0;
   if (node.nodeType === Node.TEXT_NODE) return node.textContent?.length ?? 0;
   if (node.nodeName === "BR") return 1;
   if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).dataset.integrationId) {
@@ -980,6 +1063,7 @@ function textOffsetRange(start: number, end: number): Range | null {
 
   const visit = (node: Node): void => {
     if (endPoint) return;
+    if (node instanceof HTMLElement && node.dataset.previewId) return;
     if (node.nodeType === Node.TEXT_NODE) {
       const length = node.textContent?.length ?? 0;
       if (!startPoint && start >= position && start <= position + length) {
@@ -1031,17 +1115,55 @@ function createIntegrationMention(option: { id: string; label: string }): HTMLSp
   return mention;
 }
 
+function createPreviewMention(selection: PreviewSelection): HTMLSpanElement {
+  const chip = document.createElement("span");
+  chip.className = "wiz-inline-element";
+  chip.dataset.previewId = selection.id;
+  chip.contentEditable = "false";
+  chip.title = [selection.element.selector, selection.element.text].filter(Boolean).join("\n");
+  const label = document.createElement("span");
+  label.className = "wiz-inline-element__label";
+  label.textContent = selection.element.selector.split(" > ").pop() ?? selection.element.tag;
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "wiz-inline-element__remove";
+  // Drawn, not the "×" glyph: the glyph sits on the text baseline, below centre.
+  const cross = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  cross.setAttribute("viewBox", "0 0 24 24");
+  cross.setAttribute("aria-hidden", "true");
+  cross.innerHTML = '<path d="M18 6 6 18M6 6l12 12"/>';
+  remove.append(cross);
+  remove.setAttribute("aria-label", `Remove selected element ${selection.element.selector}`);
+  remove.addEventListener("mousedown", (event) => event.preventDefault());
+  remove.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (busy.value) return;
+    const range = document.createRange();
+    range.setStartBefore(chip);
+    range.collapse(true);
+    chip.remove();
+    composerCaret = range;
+    syncComposerDraft();
+    focusComposerCaret();
+  });
+  chip.append(label, remove);
+  return chip;
+}
+
 function renderComposer(): void {
   const root = composerEl.value;
   if (!root) return;
 
   root.querySelectorAll<HTMLElement>(".wiz-inline-mention-mark").forEach((mark) => render(null, mark));
   root.replaceChildren();
-  for (const part of splitProviderMentions(session.value.draft, providerOptions.value)) {
-    if (part.kind === "text") {
-      root.append(document.createTextNode(part.text));
-    } else {
-      root.append(createIntegrationMention(part));
+  composerCaret = null;
+  for (const part of pointAndPromptParts(session.value.draft, selectedElements.value)) {
+    if (part.kind === "element") {
+      root.append(createPreviewMention(part.selection));
+      continue;
+    }
+    for (const mention of splitProviderMentions(part.text, providerOptions.value)) {
+      root.append(mention.kind === "text" ? document.createTextNode(mention.text) : createIntegrationMention(mention));
     }
   }
 }
@@ -1052,7 +1174,12 @@ function mentionSegments(text: string): MentionSegment[] {
 }
 
 function syncComposerDraft(): void {
-  const text = composerText();
+  const remaining: PreviewSelection[] = [];
+  const text = composerText((id, offset) => {
+    const selection = selectedElements.value.find((entry) => entry.id === id);
+    if (selection) remaining.push({ ...selection, offset });
+  });
+  selectedElements.value = remaining;
   if (text !== session.value.draft) session.value.draft = text;
 }
 
@@ -1151,11 +1278,13 @@ function chooseIntegration(option: IntegrationOption): void {
 
 function onComposerInput(): void {
   syncComposerDraft();
+  rememberComposerCaret();
   updateIntegrationMenu();
   resizeComposer();
 }
 
 function onComposerKeydown(event: KeyboardEvent): void {
+  if (event.target instanceof HTMLElement && event.target.closest(".wiz-inline-element__remove")) return;
   // Enter can confirm an IME candidate; WebKit may only report keyCode 229.
   if (event.isComposing || event.keyCode === 229) return;
   if (integrationMenuOpen.value) {
@@ -2399,8 +2528,13 @@ async function onNameChanged() {
 
 async function send() {
   if (!canSend.value) return;
+  syncComposerDraft();
   firstVersionGeneration.value = !session.value.hasDraft && !session.value.previewEntry;
-  const text = session.value.draft.trim();
+  const request = session.value.draft;
+  const elements = pointAndPromptEnabled ? selectedElements.value : [];
+  const text = pointAndPromptParts(request, elements)
+    .map((part) => part.kind === "text" ? part.text : `[${part.selection.element.selector}]`).join("").trim();
+  clearPreviewSelection();
   session.value.draft = "";
 
   /**
@@ -2436,7 +2570,7 @@ async function send() {
      * overwritten by the next reply. That made the manifest editor a trap: it
      * wrote to disk, the preview updated, and the next sentence undid it.
      */
-    content: turnForPackage(text, id, {
+    content: turnForPackage(pointAndPromptRequest(request, elements).trim(), id, {
       currentFiles: session.value.draftFiles ?? undefined,
       knownFiles: session.value.knownFiles,
       samples: session.value.samples,
@@ -2836,6 +2970,13 @@ const previewUnmet = computed(() => {
   const request = approvalRequestFor(id);
   return request ? unmetProviders(request, approvedGrantFor(id)?.providers) : [];
 });
+
+const canPickElement = computed(() => pointAndPromptEnabled && !!previewUrl.value
+  && !busy.value && !sharing.value && !tooNarrow.value && !draftConflict.value
+  && !draftEditorDirty.value && !session.value.draftError && !previewUnmet.value.length);
+watch([() => session.value.id, previewUrl, previewNonce, () => session.value.currentVersion],
+  clearPreviewSelection, { flush: "sync" });
+watch(canPickElement, (available) => { if (!available) clearPreviewSelection(); }, { flush: "sync" });
 
 function approvalRequestFor(id: string): WizardPermissionRequest | undefined {
   const row = scanned.value.find((scanned) => scanned.id === id);
@@ -5097,6 +5238,7 @@ async function enablePackage(
           @keyup="updateIntegrationMenu"
           @mouseup="updateIntegrationMenu"
           @focus="updateIntegrationMenu"
+          @blur="rememberComposerCaret"
           @paste="onComposerPaste"
         ></div>
         <Teleport to="body">
@@ -5295,6 +5437,18 @@ async function enablePackage(
     <section v-show="!tooNarrow" class="wiz-preview wiz-c5">
       <div class="wiz-actions" role="group" aria-label="Widget actions">
         <button
+          v-if="pointAndPromptEnabled"
+          type="button"
+          class="wiz-action--pick"
+          :disabled="!canPickElement"
+          :aria-pressed="pickingElement"
+          aria-label="Select preview elements"
+          v-tip="'Select elements to describe a change (development only)'"
+          @click="pickingElement ? finishPreviewPick() : pickingElement = true"
+        >
+          <IconBase :size="14"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M9 9l3 10 2-5 5-2Z" /></IconBase>
+        </button>
+        <button
           type="button"
           :disabled="!canExport"
           v-tip="'Save this widget as a .zip — the whole folder, ready to hand on'"
@@ -5326,6 +5480,7 @@ async function enablePackage(
           Save
         </button>
       </div>
+      <p v-if="pickingElement" class="wiz-pick-hint" role="status">Click elements to add them to your message. Esc to finish.</p>
       <div class="wiz-preview-body">
         <div v-if="showFirstVersionGeneration" class="wiz-empty">
           <WizardGenerationStatus />
@@ -5354,6 +5509,9 @@ async function enablePackage(
 </template>
 
 <style scoped>
+.wiz-pick-hint { margin: 36px 4px 0; font-size: 11px; opacity: 0.65; }
+.wiz-actions button[aria-pressed="true"] { background: rgba(var(--fg-rgb), 0.12); opacity: 1; }
+
 .wiz {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
@@ -6590,6 +6748,63 @@ async function enablePackage(
   justify-content: center;
   width: 14px;
   height: 14px;
+}
+
+:global(.wiz-inline-element) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: min(220px, 100%);
+  margin: 0 5px 0 2px;
+  padding: 1px 3px 1px 7px;
+  border: 1px solid rgba(var(--fg-rgb), 0.14);
+  border-radius: 6px;
+  background: rgba(var(--fg-rgb), 0.07);
+  color: rgba(var(--fg-rgb), 0.9);
+  vertical-align: baseline;
+  font-size: 0.9em;
+  line-height: 1.5;
+  user-select: all;
+}
+
+:global(.wiz-inline-element__label) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+}
+
+:global(.wiz-inline-element .wiz-inline-element__remove) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(var(--fg-rgb), 0.5);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+:global(.wiz-inline-element__remove svg) {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+:global(.wiz-inline-element__remove:hover),
+:global(.wiz-inline-element__remove:focus-visible) {
+  background: rgba(var(--fg-rgb), 0.12);
+  color: rgba(var(--fg-rgb), 0.95);
 }
 
 /*

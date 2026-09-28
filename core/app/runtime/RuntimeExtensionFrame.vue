@@ -18,6 +18,7 @@
 import { forwardFrameZoom } from "../host/contentZoom";
 import "./frameViewport.css";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useWizardPreviewPicker } from "../extension-host/wizardPreviewPicker";
 import { packageFrameUrl } from "./packageFrameUrl";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -43,7 +44,8 @@ const props = defineProps<{
 
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 const runId = ref(crypto.randomUUID());
-const frameUrl = computed(() => packageFrameUrl(props.entryUrl, runId.value));
+const wizardPreview = useWizardPreviewPicker(iframeRef, runId);
+const frameUrl = computed(() => packageFrameUrl(props.entryUrl, runId.value, wizardPreview));
 watch(() => props.entryUrl, () => { runId.value = crypto.randomUUID(); });
 
 /** Post a host→ext reply into the iframe (only if still mounted). */
