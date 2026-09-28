@@ -74,7 +74,7 @@ defineExpose({ focusFirst });
       :aria-label="`Show ${widget.title} in palette`"
       :aria-pressed="activeId === widget.id"
       :data-icon-motion="focusedId === widget.id ? 'on' : ''"
-      v-tip:below="`${widget.title} · ←/→ or Tab to preview, Enter to use`"
+      v-tip:below="widget.title"
       @focus="onFocus(widget.id)"
       @blur="focusedId = null"
       @click="$emit('select', widget.id)"
