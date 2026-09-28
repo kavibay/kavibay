@@ -227,7 +227,7 @@ watch(open, (isOpen) => {
         class="picker-warn picker-warn--action"
         @click.stop="addKey(selectedModel.id, $event)"
       >Add key</span>
-      <WizardChevron />
+      <WizardChevron :direction="open ? 'up' : 'down'" />
     </button>
 
     <div
@@ -332,6 +332,7 @@ watch(open, (isOpen) => {
 }
 
 .picker-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -339,6 +340,7 @@ watch(open, (isOpen) => {
 
 /* The effort qualifies the model, so it reads as a subtitle rather than a peer. */
 .picker-effort {
+  flex: 0 0 auto;
   opacity: 0.55;
   white-space: nowrap;
 }
