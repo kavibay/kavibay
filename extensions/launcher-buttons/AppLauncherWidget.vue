@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DialogCloseButton from "@sdk/ui/DialogCloseButton.vue";
 import {
   computed,
   inject,
@@ -936,15 +937,11 @@ onUnmounted(() => {
                   </template>
                 </p>
               </div>
-              <button
-                type="button"
-                class="installed-modal-close"
-                aria-label="Close"
+              <DialogCloseButton
+                label="Close launcher dialog"
                 :disabled="installedAdding || urlBusy"
                 @click="closeAddModal"
-              >
-                ×
-              </button>
+              />
             </header>
 
             <!-- Apps -->
@@ -1423,24 +1420,6 @@ onUnmounted(() => {
   margin: 4px 0 0;
   font-size: 12px;
   color: rgba(var(--fg-rgb), 0.45);
-}
-
-.installed-modal-close {
-  flex-shrink: 0;
-  width: 34px;
-  height: 34px;
-  border: none;
-  border-radius: 10px;
-  background: transparent;
-  color: rgba(var(--fg-rgb), 0.5);
-  font-size: 22px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.installed-modal-close:hover {
-  background: rgba(var(--fg-rgb), 0.08);
-  color: rgba(var(--fg-rgb), 0.92);
 }
 
 .installed-modal-apps {

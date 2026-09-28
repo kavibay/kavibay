@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DialogCloseButton from "@sdk/ui/DialogCloseButton.vue";
 import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { WIDGET_FOCUS_EVENT, widgetFocusRequestMatches, type WidgetSurface } from "@sdk";
 import {
@@ -261,9 +262,7 @@ onUnmounted(() => {
       >
         {{ applySkinTone(toneTarget.glyph, tone.modifier) }}
       </button>
-      <button type="button" class="emoji-tone emoji-tone--close" @click="closeTones">
-        ✕
-      </button>
+      <DialogCloseButton label="Close skin tones" @click="closeTones" />
     </div>
   </div>
 </template>
@@ -435,11 +434,5 @@ onUnmounted(() => {
 
 .emoji-tone:hover {
   background: rgba(var(--fg-rgb), 0.1);
-}
-
-.emoji-tone--close {
-  flex: 0 0 28px;
-  font-size: 12px;
-  color: rgba(var(--fg-rgb), 0.45);
 }
 </style>
