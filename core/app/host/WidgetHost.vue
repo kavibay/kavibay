@@ -1815,17 +1815,13 @@ function clearCtrlShortcutHint() {
 
 /** Show pin/hide shortcut hints once Ctrl has been held on an active surface. */
 function onCtrlShortcutHintKeydown(event: KeyboardEvent) {
-  // Ctrl+Alt is reserved for movement/search chords, never for discoverability
-  // hints. Cancel both a pending timer and already-visible hints immediately.
-  if (event.key === "Alt") {
+  // Shift/Alt chords (including macOS screenshots) must cancel pending and
+  // visible hints, regardless of which modifier was pressed first.
+  if (event.key === "Shift" || event.key === "Alt" || event.shiftKey || event.altKey) {
     clearCtrlShortcutHint();
     return;
   }
   if (event.key !== "Control" && event.key !== "Meta") return;
-  if (event.altKey) {
-    clearCtrlShortcutHint();
-    return;
-  }
   if (event.repeat || ctrlShortcutHintHeld) return;
   ctrlShortcutHintHeld = true;
   ctrlShortcutHintTimer = setTimeout(() => {
