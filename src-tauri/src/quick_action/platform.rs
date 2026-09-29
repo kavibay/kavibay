@@ -162,7 +162,7 @@ mod imp {
     /// put when nothing was selected — which is exactly how "no selection"
     /// is detected. `None` means the copy produced nothing.
     pub fn copy_selection() -> Option<String> {
-        let before = crate::extensions::clipboard_widget::clipboard_sequence();
+        let before = crate::extensions::clipboard_widget::system::clipboard_sequence();
         if send_ctrl_combo(VK_C).is_err() {
             return None;
         }
@@ -172,12 +172,12 @@ mod imp {
             std::thread::sleep(Duration::from_millis(COPY_POLL_MS));
             match (
                 before,
-                crate::extensions::clipboard_widget::clipboard_sequence(),
+                crate::extensions::clipboard_widget::system::clipboard_sequence(),
             ) {
                 // Sequence numbers unavailable: fall back to "read once, late".
                 (None, None) => continue,
                 (a, b) if a == b => continue,
-                _ => return crate::extensions::clipboard_widget::clipboard_text(),
+                _ => return crate::extensions::clipboard_widget::system::clipboard_text(),
             }
         }
         // No bump at all — either nothing was selected, or the app copied
