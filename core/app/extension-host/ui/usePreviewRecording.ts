@@ -11,7 +11,8 @@ export interface RecordingTransport {
   stop(id: string): Promise<void>;
   cancel(id: string): Promise<void>;
   copy(id: string): Promise<void>;
-  save(id: string): Promise<boolean>;
+  /** `title` names the saved file after the widget. */
+  save(id: string, title: string): Promise<boolean>;
   read(id: string): Promise<ArrayBuffer>;
 }
 
@@ -25,7 +26,7 @@ const nativeTransport: RecordingTransport = {
   stop: (recordingId) => invoke("stop_preview_clip", { recordingId }),
   cancel: (recordingId) => invoke("cancel_preview_clip", { recordingId }),
   copy: (clipId) => invoke("copy_preview_clip", { clipId }),
-  save: (clipId) => invoke("save_preview_clip", { clipId }),
+  save: (clipId, title) => invoke("save_preview_clip", { clipId, title }),
   read: (clipId) => invoke("read_preview_clip", { clipId }),
 };
 
@@ -173,14 +174,14 @@ export function usePreviewRecording(transport = nativeTransport, detachVideo: ()
     }
   }
 
-  async function saveClip() {
+  async function saveClip(title: string) {
     const id = clip.value?.clipId;
     if (!id || disposed || saving.value || active.value) return;
     const current = generation;
     saving.value = true;
     saveFeedback.value = "";
     try {
-      const saved = await transport.save(id);
+      const saved = await transport.save(id, title);
       if (!disposed && current === generation && saved) saveFeedback.value = "Video saved";
     } catch (e) {
       if (!disposed && current === generation) saveFeedback.value = message(e);

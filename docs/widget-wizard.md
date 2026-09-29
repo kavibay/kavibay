@@ -59,7 +59,8 @@ sharing actions:
   explains how to use **Import Widget** in the palette or drop the ZIP onto
   Kavibay, then review access and choose **Install widget**.
 - **Capture screenshot** captures the widget and its canvas background. The
-  button then becomes three icons: **Save screenshot** (PNG), **Copy screenshot
+  button then becomes three icons: **Save screenshot** (JPEG, or PNG when the
+  image has transparency), **Copy screenshot
   to clipboard**, and **Reset screenshot** (X). Save and Copy use the captured
   image even if the live widget changes afterwards. X returns to **Capture screenshot**.
   Capturing does not change the clipboard. Cancelling a save keeps the image
