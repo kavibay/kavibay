@@ -43,7 +43,7 @@ as a starting point.
 | Clipboard | `clipboard` | Recent clipboard history. | L | Contract `ctx.clipboard` capability; backend-owned history; skips copies a password manager marks as secret (Windows, macOS) and records nothing on Linux |
 | Clock | `clock` | Local time, optional seconds and timezone. | M | Settings |
 | Focus Tracker | `focus-tracker` | Day/week/month focus time per app or window title, with habit limits. | L | Tracks the foreground window; habit rules live in settings |
-| Moodist | `moodist` | Mix looping ambient sounds for focused work. | S | Vendored sounds — see [`moodist/LICENSES.md`](moodist/LICENSES.md) |
+| Moodist | `moodist` | Mix rain, nature sounds and noise for focused work. | S | CC0 recordings + generated noise — see [`moodist/LICENSES.md`](moodist/LICENSES.md) |
 | Notes | `notes` | Sticky notes with rich text. | M | tiptap editor, context menu |
 | Single Purpose AI | `one-purpose-llm` | Pick a purpose (translate, fix grammar), tweak its prompt, run it. | L | Needs an **Anthropic**, **OpenAI** or **Cloudflare Workers AI** credential; streams |
 | Pomodoro | `pomodoro` | Focus timer with work and break sessions. | M | Keeps ticking while the desk is hidden (no `onSuspend`) |

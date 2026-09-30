@@ -28,7 +28,7 @@
     ],
     "macOSPrivateApi": true,
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost kavibay-ext: http://kavibay-ext.localhost kavibay-img: http://kavibay-img.localhost https: http: data: blob:; media-src 'self' asset: http://asset.localhost blob: data:; connect-src ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src 'self' kavibay-ext: http://kavibay-ext.localhost https://kavibay-ext.localhost; child-src 'self' kavibay-ext: http://kavibay-ext.localhost https://kavibay-ext.localhost",
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost kavibay-ext: http://kavibay-ext.localhost kavibay-img: http://kavibay-img.localhost https: http: data: blob:; media-src 'self' asset: http://asset.localhost blob: data:; connect-src 'self' ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src 'self' kavibay-ext: http://kavibay-ext.localhost https://kavibay-ext.localhost; child-src 'self' kavibay-ext: http://kavibay-ext.localhost https://kavibay-ext.localhost",
       "assetProtocol": {
         "enable": true,
         "scope": []

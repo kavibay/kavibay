@@ -15,6 +15,7 @@ scaffold CLIs, no new test frameworks.
 |------|------|---------|
 | `core/app/` | Vue host: palette, settings, widget host, runtime sandbox | GPL-3.0-or-later |
 | `core/embed/` | Custom-element package the landing (and later the store) loads with one script tag | GPL-3.0-or-later |
+| `core/web/` | Browser entry for the real app: the Tauri backend answered in the page, for the landing's live demo | GPL-3.0-or-later |
 | `src-tauri/` | Rust backend — part of core; stays at repo root for the Tauri CLI | GPL-3.0-or-later |
 | `src-tauri/src/extensions/` | Rust backends belonging to one widget each. Shared by two? Then it is host code and stays a level up. | GPL-3.0-or-later |
 | `sdk/extension/` | Extension-facing SDK implementations (`@sdk` alias) | MIT |
@@ -37,8 +38,15 @@ Licensing rules that constrain code changes:
   and `@sdk`. It must not import `core/app/extensions/*`, `@tauri-apps/*`, or
   the public site — consumers depend on the package, never the reverse. Guard:
   `scripts/embedImportGuard.assert.mjs`.
-- Don't touch the moodist sound files or their licensing (Pixabay review is a
-  tracked, separate task).
+- `core/web/` wraps `core/app/` without changing it: it installs Tauri's IPC mock
+  and imports `core/app/main.ts`. Nothing in `core/app/` may import `core/web/`.
+  Every `invoke("…")` the app makes must be in exactly one table of
+  `core/web/webCommands.ts` (ANSWERS, NO_OPS, NOT_ON_WEB) — a new Rust command
+  fails `core/web/webCommands.assert.ts` until it is classified there.
+- Moodist sounds: every file is listed in `extensions/moodist/soundInventory.ts`
+  with its source — CC0 recordings from Freesound (cut and encoded by
+  `buildSounds.mts`) or noise computed at runtime (`noise.ts`). Don't add upstream
+  Moodist recordings back: their Pixabay/CC0 licensing is not recorded per file.
 
 ## Commands
 
@@ -48,6 +56,7 @@ npm run verify                   # incremental typecheck + oxlint + all asserts,
 npm run verify:rust              # cargo fmt --check + clippy -D warnings + cargo test --lib
 npm run build                    # vue-tsc typecheck + vite build
 npm run build:embed              # custom-element bundle the site loads (`core/embed/` → `../www.kavibay.com/embed/`)
+npm run build:web                # the real app for the landing's iframe (`core/web/` → `../www.kavibay.com/app/`)
 npx tsx <path>/<name>.assert.ts  # run one colocated pure-logic test
 ```
 
@@ -209,6 +218,6 @@ Landing exception: when a task touches **only static files** under
 static files and diff only unless the maintainer explicitly asks for broader
 checks.
 
-Anything that touches the embed package (`core/embed/`), its Vite config, or the
-bundle landing loads **does** run typecheck — `npm run verify`. A broken import
+Anything that touches the embed package (`core/embed/`), the web entry
+(`core/web/`), their Vite configs, or the bundles the landing loads **does** run typecheck — `npm run verify`. A broken import
 there is a typecheck failure that the static-only exception would hide.

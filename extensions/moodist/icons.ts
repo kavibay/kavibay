@@ -41,44 +41,11 @@ const ICONS: Record<string, MoodistIconSvg> = {
       "M12 2c1 3 4 5 4 9a4 4 0 01-8 0c0-2 1-3.5 2-5-.5 2 1 3 2 3 0-2 0-5 0-7z",
     ],
   },
-  wind: {
-    viewBox: "0 0 24 24",
-    color: "#8aa4b8",
-    paths: [
-      "M4 8h10a3 3 0 100-6h-1v2h1a1 1 0 010 2H4v2zm0 4h14a3 3 0 110 6h-2v-2h2a1 1 0 000-2H4v-2zm0 4h7v2H4v-2z",
-    ],
-  },
   leaf: {
     viewBox: "0 0 24 24",
     color: "#6fbf63",
     paths: [
       "M17 8C8 10 6 16 6 20c4 0 10-2 12-11-1 2-3 3-5 3 2-2 3.5-3.5 4-4z",
-    ],
-  },
-  waterfall: {
-    viewBox: "0 0 24 24",
-    color: "#5eb0d6",
-    paths: ["M4 3h16v3H4V3zm2 5h3v13H6V8zm5 0h3v13h-3V8zm5 0h3v13h-3V8z"],
-  },
-  snow: {
-    viewBox: "0 0 24 24",
-    color: "#9ec5e8",
-    paths: [
-      "M11 2h2v4.3l2.5-1.5 1 1.7L14 8l2.5 1.5-1 1.7L12 10.2 8.5 12.2l-1-1.7L10 9 7.5 7.5l1-1.7L11 7.3V2zm1 10.8l3.5 2 1-1.7L14 12l2.5-1.5 1 1.7-2.5 1.5L17 16.2l-1 1.7-2.5-1.5V21h-2v-4.6l-2.5 1.5-1-1.7L10 14l-2.5 1.5-1-1.7 2.5-1.5L6.5 10l1-1.7 3.5 2z",
-    ],
-  },
-  gravel: {
-    viewBox: "0 0 24 24",
-    color: "#b08968",
-    paths: [
-      "M3 16l4-6 3 3 4-7 7 10H3zm5-9a2 2 0 110-4 2 2 0 010 4zm8 1a1.5 1.5 0 110-3 1.5 1.5 0 010 3z",
-    ],
-  },
-  droplet: {
-    viewBox: "0 0 24 24",
-    color: "#57a8d9",
-    paths: [
-      "M12 3c-3.5 5-5.5 8-5.5 11a5.5 5.5 0 0011 0c0-3-2-6-5.5-11z",
     ],
   },
   rain: {
@@ -88,25 +55,11 @@ const ICONS: Record<string, MoodistIconSvg> = {
       "M7 10a5 5 0 019.9-1A4 4 0 0118 17H7a4 4 0 010-7zm1 8l1.5 3h-1L7 18h1zm4 0l1.5 3h-1L11 18h1zm4 0l1.5 3h-1L15 18h1z",
     ],
   },
-  "heavy-rain": {
-    viewBox: "0 0 24 24",
-    color: "#4f86c6",
-    paths: [
-      "M6 9a5 5 0 019.9-1A4.5 4.5 0 0118 17.5H6A4.5 4.5 0 016 9zm0 10l2 4h-1.2L4.8 19H6zm4 0l2 4h-1.2L8.8 19H10zm4 0l2 4h-1.2L12.8 19H14zm4 0l2 4h-1.2L16.8 19H18z",
-    ],
-  },
   thunder: {
     viewBox: "0 0 24 24",
     color: "#e0b84a",
     paths: [
       "M7 10a5 5 0 019.9-1A4 4 0 0118 16h-3l-2 6-1.5-6H7a4 4 0 010-6zm6-1l-1.5 5H14l-3 7 1-5H9.5L13 9z",
-    ],
-  },
-  window: {
-    viewBox: "0 0 24 24",
-    color: "#7eb6d9",
-    paths: [
-      "M3 4h18v16H3V4zm1 1v6.5h8V5H4zm9 0v6.5h8V5h-8zM4 12.5V19h8v-6.5H4zm9 0V19h8v-6.5h-8z",
     ],
   },
   car: {
@@ -116,17 +69,10 @@ const ICONS: Record<string, MoodistIconSvg> = {
       "M5 11l1.5-4.5A2 2 0 018.4 5h7.2a2 2 0 011.9 1.5L19 11h1a1 1 0 011 1v3a1 1 0 01-1 1h-1a2.5 2.5 0 01-5 0H10a2.5 2.5 0 01-5 0H4a1 1 0 01-1-1v-3a1 1 0 011-1h1zm2.5 5.5a1 1 0 100-2 1 1 0 000 2zm9 0a1 1 0 100-2 1 1 0 000 2zM7.2 11h9.6l-1.1-3.3a.5.5 0 00-.5-.3H8.8a.5.5 0 00-.5.3L7.2 11z",
     ],
   },
-  umbrella: {
+  moon: {
     viewBox: "0 0 24 24",
-    color: "#c97b9b",
-    paths: [
-      "M12 3a9 9 0 019 9h-2a7 7 0 00-14 0H3a9 9 0 019-9zm-1 9h2v7a2 2 0 11-4 0h2v-7z",
-    ],
-  },
-  tent: {
-    viewBox: "0 0 24 24",
-    color: "#c4a35a",
-    paths: ["M12 3L2 21h6l4-8 4 8h6L12 3zm0 6.5L15.5 17h-7L12 9.5z"],
+    color: "#b9b4e6",
+    paths: ["M14.5 3a8.5 8.5 0 107 13.4A7 7 0 0114.5 3z"],
   },
   noise: {
     viewBox: "0 0 24 24",

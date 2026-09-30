@@ -12,8 +12,8 @@ export interface MoodistPersisted {
   volumes: Record<string, number>;
 }
 
-/** Stub default until catalog exists (Task 2); callers should pass real ids. */
-export const DEFAULT_CATEGORY_ID = "nature";
+/** First catalog category; the widget normalizes against the real ids on load. */
+export const DEFAULT_CATEGORY_ID = "noise";
 
 /** Empty mix with the given default category selected. */
 export function emptyState(defaultCategoryId: string): MoodistPersisted {
