@@ -32,24 +32,26 @@ const CARDS: Card[] = [
   { id: "demo-calculator", typeId: "calculator", x: 480, y: 90, width: 195, height: 285 },
 ];
 
-const layout = {
-  activeDeskId: "1",
-  desks: [
-    {
-      id: "1",
-      name: "Desk 1",
-      palette: { x: SCREEN.width / 2, y: SCREEN.height / 2 },
-      viewport: SCREEN,
-      placements: CARDS.map((card) => ({
-        instanceId: card.id,
-        offset: { x: card.x, y: card.y },
-        width: card.width,
-        height: card.height,
-      })),
-    },
-  ],
-  catalog: CARDS.map((card) => ({ instanceId: card.id, typeId: card.typeId })),
-};
+function layoutOf(cards: Card[], palette = { x: SCREEN.width / 2, y: SCREEN.height / 2 }) {
+  return {
+    activeDeskId: "1",
+    desks: [
+      {
+        id: "1",
+        name: "Desk 1",
+        palette,
+        viewport: SCREEN,
+        placements: cards.map((card) => ({
+          instanceId: card.id,
+          offset: { x: card.x, y: card.y },
+          width: card.width,
+          height: card.height,
+        })),
+      },
+    ],
+    catalog: cards.map((card) => ({ instanceId: card.id, typeId: card.typeId })),
+  };
+}
 
 /** `ctx.data` lives under `kavibay:widget-data:<instance>\0<key>` (data-store.ts). */
 const widgetData = (instanceId: string, value: unknown) => ({
@@ -65,11 +67,17 @@ const todo = (id: string, text: string, done: boolean, order: number) => ({
   collapsed: false,
 });
 
-export const demoState: Record<string, string> = {
+/** Past the first run: no setup card, no tour. */
+const SETTLED = {
   "kavibay:first-open-done": "1",
   "kavibay:setup-v1": JSON.stringify({ status: "done" }),
   "kavibay:onboarding-v3": JSON.stringify({ status: "completed", step: 1 }),
-  "kavibay:layout-v4": JSON.stringify(layout),
+};
+
+/** The launcher stage: a lived-in desk around the palette. */
+const DESK: Record<string, string> = {
+  ...SETTLED,
+  "kavibay:layout-v4": JSON.stringify(layoutOf(CARDS)),
   ...widgetData("demo-todo", {
     items: [
       todo("t1", "Send Northwind invoice", true, 0),
@@ -87,3 +95,39 @@ export const demoState: Record<string, string> = {
     toolbarVisible: false,
   }),
 };
+
+/**
+ * The Wizard stage: nothing but the palette. The scripted tour (webTour.ts)
+ * opens the Wizard from it, the way a person would.
+ *
+ * The Wizard opens centred on the palette at the size last used for its type
+ * (typeSizeMemory.ts). 940×490 over a palette at y=545 puts the card at
+ * 300–790: it covers the palette and leaves the page's headline and case
+ * buttons above it readable.
+ */
+const WIZARD_SIZE = { w: 940, h: 490 };
+const WIZARD_TOP = 300;
+const WIZARD: Record<string, string> = {
+  ...SETTLED,
+  "kavibay:layout-v4": JSON.stringify(layoutOf([], { x: SCREEN.width / 2, y: WIZARD_TOP + WIZARD_SIZE.h / 2 })),
+  "kavibay:widget-type-size-v1": JSON.stringify({ "widget-wizard": WIZARD_SIZE }),
+};
+
+export const SCENES = { desk: DESK, wizard: WIZARD } as const;
+export type Scene = keyof typeof SCENES;
+
+export function isScene(value: string | null): value is Scene {
+  return value !== null && Object.prototype.hasOwnProperty.call(SCENES, value);
+}
+
+let scene: Scene = "desk";
+
+/** Chosen once, from the page's `?scene=`, before the app boots. */
+export function useScene(next: Scene): void {
+  scene = next;
+}
+
+/** The saved state `web_storage_load` hands the app. */
+export function demoState(): Record<string, string> {
+  return SCENES[scene];
+}

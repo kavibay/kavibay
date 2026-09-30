@@ -1,6 +1,8 @@
 import { DEMO_HOME, listDemoFolder, searchDemoFolder } from "../embed/palette/demoFiles";
 import { demoState } from "./demoState";
 import { WINDOW_ANSWERS } from "./webWindow";
+import { PROVIDER_ANSWERS } from "./webProviders";
+import { WIZARD_ANSWERS } from "./webWizard";
 
 /**
  * The Rust commands, answered in the browser.
@@ -52,7 +54,7 @@ const limit = (args: Args, fallback: number) =>
 export const ANSWERS: Record<string, (args: Args) => unknown> = {
   // The whole demo desk travels as one snapshot; `restore` takes any
   // `kavibay:` key from it, settings included.
-  web_storage_load: () => JSON.stringify(demoState),
+  web_storage_load: () => JSON.stringify(demoState()),
   settings_load: () => null,
   onboarding_preferences_load: () => null,
 
@@ -62,7 +64,6 @@ export const ANSWERS: Record<string, (args: Args) => unknown> = {
   // No native gap click on a page: the DOM catcher is the only way to dismiss.
   needs_dom_gap_catcher: () => true,
   cockpit_reveal_gesture: () => null,
-  extension_provider_is_connected: () => false,
   "plugin:path|resolve_directory": (args) => DIRS[Number(args.directory)] ?? DEMO_HOME,
 
   llm_catalog: () => [],
@@ -83,8 +84,6 @@ export const ANSWERS: Record<string, (args: Args) => unknown> = {
       .slice(0, limit(args, 50));
   },
 
-  runtime_extensions_scan: () => [],
-  runtime_extensions_installs_list: () => [],
   runtime_extensions_installs_import: () => null,
 
   // Opening a link is what a browser is for.
@@ -94,6 +93,8 @@ export const ANSWERS: Record<string, (args: Args) => unknown> = {
   },
 
   ...WINDOW_ANSWERS,
+  ...WIZARD_ANSWERS,
+  ...PROVIDER_ANSWERS,
 };
 
 export const NO_OPS = new Set([
@@ -114,7 +115,6 @@ export const NO_OPS = new Set([
   "settings_file_open",
   "autostart_set",
   "send_virtual_key",
-  "mcp_draft_presence",
   // Cancels and cleanups for things that never started here.
   "cancel_preview_clip",
   "stop_preview_clip",
@@ -125,7 +125,6 @@ export const NO_OPS = new Set([
   "connections_dispose",
   "clipboard_set_revealed",
   "image_widget_clear",
-  "runtime_extensions_draft_discard",
   "runtime_extensions_import_discard",
 ]);
 
@@ -178,20 +177,12 @@ export const NOT_ON_WEB = new Set<string>([
   "connections_package_types",
   "connections_select",
   "connections_selection",
-  "extension_provider_connection",
-  "extension_provider_fetch",
   "extension_capability_fetch",
   // Models: the Wizard, the quick actions, chat.
   "llm_models",
   "llm_model_set_enabled",
   "llm_quick_model_set",
   "llm_chat_stream",
-  "wizard_models",
-  "wizard_complete",
-  "wizard_conversations_list",
-  "wizard_conversation_load",
-  "wizard_conversation_save",
-  "wizard_conversation_delete",
   "quick_action_ready",
   "quick_action_apply",
   "quick_action_open_widget",
@@ -209,17 +200,9 @@ export const NOT_ON_WEB = new Set<string>([
   "mcp_server_retry",
   // Installed (runtime) widget packages and their drafts.
   "runtime_extensions_root",
-  "runtime_extensions_read_package",
   "runtime_extensions_export_package",
-  "runtime_extensions_delete_package",
-  "runtime_extensions_installs_set",
   "runtime_extensions_import_inspect",
   "runtime_extensions_import_install",
-  "runtime_extensions_draft_list",
-  "runtime_extensions_draft_open",
-  "runtime_extensions_draft_read",
-  "runtime_extensions_draft_write",
-  "runtime_extensions_draft_promote",
   "runtime_extensions_http_call",
   "runtime_extensions_credential_users",
   "runtime_extensions_revoke_credential",

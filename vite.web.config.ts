@@ -25,7 +25,11 @@ export default defineConfig({
     outDir: path.resolve(root, "../kavibay.com/app"),
     emptyOutDir: true,
     rollupOptions: {
-      input: path.resolve(root, "web.html"),
+      input: {
+        app: path.resolve(root, "web.html"),
+        // The Wizard preview's stand-in for kavibay-ext:// (core/web/webWizardPreview.ts).
+        preview: path.resolve(root, "web-preview.html"),
+      },
     },
   },
 });
