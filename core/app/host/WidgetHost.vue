@@ -313,6 +313,11 @@ function scaleLiveLayout(from: ViewportSize, to: ViewportSize): void {
  */
 function ensureViewportAdaptation(persistAfter = false): void {
   void nextTick(recoverLayoutIntoViewport);
+  adaptLayoutToViewport(persistAfter);
+}
+
+/** The scaling half of `ensureViewportAdaptation`, without scheduling recovery. */
+function adaptLayoutToViewport(persistAfter: boolean): void {
   const to = currentViewportSize();
   if (to.width < 1 || to.height < 1) return;
 
@@ -2047,6 +2052,10 @@ function ensurePaletteOnScreen(): boolean {
 
 /** Recover old layouts after mount, reveal, undo, or a change of work area. */
 function recoverLayoutIntoViewport(): void {
+  // Scale to this window first. Opening on a smaller monitor clamps one tick
+  // after reveal, a frame before the rescale; clamping the other monitor's
+  // layout and persisting it marked it adapted, so the rescale did nothing.
+  adaptLayoutToViewport(true);
   let changed = ensurePaletteOnScreen();
   for (const instance of instances) {
     const rect = document.querySelector<HTMLElement>(
