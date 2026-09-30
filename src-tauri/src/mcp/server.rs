@@ -166,7 +166,11 @@ impl McpServerState {
             inner.status.state = McpServerLifecycle::Starting;
             inner.status.url = None;
             inner.status.last_error = None;
-            (inner.generation, inner.app.clone(), inner.config.token_sha256)
+            (
+                inner.generation,
+                inner.app.clone(),
+                inner.config.token_sha256,
+            )
         };
         #[cfg(test)]
         let (generation, token_sha256) = {
