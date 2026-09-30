@@ -4333,10 +4333,12 @@ onUnmounted(() => {
             <!-- Size, then where it sits. The folder mark replaces a separator
                  dot: it says "folder" instead of only saying "and". -->
             <span
-              v-else-if="row.kind === 'path' && (row.subtitle || row.parentLabel)"
+              v-else-if="row.kind === 'path' && (row.subtitle || row.parentLabel || row.isDir)"
               class="palette-item-desks palette-item-fileline"
             >
+              <!-- A folder has no size; "Folder" keeps it two lines like a file. -->
               <span v-if="row.subtitle">{{ row.subtitle }}</span>
+              <span v-else-if="row.isDir">Folder</span>
               <span v-if="row.parentLabel" class="palette-item-in-folder">
                 <svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">
                   <path
@@ -4432,7 +4434,7 @@ onUnmounted(() => {
           </div>
           <div
             v-else-if="row.kind === 'folder' || row.kind === 'path'"
-            class="palette-item-actions"
+            class="palette-item-actions palette-item-actions--swap"
             @click.stop
             @pointerdown.stop
           >
@@ -5611,6 +5613,21 @@ onUnmounted(() => {
 .palette-item--selected .palette-item-actions,
 .palette-item-actions--confirm {
   visibility: visible;
+}
+
+/* File rows trade the date for their buttons instead of reserving room for
+   both: hidden buttons still took width, and folders' extra Browse button
+   pushed their date left of every file's. */
+.palette-item-actions--swap {
+  display: none;
+}
+
+.palette-item--selected .palette-item-actions--swap {
+  display: inline-flex;
+}
+
+.palette-item--selected .palette-item-meta {
+  display: none;
 }
 
 .palette-item-action {
