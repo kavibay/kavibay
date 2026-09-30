@@ -61,10 +61,51 @@ withDefaults(
     <path class="lmi-rotate-cw-clock-head" d="M21 8V3" pathLength="1" />
     <path class="lmi-rotate-cw-clock-head" d="M21 8h-5" pathLength="1" />
     <path class="lmi-rotate-cw-clock-hands" d="M12 7v5l4 2" />
+    <!-- The tomato's calyx. Only painted inside a tile; outside it the Lucide
+         mark is unchanged. -->
+    <path class="lmi-rotate-cw-clock-calyx" d="M9.8 1.6 12 3l2.2-1.4" />
   </IconBase>
 </template>
 
 <style>
+/* A tomato: red into orange, with a green calyx on top. Tile colours — see ListTodoIcon.vue for how the host reads them. */
+[data-icon-tile]:has(> .lmi-rotate-cw-clock) {
+  --icon-tile-bg: linear-gradient(150deg, rgba(248, 113, 113, 0.3), rgba(234, 88, 12, 0.24));
+  --icon-tile-fg: #fecaca;
+  --lmi-pomodoro-calyx: #86efac;
+}
+
+html[data-color-mode="light"] [data-icon-tile]:has(> .lmi-rotate-cw-clock) {
+  --icon-tile-bg: linear-gradient(150deg, rgba(239, 68, 68, 0.18), rgba(234, 88, 12, 0.14));
+  --icon-tile-fg: #b91c1c;
+  --lmi-pomodoro-calyx: #16a34a;
+}
+
+.lmi-rotate-cw-clock-calyx {
+  stroke: var(--lmi-pomodoro-calyx, none);
+  transform-box: fill-box;
+  transform-origin: bottom center;
+  transform: scale(1);
+  /* Inert until a trigger supplies an animation-name: after the ring. */
+  animation-delay: 0.4s;
+}
+
+@keyframes lmi-rotate-cw-clock-calyx {
+  0% { transform: scale(0); }
+  100% { transform: scale(1); }
+}
+
+:is(
+  .lmi-rotate-cw-clock[data-animated]:hover,
+  [data-icon-motion]:hover .lmi-rotate-cw-clock[data-animated],
+  [data-icon-motion="on"] .lmi-rotate-cw-clock[data-animated]
+) .lmi-rotate-cw-clock-calyx {
+  animation-name: lmi-rotate-cw-clock-calyx;
+  animation-duration: 0.35s;
+  animation-timing-function: cubic-bezier(0.3, 1.6, 0.5, 1);
+  animation-fill-mode: both;
+}
+
 /* Resting state is each animation's end state, so the static variant is right
    without the keyframes ever running. */
 .lmi-rotate-cw-clock-arc,

@@ -77,6 +77,11 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
         keywords: ["palette", "search actions", "search engines", "google", "duckduckgo", "chatgpt", "claude", "ecosia", "brave", "bing", "logos", "icons", "order", "reorder", "no matches"],
       },
       {
+        id: "quickActions",
+        label: "Quick Actions",
+        keywords: ["rewrite", "selection", "selected text", "templates", "hotkey", "shortcut", "model"],
+      },
+      {
         id: "files",
         label: "Files and Folders",
         keywords: ["folders", "search scope", "paths", "downloads", "documents", "desktop"],
@@ -98,6 +103,11 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
           "account",
         ],
       },
+      {
+        id: "about",
+        label: "About",
+        keywords: ["version", "build", "github", "repository", "kavibay"],
+      },
     ],
   },
   {
@@ -106,7 +116,7 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
       {
         id: "ai",
         label: "AI",
-        keywords: ["providers", "models", "quick actions", "prompt", "openai", "anthropic", "claude"],
+        keywords: ["providers", "models", "prompt", "openai", "anthropic", "claude"],
       },
       {
         id: "credentials",

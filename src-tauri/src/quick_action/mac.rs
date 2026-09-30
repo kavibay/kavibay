@@ -155,7 +155,7 @@ pub fn copy_selection() -> Option<String> {
     while Instant::now() < deadline {
         std::thread::sleep(COPY_POLL);
         if pasteboard.changeCount() != before {
-            return crate::extensions::clipboard_widget::clipboard_text();
+            return crate::extensions::clipboard_widget::system::clipboard_text();
         }
     }
     None

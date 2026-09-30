@@ -16,7 +16,7 @@ withDefaults(
 <template>
   <IconBase class="lmi-sparkles" :size="size" :stroke-width="strokeWidth" :animated="animated">
     <g class="lmi-sparkles-g">
-      <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" />
+      <path class="lmi-sparkles-star" d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" />
       <path class="lmi-sparkles-twinkle" d="M20 2v4 M22 4h-4" />
       <circle class="lmi-sparkles-twinkle" cx="4" cy="20" r="2" />
     </g>
@@ -24,6 +24,23 @@ withDefaults(
 </template>
 
 <style>
+/* Inside a tile the big star is solid; the twinkles stay outlines. */
+.lmi-sparkles-star {
+  fill: var(--lmi-sparkles-star, none);
+}
+
+/* Tile colours — see ListTodoIcon.vue for how the host reads them. */
+[data-icon-tile]:has(> .lmi-sparkles) {
+  --icon-tile-bg: rgba(127, 119, 221, 0.24);
+  --icon-tile-fg: #cecbf6;
+  --lmi-sparkles-star: #afa9ec;
+}
+
+html[data-color-mode="light"] [data-icon-tile]:has(> .lmi-sparkles) {
+  --icon-tile-bg: rgba(127, 119, 221, 0.16);
+  --icon-tile-fg: #534ab7;
+  --lmi-sparkles-star: #7f77dd;
+}
 /* Resting values are the final animation frame, keeping the static icon exact. */
 .lmi-sparkles-twinkle {
   transform-box: fill-box;

@@ -116,8 +116,8 @@ rationale: `docs/superpowers/plans/2026-08-08-ci-cd-open-source.md`.
   encrypted store, one generic Settings → Credentials panel. Extensions declare
   `credentials: [{ type, required }]` in their manifest and resolve nothing
   themselves (`docs/extensions.md` → Credentials). Settings → AI is *not* a second
-  credential panel: it renders the same schema-driven `CredentialEditor` per
-  provider tab and adds only the model on/off switches.
+  credential panel: it renders the same schema-driven `CredentialAccounts` per
+  provider row and adds only the model on/off switches.
 - Connections: a credential *type* is an auth schema, a *connection* is one saved
   account using it, and a platform may have several (Linear issues one API key
   per workspace). Which connection a consumer uses is host-owned state keyed by

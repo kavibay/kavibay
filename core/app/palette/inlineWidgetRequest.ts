@@ -33,3 +33,12 @@ export function requestInlineWidget(instanceId: string, typeId: string): void {
  * needs to say so before the pointer is released.
  */
 export const paletteDropActive = ref(false);
+
+/** Type of the card being dragged over the palette; null for no drag or an OS file drag. */
+export const paletteDropTypeId = ref<string | null>(null);
+
+/** The palette's "add as shortcut" slot, shown during a card drag, so the host can hit-test it. */
+export const paletteShortcutSlotEl = ref<HTMLElement | null>(null);
+
+/** True while the dragged card is over that slot: releasing adds a shortcut instead of moving the card. */
+export const paletteShortcutDropActive = ref(false);

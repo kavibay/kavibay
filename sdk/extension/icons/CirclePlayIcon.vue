@@ -32,6 +32,24 @@ withDefaults(
 </template>
 
 <style>
+/* Stage light: pink into violet, and a solid play button. Tile colours — see ListTodoIcon.vue for how the host reads them. */
+[data-icon-tile]:has(> .lmi-circle-play) {
+  --icon-tile-bg: linear-gradient(150deg, rgba(212, 83, 126, 0.3), rgba(127, 119, 221, 0.26));
+  --icon-tile-fg: #f4c0d1;
+  --lmi-play-tri: #ed93b1;
+}
+
+html[data-color-mode="light"] [data-icon-tile]:has(> .lmi-circle-play) {
+  --icon-tile-bg: linear-gradient(150deg, rgba(212, 83, 126, 0.2), rgba(127, 119, 221, 0.18));
+  --icon-tile-fg: #993556;
+  --lmi-play-tri: #d4537e;
+}
+
+.lmi-circle-play-tri {
+  fill: var(--lmi-play-tri, none);
+  stroke: var(--lmi-play-tri, currentColor);
+}
+
 /*
  * Resting state is each animation's end state. The ring's quarter-turn is part
  * of that rest: an SVG circle starts its dash at 3 o'clock, and a progress ring

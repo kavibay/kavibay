@@ -83,7 +83,7 @@ defineExpose({ focusFirst });
       @keydown.enter.stop.prevent="$emit('enter')"
       @keydown.down.stop.prevent="$emit('enter')"
     >
-      <PaletteWidgetIcon :widget="widget" animated />
+      <PaletteWidgetIcon :widget="widget" :size="16" animated />
     </button>
     <Transition name="shortcut-settings">
       <button
@@ -102,8 +102,8 @@ defineExpose({ focusFirst });
 </template>
 
 <style scoped>
-.widget-shortcuts { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; flex: 0 1 auto; max-width: 100%; margin-left: auto; margin-block: 8px; gap: 8px; }
-.widget-shortcut { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: rgba(var(--fg-rgb), 0.7); cursor: pointer; opacity: 0.7; transition: transform 120ms ease, opacity 120ms ease, background 120ms ease; }
+.widget-shortcuts { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; flex: 0 1 auto; max-width: 100%; margin-left: auto; gap: 4px; }
+.widget-shortcut { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid transparent; border-radius: 999px; corner-shape: var(--surface-corner-shape, round); background: transparent; color: rgba(var(--fg-rgb), 0.7); cursor: pointer; opacity: 0.7; transition: transform 120ms ease, opacity 120ms ease, background 120ms ease; }
 .widget-shortcut[aria-pressed="true"] { opacity: 1; background: rgba(var(--fg-rgb), 0.06); }
 .widget-shortcut:hover, .widget-shortcut:focus { opacity: 1; color: rgba(var(--fg-rgb), 0.95); background: rgba(var(--fg-rgb), 0.09); transform: scale(1.05); }
 .widget-shortcut:focus { outline: 1px solid rgba(var(--fg-rgb), 0.35); outline-offset: 2px; }

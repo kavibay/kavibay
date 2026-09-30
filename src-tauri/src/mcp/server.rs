@@ -46,6 +46,8 @@ pub struct McpServerStatus {
     pub state: McpServerLifecycle,
     pub url: Option<String>,
     pub last_error: Option<String>,
+    /// Clients must send `Authorization: Bearer <token>`. Never the token itself.
+    pub token_required: bool,
 }
 
 struct Inner {
@@ -78,6 +80,7 @@ impl McpServerState {
                     state: McpServerLifecycle::Stopped,
                     url: None,
                     last_error: None,
+                    token_required: config.token_sha256.is_some(),
                 },
                 generation: 0,
                 task: None,
@@ -97,6 +100,7 @@ impl McpServerState {
                     state: McpServerLifecycle::Stopped,
                     url: None,
                     last_error: None,
+                    token_required: config.token_sha256.is_some(),
                 },
                 generation: 0,
                 task: None,
@@ -120,6 +124,7 @@ impl McpServerState {
                 state: McpServerLifecycle::Error,
                 url: None,
                 last_error: Some("state_poisoned".into()),
+                token_required: false,
             })
     }
 
@@ -127,6 +132,7 @@ impl McpServerState {
         if let Ok(mut inner) = self.inner.lock() {
             inner.config = config;
             inner.status.desired_enabled = config.enabled;
+            inner.status.token_required = config.token_sha256.is_some();
         }
     }
 
@@ -144,7 +150,7 @@ impl McpServerState {
 
     async fn start_at(&self, address: SocketAddr) -> McpServerStatus {
         #[cfg(not(test))]
-        let (generation, app) = {
+        let (generation, app, token_sha256) = {
             let Ok(mut inner) = self.inner.lock() else {
                 return self.status();
             };
@@ -160,10 +166,14 @@ impl McpServerState {
             inner.status.state = McpServerLifecycle::Starting;
             inner.status.url = None;
             inner.status.last_error = None;
-            (inner.generation, inner.app.clone())
+            (
+                inner.generation,
+                inner.app.clone(),
+                inner.config.token_sha256,
+            )
         };
         #[cfg(test)]
-        let generation = {
+        let (generation, token_sha256) = {
             let Ok(mut inner) = self.inner.lock() else {
                 return self.status();
             };
@@ -179,7 +189,7 @@ impl McpServerState {
             inner.status.state = McpServerLifecycle::Starting;
             inner.status.url = None;
             inner.status.last_error = None;
-            inner.generation
+            (inner.generation, inner.config.token_sha256)
         };
 
         let listener = match tokio::net::TcpListener::bind(address).await {
@@ -211,9 +221,9 @@ impl McpServerState {
         let expected_host = format!("127.0.0.1:{}", actual.port());
         let url = format!("http://{expected_host}/mcp");
         #[cfg(not(test))]
-        let router = build_router(expected_host, MAX_REQUEST_BODY_BYTES, app);
+        let router = build_router(expected_host, MAX_REQUEST_BODY_BYTES, token_sha256, app);
         #[cfg(test)]
-        let router = build_router(expected_host, MAX_REQUEST_BODY_BYTES);
+        let router = build_router(expected_host, MAX_REQUEST_BODY_BYTES, token_sha256);
         let state = self.clone();
         let task = tauri::async_runtime::spawn(async move {
             let result = axum::serve(listener, router).await;
@@ -313,6 +323,8 @@ struct GuardState {
     in_flight: Arc<AtomicUsize>,
     max_concurrent: usize,
     max_body_bytes: usize,
+    /// Digest of the bearer token every request must carry, when one is set.
+    token_sha256: Option<[u8; 32]>,
 }
 
 struct InFlightGuard(Arc<AtomicUsize>);
@@ -339,6 +351,23 @@ async fn guard_request(
     if request.headers().contains_key(header::ORIGIN) {
         return (StatusCode::FORBIDDEN, "origin_not_allowed").into_response();
     }
+    // After host and origin, so a browser page never learns whether a token is
+    // set; before anything reaches rmcp, so no tool runs unauthenticated.
+    if let Some(expected) = guards.token_sha256.as_ref() {
+        let presented = request
+            .headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "));
+        if !presented.is_some_and(|token| settings::token_matches(token, expected)) {
+            return (
+                StatusCode::UNAUTHORIZED,
+                [(header::WWW_AUTHENTICATE, "Bearer")],
+                "invalid_token",
+            )
+                .into_response();
+        }
+    }
     if let Some(length) = request.headers().get(header::CONTENT_LENGTH) {
         let Ok(length) = length
             .to_str()
@@ -363,7 +392,12 @@ async fn guard_request(
 }
 
 #[cfg(not(test))]
-fn build_router(expected_host: String, max_body_bytes: usize, app: Option<AppHandle>) -> Router {
+fn build_router(
+    expected_host: String,
+    max_body_bytes: usize,
+    token_sha256: Option<[u8; 32]>,
+    app: Option<AppHandle>,
+) -> Router {
     let config = StreamableHttpServerConfig::default()
         .with_allowed_hosts([expected_host.clone()])
         .with_json_response(true)
@@ -378,6 +412,7 @@ fn build_router(expected_host: String, max_body_bytes: usize, app: Option<AppHan
         in_flight: Arc::new(AtomicUsize::new(0)),
         max_concurrent: MAX_CONCURRENT_REQUESTS,
         max_body_bytes,
+        token_sha256,
     };
     Router::new()
         .route_service("/mcp", service)
@@ -385,7 +420,11 @@ fn build_router(expected_host: String, max_body_bytes: usize, app: Option<AppHan
 }
 
 #[cfg(test)]
-fn build_router(expected_host: String, max_body_bytes: usize) -> Router {
+fn build_router(
+    expected_host: String,
+    max_body_bytes: usize,
+    token_sha256: Option<[u8; 32]>,
+) -> Router {
     let config = StreamableHttpServerConfig::default()
         .with_allowed_hosts([expected_host.clone()])
         .with_json_response(true)
@@ -400,6 +439,7 @@ fn build_router(expected_host: String, max_body_bytes: usize) -> Router {
         in_flight: Arc::new(AtomicUsize::new(0)),
         max_concurrent: MAX_CONCURRENT_REQUESTS,
         max_body_bytes,
+        token_sha256,
     };
     Router::new()
         .route_service("/mcp", service)
@@ -450,6 +490,47 @@ pub async fn mcp_server_set_port(
     }
 }
 
+/// Result of turning the token on, off or over.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpTokenChange {
+    pub status: McpServerStatus,
+    /// The new token, present only in the response that created it. It is not
+    /// stored anywhere and cannot be asked for again.
+    pub token: Option<String>,
+}
+
+/// Require a bearer token (a fresh one on every call) or stop requiring one.
+///
+/// The running listener is restarted so the change applies to the next
+/// request, not the next launch. Clients configured with an old token are
+/// refused from then on — which is the point of generating a new one.
+#[tauri::command]
+pub async fn mcp_server_set_token(
+    app: AppHandle,
+    state: TauriState<'_, McpServerState>,
+    required: bool,
+) -> Result<McpTokenChange, String> {
+    let mut config = state.config();
+    let token = if required {
+        let (token, digest) = settings::generate_token();
+        config.token_sha256 = Some(digest);
+        Some(token)
+    } else {
+        config.token_sha256 = None;
+        None
+    };
+    settings::save(&app, &config)?;
+    let enabled = config.enabled;
+    state.update_config(config);
+    let status = if enabled {
+        state.restart().await
+    } else {
+        state.status()
+    };
+    Ok(McpTokenChange { status, token })
+}
+
 #[tauri::command]
 pub async fn mcp_server_retry(
     state: TauriState<'_, McpServerState>,
@@ -469,6 +550,7 @@ mod tests {
         McpServerState::new(settings::McpServerConfig {
             enabled: true,
             port: 43_127,
+            token_sha256: None,
         })
     }
 
@@ -521,6 +603,7 @@ mod tests {
             let state = McpServerState::new(settings::McpServerConfig {
                 enabled: true,
                 port,
+                token_sha256: None,
             });
             let status = state.start().await;
             assert_eq!(status.state, McpServerLifecycle::Error);
@@ -559,6 +642,57 @@ mod tests {
             stream.read_to_end(&mut bytes).await.unwrap();
             let oversized = String::from_utf8_lossy(&bytes);
             assert!(oversized.starts_with("HTTP/1.1 413"), "{oversized}");
+            state.stop().await;
+        });
+    }
+
+    #[test]
+    fn a_set_token_is_required_and_only_the_right_one_passes() {
+        runtime().block_on(async {
+            let (token, digest) = settings::generate_token();
+            let state = McpServerState::new(settings::McpServerConfig {
+                enabled: true,
+                port: 43_127,
+                token_sha256: Some(digest),
+            });
+            assert!(state.status().token_required);
+            let status = state.start_ephemeral().await;
+            let addr: SocketAddr = status
+                .url
+                .unwrap()
+                .trim_start_matches("http://")
+                .trim_end_matches("/mcp")
+                .parse()
+                .unwrap();
+            let host = format!("127.0.0.1:{}", addr.port());
+            let body = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"token-test","version":"0.1"}}}"#;
+            let send = |authorization: Option<String>| {
+                let host = host.clone();
+                async move {
+                    let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+                    let authorization = authorization
+                        .map(|value| format!("Authorization: {value}\r\n"))
+                        .unwrap_or_default();
+                    let request = format!(
+                        "POST /mcp HTTP/1.1\r\nHost: {host}\r\nAccept: application/json, text/event-stream\r\nContent-Type: application/json\r\n{authorization}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    stream.write_all(request.as_bytes()).await.unwrap();
+                    let mut bytes = Vec::new();
+                    stream.read_to_end(&mut bytes).await.unwrap();
+                    String::from_utf8_lossy(&bytes).into_owned()
+                }
+            };
+
+            let missing = send(None).await;
+            assert!(missing.starts_with("HTTP/1.1 401"), "{missing}");
+            assert!(missing.to_ascii_lowercase().contains("www-authenticate: bearer"), "{missing}");
+            let wrong = send(Some("Bearer kvb_wrong".into())).await;
+            assert!(wrong.starts_with("HTTP/1.1 401"), "{wrong}");
+            let not_bearer = send(Some(format!("Basic {token}"))).await;
+            assert!(not_bearer.starts_with("HTTP/1.1 401"), "{not_bearer}");
+            let right = send(Some(format!("Bearer {token}"))).await;
+            assert!(right.starts_with("HTTP/1.1 200"), "{right}");
             state.stop().await;
         });
     }

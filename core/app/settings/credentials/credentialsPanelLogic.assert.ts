@@ -12,6 +12,7 @@ import {
   summariesForType,
   typeTone,
   applyCredentialFocus,
+  needsDeveloperApp,
   typeMatchesQuery,
   typeMatchesStatus,
 } from "./credentialsPanelLogic";
@@ -70,7 +71,7 @@ assert(summariesForType(credentials, "githubPat").map((e) => e.id).join() === "c
 assert(summariesForType(credentials, "openaiApi").length === 0, "missing type is empty");
 
 assert(rowStatusLabel([]) === "Not set up", "empty row");
-assert(rowStatusLabel(summariesForType(credentials, "githubPat")) === "Set up", "connected, no account");
+assert(rowStatusLabel(summariesForType(credentials, "githubPat")) === "Connected", "connected, no account");
 assert(
   rowStatusLabel([{ ...credentials[0], accountLabel: "alex@example.com" }]) === "alex@example.com",
   "account label is the row status when connected",
@@ -79,7 +80,7 @@ assert(rowStatusLabel(summariesForType(credentials, "tadoOAuth2")) === "Waitingâ
 
 /**
  * One API key per workspace is the whole reason connections exist: a row that
- * showed only the first one would say "Set up" for a type whose second account
+ * showed only the first one would say "Connected" for a type whose second account
  * has expired.
  */
 {
@@ -146,15 +147,15 @@ assert(
 );
 assert(
   resolveSelectedTypeId(ready, credentials, "openaiApi") === "githubPat",
-  "a filtered-out selection falls back to the first visible",
+  "a filtered-out selection falls to the one row the filter left",
 );
 assert(
   resolveSelectedTypeId(all, credentials, null) === "tadoOAuth2",
   "first paint prefers a type waiting on the user",
 );
 assert(
-  resolveSelectedTypeId(unset, credentials, null) === "anthropicApi",
-  "with nothing waiting, first visible wins",
+  resolveSelectedTypeId(unset, credentials, null) === null,
+  "with nothing waiting and several rows, the list stays closed",
 );
 
 assert(
@@ -168,6 +169,22 @@ assert(
   assert(focus.resetFilters, "filters that might hide it are cleared");
   assert(applyCredentialFocus(types, "nope").selectedId === null, "unknown type is ignored");
   assert(!applyCredentialFocus(types, null).resetFilters, "no focus leaves the list alone");
+}
+
+{
+  const clientId = { key: "clientId", label: "Client ID", kind: "text" as const, required: true, placeholder: null, help: null };
+  assert(
+    needsDeveloperApp(type({ id: "spotifyOAuth2", displayName: "Spotify", authKind: "oauth2AuthCode", fields: [clientId] })),
+    "a sign-in that asks for client details needs the user's own app",
+  );
+  assert(
+    !needsDeveloperApp(type({ id: "tadoOAuth2", displayName: "tadoÂ°", authKind: "oauth2DeviceCode" })),
+    "a sign-in with nothing to fill in uses the provider's public client",
+  );
+  assert(
+    !needsDeveloperApp(type({ id: "linearApi", displayName: "Linear", fields: [{ ...clientId, key: "token" }] })),
+    "a plain API key is not an app",
+  );
 }
 
 console.log("credentialsPanelLogic.assert.ts: ok");

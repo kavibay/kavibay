@@ -4,6 +4,8 @@ export type FontId = "jakarta" | "manrope" | "jetbrains";
 
 export type ColorMode = "system" | "dark" | "light";
 
+export type IconStyle = "colorful" | "monochrome";
+
 export type CornerShape = "round" | "squircle";
 
 /** Fill for the empty space between widgets (fullscreen underlay). */
@@ -39,6 +41,7 @@ export type ShadowStyleId =
 export interface AppearanceState {
   fontId: FontId;
   colorMode: ColorMode;
+  iconStyle: IconStyle;
   /** When true, click outside widgets/palette hides the Kavibay window. */
   hideOnOutsideClick: boolean;
   /** Monitor to cover when opening the cockpit. */
@@ -314,6 +317,7 @@ export const WIDGET_LAYOUT_MODE_OPTIONS: {
 export const DEFAULT_APPEARANCE: AppearanceState = {
   fontId: "manrope",
   colorMode: DEFAULT_COLOR_MODE,
+  iconStyle: "colorful",
   hideOnOutsideClick: true,
   openMonitor: DEFAULT_OPEN_MONITOR,
   widgetLayoutMode: DEFAULT_WIDGET_LAYOUT_MODE,
@@ -407,6 +411,11 @@ export function normalizeColorMode(raw: unknown): ColorMode {
   if (raw === "system") return "system";
   if (raw === "light") return "light";
   return "dark";
+}
+
+/** Older saves keep their colorful widget and menu icons. */
+export function normalizeIconStyle(raw: unknown): IconStyle {
+  return raw === "monochrome" ? "monochrome" : "colorful";
 }
 
 /** Resolve effective color mode ("dark" | "light") from setting (handling system preference). */
@@ -505,6 +514,7 @@ export function normalizeAppearance(raw: unknown): AppearanceState {
   return {
     fontId,
     colorMode: normalizeColorMode(o.colorMode),
+    iconStyle: normalizeIconStyle(o.iconStyle),
     // Missing means "older save", not "off" — same rule as every field below.
     hideOnOutsideClick:
       o.hideOnOutsideClick === undefined
@@ -580,6 +590,11 @@ export function saveAppearance(state: AppearanceState): void {
 /** Apply color mode to document root (`data-color-mode`). */
 export function applyColorModeToDocument(mode: ColorMode): void {
   document.documentElement.dataset.colorMode = resolveEffectiveColorMode(mode);
+}
+
+/** Apply the shared widget and menu icon style. */
+export function applyIconStyleToDocument(style: IconStyle): void {
+  document.documentElement.dataset.iconStyle = normalizeIconStyle(style);
 }
 
 /** Apply font id to document root (CSS variable + data attribute). */

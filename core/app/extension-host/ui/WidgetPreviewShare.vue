@@ -88,7 +88,7 @@ function copyRecording(): void {
 function saveRecording(): void {
   recording.copyError = "";
   recording.copyStatus = "idle";
-  void recording.saveClip();
+  void recording.saveClip(props.title);
 }
 type DialogBox = { left: number; top: number; width: number; height: number };
 const dialogBox = ref<DialogBox | null>(null);
@@ -467,7 +467,9 @@ async function exportImage(action: "copy" | "save"): Promise<void> {
   resetCopyFeedback();
   try {
     // Binary IPC avoids turning the PNG into a large JSON array of byte values.
-    const result = await invoke<boolean | void>(action === "copy" ? "copy_preview_image" : "save_preview_image", screenshot.value);
+    // The title names the saved file; encoded, because headers are ASCII only.
+    const result = await invoke<boolean | void>(action === "copy" ? "copy_preview_image" : "save_preview_image", screenshot.value,
+      { headers: { "Kavibay-Title": encodeURIComponent(props.title) } });
     if (disposed || !props.open || generation !== imageGeneration || result === false) return;
     copied.value = action === "copy";
     imageSaved.value = action === "save";
@@ -722,7 +724,7 @@ h2[tabindex="-1"] { outline: none; }
   margin: auto;
   padding: 18px;
   border: 1px solid rgba(var(--fg-rgb), 0.12);
-  border-radius: 16px;
+  border-radius: var(--surface-radius, 16px);
   background: rgb(var(--surface-bg-rgb));
   color: rgba(var(--fg-rgb), 0.92);
   box-shadow: 0 16px 64px rgba(0, 0, 0, 0.35);

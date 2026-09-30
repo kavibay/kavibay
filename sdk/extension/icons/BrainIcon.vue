@@ -30,6 +30,24 @@ withDefaults(
 </template>
 
 <style>
+/* Cyan, with the centre line lit as the part that thinks. Tile colours — see ListTodoIcon.vue for how the host reads them. */
+[data-icon-tile]:has(> .lmi-brain) {
+  --icon-tile-bg: rgba(34, 211, 238, 0.18);
+  --icon-tile-fg: #a5f3fc;
+  --lmi-brain-core: #67e8f9;
+}
+
+html[data-color-mode="light"] [data-icon-tile]:has(> .lmi-brain) {
+  --icon-tile-bg: rgba(8, 145, 178, 0.14);
+  --icon-tile-fg: #155e75;
+  --lmi-brain-core: #0891b2;
+}
+
+.lmi-brain-stem,
+.lmi-brain-side {
+  stroke: var(--lmi-brain-core, currentColor);
+}
+
 /* All animated traces rest in their final, fully drawn state. */
 .lmi-brain-stem,
 .lmi-brain-side,

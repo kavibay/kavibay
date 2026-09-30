@@ -13,12 +13,14 @@ import {
 import {
   BlocksIcon,
   FolderIcon,
+  InfoIcon,
   KeyRoundIcon,
   MousePointerClickIcon,
   PaletteIcon,
   SearchIcon,
   ServerIcon,
   SparklesIcon,
+  WandSparklesIcon,
 } from "@sdk/icons";
 import ResizeEdges from "../host/ResizeEdges.vue";
 import { RESIZE_EDGES_NO_TOP } from "../host/resizeLogic";
@@ -27,6 +29,7 @@ import {
   syncInteractiveRegions,
 } from "../system/clickThrough";
 import AiPanel from "./ai/AiPanel.vue";
+import AboutPanel from "./AboutPanel.vue";
 import AppearancePanel from "./AppearancePanel.vue";
 import BehaviorPanel from "./BehaviorPanel.vue";
 import SearchPanel from "./SearchPanel.vue";
@@ -34,6 +37,7 @@ import CredentialsPanel from "./credentials/CredentialsPanel.vue";
 import ExtensionsPanel from "./ExtensionsPanel.vue";
 import FilesFoldersPanel from "./FilesFoldersPanel.vue";
 import McpServerPanel from "./McpServerPanel.vue";
+import QuickActionsPanel from "./QuickActionsPanel.vue";
 import {
   filterSettingsNav,
   flattenNavGroups,
@@ -52,6 +56,7 @@ import { useSettingsModal, type SettingsSectionId } from "./useSettingsModal";
 const { open, section: activeSection, hide } = useSettingsModal();
 const searchInputEl = ref<HTMLInputElement | null>(null);
 const modalEl = ref<HTMLElement | null>(null);
+const stickyTargetReady = ref(false);
 
 /** Nav filter text. Never persisted — every visit starts on the full list. */
 const navQuery = ref("");
@@ -64,8 +69,10 @@ const sectionIcons: Record<SettingsSectionId, Component> = {
   files: FolderIcon,
   extensions: BlocksIcon,
   ai: SparklesIcon,
+  quickActions: WandSparklesIcon,
   credentials: KeyRoundIcon,
   mcp: ServerIcon,
+  about: InfoIcon,
 };
 
 const navGroups = computed(() => filterSettingsNav(SETTINGS_NAV_GROUPS, navQuery.value));
@@ -225,6 +232,7 @@ function onWindowResize() {
 }
 
 watch(open, async (isOpen) => {
+  if (!isOpen) stickyTargetReady.value = false;
   setClickThroughPaused(isOpen);
   if (isOpen) {
     navQuery.value = "";
@@ -235,6 +243,7 @@ watch(open, async (isOpen) => {
     geo.height = next.height;
   }
   await nextTick();
+  stickyTargetReady.value = open.value;
   // Move keyboard focus out of the command palette when settings opens — into
   // the search field, which is what the first keystroke is most likely for.
   if (isOpen) searchInputEl.value?.focus();
@@ -244,6 +253,7 @@ watch(open, async (isOpen) => {
 onMounted(() => {
   document.addEventListener("keydown", onDocumentKeydown, true);
   window.addEventListener("resize", onWindowResize);
+  void nextTick().then(() => { stickyTargetReady.value = open.value; });
 });
 
 onUnmounted(() => {
@@ -314,12 +324,14 @@ onUnmounted(() => {
               data-icon-motion
               @click="setSection(item.id)"
             >
-              <component
-                :is="sectionIcons[item.id]"
-                class="settings-nav-icon"
-                :size="16"
-                animated
-              />
+              <span class="settings-nav-tile" data-icon-tile>
+                <component
+                  :is="sectionIcons[item.id]"
+                  class="settings-nav-icon"
+                  :size="16"
+                  animated
+                />
+              </span>
               {{ item.label }}
             </button>
           </template>
@@ -329,15 +341,18 @@ onUnmounted(() => {
         </aside>
         <section class="settings-content">
           <DialogCloseButton class="settings-close" label="Close settings" @click="hide" />
-          <div class="settings-body">
+          <div class="settings-sticky" />
+          <div v-if="stickyTargetReady" class="settings-body">
             <AppearancePanel v-if="activeSection === 'appearance'" />
             <BehaviorPanel v-else-if="activeSection === 'behavior'" />
             <SearchPanel v-else-if="activeSection === 'search'" />
             <FilesFoldersPanel v-else-if="activeSection === 'files'" />
             <ExtensionsPanel v-else-if="activeSection === 'extensions'" />
             <AiPanel v-else-if="activeSection === 'ai'" />
+            <QuickActionsPanel v-else-if="activeSection === 'quickActions'" />
             <CredentialsPanel v-else-if="activeSection === 'credentials'" />
             <McpServerPanel v-else-if="activeSection === 'mcp'" />
+            <AboutPanel v-else-if="activeSection === 'about'" />
           </div>
         </section>
       </div>
@@ -368,7 +383,7 @@ onUnmounted(() => {
   display: flex;
   width: 100%;
   height: 100%;
-  border-radius: 16px;
+  border-radius: var(--surface-radius, 16px);
   /* Opaque on purpose: Settings is a reading surface, and the widgets it
      configures sit right behind it. No backdrop-filter — nothing to blur. */
   background: rgb(var(--surface-bg-rgb));
@@ -486,6 +501,23 @@ onUnmounted(() => {
   flex: none;
 }
 
+/*
+ * The palette's icon tile, one size down. It overhangs the row's padding so
+ * rows keep their height; the icon colours it through the --icon-tile-* vars
+ * (see ListTodoIcon.vue).
+ */
+.settings-nav-tile {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: -4px 0 -4px -3px;
+  border-radius: 7px;
+  color: var(--icon-tile-fg, currentColor);
+  background: var(--icon-tile-bg, rgba(var(--fg-rgb), 0.08));
+}
+
 .settings-nav-item--nested {
   padding-left: 18px;
 }
@@ -521,11 +553,25 @@ onUnmounted(() => {
   min-height: 0;
 }
 
+.settings-sticky {
+  flex: 0 0 auto;
+  padding: 24px 48px 3px 28px;
+  background: rgb(var(--surface-bg-rgb));
+}
+
+.settings-sticky:empty {
+  display: none;
+}
+
 .settings-body {
   flex: 1;
   min-height: 0;
   padding: 24px 16px 24px 28px;
   overflow-y: auto;
+}
+
+.settings-sticky :deep(.glass-stage) {
+  margin-right: -32px;
 }
 
 .settings-close {

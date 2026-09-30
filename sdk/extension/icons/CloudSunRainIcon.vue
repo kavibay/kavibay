@@ -43,7 +43,7 @@ withDefaults(
     />
     <!-- Sun disc and cloud stay put: they are the icon's identity, and a
          silhouette that moves stops being recognisable at 16px. -->
-    <path d="M15.947 12.65a4 4 0 0 0-5.925-4.128" />
+    <path class="lmi-cloud-sun-rain-sun" d="M15.947 12.65a4 4 0 0 0-5.925-4.128" />
     <path d="M3 20a5 5 0 1 1 8.9-4H13a3 3 0 0 1 2 5.24" />
     <path class="lmi-cloud-sun-rain-drop" d="M7 19v2" />
     <path class="lmi-cloud-sun-rain-drop lmi-cloud-sun-rain-d2" d="M11 20v2" />
@@ -51,6 +51,30 @@ withDefaults(
 </template>
 
 <style>
+/* Sun over sky: the tile runs gold to blue, and each part keeps its weather colour. Tile colours — see ListTodoIcon.vue for how the host reads them. */
+[data-icon-tile]:has(> .lmi-cloud-sun-rain) {
+  --icon-tile-bg: linear-gradient(150deg, rgba(239, 159, 39, 0.3), rgba(55, 138, 221, 0.26) 70%);
+  --icon-tile-fg: #e6f1fb;
+  --lmi-weather-sun: #fac775;
+  --lmi-weather-rain: #85b7eb;
+}
+
+html[data-color-mode="light"] [data-icon-tile]:has(> .lmi-cloud-sun-rain) {
+  --icon-tile-bg: linear-gradient(150deg, rgba(239, 159, 39, 0.24), rgba(55, 138, 221, 0.2) 70%);
+  --icon-tile-fg: #0c447c;
+  --lmi-weather-sun: #ba7517;
+  --lmi-weather-rain: #378add;
+}
+
+.lmi-cloud-sun-rain-ray,
+.lmi-cloud-sun-rain-sun {
+  stroke: var(--lmi-weather-sun, currentColor);
+}
+
+.lmi-cloud-sun-rain-drop {
+  stroke: var(--lmi-weather-rain, currentColor);
+}
+
 /* Resting state is each animation's end state, so the static variant is
    correct without the keyframes ever running. */
 .lmi-cloud-sun-rain-ray {

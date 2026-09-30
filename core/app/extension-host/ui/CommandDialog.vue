@@ -175,7 +175,7 @@ function onKeydown(event: KeyboardEvent) {
   min-width: 280px;
   max-width: 380px;
   padding: 16px;
-  border-radius: 12px;
+  border-radius: var(--surface-radius, 16px);
   background: rgb(var(--surface-bg-rgb));
   border: 1px solid rgba(var(--fg-rgb), 0.16);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);

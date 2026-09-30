@@ -20,6 +20,7 @@ import type { ConfigOption, ProviderStatus, Subscription } from "@sdk/contract/s
 import type { RegisteredExtension } from "@sdk/types";
 import { BrandMark } from "@sdk/brand";
 import type { WidgetInstance } from "../host/types";
+import PaletteWidgetIcon from "../palette/PaletteWidgetIcon.vue";
 import {
   catalogExtensionDetail,
   extensionHost,
@@ -172,18 +173,7 @@ async function onRunCommand(id: string, title: string) {
     <button type="button" class="detail-back" @click="emit('back')">&larr; All extensions</button>
 
     <header class="detail-head">
-      <component
-        :is="extension.iconComponent"
-        v-if="extension.iconComponent"
-        class="detail-icon"
-        :size="26"
-      />
-      <span
-        v-else-if="extension.iconUrl"
-        class="detail-icon-mask"
-        :style="{ '--ext-icon': `url(${JSON.stringify(extension.iconUrl)})` }"
-        aria-hidden="true"
-      />
+      <PaletteWidgetIcon :widget="extension" :size="18" data-icon-tile />
       <span class="detail-head-text">
         <h2 class="detail-title">{{ extension.title }}</h2>
         <span class="detail-meta">By {{ extension.author }} &middot; v{{ extension.version }}</span>
@@ -294,22 +284,6 @@ async function onRunCommand(id: string, title: string) {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.detail-icon {
-  flex: none;
-  color: rgba(var(--fg-rgb), 0.78);
-}
-
-.detail-icon-mask {
-  flex: none;
-  display: block;
-  width: 26px;
-  height: 26px;
-  background: currentColor;
-  color: rgba(var(--fg-rgb), 0.78);
-  -webkit-mask: var(--ext-icon) center / contain no-repeat;
-  mask: var(--ext-icon) center / contain no-repeat;
 }
 
 .detail-head-text {

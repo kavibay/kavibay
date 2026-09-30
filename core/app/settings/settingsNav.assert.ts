@@ -52,6 +52,9 @@ assert(
 for (const query of ["duckduckgo", "google", "chatgpt", "ecosia", "brave", "bing", "logos", "order"]) {
   assert(ids(filterSettingsNav(SETTINGS_NAV_GROUPS, query)) === "search", `${query} finds search preferences`);
 }
+for (const query of ["about", "version", "build", "github", "repository", "kavibay"]) {
+  assert(ids(filterSettingsNav(SETTINGS_NAV_GROUPS, query)) === "about", `${query} finds About`);
+}
 assert(
   !matchesNavEntry({ id: "mcp", label: "MCP Server", keywords: ["port"] }, "x"),
   "a single stray letter is not a match",

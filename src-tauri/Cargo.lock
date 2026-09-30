@@ -2210,6 +2210,7 @@ dependencies = [
  "block2",
  "cairo-rs",
  "chrono",
+ "clipboard-win",
  "core-foundation",
  "crc32fast",
  "flate2",

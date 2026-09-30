@@ -36,19 +36,48 @@ withDefaults(
   >
     <!-- Grouped by row rather than in Lucide's source order, so each row's two
          segments and its knob sit together. -->
-    <path class="lmi-sliders-h-track" d="M10 5H3" pathLength="1" />
+    <path class="lmi-sliders-h-track lmi-sliders-h-r1" d="M10 5H3" pathLength="1" />
     <path class="lmi-sliders-h-track" d="M21 5h-7" pathLength="1" />
-    <path class="lmi-sliders-h-track lmi-sliders-h-t2" d="M8 12H3" pathLength="1" />
+    <path class="lmi-sliders-h-track lmi-sliders-h-t2 lmi-sliders-h-r2" d="M8 12H3" pathLength="1" />
     <path class="lmi-sliders-h-track lmi-sliders-h-t2" d="M21 12h-9" pathLength="1" />
-    <path class="lmi-sliders-h-track lmi-sliders-h-t3" d="M12 19H3" pathLength="1" />
+    <path class="lmi-sliders-h-track lmi-sliders-h-t3 lmi-sliders-h-r3" d="M12 19H3" pathLength="1" />
     <path class="lmi-sliders-h-track lmi-sliders-h-t3" d="M21 19h-5" pathLength="1" />
-    <path class="lmi-sliders-h-knob" d="M14 3v4" />
-    <path class="lmi-sliders-h-knob lmi-sliders-h-k2" d="M8 10v4" />
-    <path class="lmi-sliders-h-knob lmi-sliders-h-k3" d="M16 17v4" />
+    <path class="lmi-sliders-h-knob lmi-sliders-h-r1" d="M14 3v4" />
+    <path class="lmi-sliders-h-knob lmi-sliders-h-k2 lmi-sliders-h-r2" d="M8 10v4" />
+    <path class="lmi-sliders-h-knob lmi-sliders-h-k3 lmi-sliders-h-r3" d="M16 17v4" />
   </IconBase>
 </template>
 
 <style>
+/* An ambient mixer: aurora tile, and each channel lit to its level in its own sound colour — rain, forest, fire. Tile colours — see ListTodoIcon.vue for how the host reads them. */
+[data-icon-tile]:has(> .lmi-sliders-h) {
+  --icon-tile-bg: linear-gradient(150deg, rgba(45, 212, 191, 0.24), rgba(129, 140, 248, 0.26));
+  --icon-tile-fg: rgba(224, 231, 255, 0.55);
+  --lmi-mood-1: #7dd3fc;
+  --lmi-mood-2: #86efac;
+  --lmi-mood-3: #fdba74;
+}
+
+html[data-color-mode="light"] [data-icon-tile]:has(> .lmi-sliders-h) {
+  --icon-tile-bg: linear-gradient(150deg, rgba(45, 212, 191, 0.18), rgba(129, 140, 248, 0.2));
+  --icon-tile-fg: rgba(49, 46, 129, 0.45);
+  --lmi-mood-1: #0284c7;
+  --lmi-mood-2: #16a34a;
+  --lmi-mood-3: #ea580c;
+}
+
+.lmi-sliders-h-r1 {
+  stroke: var(--lmi-mood-1, currentColor);
+}
+
+.lmi-sliders-h-r2 {
+  stroke: var(--lmi-mood-2, currentColor);
+}
+
+.lmi-sliders-h-r3 {
+  stroke: var(--lmi-mood-3, currentColor);
+}
+
 /* Resting state is each animation's end state, so the static variant is right
    without the keyframes ever running. */
 .lmi-sliders-h-track {

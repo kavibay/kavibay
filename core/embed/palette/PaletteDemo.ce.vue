@@ -1064,7 +1064,7 @@ onUnmounted(() => {
             :class="{ 'palette-item--selected': index === selectedIndex }"
             role="option"
             :aria-selected="index === selectedIndex"
-            @mouseenter="selectedIndex = index"
+            @mousemove="($event.movementX || $event.movementY) && (selectedIndex = index)"
             @pointerdown="pointerTakeOver"
             @click="runAt(index)"
           >

@@ -95,7 +95,7 @@ assert(fieldPlaceholder(type.fields[1], configured).includes("replace"), "masked
 assert(fieldPlaceholder(type.fields[0], configured) === "acc", "schema placeholder kept");
 
 assert(statusLabel(null) === "Not configured", "no credential");
-assert(statusLabel(configured) === "Configured", "configured without account label");
+assert(statusLabel(configured) === "Connected", "configured without account label");
 assert(
   statusLabel({ ...configured, accountLabel: "alex@example.com" }).includes("alex@"),
   "account label shown",

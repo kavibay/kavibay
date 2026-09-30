@@ -136,6 +136,7 @@ pub async fn copy_preview_clip(
     let root = clip_root(&window)?;
     tauri::async_runtime::spawn_blocking(move || {
         let path = artifacts::completed(&root, &clip_id)?;
+        let _clipboard_io = crate::extensions::clipboard_widget::system::lock_clipboard_io();
         let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
         for attempt in 0..3 {
             match clipboard.set().file_list(&[path.as_path()]) {
@@ -154,15 +155,17 @@ pub async fn copy_preview_clip(
 pub async fn save_preview_clip(
     window: tauri::WebviewWindow,
     clip_id: String,
+    title: String,
 ) -> Result<bool, String> {
     let root = clip_root(&window)?;
+    let stem = super::widget_file_stem(&title).unwrap_or_else(|| "kavibay-recording".into());
     tauri::async_runtime::spawn_blocking(move || {
         let source = artifacts::completed(&root, &clip_id)?;
         let target = window
             .dialog()
             .file()
             .set_parent(&window)
-            .set_file_name("kavibay-recording.mp4")
+            .set_file_name(format!("{stem}.mp4"))
             .add_filter("MP4 video", &["mp4"])
             .blocking_save_file();
         let Some(target) = target else {

@@ -92,6 +92,10 @@ webkit2gtk = "2.0"
 cairo-rs = { version = "0.18", features = ["png"] }
 
 [target.'cfg(windows)'.dependencies]
+# Image copies open the clipboard with an owner window, which arboard cannot
+# (`clipboard_widget::write_png_clipboard`). Already in the tree through
+# arboard, so this pins no new download.
+clipboard-win = "5"
 webview2-com = "0.38"
 winreg = "0.55"
 tauri-winrt-notification = "0.8.1"

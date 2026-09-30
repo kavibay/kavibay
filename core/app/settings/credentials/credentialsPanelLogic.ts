@@ -21,7 +21,7 @@ export const CREDENTIAL_STATUS_FILTERS: readonly {
   label: string;
 }[] = [
   { value: "all", label: "All" },
-  { value: "ready", label: "Set up" },
+  { value: "ready", label: "Connected" },
   { value: "attention", label: "Needs attention" },
   { value: "unset", label: "Not set up" },
 ];
@@ -71,7 +71,8 @@ export function rowStatusLabel(summaries: readonly CredentialSummary[]): string 
   }
   const summary = summaries[0]!;
   if (summary.pending) return "Waiting…";
-  if (summary.state === "connected") return summary.accountLabel ?? "Set up";
+  // Not "Set up": that is what the row offers when nothing is saved yet.
+  if (summary.state === "connected") return summary.accountLabel ?? "Connected";
   if (summary.state === "needsReauth") return "Reconnect";
   return summary.missing.length > 0 ? "Incomplete" : "Not set up";
 }
@@ -115,12 +116,25 @@ export function filterCredentialTypes(
 }
 
 /**
- * Which type's editor should be open.
+ * Whether connecting takes an app the user registers with the provider first.
  *
- * Keeps the current selection when it is still in the filtered list so a save
- * or a 2s OAuth poll does not yank the form away. When the current row is
- * hidden (or this is the first paint), prefer a type waiting on the user —
- * a device-code flow is easy to lose in a long list — else the first visible.
+ * Read off the schema rather than flagged per type: a sign-in type that asks
+ * for fields is asking for that app's client details, while one with nothing
+ * to fill in (tado°'s device flow) uses a client the provider publishes. It is
+ * the one integration step that happens outside Kavibay, so the list says so
+ * before anyone opens the form.
+ */
+export function needsDeveloperApp(type: Pick<CredentialTypeSchema, "authKind" | "fields">): boolean {
+  return type.authKind !== "static" && type.fields.some((field) => field.required);
+}
+
+/**
+ * Which row of the list should be open, or null for all closed.
+ *
+ * Keeps the current row when it is still in the filtered list so a save or a
+ * 2s OAuth poll does not yank the form away. Otherwise open a type waiting on
+ * the user — a device-code flow is easy to lose in a long list — or the one
+ * row a search left. Anything else stays closed: the list is the overview.
  */
 export function resolveSelectedTypeId(
   visible: readonly CredentialTypeSchema[],
@@ -132,7 +146,8 @@ export function resolveSelectedTypeId(
   const waiting = visible.find(
     (type) => typeTone(summariesForType(credentials, type.id)) === "warn",
   );
-  return waiting?.id ?? visible[0].id;
+  if (waiting) return waiting.id;
+  return visible.length === 1 ? visible[0].id : null;
 }
 
 /**

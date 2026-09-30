@@ -1,24 +1,24 @@
 /**
- * Pure logic for the AI panel's provider tabs.
+ * Pure logic for the AI panel's provider list (once tabs, hence the names).
  *
  * Kept free of Vue/Tauri so it can be asserted with `npx tsx` (repo testing
- * convention). Only the tab order and the short tab titles live here — which
+ * convention). Only the provider order and their names live here — which
  * credential a provider needs and which models it serves are both read off the
  * catalog, so adding a model in Rust needs no edit on this side.
  */
 import type { LlmModelOption, LlmProviderId } from "./aiApi";
 
-/** One tab: a provider, under the name the provider calls itself. */
+/** One provider row, under the name the provider calls itself. */
 export interface AiProviderTab {
   id: LlmProviderId;
-  /** Short enough for a tab strip — the credential card repeats the long name. */
+  /** Row title — the credential card repeats the long name. */
   label: string;
 }
 
 /**
- * Tab order. Fixed rather than derived from the catalog: the catalog is ordered
- * by model strength, and a tab strip that reshuffles when a model is added is
- * a tab strip the user has to re-read every time.
+ * Row order. Fixed rather than derived from the catalog: the catalog is ordered
+ * by model strength, and a list that reshuffles when a model is added is a
+ * list the user has to re-read every time.
  */
 export const AI_PROVIDER_TABS: readonly AiProviderTab[] = [
   { id: "anthropic", label: "Anthropic" },
@@ -76,6 +76,25 @@ export function resolveAiProviderFocus(
     return requested as LlmProviderId;
   }
   return models.find((model) => model.credentialType === requested)?.provider ?? null;
+}
+
+/**
+ * The line under a provider's name in the list: how much of it is on once
+ * connected (the row says "Connected" itself), and before that what connecting
+ * would give you — read off the catalog, so it never names a model the app
+ * does not offer.
+ */
+export function providerStatusLine(
+  models: readonly LlmModelOption[],
+  provider: LlmProviderId,
+): string {
+  if (providerHasKey(models, provider)) {
+    const { enabled, total } = enabledSummary(models, provider);
+    return `${enabled} of ${total} models on`;
+  }
+  const labels = modelsForProvider(models, provider).map((model) => model.label);
+  const shown = labels.slice(0, 2).join(", ");
+  return labels.length > 2 ? `${shown} and ${labels.length - 2} more` : shown;
 }
 
 /**
