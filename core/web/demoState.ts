@@ -67,11 +67,16 @@ const todo = (id: string, text: string, done: boolean, order: number) => ({
   collapsed: false,
 });
 
-/** Past the first run: no setup card, no tour. */
+/**
+ * Past the first run: no setup card, no tour. And no widget shortcuts in the
+ * palette's bar — the default one is the clipboard history, which a browser
+ * cannot read (an explicit empty list stays empty; paletteWidgetPrefsLogic.ts).
+ */
 const SETTLED = {
   "kavibay:first-open-done": "1",
   "kavibay:setup-v1": JSON.stringify({ status: "done" }),
   "kavibay:onboarding-v3": JSON.stringify({ status: "completed", step: 1 }),
+  "kavibay:palette-widgets-v1": JSON.stringify([]),
 };
 
 /** The launcher stage: a lived-in desk around the palette. */
