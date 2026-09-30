@@ -22,7 +22,8 @@
     "verify:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target/check --all-targets -- -D warnings && cargo test --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target/check --lib",
     "build:guest": "vite build --config vite.guest.config.ts && node scripts/guestHeader.mjs",
     "build:embed": "vite build --config vite.embed.config.ts",
-    "build:provider-doc": "tsx scripts/writeProviderSchemaDoc.ts"
+    "build:provider-doc": "tsx scripts/writeProviderSchemaDoc.ts",
+    "build:web": "vite build --config vite.web.config.ts"
   },
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
