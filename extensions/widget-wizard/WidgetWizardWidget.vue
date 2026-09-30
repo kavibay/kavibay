@@ -389,7 +389,7 @@ const effectivePreview = computed(() => {
 const tooNarrow = computed(() => wizWidth.value > 0 && wizWidth.value < 620);
 
 const gridColumns = computed(() => {
-  if (tooNarrow.value) return "0px 0px minmax(0, 1fr) 0px 0px";
+  if (tooNarrow.value) return "0px 6px minmax(0, 1fr) 0px 0px";
   if (sidebarHidden.value) {
     return `0px 6px minmax(${MIDDLE_MIN}px, 1fr) 6px ${effectivePreview.value}px`;
   }
@@ -4455,13 +4455,12 @@ async function enablePackage(
 
     <!-- Middle: name, chat, model -->
     <div
-      v-show="!tooNarrow"
       class="wiz-grip wiz-c2"
-      :class="{ 'wiz-c2--sidebar-collapsed': sidebarHidden }"
-      role="separator"
+      :class="{ 'wiz-c2--sidebar-collapsed': sidebarHidden || tooNarrow }"
+      :role="sidebarHidden || tooNarrow ? undefined : 'separator'"
       aria-orientation="vertical"
       aria-label="Sidebar width"
-      tabindex="0"
+      :tabindex="sidebarHidden || tooNarrow ? -1 : 0"
       @pointerdown.prevent="startDrag('side', $event)"
       @keydown.left.prevent="nudge('side', -1)"
       @keydown.right.prevent="nudge('side', 1)"
@@ -4472,7 +4471,7 @@ async function enablePackage(
         composing, which is exactly when the sidebar is tucked away.
       -->
       <button
-        v-if="sidebarHidden"
+        v-if="sidebarHidden && !tooNarrow"
         type="button"
         class="wiz-side-expand"
         aria-label="Show sidebar"
@@ -4483,6 +4482,14 @@ async function enablePackage(
       >
         <PanelLeftIcon :size="15" />
       </button>
+      <WizardMcpHelp
+        v-if="sidebarHidden || tooNarrow"
+        class="wiz-mcp-rail"
+        icon-only
+        @pointerdown.stop
+        @keydown.stop
+        @open-settings="wizard.openSettings('mcp')"
+      />
     </div>
 
     <section class="wiz-main wiz-c3">
@@ -5468,10 +5475,6 @@ async function enablePackage(
           </button>
         </div>
       </div>
-      <WizardMcpHelp
-        v-if="sidebarHidden || tooNarrow"
-        @open-settings="wizard.openSettings('mcp')"
-      />
     </section>
 
     <!-- Right: the draft, in the chrome it will actually wear -->
@@ -8100,6 +8103,12 @@ button:disabled {
 .wiz-side-expand {
   position: absolute;
   top: 2px;
+  left: -13px;
+}
+
+.wiz-mcp-rail {
+  position: absolute;
+  bottom: 12px;
   left: -13px;
 }
 

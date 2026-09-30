@@ -20,6 +20,7 @@ import {
   mcpStatusPresentationFor,
 } from "@sdk/mcp/mcpServerLogic";
 
+defineProps<{ iconOnly?: boolean }>();
 const emit = defineEmits<{ openSettings: [] }>();
 const dialog = ref<HTMLDialogElement | null>(null);
 const titleId = useId();
@@ -124,9 +125,17 @@ onUnmounted(release);
 
 <template>
   <div class="mcp-help">
-    <button type="button" class="mcp-help-trigger" aria-haspopup="dialog" @click="show">
+    <button
+      type="button"
+      class="mcp-help-trigger"
+      :class="{ 'mcp-help-trigger--icon': iconOnly }"
+      aria-label="Use MCP"
+      aria-haspopup="dialog"
+      v-tip="iconOnly ? 'Use MCP' : undefined"
+      @click="show"
+    >
       <PlugIcon :size="14" />
-      Use MCP
+      <span v-if="!iconOnly">Use MCP</span>
     </button>
 
     <dialog
@@ -252,6 +261,13 @@ h2[tabindex="-1"] { outline: none; }
 .mcp-help-trigger:hover {
   background: rgba(var(--fg-rgb), 0.06);
   color: rgba(var(--fg-rgb), 0.85);
+}
+
+.mcp-help-trigger--icon {
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
 }
 
 /* The top layer escapes the widget's clipping; the full viewport also keeps
