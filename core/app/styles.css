@@ -224,6 +224,18 @@ html {
   corner-shape: var(--surface-corner-shape, round);
 }
 
+/* Include tile backgrounds and multicolor SVG details, including custom icons. */
+html[data-icon-style="monochrome"] [data-icon-tile] {
+  filter: grayscale(1);
+}
+
+/* Dialog surfaces follow the preference directly, including top-layer dialogs. */
+dialog,
+[role="dialog"],
+.settings-modal-inner {
+  corner-shape: var(--surface-corner-shape, round);
+}
+
 html,
 body,
 #app {
@@ -404,6 +416,152 @@ body {
 .switch input:focus-visible + .switch-ui {
   outline: 2px solid rgba(var(--fg-rgb), 0.55);
   outline-offset: 2px;
+}
+
+/*
+ * Settings panels: titled sections of rows, one setting per row — copy on the
+ * left, its control on the right, a hairline between rows.
+ */
+.settings-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-section-title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(var(--fg-rgb), 0.95);
+}
+
+.settings-section-hint {
+  margin: 0 0 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(var(--fg-rgb), 0.5);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 36px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(var(--fg-rgb), 0.08);
+}
+
+.settings-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-row-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.settings-row-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(var(--fg-rgb), 0.92);
+}
+
+.settings-row-hint {
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(var(--fg-rgb), 0.5);
+}
+
+/* Actions inside a settings row: outlined, one filled when it is the point. */
+.settings-btn {
+  flex: none;
+  padding: 5px 11px;
+  border: 1px solid rgba(var(--fg-rgb), 0.12);
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(var(--fg-rgb), 0.9);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.settings-btn:hover:not(:disabled),
+.settings-btn:focus-visible {
+  outline: none;
+  background: rgba(var(--fg-rgb), 0.06);
+}
+
+.settings-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* A button that opened something below it stays pressed while it is open. */
+.settings-btn[aria-expanded="true"] {
+  background: rgba(var(--fg-rgb), 0.1);
+}
+
+.settings-btn--primary {
+  border-color: transparent;
+  background: rgba(var(--fg-rgb), 0.88);
+  color: rgb(var(--surface-bg-rgb));
+}
+
+.settings-btn--primary:hover:not(:disabled),
+.settings-btn--primary:focus-visible {
+  background: rgba(var(--fg-rgb), 0.95);
+}
+
+.settings-btn--quiet {
+  border-color: transparent;
+  color: rgba(var(--fg-rgb), 0.6);
+}
+
+/* Pick one of a few: a pill of options, the chosen one raised. */
+.settings-segmented {
+  flex: none;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(var(--fg-rgb), 0.06);
+}
+
+.settings-segment {
+  display: grid;
+  place-items: center;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(var(--fg-rgb), 0.55);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-segment--icon {
+  padding: 5px 8px;
+}
+
+.settings-segment:hover {
+  color: rgba(var(--fg-rgb), 0.9);
+}
+
+.settings-segment--active {
+  background: var(--row-selected-sheen), var(--row-selected-bg);
+  box-shadow: var(--row-selected-rim), var(--row-selected-shadow);
+  color: rgba(var(--fg-rgb), 0.95);
+}
+
+@media (max-width: 560px) {
+  .settings-row {
+    flex-wrap: wrap;
+  }
 }
 
 /* Keep the hover/click-through rect still while the pill emerges at the card's

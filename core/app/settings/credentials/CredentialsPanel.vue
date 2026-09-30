@@ -2,15 +2,16 @@
 /**
  * Settings → Credentials.
  *
- * A searchable list of every type in the Rust registry, with one editor open
- * at a time. Stacking a full form per type was fine for a handful; it does
- * not survive a long catalog — search, a status filter, and a capped list
- * keep the form on screen while the registry grows.
+ * A searchable list of every type in the Rust registry; a row opens in place
+ * to show its connections, one at a time. Stacking a full form per type was
+ * fine for a handful; it does not survive a long catalog — search and a status
+ * filter keep the list short while the registry grows.
  */
 import { computed, nextTick, onMounted, ref, watch } from "vue";
-import { BrandMark } from "@sdk/brand";
+import { BrandMark, brandMarkFor } from "@sdk/brand";
+import { KeyRoundIcon } from "@sdk/icons";
 import KavibaySelect from "@sdk/KavibaySelect.vue";
-import CredentialConnections from "./CredentialConnections.vue";
+import CredentialAccounts from "./CredentialAccounts.vue";
 import {
   listCredentials,
   listCredentialTypes,
@@ -27,6 +28,7 @@ import {
   rowStatusLabel,
   summariesForType,
   typeTone,
+  needsDeveloperApp,
   type CredentialStatusFilter,
 } from "./credentialsPanelLogic";
 import { useSettingsModal } from "../useSettingsModal";
@@ -50,9 +52,10 @@ const visible = computed(() =>
   filterCredentialTypes(types.value, credentials.value, query.value, statusFilter.value),
 );
 
-const selectedType = computed(
-  () => visible.value.find((type) => type.id === selectedId.value) ?? null,
-);
+/** Open a row, or close it when it is the open one. */
+function toggle(typeId: string) {
+  selectedId.value = selectedId.value === typeId ? null : typeId;
+}
 
 const statusOptions = CREDENTIAL_STATUS_FILTERS.map((entry) => ({
   value: entry.value,
@@ -89,7 +92,7 @@ function applyFocus(requested: string | null): void {
   selectedId.value = next.selectedId;
   focusType.value = null;
   void nextTick(() => {
-    document.querySelector(".creds-row--active")?.scrollIntoView({ block: "nearest" });
+    document.querySelector(".creds-item--open")?.scrollIntoView({ block: "nearest" });
   });
 }
 
@@ -129,6 +132,7 @@ onMounted(reload);
 
 <template>
   <div class="creds">
+    <Teleport to=".settings-sticky">
     <header class="creds-head">
       <h2 class="creds-title">Credentials</h2>
       <p class="creds-lead">
@@ -136,6 +140,7 @@ onMounted(reload);
         leave the backend — the app only reports whether a secret is set.
       </p>
     </header>
+    </Teleport>
 
     <p v-if="loading" class="creds-note">Loading…</p>
     <div v-else-if="error" class="creds-failed">
@@ -144,13 +149,13 @@ onMounted(reload);
     </div>
 
     <template v-else>
-      <section class="creds-block">
+      <section class="settings-section">
         <div class="creds-filters">
           <input
             v-model="query"
             type="search"
             class="creds-search"
-            placeholder="Search providers"
+            placeholder="Search integrations"
             aria-label="Search credential providers"
           />
           <KavibaySelect
@@ -163,46 +168,66 @@ onMounted(reload);
             @update:model-value="onPickStatus"
           />
         </div>
-        <p class="creds-count">{{ visible.length }} of {{ types.length }}</p>
+        <p class="settings-section-hint creds-count">
+          {{ visible.length === types.length ? `${types.length} integrations` : `${visible.length} of ${types.length}` }}
+        </p>
 
-        <div class="creds-list" role="listbox" aria-label="Credential providers">
+        <div
+          v-for="type in visible"
+          :key="type.id"
+          class="creds-item"
+          :class="{ 'creds-item--open': selectedId === type.id }"
+        >
           <button
-            v-for="type in visible"
-            :key="type.id"
             type="button"
-            role="option"
             class="creds-row"
-            :class="{ 'creds-row--active': selectedId === type.id }"
-            :aria-selected="selectedId === type.id"
-            @click="selectedId = type.id"
+            :aria-expanded="selectedId === type.id"
+            @click="toggle(type.id)"
           >
-            <span class="creds-mark">
-              <BrandMark :provider="type.id" :size="18" />
+            <span class="creds-tile">
+              <BrandMark v-if="brandMarkFor(type.id)" :provider="type.id" :size="18" />
+              <KeyRoundIcon v-else :size="16" />
             </span>
-            <span class="creds-row-text">
-              <span class="creds-row-title">{{ type.displayName }}</span>
-              <span class="creds-row-hint">{{ type.description }}</span>
+            <span class="settings-row-copy creds-row-copy">
+              <span class="settings-row-title">
+                {{ type.displayName }}
+                <span
+                  v-if="needsDeveloperApp(type)"
+                  class="creds-devapp"
+                  :title="`Needs an app you register with ${type.displayName} first`"
+                >
+                  Developer app
+                </span>
+              </span>
+              <span class="settings-row-hint creds-row-hint">{{ type.description }}</span>
             </span>
             <span
-              class="creds-pill"
-              :class="`creds-pill--${typeTone(summariesForType(credentials, type.id))}`"
+              v-if="typeTone(summariesForType(credentials, type.id)) !== 'idle'"
+              class="creds-state"
+              :class="`creds-state--${typeTone(summariesForType(credentials, type.id))}`"
             >
               {{ rowStatusLabel(summariesForType(credentials, type.id)) }}
             </span>
+            <span v-else-if="selectedId !== type.id" class="creds-setup">Set up</span>
+            <svg class="creds-chevron" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
           </button>
-          <p v-if="visible.length === 0" class="creds-empty">
-            No providers match this filter.
-          </p>
-        </div>
-      </section>
 
-      <CredentialConnections
-        v-if="selectedType"
-        :key="selectedType.id"
-        :type="selectedType"
-        :credentials="credentials"
-        @changed="reload"
-      />
+          <div v-if="selectedId === type.id" class="creds-body">
+            <CredentialAccounts
+              :key="type.id"
+              :type="type"
+              :credentials="credentials"
+              @changed="reload"
+            />
+          </div>
+        </div>
+
+        <p v-if="visible.length === 0" class="settings-section-hint creds-empty">
+          No integrations match this filter.
+        </p>
+      </section>
     </template>
   </div>
 </template>
@@ -229,8 +254,7 @@ onMounted(reload);
 }
 
 .creds-lead,
-.creds-note,
-.creds-empty {
+.creds-note {
   margin: 0;
   font-size: 13px;
   line-height: 1.4;
@@ -251,10 +275,10 @@ onMounted(reload);
 }
 
 .creds-retry {
-  padding: 8px 14px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: rgba(var(--fg-rgb), 0.1);
+  padding: 6px 12px;
+  border: 1px solid rgba(var(--fg-rgb), 0.12);
+  border-radius: 8px;
+  background: transparent;
   color: rgba(var(--fg-rgb), 0.92);
   font: inherit;
   font-size: 13px;
@@ -263,14 +287,7 @@ onMounted(reload);
 }
 
 .creds-retry:hover {
-  background: var(--row-selected-sheen), var(--row-selected-bg);
-  box-shadow: var(--row-selected-rim), var(--row-selected-shadow);
-}
-
-.creds-block {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  background: rgba(var(--fg-rgb), 0.06);
 }
 
 .creds-filters {
@@ -281,11 +298,11 @@ onMounted(reload);
 
 .creds-search {
   min-width: 0;
-  height: 38px;
+  height: 36px;
   padding: 0 12px;
   border: 1px solid rgba(var(--fg-rgb), 0.1);
-  border-radius: 10px;
-  background: rgba(var(--inset-rgb), 0.28);
+  border-radius: 8px;
+  background: rgba(var(--inset-rgb), 0.25);
   color: rgba(var(--fg-rgb), 0.88);
   font: inherit;
   font-size: 13px;
@@ -305,110 +322,151 @@ onMounted(reload);
 }
 
 .creds-count {
-  margin: 0;
-  font-size: 11px;
-  color: rgba(var(--fg-rgb), 0.42);
+  margin: 8px 0 2px;
 }
 
-.creds-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: min(280px, 42vh);
-  overflow-y: auto;
+/* One integration: a row that opens in place, as on Settings → AI. */
+.creds-item {
+  border-bottom: 1px solid rgba(var(--fg-rgb), 0.08);
+}
+
+.creds-item:last-of-type {
+  border-bottom: 0;
 }
 
 .creds-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  width: 100%;
-  padding: 12px 14px;
-  border: none;
-  border-radius: 14px;
-  background: rgba(var(--fg-rgb), 0.04);
+  width: calc(100% + 16px);
+  margin: 0 -8px;
+  padding: 12px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.creds-row:hover {
-  background: rgba(var(--fg-rgb), 0.08);
+.creds-row:hover,
+.creds-row:focus-visible {
+  outline: none;
+  background: rgba(var(--fg-rgb), 0.04);
 }
 
-.creds-row--active {
-  background: var(--row-selected-sheen), var(--row-selected-bg);
-  box-shadow: var(--row-selected-rim), var(--row-selected-shadow);
-}
-
-.creds-row--active:hover {
-  background: var(--row-selected-sheen), var(--row-selected-bg);
-}
-
-.creds-mark {
-  display: flex;
+.creds-tile {
   flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: rgba(var(--fg-rgb), 0.07);
+  color: rgba(var(--fg-rgb), 0.75);
 }
 
-.creds-row-text {
-  display: flex;
-  min-width: 0;
+.creds-row-copy {
   flex: 1;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.creds-row-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: rgba(var(--fg-rgb), 0.92);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .creds-row-hint {
-  font-size: 12px;
-  line-height: 1.4;
-  color: rgba(var(--fg-rgb), 0.45);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.creds-row--active .creds-row-hint {
-  color: rgba(var(--fg-rgb), 0.55);
-}
-
-.creds-pill {
-  flex: none;
-  max-width: 42%;
-  padding: 3px 8px;
+/* Marks the integrations whose setup starts outside Kavibay, in the provider's console. */
+.creds-devapp {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border: 1px solid rgba(167, 139, 250, 0.35);
   border-radius: 999px;
-  background: rgba(var(--fg-rgb), 0.08);
-  color: rgba(var(--fg-rgb), 0.55);
-  font-size: 11px;
+  background: rgba(139, 92, 246, 0.16);
+  color: #ddd6fe;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+:global(html[data-color-mode="light"]) .creds-devapp {
+  background: rgba(139, 92, 246, 0.1);
+  color: #5b21b6;
+}
+
+/* Open, the description is the setup help — show all of it. */
+.creds-item--open .creds-row-hint {
+  white-space: normal;
+}
+
+.creds-state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 40%;
+  font-size: 12px;
+  color: rgba(var(--fg-rgb), 0.7);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.creds-pill--ok {
-  background: rgba(120, 200, 150, 0.16);
-  color: rgba(160, 220, 180, 0.95);
+.creds-state::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
 }
 
-.creds-pill--warn {
-  background: rgba(255, 205, 120, 0.16);
-  color: rgba(255, 205, 120, 0.95);
+.creds-state--ok::before {
+  background: #4ade80;
+}
+
+.creds-state--warn::before {
+  background: #fbbf24;
+}
+
+.creds-setup {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid rgba(var(--fg-rgb), 0.12);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(var(--fg-rgb), 0.85);
+}
+
+.creds-chevron {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: rgba(var(--fg-rgb), 0.45);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 150ms ease;
+}
+
+.creds-item--open .creds-chevron {
+  transform: rotate(180deg);
+}
+
+/* Indented to the text column, so it reads as belonging to the row above. */
+.creds-body {
+  padding: 4px 0 18px 46px;
 }
 
 .creds-empty {
-  padding: 12px 4px;
+  padding: 12px 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .creds-chevron {
+    transition: none;
+  }
 }
 </style>

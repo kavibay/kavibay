@@ -44,7 +44,11 @@ const props = withDefaults(
   },
 );
 
-const emit = defineEmits<{ "update:modelValue": [value: string | number] }>();
+const emit = defineEmits<{
+  "update:modelValue": [value: string | number];
+  /** The option under the pointer or keyboard highlight while open; `null` once closed. */
+  highlight: [value: string | number | null];
+}>();
 
 const open = ref(false);
 const dropUp = ref(false);
@@ -149,6 +153,10 @@ watch(open, async (isOpen) => {
   }
 });
 
+watch([open, activeIndex], ([isOpen, index]) => {
+  emit("highlight", isOpen ? (props.options[index]?.value ?? null) : null);
+});
+
 onBeforeUnmount(() => {
   window.clearTimeout(typedTimer);
   window.removeEventListener("pointerdown", onWindowPointerDown, true);
@@ -173,7 +181,9 @@ onBeforeUnmount(() => {
       @click="toggle"
       @keydown.down.prevent="open = true"
     >
-      <span class="ssel-value" :class="{ 'ssel-value--empty': !selected }">{{ label }}</span>
+      <span class="ssel-value" :class="{ 'ssel-value--empty': !selected }">
+        <slot name="value" :option="selected">{{ label }}</slot>
+      </span>
       <svg class="ssel-caret" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" />
       </svg>
@@ -211,10 +221,13 @@ onBeforeUnmount(() => {
         <span class="ssel-check" aria-hidden="true">{{
           option.value === modelValue ? "✓" : ""
         }}</span>
-        <span class="ssel-item-text">
-          <span class="ssel-item-label">{{ option.label }}</span>
-          <span v-if="option.note" class="ssel-item-note">{{ option.note }}</span>
-        </span>
+        <!-- A rich row, e.g. a font sample or a shadow swatch; defaults to label + note. -->
+        <slot name="option" :option="option">
+          <span class="ssel-item-text">
+            <span class="ssel-item-label">{{ option.label }}</span>
+            <span v-if="option.note" class="ssel-item-note">{{ option.note }}</span>
+          </span>
+        </slot>
       </button>
     </div>
   </div>

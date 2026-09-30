@@ -3153,7 +3153,7 @@ provide("kavibayPaletteMovePointerdown", (event: PointerEvent) => {
     />
     <!-- Palette-Anker (Mitte). Top drag strip + pin live inside CommandPalette. -->
     <div
-      v-show="paletteVisible"
+      v-show="!settingsOpen && paletteVisible"
       ref="paletteAnchorEl"
       class="palette-anchor"
       :class="{ 'palette-anchor--front': paletteFront }"
@@ -3178,7 +3178,7 @@ provide("kavibayPaletteMovePointerdown", (event: PointerEvent) => {
         'widget-anchor--front': frontInstanceId === instance.instanceId,
       }"
       :style="widgetStyle(instance)"
-      v-show="visibleMountedInstances.some((visible) => visible.instanceId === instance.instanceId)"
+      v-show="!settingsOpen && visibleMountedInstances.some((visible) => visible.instanceId === instance.instanceId)"
       @pointerdown.capture="raiseWidget(instance.instanceId)"
       @focusin="onCardFocusIn(instance.instanceId)"
       @pointermove="onPointerMove"

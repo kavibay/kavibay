@@ -724,7 +724,7 @@ h2[tabindex="-1"] { outline: none; }
   margin: auto;
   padding: 18px;
   border: 1px solid rgba(var(--fg-rgb), 0.12);
-  border-radius: 16px;
+  border-radius: var(--surface-radius, 16px);
   background: rgb(var(--surface-bg-rgb));
   color: rgba(var(--fg-rgb), 0.92);
   box-shadow: 0 16px 64px rgba(0, 0, 0, 0.35);

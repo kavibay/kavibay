@@ -1,12 +1,21 @@
 <script setup lang="ts">
-import { computed, type CSSProperties } from "vue";
+import { computed, onBeforeUnmount, reactive, watch, type Component, type CSSProperties } from "vue";
+import KavibaySelect from "@sdk/KavibaySelect.vue";
+import { MonitorIcon, MoonIcon, SunIcon } from "@sdk/icons";
 import {
+  applyColorModeToDocument,
+  applyCornerGeometryToDocument,
+  applyDesktopFillToDocument,
+  applyFontToDocument,
+  applyIconStyleToDocument,
+  applySurfaceShadowStyleToDocument,
   COLOR_MODE_OPTIONS,
   CORNER_SHAPE_OPTIONS,
   CORNER_SHAPE_SUPPORTED,
   cornerGeometry,
   DESKTOP_FILL_MODE_OPTIONS,
   FONT_OPTIONS,
+  fontStack,
   MAX_DESKTOP_FILL_OPACITY,
   MAX_SURFACE_BLUR,
   MAX_SURFACE_OPACITY,
@@ -23,12 +32,14 @@ import {
   type CornerShape,
   type DesktopFillMode,
   type FontId,
+  type IconStyle,
   type ShadowStyleId,
 } from "./appearanceLogic";
 import { useAppearance } from "./useAppearance";
 
 const {
   colorMode,
+  iconStyle,
   fontId,
   surfaceOpacity,
   surfaceBlur,
@@ -40,6 +51,7 @@ const {
   desktopFillColor,
   desktopFillOpacity,
   setColorMode,
+  setIconStyle,
   setFont,
   setSurfaceOpacity,
   setSurfaceBlur,
@@ -51,6 +63,56 @@ const {
   setDesktopFillColor,
   setDesktopFillOpacity,
 } = useAppearance();
+
+const colorModeIcons: Record<ColorMode, Component> = {
+  system: MonitorIcon,
+  light: SunIcon,
+  dark: MoonIcon,
+};
+
+const fontOptions = FONT_OPTIONS.map((f) => ({ value: f.id, label: f.name, note: f.sample }));
+const shadowOptions = SHADOW_STYLE_OPTIONS.map((s) => ({ value: s.id, label: s.hint }));
+const iconStyleOptions: { id: IconStyle; name: string }[] = [
+  { id: "colorful", name: "Colorful" },
+  { id: "monochrome", name: "Monochrome" },
+];
+
+/**
+ * The option under the pointer, shown app-wide before it is chosen. Only the
+ * document is restyled; a click commits and persists through the setters.
+ */
+const hovered = reactive<{
+  colorMode: ColorMode | null;
+  iconStyle: IconStyle | null;
+  font: FontId | null;
+  corner: CornerShape | null;
+  shadow: ShadowStyleId | null;
+  fill: DesktopFillMode | null;
+}>({ colorMode: null, iconStyle: null, font: null, corner: null, shadow: null, fill: null });
+
+const shownCorner = computed(() => hovered.corner ?? cornerShape.value);
+const shownShadow = computed(() => hovered.shadow ?? surfaceShadowStyle.value);
+
+// Sync, so clearing `hovered` on unmount restores the committed look at once.
+const sync = { flush: "sync" } as const;
+watch(() => hovered.colorMode ?? colorMode.value, applyColorModeToDocument, sync);
+watch(() => hovered.iconStyle ?? iconStyle.value, applyIconStyleToDocument, sync);
+watch(() => hovered.font ?? fontId.value, applyFontToDocument, sync);
+watch(shownCorner, (shape) => applyCornerGeometryToDocument(surfaceRadius.value, shape), sync);
+watch(shownShadow, applySurfaceShadowStyleToDocument, sync);
+watch(
+  () => hovered.fill ?? desktopFillMode.value,
+  (mode) => applyDesktopFillToDocument(mode, desktopFillColor.value, desktopFillOpacity.value),
+  sync,
+);
+
+onBeforeUnmount(() => {
+  Object.assign(hovered, { colorMode: null, iconStyle: null, font: null, corner: null, shadow: null, fill: null });
+});
+
+const cornerHint = computed(
+  () => CORNER_SHAPE_OPTIONS.find((o) => o.id === shownCorner.value)?.hint ?? "",
+);
 
 /** Select color mode and live-apply. */
 function onColorMode(mode: ColorMode) {
@@ -129,8 +191,8 @@ function rangeFill(value: number, min: number, max: number): string {
 const glassPreviewStyle = computed(
   (): CSSProperties =>
     ({
-      ...cornerStyle(surfaceRadius.value, cornerShape.value),
-      boxShadow: shadowStyleCss(surfaceShadowStyle.value),
+      ...cornerStyle(surfaceRadius.value, shownCorner.value),
+      boxShadow: shadowStyleCss(shownShadow.value),
       background: `rgba(var(--surface-bg-rgb), ${surfaceOpacity.value})`,
       backdropFilter: surfaceBlur.value > 0 ? `blur(${surfaceBlur.value}px)` : "none",
       WebkitBackdropFilter:
@@ -141,81 +203,103 @@ const glassPreviewStyle = computed(
 
 <template>
   <div class="appearance">
+    <Teleport to=".settings-sticky">
     <header class="appearance-head">
       <h2 class="appearance-title">Appearance</h2>
       <p class="appearance-lead">
         Theme, type, and the shared glass of widgets and search.
       </p>
-    </header>
-
-    <section class="appearance-block">
-      <h3 class="appearance-block-title">Color mode</h3>
-      <div class="choice-row" role="listbox" aria-label="Color mode">
-        <button
-          v-for="opt in COLOR_MODE_OPTIONS"
-          :key="opt.id"
-          type="button"
-          class="choice"
-          role="option"
-          :aria-selected="colorMode === opt.id"
-          :class="{ 'choice--active': colorMode === opt.id }"
-          @click="onColorMode(opt.id)"
-        >
-          <span class="theme-preview" aria-hidden="true">
-            <span
-              v-if="opt.id === 'system' || opt.id === 'dark'"
-              class="theme-pane theme-pane--dark"
-            />
-            <span
-              v-if="opt.id === 'system' || opt.id === 'light'"
-              class="theme-pane theme-pane--light"
-            />
-          </span>
-          <span class="choice-name">{{ opt.name }}</span>
-          <span class="choice-hint">{{ opt.hint }}</span>
-        </button>
-      </div>
-    </section>
-
-    <section class="appearance-block">
-      <h3 class="appearance-block-title">Typeface</h3>
-      <div class="choice-row choice-row--fonts" role="listbox" aria-label="Font style">
-        <button
-          v-for="font in FONT_OPTIONS"
-          :key="font.id"
-          type="button"
-          class="choice font-choice"
-          role="option"
-          :aria-selected="fontId === font.id"
-          :class="{ 'choice--active': fontId === font.id }"
-          :style="{ fontFamily: font.stack }"
-          @click="onSelect(font.id)"
-        >
-          <span class="font-sample">{{ font.sample }}</span>
-          <span class="choice-name">{{ font.name }}</span>
-        </button>
-      </div>
-    </section>
-
-    <section class="appearance-block">
-      <h3 class="appearance-block-title">Glass</h3>
-      <p class="appearance-block-hint">
-        Shared look for widgets and the search bar. Lower blur helps performance.
-      </p>
-
       <div class="glass-stage" aria-hidden="true">
         <div class="glass-stage-card" :style="glassPreviewStyle">
           <span class="glass-stage-time">14:32</span>
           <span class="glass-stage-caption">Preview</span>
         </div>
       </div>
+    </header>
+    </Teleport>
 
-      <div class="appearance-group">
-        <label class="slider">
-          <span class="slider-row">
-            <span>Opacity</span>
-            <span class="slider-value">{{ Math.round(surfaceOpacity * 100) }}%</span>
-          </span>
+    <section class="settings-section">
+      <h3 class="settings-section-title">Theme</h3>
+
+      <div class="settings-row">
+        <span class="settings-row-copy">
+          <span class="settings-row-title">Color mode</span>
+        </span>
+        <div class="settings-segmented" role="radiogroup" aria-label="Color mode">
+          <button
+            v-for="opt in COLOR_MODE_OPTIONS"
+            :key="opt.id"
+            type="button"
+            class="settings-segment settings-segment--icon"
+            role="radio"
+            :aria-checked="colorMode === opt.id"
+            :aria-label="opt.name"
+            :title="opt.name"
+            :class="{ 'settings-segment--active': colorMode === opt.id }"
+            @mouseenter="hovered.colorMode = opt.id"
+            @mouseleave="hovered.colorMode = null"
+            @click="onColorMode(opt.id)"
+          >
+            <component :is="colorModeIcons[opt.id]" :size="16" />
+          </button>
+        </div>
+      </div>
+
+      <div class="settings-row">
+        <span class="settings-row-copy">
+          <span class="settings-row-title">Icon Style</span>
+        </span>
+        <div class="settings-segmented" role="radiogroup" aria-label="Icon Style">
+          <button
+            v-for="opt in iconStyleOptions"
+            :key="opt.id"
+            type="button"
+            class="settings-segment"
+            role="radio"
+            :aria-checked="iconStyle === opt.id"
+            :class="{ 'settings-segment--active': iconStyle === opt.id }"
+            @mouseenter="hovered.iconStyle = opt.id"
+            @mouseleave="hovered.iconStyle = null"
+            @click="setIconStyle(opt.id)"
+          >
+            {{ opt.name }}
+          </button>
+        </div>
+      </div>
+
+      <div class="settings-row">
+        <span class="settings-row-copy">
+          <span class="settings-row-title">Font</span>
+        </span>
+        <KavibaySelect
+          class="row-select"
+          :style="{ '--font-preview': fontStack(fontId) }"
+          :options="fontOptions"
+          :model-value="fontId"
+          align="right"
+          aria-label="Font"
+          @highlight="hovered.font = $event as FontId | null"
+          @update:model-value="onSelect($event as FontId)"
+        >
+          <template #option="{ option }">
+            <span class="rich-item" :style="{ fontFamily: fontStack(option.value as FontId) }">
+              <span class="font-sample">{{ option.note }}</span>
+              <span class="rich-name">{{ option.label }}</span>
+            </span>
+          </template>
+        </KavibaySelect>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <h3 class="settings-section-title">Glass</h3>
+
+      <label class="settings-row">
+        <span class="settings-row-copy">
+          <span class="settings-row-title">Opacity</span>
+          <span class="settings-row-hint">Shared look for widgets and the search bar.</span>
+        </span>
+        <span class="row-slider">
           <input
             class="slider-input"
             type="range"
@@ -226,15 +310,16 @@ const glassPreviewStyle = computed(
             :style="{ '--fill': rangeFill(surfaceOpacity, MIN_SURFACE_OPACITY, MAX_SURFACE_OPACITY) }"
             @input="onOpacity"
           />
-        </label>
+          <span class="slider-value">{{ Math.round(surfaceOpacity * 100) }}%</span>
+        </span>
+      </label>
 
-        <label class="slider">
-          <span class="slider-row">
-            <span>Blur</span>
-            <span class="slider-value">{{
-              surfaceBlur === 0 ? "Off" : `${surfaceBlur}px`
-            }}</span>
-          </span>
+      <label class="settings-row">
+        <span class="settings-row-copy">
+          <span class="settings-row-title">Blur</span>
+          <span class="settings-row-hint">Lower blur helps performance.</span>
+        </span>
+        <span class="row-slider">
           <input
             class="slider-input"
             type="range"
@@ -245,15 +330,15 @@ const glassPreviewStyle = computed(
             :style="{ '--fill': rangeFill(surfaceBlur, MIN_SURFACE_BLUR, MAX_SURFACE_BLUR) }"
             @input="onBlur"
           />
-        </label>
+          <span class="slider-value">{{ surfaceBlur === 0 ? "Off" : `${surfaceBlur}px` }}</span>
+        </span>
+      </label>
 
-        <label class="slider">
-          <span class="slider-row">
-            <span>Border radius</span>
-            <span class="slider-value">{{
-              surfaceRadius === 0 ? "Sharp" : `${surfaceRadius}px`
-            }}</span>
-          </span>
+      <label class="settings-row">
+        <span class="settings-row-copy">
+          <span class="settings-row-title">Border radius</span>
+        </span>
+        <span class="row-slider">
           <input
             class="slider-input"
             type="range"
@@ -264,60 +349,70 @@ const glassPreviewStyle = computed(
             :style="{ '--fill': rangeFill(surfaceRadius, MIN_SURFACE_RADIUS, MAX_SURFACE_RADIUS) }"
             @input="onRadius"
           />
-        </label>
+          <span class="slider-value">{{ surfaceRadius === 0 ? "Sharp" : `${surfaceRadius}px` }}</span>
+        </span>
+      </label>
 
-        <div class="corner-row" role="listbox" aria-label="Corner shape">
+      <div class="settings-row">
+        <span class="settings-row-copy">
+          <span class="settings-row-title">Corners</span>
+          <span class="settings-row-hint">{{ cornerHint }}</span>
+        </span>
+        <div class="settings-segmented" role="radiogroup" aria-label="Corner shape">
           <button
             v-for="opt in CORNER_SHAPE_OPTIONS"
             :key="opt.id"
             type="button"
-            class="choice corner-choice"
-            role="option"
-            :aria-selected="cornerShape === opt.id"
-            :class="{ 'choice--active': cornerShape === opt.id }"
+            class="settings-segment"
+            role="radio"
+            :aria-checked="cornerShape === opt.id"
+            :class="{ 'settings-segment--active': cornerShape === opt.id }"
+            @mouseenter="hovered.corner = opt.id"
+            @mouseleave="hovered.corner = null"
             @click="onCornerShape(opt.id)"
           >
-            <span
-              class="corner-preview"
-              :style="cornerStyle(Math.max(surfaceRadius, 12), opt.id)"
-            />
-            <span class="choice-copy">
-              <span class="choice-name">{{ opt.name }}</span>
-              <span class="choice-hint">{{ opt.hint }}</span>
-            </span>
+            {{ opt.name }}
           </button>
         </div>
       </div>
     </section>
 
-    <section class="appearance-block">
-      <h3 class="appearance-block-title">Shadow</h3>
-      <p class="appearance-block-hint">The drop under widgets and the search bar.</p>
+    <section class="settings-section">
+      <h3 class="settings-section-title">Shadow</h3>
 
-      <div class="appearance-group">
-        <div class="shadow-stage" role="listbox" aria-label="Shadow style">
-          <button
-            v-for="opt in SHADOW_STYLE_OPTIONS"
-            :key="opt.id"
-            type="button"
-            class="shadow-chip"
-            role="option"
-            :aria-selected="surfaceShadowStyle === opt.id"
-            :aria-label="opt.hint"
-            :title="opt.hint"
-            :class="{ 'shadow-chip--active': surfaceShadowStyle === opt.id }"
-            @click="onShadowStyle(opt.id)"
-          >
-            <span class="shadow-preview" :style="{ boxShadow: opt.css }" />
-            <span class="shadow-chip-name">{{ opt.hint }}</span>
-          </button>
-        </div>
+      <div class="settings-row">
+        <span class="settings-row-copy">
+          <span class="settings-row-title">Style</span>
+          <span class="settings-row-hint">The drop under widgets and the search bar.</span>
+        </span>
+        <KavibaySelect
+          class="row-select"
+          :options="shadowOptions"
+          :model-value="surfaceShadowStyle"
+          align="right"
+          aria-label="Shadow style"
+          @highlight="hovered.shadow = $event as ShadowStyleId | null"
+          @update:model-value="onShadowStyle($event as ShadowStyleId)"
+        >
+          <template #option="{ option }">
+            <span class="rich-item rich-item--row">
+              <span class="shadow-well">
+                <span
+                  class="shadow-swatch"
+                  :style="{ boxShadow: shadowStyleCss(option.value as ShadowStyleId) }"
+                />
+              </span>
+              <span>{{ option.label }}</span>
+            </span>
+          </template>
+        </KavibaySelect>
+      </div>
 
-        <label class="slider">
-          <span class="slider-row">
-            <span>Strength</span>
-            <span class="slider-value">{{ Math.round(surfaceShadow * 100) }}%</span>
-          </span>
+      <label class="settings-row">
+        <span class="settings-row-copy">
+          <span class="settings-row-title">Strength</span>
+        </span>
+        <span class="row-slider">
           <input
             class="slider-input"
             type="range"
@@ -328,76 +423,74 @@ const glassPreviewStyle = computed(
             :style="{ '--fill': rangeFill(surfaceShadow, MIN_SURFACE_SHADOW, MAX_SURFACE_SHADOW) }"
             @input="onShadow"
           />
-        </label>
-      </div>
+          <span class="slider-value">{{ Math.round(surfaceShadow * 100) }}%</span>
+        </span>
+      </label>
     </section>
 
-    <section class="appearance-block">
-      <h3 class="appearance-block-title">Space between widgets</h3>
-      <p class="appearance-block-hint">
-        Tint empty space while the cockpit is open. Pinned-only desktop stays clear.
-      </p>
-      <div class="choice-row choice-row--2" role="listbox" aria-label="Space between widgets">
-        <button
-          v-for="opt in DESKTOP_FILL_MODE_OPTIONS"
-          :key="opt.id"
-          type="button"
-          class="choice"
-          role="option"
-          :aria-selected="desktopFillMode === opt.id"
-          :class="{ 'choice--active': desktopFillMode === opt.id }"
-          @click="onDesktopFillMode(opt.id)"
-        >
-          <span
-            class="fill-swatch"
-            :class="{ 'fill-swatch--clear': opt.id === 'transparent' }"
-            :style="
-              opt.id === 'color'
-                ? { background: desktopFillColor }
-                : undefined
-            "
-            aria-hidden="true"
-          />
-          <span class="choice-name">{{ opt.name }}</span>
-          <span class="choice-hint">{{ opt.hint }}</span>
-        </button>
+    <section class="settings-section">
+      <h3 class="settings-section-title">Space between widgets</h3>
+
+      <div class="settings-row">
+        <span class="settings-row-copy">
+          <span class="settings-row-title">Fill</span>
+          <span class="settings-row-hint">
+            Tint empty space while the cockpit is open. Pinned-only desktop stays clear.
+          </span>
+        </span>
+        <div class="settings-segmented" role="radiogroup" aria-label="Space between widgets">
+          <button
+            v-for="opt in DESKTOP_FILL_MODE_OPTIONS"
+            :key="opt.id"
+            type="button"
+            class="settings-segment"
+            role="radio"
+            :aria-checked="desktopFillMode === opt.id"
+            :title="opt.hint"
+            :class="{ 'settings-segment--active': desktopFillMode === opt.id }"
+            @mouseenter="hovered.fill = opt.id"
+            @mouseleave="hovered.fill = null"
+            @click="onDesktopFillMode(opt.id)"
+          >
+            {{ opt.name }}
+          </button>
+        </div>
       </div>
 
-      <div v-if="desktopFillMode === 'color'" class="appearance-group">
-        <div class="slider-row">
-          <span>Background color</span>
+      <template v-if="desktopFillMode === 'color'">
+        <label class="settings-row">
+          <span class="settings-row-copy">
+            <span class="settings-row-title">Color</span>
+          </span>
           <input
             class="appearance-color"
             type="color"
             :value="desktopFillColor"
             @input="onDesktopFillColor"
           />
-        </div>
-        <label class="slider">
-          <span class="slider-row">
-            <span>Opacity</span>
-            <span class="slider-value"
-              >{{ Math.round(desktopFillOpacity * 100) }}%</span
-            >
-          </span>
-          <input
-            class="slider-input"
-            type="range"
-            :min="MIN_DESKTOP_FILL_OPACITY"
-            :max="MAX_DESKTOP_FILL_OPACITY"
-            step="0.01"
-            :value="desktopFillOpacity"
-            :style="{
-              '--fill': rangeFill(
-                desktopFillOpacity,
-                MIN_DESKTOP_FILL_OPACITY,
-                MAX_DESKTOP_FILL_OPACITY,
-              ),
-            }"
-            @input="onDesktopFillOpacity"
-          />
         </label>
-      </div>
+
+        <label class="settings-row">
+          <span class="settings-row-copy">
+            <span class="settings-row-title">Fill opacity</span>
+          </span>
+          <span class="row-slider">
+            <input
+              class="slider-input"
+              type="range"
+              :min="MIN_DESKTOP_FILL_OPACITY"
+              :max="MAX_DESKTOP_FILL_OPACITY"
+              step="0.01"
+              :value="desktopFillOpacity"
+              :style="{
+                '--fill': rangeFill(desktopFillOpacity, MIN_DESKTOP_FILL_OPACITY, MAX_DESKTOP_FILL_OPACITY),
+              }"
+              @input="onDesktopFillOpacity"
+            />
+            <span class="slider-value">{{ Math.round(desktopFillOpacity * 100) }}%</span>
+          </span>
+        </label>
+      </template>
     </section>
   </div>
 </template>
@@ -406,7 +499,7 @@ const glassPreviewStyle = computed(
 .appearance {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 28px;
   padding-bottom: 8px;
 }
 
@@ -423,146 +516,10 @@ const glassPreviewStyle = computed(
   color: rgba(var(--fg-rgb), 0.95);
 }
 
-.appearance-lead,
-.appearance-block-hint {
+.appearance-lead {
   margin: 0;
   font-size: 13px;
   line-height: 1.4;
-  color: rgba(var(--fg-rgb), 0.5);
-}
-
-.appearance-block {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.appearance-block-title {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 500;
-  color: rgba(var(--fg-rgb), 0.92);
-}
-
-.appearance-group {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 14px;
-  border-radius: 14px;
-  background: rgba(var(--fg-rgb), 0.035);
-}
-
-.choice-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-
-.choice-row--fonts {
-  grid-template-columns: repeat(3, 1fr);
-}
-
-.choice-row--2 {
-  grid-template-columns: 1fr 1fr;
-}
-
-.choice {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  min-width: 0;
-  padding: 10px;
-  border: 1px solid transparent;
-  border-radius: 14px;
-  background: rgba(var(--fg-rgb), 0.04);
-  color: rgba(var(--fg-rgb), 0.92);
-  cursor: pointer;
-  text-align: left;
-}
-
-.choice:hover {
-  background: rgba(var(--fg-rgb), 0.08);
-}
-
-.choice--active {
-  background: var(--row-selected-sheen), var(--row-selected-bg);
-  box-shadow: var(--row-selected-rim), var(--row-selected-shadow);
-}
-
-.choice-name {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.choice-hint {
-  font-size: 11px;
-  line-height: 1.3;
-  color: rgba(var(--fg-rgb), 0.45);
-}
-
-.theme-preview {
-  display: flex;
-  width: 100%;
-  height: 48px;
-  overflow: hidden;
-  border-radius: 8px;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.22);
-}
-
-.theme-pane {
-  position: relative;
-  flex: 1;
-}
-
-.theme-pane::after {
-  content: "";
-  position: absolute;
-  top: 8px;
-  right: 6px;
-  left: 6px;
-  height: 16px;
-  border-radius: 4px;
-}
-
-.theme-pane--dark {
-  background: #1c1c20;
-}
-
-.theme-pane--dark::after {
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
-}
-
-.theme-pane--light {
-  background: #ececf1;
-}
-
-.theme-pane--light::after {
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
-}
-
-.font-choice {
-  gap: 10px;
-  padding: 14px 12px 12px;
-}
-
-.font-sample {
-  max-width: 100%;
-  font-size: 18px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.font-choice .choice-name {
-  font-size: 11px;
-  font-weight: 500;
   color: rgba(var(--fg-rgb), 0.5);
 }
 
@@ -570,11 +527,9 @@ const glassPreviewStyle = computed(
   display: grid;
   place-items: center;
   height: 96px;
+  margin-top: 12px;
   border-radius: 14px;
-  background:
-    radial-gradient(90% 80% at 18% 20%, rgba(120, 160, 220, 0.28), transparent 55%),
-    radial-gradient(80% 70% at 88% 78%, rgba(70, 90, 140, 0.3), transparent 50%),
-    #16181d;
+  background: #16181d url("../assets/share-canvas/nebula.png") center / cover;
 }
 
 .glass-stage-card {
@@ -599,124 +554,92 @@ const glassPreviewStyle = computed(
   color: rgba(var(--fg-rgb), 0.5);
 }
 
-.slider {
+.row-slider {
+  flex: none;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.slider-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  font-size: 13px;
-  font-weight: 500;
-  color: rgba(var(--fg-rgb), 0.92);
+  align-items: center;
+  gap: 12px;
+  width: 220px;
 }
 
 .slider-value {
+  flex: none;
+  width: 44px;
+  font-size: 12px;
+  text-align: right;
   font-variant-numeric: tabular-nums;
   color: rgba(var(--fg-rgb), 0.5);
 }
 
-.corner-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+/* Borderless dropdown, like the rest of the row: just the value and a caret. */
+.row-select {
+  flex: none;
 }
 
-.corner-choice {
+.row-select :deep(.ssel-trigger) {
+  gap: 8px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 13px;
+}
+
+.row-select :deep(.ssel-trigger:hover:not(:disabled)) {
+  border-color: transparent;
+  background: rgba(var(--fg-rgb), 0.06);
+}
+
+.row-select :deep(.ssel-item-label) {
+  white-space: nowrap;
+}
+
+/* Dropdown rows that show what they set: a font sample, a shadow swatch. */
+.rich-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0;
+  white-space: nowrap;
+}
+
+.rich-item--row {
   flex-direction: row;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
 }
 
-.choice-copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
+.font-sample {
+  font-size: 16px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }
 
-.corner-preview {
+.rich-name {
+  font-size: 11px;
+  color: rgba(var(--fg-rgb), 0.5);
+}
+
+/* A shadow needs something lighter than itself to fall on, in either theme. */
+.shadow-well {
   flex: none;
-  width: 36px;
-  height: 36px;
-  background: rgba(var(--fg-rgb), 0.14);
-  box-shadow: inset 0 0 0 1px rgba(var(--fg-rgb), 0.12);
-}
-
-.shadow-stage {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 6px 4px;
-  padding: 12px 8px 10px;
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.28);
+  place-items: center;
+  width: 52px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(var(--fg-rgb), 0.18);
 }
 
-.shadow-chip {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  padding: 8px 4px 6px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: transparent;
-  color: rgba(var(--fg-rgb), 0.88);
-  cursor: pointer;
-}
-
-.shadow-chip:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.shadow-chip--active {
-  background: var(--row-selected-sheen), var(--row-selected-bg);
-  box-shadow: var(--row-selected-rim), var(--row-selected-shadow);
-}
-
-.shadow-preview {
-  width: 100%;
-  height: 28px;
-  border-radius: 7px;
+.shadow-swatch {
+  width: 30px;
+  height: 18px;
+  border-radius: 5px;
   background: rgb(var(--surface-bg-rgb));
 }
 
-.shadow-chip-name {
-  max-width: 100%;
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 1.2;
-  /* Stage is always a dark well, so labels stay light until the chip is selected. */
-  color: rgba(255, 255, 255, 0.55);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.shadow-chip--active .shadow-chip-name {
-  color: rgba(var(--fg-rgb), 0.85);
-}
-
-.fill-swatch {
-  width: 100%;
-  height: 36px;
-  border-radius: 8px;
-  box-shadow: inset 0 0 0 1px rgba(var(--fg-rgb), 0.12);
-}
-
-.fill-swatch--clear {
-  background:
-    linear-gradient(45deg, rgba(var(--fg-rgb), 0.12) 25%, transparent 25%),
-    linear-gradient(-45deg, rgba(var(--fg-rgb), 0.12) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, rgba(var(--fg-rgb), 0.12) 75%),
-    linear-gradient(-45deg, transparent 75%, rgba(var(--fg-rgb), 0.12) 75%);
-  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
-  background-size: 12px 12px;
+/* The font row shows the chosen font in itself. */
+.row-select :deep(.ssel-value) {
+  font-family: var(--font-preview, inherit);
 }
 
 .appearance-color {
@@ -727,17 +650,5 @@ const glassPreviewStyle = computed(
   border-radius: 8px;
   background: transparent;
   cursor: pointer;
-}
-
-@media (max-width: 560px) {
-  .choice-row,
-  .choice-row--fonts,
-  .choice-row--2 {
-    grid-template-columns: 1fr;
-  }
-
-  .shadow-stage {
-    grid-template-columns: repeat(3, 1fr);
-  }
 }
 </style>

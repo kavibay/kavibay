@@ -10,6 +10,7 @@ import {
   enabledSummary,
   modelsForProvider,
   providerHasKey,
+  providerStatusLine,
   resolveAiProviderFocus,
   quickModelChoices,
   quickModelSelection,
@@ -204,3 +205,20 @@ assert(
 );
 
 console.log("aiPanelLogic.assert.ts: ok");
+
+// The provider list's second line: progress once connected, the offer before.
+assert(
+  providerStatusLine(catalog, "anthropic") === "1 of 2 models on",
+  "a connected provider reports how many of its models are on",
+);
+assert(
+  providerStatusLine(catalog, "openai") === "gpt-6-luna",
+  "an unconnected provider names what it offers",
+);
+assert(
+  providerStatusLine(
+    [1, 2, 3, 4].map((n) => model({ id: `m${n}`, provider: "openai", configured: false })),
+    "openai",
+  ) === "m1, m2 and 2 more",
+  "a long offer is cut to two names and a count",
+);
