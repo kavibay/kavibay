@@ -3,6 +3,10 @@ import {
   MCP_DEFAULT_PORT,
   MCP_HOST,
   MCP_PATH,
+  MCP_TOKEN_ENV_VAR,
+  MCP_TOKEN_PLACEHOLDER,
+  buildClaudeCodeCommand,
+  buildCodexCommand,
   buildCodexConfigSnippet,
   buildMcpUrl,
   isValidMcpPort,
@@ -58,5 +62,29 @@ check(new RegExp(`127\\.0\\.0\\.1:${port}\\/mcp`).test(snippet), "snippet uses s
 check(snippet.includes("[mcp_servers.kavibay]"), "Codex table is present");
 check(!/[A-Za-z]:\\\\|\/Users\/|\/home\//i.test(snippet), "no filesystem path");
 check(!/token|secret|password|api[_-]?key/i.test(snippet), "no secret material");
+
+const withToken = buildCodexConfigSnippet(port, true);
+check(
+  withToken.endsWith(`\nbearer_token_env_var = "${MCP_TOKEN_ENV_VAR}"`),
+  "a required token is read from the environment",
+);
+check(!/kvb_/.test(withToken), "the token itself never lands in the config file");
+
+equal(buildClaudeCodeCommand(url), `claude mcp add --transport http kavibay ${url}`, "Claude Code, open server");
+equal(
+  buildClaudeCodeCommand(url, true),
+  `claude mcp add --transport http kavibay ${url} --header "Authorization: Bearer ${MCP_TOKEN_PLACEHOLDER}"`,
+  "Claude Code, token not on screen",
+);
+check(
+  buildClaudeCodeCommand(url, true, "kvb_abc").endsWith(`"Authorization: Bearer kvb_abc"`),
+  "Claude Code carries a freshly shown token",
+);
+equal(buildCodexCommand(url), `codex mcp add kavibay --url ${url}`, "Codex, open server");
+equal(
+  buildCodexCommand(url, true),
+  `codex mcp add kavibay --url ${url} --bearer-token-env-var ${MCP_TOKEN_ENV_VAR}`,
+  "Codex reads the token from the environment",
+);
 
 console.log("mcpServerLogic assertions passed");

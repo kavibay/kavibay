@@ -82,9 +82,44 @@ export function mcpStatusPresentation(
   }
 }
 
-/** Current Codex `config.toml` shape for a Streamable HTTP MCP server. */
-export function buildCodexConfigSnippet(port: number): string {
-  return `[mcp_servers.kavibay]\nurl = "${buildMcpUrl(port)}"`;
+/** Environment variable the Codex snippet reads the bearer token from. */
+export const MCP_TOKEN_ENV_VAR = "KAVIBAY_MCP_TOKEN";
+
+/**
+ * Current Codex `config.toml` shape for a Streamable HTTP MCP server.
+ *
+ * With a token, Codex reads it from the environment (`bearer_token_env_var`)
+ * rather than from the file, so the snippet can be copied and shared as is.
+ */
+export function buildCodexConfigSnippet(port: number, tokenRequired = false): string {
+  const base = `[mcp_servers.kavibay]\nurl = "${buildMcpUrl(port)}"`;
+  return tokenRequired ? `${base}\nbearer_token_env_var = "${MCP_TOKEN_ENV_VAR}"` : base;
+}
+
+/** Stands in for the token in a command when the token itself is not on screen. */
+export const MCP_TOKEN_PLACEHOLDER = "<your token>";
+
+/**
+ * `claude mcp add` for this server.
+ *
+ * Claude Code stores the header it is given, so a required token goes into the
+ * command itself — the real one while it is on screen, a placeholder otherwise.
+ */
+export function buildClaudeCodeCommand(
+  url: string,
+  tokenRequired = false,
+  token: string | null = null,
+): string {
+  const base = `claude mcp add --transport http kavibay ${url}`;
+  return tokenRequired
+    ? `${base} --header "Authorization: Bearer ${token ?? MCP_TOKEN_PLACEHOLDER}"`
+    : base;
+}
+
+/** `codex mcp add` for this server; Codex reads a required token from the environment. */
+export function buildCodexCommand(url: string, tokenRequired = false): string {
+  const base = `codex mcp add kavibay --url ${url}`;
+  return tokenRequired ? `${base} --bearer-token-env-var ${MCP_TOKEN_ENV_VAR}` : base;
 }
 
 /** Convenience helper for consumers that already have a backend status object. */

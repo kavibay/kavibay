@@ -747,6 +747,7 @@ pub fn run() {
             mcp::server::mcp_server_status,
             mcp::server::mcp_server_set_enabled,
             mcp::server::mcp_server_set_port,
+            mcp::server::mcp_server_set_token,
             mcp::server::mcp_server_retry,
             preview_capture::cancel_preview_clip,
             preview_capture::capture_preview_image,
