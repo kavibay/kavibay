@@ -39,7 +39,7 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 use crate::extensions::clipboard_widget::{
-    pause_capture, resume_capture, write_text_clipboard, ClipboardState,
+    pause_capture, resume_capture, system::write_text_clipboard, ClipboardState,
 };
 use editability::decide;
 use placement::{place_popup, Anchor, Rect};
@@ -517,7 +517,7 @@ fn capture_selection(app: &AppHandle) {
         pause_capture(clipboard);
     }
 
-    let saved_clipboard = crate::extensions::clipboard_widget::clipboard_text();
+    let saved_clipboard = crate::extensions::clipboard_widget::system::clipboard_text();
     let selection = platform::copy_selection();
 
     let Some(text) = selection.filter(|text| !text.trim().is_empty()) else {

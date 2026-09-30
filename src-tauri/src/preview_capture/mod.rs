@@ -2,8 +2,6 @@
 //! Only the host calls these commands; they are deliberately absent from both SDK bridges.
 
 mod artifacts;
-#[cfg(windows)]
-mod cursor_windows;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -12,6 +10,8 @@ mod macos;
 mod media_foundation;
 mod recording_commands;
 mod recording_session;
+#[cfg(windows)]
+mod screen_windows;
 #[cfg(windows)]
 mod video_windows;
 #[cfg(windows)]
@@ -32,6 +32,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use tauri::ipc::{InvokeBody, Request, Response};
+use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
 
@@ -133,13 +134,17 @@ fn screenshot_bytes(
     if window.label() != "main" {
         return Err("Screenshot sharing is only available in the main window.".into());
     }
-    let InvokeBody::Raw(png) = request.body() else {
-        return Err("A captured PNG screenshot is required.".into());
+    let png = match request.body() {
+        InvokeBody::Raw(png) => png.clone(),
+        // Once one IPC fetch fails, Tauri sends everything through postMessage
+        // until the page reloads, and the ArrayBuffer arrives as a JSON array.
+        InvokeBody::Json(json) => Vec::<u8>::deserialize(json)
+            .map_err(|_| "A captured PNG screenshot is required.".to_string())?,
     };
     if !png.starts_with(b"\x89PNG\r\n\x1a\n") || png.len() > 64 * 1024 * 1024 {
         return Err("The screenshot is invalid or exceeds 64 MiB.".into());
     }
-    Ok(png.clone())
+    Ok(png)
 }
 
 #[tauri::command]
@@ -148,9 +153,12 @@ pub async fn copy_preview_image(
     request: Request<'_>,
 ) -> Result<(), String> {
     let png = screenshot_bytes(&window, &request)?;
-    tauri::async_runtime::spawn_blocking(move || copy_image(&png))
-        .await
-        .map_err(|error| format!("Could not copy the screenshot: {error}"))?
+    let app = window.app_handle().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::extensions::clipboard_widget::system::write_png_clipboard(&app, &png)
+    })
+    .await
+    .map_err(|error| format!("Could not copy the screenshot: {error}"))?
 }
 
 #[tauri::command]
@@ -159,24 +167,75 @@ pub async fn save_preview_image(
     request: Request<'_>,
 ) -> Result<bool, String> {
     let png = screenshot_bytes(&window, &request)?;
+    let title = request
+        .headers()
+        .get("kavibay-title")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| percent_encoding::percent_decode_str(value).decode_utf8_lossy())
+        .unwrap_or_default();
+    let stem = widget_file_stem(&title).unwrap_or_else(|| "kavibay-screenshot".into());
     tauri::async_runtime::spawn_blocking(move || {
+        let (bytes, extension, kind) = saved_file(png)?;
         let target = window
             .dialog()
             .file()
             .set_parent(&window)
-            .set_file_name("kavibay-screenshot.png")
-            .add_filter("PNG image", &["png"])
+            .set_file_name(format!("{stem}.{extension}"))
+            .add_filter(kind, &[extension])
             .blocking_save_file();
         let Some(target) = target else {
             return Ok(false);
         };
         let path = target.into_path().map_err(|error| error.to_string())?;
-        std::fs::write(path, png)
+        std::fs::write(path, bytes)
             .map_err(|error| format!("Could not save the screenshot: {error}"))?;
         Ok(true)
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+/// "kavibay-todo-widget" for the widget titled "Todo", the name Save suggests
+/// for screenshots and clips. Letters and digits survive, in any script,
+/// lowercased; every other run becomes one '-', which also removes whatever a
+/// file name cannot hold. `None` when nothing of the title is left.
+fn widget_file_stem(title: &str) -> Option<String> {
+    let mut slug = String::new();
+    for c in title.chars().flat_map(char::to_lowercase) {
+        if c.is_alphanumeric() {
+            slug.push(c);
+        } else if !slug.is_empty() && !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    let slug: String = slug.chars().take(60).collect();
+    let slug = slug.trim_end_matches('-');
+    let slug = slug.strip_suffix("-widget").unwrap_or(slug);
+    (!slug.is_empty() && slug != "widget").then(|| format!("kavibay-{slug}-widget"))
+}
+
+/// At 92 a widget's text edges match the PNG at 3x zoom, and a screenshot
+/// over the nebula background drops from 1.0 MB to 0.2 MB. 85 shows blocks
+/// in dark areas. The lossless best, PNG without alpha, only saved 12%.
+const SAVED_JPEG_QUALITY: u8 = 92;
+
+/// What Save writes: an opaque screenshot as JPEG, one with transparency as
+/// the PNG it already is. Copy keeps the PNG either way.
+fn saved_file(png: Vec<u8>) -> Result<(Vec<u8>, &'static str, &'static str), String> {
+    let image = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
+        .map_err(|error| format!("Could not read the screenshot: {error}"))?;
+    let transparent = match &image {
+        image::DynamicImage::ImageRgba8(rgba) => rgba.pixels().any(|pixel| pixel[3] < 255),
+        other => other.color().has_alpha(),
+    };
+    if transparent {
+        return Ok((png, "png", "PNG image"));
+    }
+    let mut jpeg = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, SAVED_JPEG_QUALITY)
+        .encode_image(&image.to_rgb8())
+        .map_err(|error| format!("Could not encode the screenshot: {error}"))?;
+    Ok((jpeg, "jpg", "JPEG image"))
 }
 
 async fn capture_snapshot(
@@ -231,30 +290,6 @@ fn crop_image(png: &[u8], region: CaptureRegion) -> Result<image::RgbaImage, Str
         .map_err(|error| format!("Could not read the preview snapshot: {error}"))?;
     let (x, y, width, height) = region.pixels(image.width(), image.height())?;
     Ok(image.crop_imm(x, y, width, height).into_rgba8())
-}
-
-fn copy_image(png: &[u8]) -> Result<(), String> {
-    let image = image::load_from_memory_with_format(png, image::ImageFormat::Png)
-        .map_err(|error| format!("Could not read the screenshot: {error}"))?
-        .into_rgba8();
-    let mut clipboard = arboard::Clipboard::new()
-        .map_err(|error| format!("Could not open the clipboard: {error}"))?;
-    // Clipboard managers can briefly own the Windows clipboard while reading it.
-    for attempt in 0..3 {
-        let result = clipboard.set_image(arboard::ImageData {
-            width: image.width() as usize,
-            height: image.height() as usize,
-            bytes: std::borrow::Cow::Borrowed(image.as_raw()),
-        });
-        match result {
-            Ok(()) => return Ok(()),
-            Err(error) if attempt == 2 => {
-                return Err(format!("Could not copy the preview image: {error}"))
-            }
-            Err(_) => std::thread::sleep(Duration::from_millis(50)),
-        }
-    }
-    unreachable!()
 }
 
 #[cfg(test)]
@@ -338,5 +373,42 @@ mod tests {
         let cropped = crop_image(png.get_ref(), region()).unwrap();
         assert_eq!(cropped.dimensions(), (60, 80));
         assert!(cropped.pixels().all(|pixel| pixel.0 == [0, 200, 0, 255]));
+    }
+
+    #[test]
+    fn names_saved_files_after_the_widget() {
+        let stem = |title| widget_file_stem(title);
+        assert_eq!(stem("Todo").as_deref(), Some("kavibay-todo-widget"));
+        assert_eq!(
+            stem("Weather Widget").as_deref(),
+            Some("kavibay-weather-widget")
+        );
+        assert_eq!(
+            stem("Übersicht: A/B?").as_deref(),
+            Some("kavibay-übersicht-a-b-widget")
+        );
+        assert_eq!(stem(""), None);
+        assert_eq!(stem(" *?* "), None);
+        assert_eq!(stem("Widget"), None);
+    }
+
+    #[test]
+    fn saves_opaque_screenshots_as_jpeg_and_keeps_transparent_ones_png() {
+        let png = |image: image::RgbaImage| {
+            let mut png = std::io::Cursor::new(Vec::new());
+            image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+            png.into_inner()
+        };
+        let mut image = image::RgbaImage::from_pixel(40, 20, image::Rgba([30, 60, 90, 255]));
+
+        let (bytes, extension, _) = saved_file(png(image.clone())).unwrap();
+        assert_eq!(extension, "jpg");
+        assert!(bytes.starts_with(&[0xff, 0xd8, 0xff]));
+
+        image.put_pixel(39, 19, image::Rgba([30, 60, 90, 0]));
+        let transparent = png(image);
+        let (bytes, extension, _) = saved_file(transparent.clone()).unwrap();
+        assert_eq!(extension, "png");
+        assert_eq!(bytes, transparent);
     }
 }

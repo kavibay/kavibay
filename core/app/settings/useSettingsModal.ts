@@ -7,8 +7,10 @@ export type SettingsSectionId =
   | "files"
   | "extensions"
   | "ai"
+  | "quickActions"
   | "credentials"
-  | "mcp";
+  | "mcp"
+  | "about";
 
 const open: Ref<boolean> = ref(false);
 const section: Ref<SettingsSectionId> = ref("appearance");

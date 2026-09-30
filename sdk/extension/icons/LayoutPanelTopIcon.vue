@@ -27,6 +27,38 @@ withDefaults(
 </template>
 
 <style>
+/* Neutral board, and each panel a different widget colour. Tile colours — see ListTodoIcon.vue for how the host reads them. */
+[data-icon-tile]:has(> .lmi-layout-panel-top) {
+  --icon-tile-bg: rgba(var(--fg-rgb), 0.1);
+  --lmi-gallery-a: #60a5fa;
+  --lmi-gallery-b: #fbbf24;
+  --lmi-gallery-c: #f472b6;
+}
+
+html[data-color-mode="light"] [data-icon-tile]:has(> .lmi-layout-panel-top) {
+  --lmi-gallery-a: #2563eb;
+  --lmi-gallery-b: #d97706;
+  --lmi-gallery-c: #db2777;
+}
+
+.lmi-layout-panel-top-header {
+  --lmi-gallery: var(--lmi-gallery-a);
+}
+
+.lmi-layout-panel-top-left {
+  --lmi-gallery: var(--lmi-gallery-b);
+}
+
+.lmi-layout-panel-top-right {
+  --lmi-gallery: var(--lmi-gallery-c);
+}
+
+.lmi-layout-panel-top rect {
+  stroke: var(--lmi-gallery, currentColor);
+  fill: var(--lmi-gallery, none);
+  fill-opacity: 0.3;
+}
+
 /* Each panel rests at its final, visible position. */
 .lmi-layout-panel-top-header {
   transform: translate(0, 0px);

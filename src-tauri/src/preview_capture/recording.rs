@@ -1,4 +1,9 @@
 pub(super) const MAX_DURATION_MS: u64 = 90_000;
+/// The smallest edge a recording encodes. Windows' H.264 encoder rejects 32
+/// pixels in either dimension (0xC00D36B4) and took 34 on the machine it was
+/// measured on; 64 leaves room for other encoders. The availability probe
+/// encodes exactly this size, so passing it covers every recording.
+pub(super) const MIN_EDGE: u32 = 64;
 
 pub(super) fn recording_end_ms(
     elapsed_ms: u64,
@@ -11,34 +16,13 @@ pub(super) fn recording_end_ms(
     Some(end.clamp(last_frame_ms + 1, MAX_DURATION_MS))
 }
 
-#[cfg(any(windows, test))]
-pub(super) fn cursor_position(
-    position: (i32, i32),
-    origin: (i32, i32),
-    window_size: (u32, u32),
-    snapshot: (u32, u32),
-    region: super::CaptureRegion,
-) -> Option<(f64, f64)> {
-    if window_size.0 == 0 || window_size.1 == 0 {
-        return None;
-    }
-    let (left, top, width, height) = region.pixels(snapshot.0, snapshot.1).ok()?;
-    let x = (f64::from(position.0) - f64::from(origin.0)) * f64::from(snapshot.0)
-        / f64::from(window_size.0)
-        - f64::from(left);
-    let y = (f64::from(position.1) - f64::from(origin.1)) * f64::from(snapshot.1)
-        / f64::from(window_size.1)
-        - f64::from(top);
-    (x >= 0.0 && y >= 0.0 && x < f64::from(width) && y < f64::from(height)).then_some((x, y))
-}
-
 pub(super) fn output_dimensions(width: u32, height: u32) -> Result<(u32, u32), String> {
     let scale = (1280.0 / f64::from(width.max(height))).min(1.0);
     let dimensions = (
         (f64::from(width) * scale) as u32 & !1,
         (f64::from(height) * scale) as u32 & !1,
     );
-    if dimensions.0 < 2 || dimensions.1 < 2 {
+    if dimensions.0 < MIN_EDGE || dimensions.1 < MIN_EDGE {
         return Err("The preview is too small to record.".into());
     }
     Ok(dimensions)
@@ -83,34 +67,6 @@ pub(super) fn nv12(image: &image::RgbaImage) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn pointer_maps_physical_monitors_to_cropped_snapshot() {
-        let region = super::super::CaptureRegion {
-            x: 10.0,
-            y: 20.0,
-            width: 30.0,
-            height: 40.0,
-            viewport_width: 100.0,
-            viewport_height: 100.0,
-        };
-        assert_eq!(
-            cursor_position((-270, 60), (-300, 0), (150, 150), (200, 200), region),
-            Some((20.0, 40.0))
-        );
-        assert_eq!(
-            cursor_position((-299, 60), (-300, 0), (150, 150), (200, 200), region),
-            None
-        );
-        assert_eq!(
-            cursor_position((-200, 60), (-300, 0), (150, 150), (200, 200), region),
-            None
-        );
-        assert_eq!(
-            cursor_position((0, 0), (0, 0), (0, 0), (200, 200), region),
-            None
-        );
-    }
-
     #[test]
     fn limits_dimensions_without_upscaling() {
         assert_eq!(output_dimensions(1920, 1080).unwrap(), (1280, 720));

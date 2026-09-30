@@ -36,6 +36,23 @@ withDefaults(
 </template>
 
 <style>
+/* Inside a tile the clip is solid, the one filled mark like Todo's ticked box. */
+.lmi-clipboard-list-rect {
+  fill: var(--lmi-clipboard-clip, none);
+}
+
+/* Tile colours — see ListTodoIcon.vue for how the host reads them. */
+[data-icon-tile]:has(> .lmi-clipboard-list) {
+  --icon-tile-bg: rgba(55, 138, 221, 0.22);
+  --icon-tile-fg: #b5d4f4;
+  --lmi-clipboard-clip: #85b7eb;
+}
+
+html[data-color-mode="light"] [data-icon-tile]:has(> .lmi-clipboard-list) {
+  --icon-tile-bg: rgba(55, 138, 221, 0.14);
+  --icon-tile-fg: #185fa5;
+  --lmi-clipboard-clip: #378add;
+}
 /*
  * Resting state is deliberately the animation's *end* state. The static variant
  * is therefore correct on its own, and nothing has to be undone when the

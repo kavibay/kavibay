@@ -32,6 +32,12 @@ assert(normalizeAppearance({ colorMode: "system" }).colorMode === "system", "pre
 assert(normalizeAppearance({ colorMode: "light" }).colorMode === "light", "preserve light");
 assert(normalizeAppearance({ colorMode: "weird" }).colorMode === "dark", "bad colorMode → dark");
 
+assert(DEFAULT_APPEARANCE.iconStyle === "colorful", "icons stay colorful by default");
+assert(normalizeAppearance({}).iconStyle === "colorful", "older saves keep colorful icons");
+assert(normalizeAppearance({ iconStyle: "colorful" }).iconStyle === "colorful", "preserve colorful");
+assert(normalizeAppearance({ iconStyle: "monochrome" }).iconStyle === "monochrome", "preserve monochrome");
+assert(normalizeAppearance({ iconStyle: "invalid" }).iconStyle === "colorful", "invalid icon style → colorful");
+
 assert(
   normalizeAppearance({}).surfaceShadowStyle === "s2",
   "missing shadow style → s2",

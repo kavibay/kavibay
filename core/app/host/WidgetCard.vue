@@ -600,6 +600,14 @@ function onTogglePin() {
   emit("toggle-pin");
 }
 
+function onChromePinPointerDown(event: PointerEvent) {
+  if (event.button === 0) emit("toggle-pin");
+}
+
+function onChromePinClick(event: MouseEvent) {
+  if (event.detail === 0) emit("toggle-pin");
+}
+
 /** Shared cards choose a scope; the host confirms before deleting any content. */
 function onRemove() {
   if (props.multiDeskRemove) {
@@ -887,112 +895,116 @@ watch(
       @focusout="chromeFocused = false"
       @contextmenu="onHeaderContextMenu"
     >
-      <WidgetDeleteConfirmation v-if="deleteRequest" :request="deleteRequest" />
-      <template v-else>
-        <button
-          v-if="!chromeCompact || coachTargets"
-          type="button"
-          class="widget-card-chrome-btn"
-          :class="{ 'widget-card-chrome-btn--pin-on': pinned }"
-          :data-onboarding-target="coachTargets ? 'widget-pin' : undefined"
-          v-tip="shortcutHinting ? pinShortcutTip : 'Pin'"
-          aria-label="Toggle pin"
-          :aria-pressed="pinned"
-          @click.stop="emit('toggle-pin')"
-        >
-          <PinIcon :active="pinned" />
-          <span v-if="shortcutHintVisible" class="widget-card-shortcut-hint" aria-hidden="true">
-            <span>Pin</span>
-            <span>{{ shortcutModifier }}+P</span>
-          </span>
-        </button>
-        <button
-          ref="triggerEl"
-          type="button"
-          class="widget-card-chrome-btn"
-          v-tip="'Widget menu'"
-          aria-label="Widget menu"
-          aria-haspopup="menu"
-          :aria-expanded="menuOpen"
-          @click.stop="toggleMenu"
-        >
-          ⋯
-        </button>
-        <button
-          v-if="!chromeCompact || coachTargets"
-          type="button"
-          class="widget-card-chrome-btn"
-          :class="{
-            'widget-card-chrome-btn--pressing':
-              hidePressPhase === 'pressing' && hidePressOver,
-            'widget-card-chrome-btn--armed-remove':
-              hidePressPhase === 'armed' && hidePressOver,
-            'widget-card-chrome-btn--coach-hide':
-              forceCoachChrome &&
-              (onboardingState?.step === 8 || onboardingState?.step === 10),
-          }"
-          :style="{ '--hide-press-arm-ms': `${HIDE_PRESS_ARM_MS}ms` }"
-          :data-onboarding-target="coachTargets ? 'widget-hide' : undefined"
-          v-tip="
-            shortcutHinting
-              ? hideShortcutTip
-              : hidePressTipLabel(hidePressPhase, hidePressOver, hidePressHinting)
-          "
-          :aria-label="
-            hidePressPhase === 'armed' && hidePressOver ? 'Delete widget' : 'Hide widget'
-          "
-          @pointerdown.stop="onHidePointerDown"
-          @pointermove.stop="onHidePointerMove"
-          @pointerup.stop="onHidePointerUp"
-          @pointercancel.stop="onHidePointerCancel"
-        >
-          <!-- 1px border arc: stroke draws clockwise from top over the arm delay. -->
-          <svg
-            v-if="
-              (hidePressPhase === 'pressing' || hidePressPhase === 'armed') && hidePressOver
+      <div class="widget-card-chrome-visual">
+        <div class="widget-card-surface widget-card-chrome-surface" :style="surfaceVars" aria-hidden="true" />
+        <WidgetDeleteConfirmation v-if="deleteRequest" :request="deleteRequest" />
+        <template v-else>
+          <button
+            v-if="!chromeCompact || coachTargets"
+            type="button"
+            class="widget-card-chrome-btn"
+            :class="{ 'widget-card-chrome-btn--pin-on': pinned }"
+            :data-onboarding-target="coachTargets ? 'widget-pin' : undefined"
+            v-tip="shortcutHinting ? pinShortcutTip : 'Pin'"
+            aria-label="Toggle pin"
+            :aria-pressed="pinned"
+            @pointerdown.stop="onChromePinPointerDown"
+            @click.stop="onChromePinClick"
+          >
+            <PinIcon :active="pinned" />
+            <span v-if="shortcutHintVisible" class="widget-card-shortcut-hint" aria-hidden="true">
+              <span>Pin</span>
+              <span>{{ shortcutModifier }}+P</span>
+            </span>
+          </button>
+          <button
+            ref="triggerEl"
+            type="button"
+            class="widget-card-chrome-btn"
+            v-tip="'Widget menu'"
+            aria-label="Widget menu"
+            aria-haspopup="menu"
+            :aria-expanded="menuOpen"
+            @click.stop="toggleMenu"
+          >
+            ⋯
+          </button>
+          <button
+            v-if="!chromeCompact || coachTargets"
+            type="button"
+            class="widget-card-chrome-btn"
+            :class="{
+              'widget-card-chrome-btn--pressing':
+                hidePressPhase === 'pressing' && hidePressOver,
+              'widget-card-chrome-btn--armed-remove':
+                hidePressPhase === 'armed' && hidePressOver,
+              'widget-card-chrome-btn--coach-hide':
+                forceCoachChrome &&
+                (onboardingState?.step === 8 || onboardingState?.step === 10),
+            }"
+            :style="{ '--hide-press-arm-ms': `${HIDE_PRESS_ARM_MS}ms` }"
+            :data-onboarding-target="coachTargets ? 'widget-hide' : undefined"
+            v-tip="
+              shortcutHinting
+                ? hideShortcutTip
+                : hidePressTipLabel(hidePressPhase, hidePressOver, hidePressHinting)
             "
-            class="widget-card-chrome-press-ring"
-            viewBox="0 0 28 28"
-            aria-hidden="true"
+            :aria-label="
+              hidePressPhase === 'armed' && hidePressOver ? 'Delete widget' : 'Hide widget'
+            "
+            @pointerdown.stop="onHidePointerDown"
+            @pointermove.stop="onHidePointerMove"
+            @pointerup.stop="onHidePointerUp"
+            @pointercancel.stop="onHidePointerCancel"
           >
-            <rect
-              class="widget-card-chrome-press-ring-path"
-              x="0.5"
-              y="0.5"
-              width="27"
-              height="27"
-              rx="7.5"
-              ry="7.5"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1"
-              pathLength="100"
-              stroke-linecap="round"
-            />
-          </svg>
-          <!-- Short press hides (×); an armed long press offers deletion (trash). -->
-          <svg
-            class="widget-card-chrome-action-icon"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <path
-              :d="hidePressPhase === 'armed' && hidePressOver
-                ? 'M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13'
-                : 'M18 6L6 18M6 6l12 12'"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-          <span v-if="shortcutHintVisible" class="widget-card-shortcut-hint" aria-hidden="true">
-            <span>Hide</span>
-            <span>{{ shortcutModifier }}+W</span>
-          </span>
-        </button>
-      </template>
+            <!-- 1px border arc: stroke draws clockwise from top over the arm delay. -->
+            <svg
+              v-if="
+                (hidePressPhase === 'pressing' || hidePressPhase === 'armed') && hidePressOver
+              "
+              class="widget-card-chrome-press-ring"
+              viewBox="0 0 28 28"
+              aria-hidden="true"
+            >
+              <rect
+                class="widget-card-chrome-press-ring-path"
+                x="0.5"
+                y="0.5"
+                width="27"
+                height="27"
+                rx="7.5"
+                ry="7.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1"
+                pathLength="100"
+                stroke-linecap="round"
+              />
+            </svg>
+            <!-- Short press hides (×); an armed long press offers deletion (trash). -->
+            <svg
+              class="widget-card-chrome-action-icon"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                :d="hidePressPhase === 'armed' && hidePressOver
+                  ? 'M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13'
+                  : 'M18 6L6 18M6 6l12 12'"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span v-if="shortcutHintVisible" class="widget-card-shortcut-hint" aria-hidden="true">
+              <span>Hide</span>
+              <span>{{ shortcutModifier }}+W</span>
+            </span>
+          </button>
+        </template>
+      </div>
     </div>
 
     <div
@@ -1265,7 +1277,7 @@ watch(
       @dblclick.stop="startRename"
       @contextmenu="onHeaderContextMenu"
     >
-      {{ title }}
+      <span class="widget-card-title-label">{{ title }}</span>
     </p>
     <div class="widget-card-body" :style="bodyStyle">
       <slot />
@@ -1342,27 +1354,31 @@ watch(
   cursor: grabbing;
 }
 
-/* Outside, aligned to the right edge. Bottom padding bridges hover/click-through. */
+/* Align the controls with the point where the card's top-right corner curves. */
 .widget-card-chrome {
   position: absolute;
   top: var(--card-chrome-top, -40px);
-  right: 0;
+  right: calc(var(--surface-radius, 16px) * 0.667);
   z-index: 3;
   display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 2px;
-  padding: 2px 2px 10px;
-  border-radius: 10px;
+  padding-bottom: 8px;
+  border-radius: var(--surface-radius, 16px);
+  corner-shape: var(--surface-corner-shape, round);
 }
 
-.widget-card-chrome::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 8px;
-  z-index: -1;
+.widget-card-chrome-visual {
+  position: relative;
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
   border-radius: inherit;
-  background: rgba(var(--surface-bg-rgb), 0.85);
+  corner-shape: inherit;
+}
+
+.widget-card-chrome-surface {
+  z-index: -1;
 }
 
 /* In DOM for coach targeting, but not interactive/visible until hover or tour. */
@@ -1610,6 +1626,16 @@ watch(
   text-transform: uppercase;
   color: rgba(var(--fg-rgb), 0.5);
   cursor: text;
+}
+
+.widget-card-title-label {
+  margin: 0 -4px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.widget-card-title-label:hover {
+  background: rgba(128, 128, 128, 0.18);
 }
 
 .widget-card-title-editor {

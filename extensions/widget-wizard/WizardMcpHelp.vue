@@ -10,9 +10,13 @@ import {
   type McpServerStatus,
 } from "@sdk/mcp/mcpServerApi";
 import {
+  buildClaudeCodeCommand,
+  buildCodexCommand,
   buildMcpUrl,
   MCP_DEFAULT_PORT,
   MCP_STATUS_POLL_MS,
+  MCP_TOKEN_ENV_VAR,
+  MCP_TOKEN_PLACEHOLDER,
   mcpStatusPresentationFor,
 } from "@sdk/mcp/mcpServerLogic";
 
@@ -30,6 +34,7 @@ const presentation = computed(() => status.value
   ? mcpStatusPresentationFor(status.value)
   : { label: requestError.value ? "Unavailable" : "Checking…", tone: "neutral" });
 const serverUrl = computed(() => status.value?.url ?? buildMcpUrl(MCP_DEFAULT_PORT));
+const tokenRequired = computed(() => status.value?.tokenRequired === true);
 const busy = computed(() => pending.value || status.value?.state === "starting" || status.value?.state === "stopping");
 
 /** Poll only while this dialog is open, without overlapping requests. */
@@ -185,12 +190,17 @@ onUnmounted(release);
             <p v-if="!status?.url">These examples use the default port. Start the server to show its current address.</p>
             <div class="mcp-help-address">
               <span>Claude Code</span>
-              <code>claude mcp add --transport http kavibay {{ serverUrl }}</code>
+              <code>{{ buildClaudeCodeCommand(serverUrl, tokenRequired) }}</code>
             </div>
             <div class="mcp-help-address">
               <span>Codex</span>
-              <code>codex mcp add kavibay --url {{ serverUrl }}</code>
+              <code>{{ buildCodexCommand(serverUrl, tokenRequired) }}</code>
             </div>
+            <p v-if="tokenRequired">
+              This server requires a token. Put yours in place of
+              <code>{{ MCP_TOKEN_PLACEHOLDER }}</code>; Codex reads it from
+              <code>{{ MCP_TOKEN_ENV_VAR }}</code>. A lost token can be replaced in Settings.
+            </p>
             <p>For Codex, you can also copy the configuration from Settings.</p>
           </li>
           <li>

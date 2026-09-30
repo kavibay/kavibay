@@ -8,6 +8,7 @@ import type { WidgetInstance } from "../host/types";
 export type PaletteTypeCatalogEntry = {
   id: string;
   title: string;
+  description?: string;
   keywords?: readonly string[];
   /** Resolved icon URL when the extension declares manifest.icon. */
   iconUrl?: string;
@@ -109,6 +110,15 @@ export interface PaletteWidgetRow {
   offDesk?: boolean;
 }
 
+/** Keep a widget's type recognizable when its displayed name differs. */
+export function widgetTypeLabel(
+  row: PaletteWidgetRow,
+  catalog: readonly PaletteTypeCatalogEntry[],
+): string {
+  const title = catalog.find((entry) => entry.id === row.typeId)?.title ?? row.typeId;
+  return row.title.trim() === title ? "" : title;
+}
+
 /** Smart-open intent for a registry type row. */
 export type PaletteTypeSmart = "show" | "focus" | "create";
 
@@ -118,6 +128,7 @@ export interface PaletteTypeRow {
   id: string;
   typeId: string;
   title: string;
+  description?: string;
   /** Primary action label (Enter): Open / Show / Focus. */
   subtitle: string;
   keywords: string[];
@@ -250,8 +261,13 @@ export type PaletteRowAction = {
  * An extension owns a single palette row, so its action hangs off the type row
  * instead of competing with it as a second entry.
  */
-export function paletteRowAction(row: PaletteRow | undefined): PaletteRowAction | null {
+export function paletteRowAction(
+  row: PaletteRow | undefined,
+  hasInstanceActions = false,
+): PaletteRowAction | null {
   if (!row) return null;
+  // Live instance actions already provide their own chips and Tab navigation.
+  if (row.kind === "widget" && hasInstanceActions) return null;
 
   if (row.kind === "type") {
     if (!row.action) return null;
@@ -411,6 +427,7 @@ export function buildTypeRows(
       id: `type:${ext.id}`,
       typeId: ext.id,
       title: ext.title,
+      description: ext.description,
       subtitle: subtitleForSmart(smart),
       keywords,
       smart,
@@ -449,6 +466,7 @@ export function buildOpenNewRows(
       id: `type:${ext.id}`,
       typeId: ext.id,
       title: ext.title,
+      description: ext.description,
       subtitle: subtitleForSmart("create"),
       keywords,
       smart: "create",
@@ -503,6 +521,19 @@ export function buildOffDeskWidgetRows(
     onDesks: entry.onDesks,
     offDesk: true,
   }));
+}
+
+/** Keep widgets first in their search view without hiding other matching rows. */
+export function prioritizeWidgetSearchRows(rows: readonly PaletteRow[]) {
+  const widgets: PaletteRow[] = [];
+  const others: PaletteRow[] = [];
+  for (const row of rows) {
+    (row.kind === "widget" || row.kind === "type" ? widgets : others).push(row);
+  }
+  return {
+    rows: [...widgets, ...others],
+    otherResultsStart: others.length > 0 ? widgets.length : undefined,
+  };
 }
 
 /**

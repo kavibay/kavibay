@@ -33,6 +33,23 @@ withDefaults(
 </template>
 
 <style>
+/* Inside a tile the face is washed in, so the hands sit on something. */
+.lmi-alarm-clock-g circle {
+  fill: var(--lmi-alarm-face, none);
+}
+
+/* Tile colours — see ListTodoIcon.vue for how the host reads them. */
+[data-icon-tile]:has(> .lmi-alarm-clock) {
+  --icon-tile-bg: rgba(239, 159, 39, 0.2);
+  --icon-tile-fg: #fac775;
+  --lmi-alarm-face: rgba(239, 159, 39, 0.3);
+}
+
+html[data-color-mode="light"] [data-icon-tile]:has(> .lmi-alarm-clock) {
+  --icon-tile-bg: rgba(239, 159, 39, 0.16);
+  --icon-tile-fg: #854f0b;
+  --lmi-alarm-face: rgba(239, 159, 39, 0.3);
+}
 /* The static state matches the final animation frame, so it renders correctly
    when motion is not requested. */
 .lmi-alarm-clock-g {

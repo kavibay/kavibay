@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import KavibaySelect from "@sdk/KavibaySelect.vue";
+import PaletteWidgetIcon from "../palette/PaletteWidgetIcon.vue";
 import { useExtensionsPrefs } from "./useExtensionsPrefs";
 import ExtensionDetail from "./ExtensionDetail.vue";
 import RuntimeExtensionsPanel from "./RuntimeExtensionsPanel.vue";
@@ -13,6 +14,17 @@ import {
 const { allExtensions, isEnabled, setEnabled } = useExtensionsPrefs();
 const query = ref("");
 const selectedCategory = ref(ALL_CATEGORIES);
+const tabs = [
+  { id: "builtin", label: "Built-in" },
+  { id: "my", label: "My extensions" },
+] as const;
+const activeTab = ref<(typeof tabs)[number]["id"]>("builtin");
+
+function selectTab(index: number, event: KeyboardEvent) {
+  activeTab.value = tabs[index]!.id;
+  (event.currentTarget as HTMLElement).parentElement
+    ?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[index]?.focus();
+}
 
 /**
  * The row the pane is opened on, if any. An id rather than the object so the
@@ -56,16 +68,42 @@ function onToggle(typeId: string, e: Event) {
     />
   </div>
 
-  <div v-else class="extensions">
+  <div v-else class="extensions extensions--catalog">
+    <Teleport to=".settings-sticky">
     <header class="extensions-head">
       <h2 class="extensions-title">Extensions</h2>
       <p class="extensions-lead">
         Disable extensions to hide them from search and the Widgets list. Open widgets
         of a disabled extension are closed until you enable it again.
       </p>
+      <div class="extensions-tabs" role="tablist" aria-label="Extension source">
+        <button
+          v-for="(tab, index) in tabs"
+          :id="`extensions-tab-${tab.id}`"
+          :key="tab.id"
+          type="button"
+          role="tab"
+          class="extensions-tab"
+          :aria-selected="activeTab === tab.id"
+          :aria-controls="`extensions-panel-${tab.id}`"
+          :tabindex="activeTab === tab.id ? 0 : -1"
+          @click="activeTab = tab.id"
+          @keydown.left.prevent="selectTab(1 - index, $event)"
+          @keydown.right.prevent="selectTab(1 - index, $event)"
+          @keydown.home.prevent="selectTab(0, $event)"
+          @keydown.end.prevent="selectTab(1, $event)"
+        >{{ tab.label }}</button>
+      </div>
     </header>
+    </Teleport>
 
-    <section class="extensions-block">
+    <section
+      v-show="activeTab === 'builtin'"
+      id="extensions-panel-builtin"
+      class="extensions-block"
+      role="tabpanel"
+      aria-labelledby="extensions-tab-builtin"
+    >
       <div class="extensions-filters">
         <input
           v-model="query"
@@ -95,18 +133,7 @@ function onToggle(typeId: string, e: Event) {
           role="listitem"
         >
           <button type="button" class="extensions-row-open" @click="openedId = ext.id">
-            <component
-              :is="ext.iconComponent"
-              v-if="ext.iconComponent"
-              class="extensions-icon"
-              :size="18"
-            />
-            <span
-              v-else-if="ext.iconUrl"
-              class="extensions-icon-mask"
-              :style="{ '--ext-icon': `url(${JSON.stringify(ext.iconUrl)})` }"
-              aria-hidden="true"
-            />
+            <PaletteWidgetIcon :widget="ext" :size="18" data-icon-tile />
             <span class="extensions-row-text">
               <span class="extensions-row-title">{{ ext.title }}</span>
               <span class="extensions-row-hint">{{ ext.description }}</span>
@@ -127,7 +154,13 @@ function onToggle(typeId: string, e: Event) {
       </div>
     </section>
 
-    <RuntimeExtensionsPanel />
+    <RuntimeExtensionsPanel
+      v-show="activeTab === 'my'"
+      id="extensions-panel-my"
+      class="extensions-runtime"
+      role="tabpanel"
+      aria-labelledby="extensions-tab-my"
+    />
   </div>
 </template>
 
@@ -143,6 +176,54 @@ function onToggle(typeId: string, e: Event) {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.extensions--catalog {
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.extensions-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 12px -32px 0 0;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(var(--fg-rgb), 0.04);
+}
+
+.extensions-tab {
+  flex: 1;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(var(--fg-rgb), 0.6);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.extensions-tab:hover {
+  color: rgba(var(--fg-rgb), 0.9);
+}
+
+.extensions-tab[aria-selected="true"] {
+  background: var(--row-selected-sheen), var(--row-selected-bg);
+  box-shadow: var(--row-selected-rim), var(--row-selected-shadow);
+  color: rgba(var(--fg-rgb), 0.95);
+}
+
+.extensions-tab:focus-visible {
+  outline: 2px solid rgba(var(--fg-rgb), 0.55);
+  outline-offset: 2px;
+}
+
+.extensions-runtime {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .extensions-title {
@@ -163,6 +244,8 @@ function onToggle(typeId: string, e: Event) {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 1;
+  min-height: 0;
 }
 
 .extensions-filters {
@@ -206,6 +289,10 @@ function onToggle(typeId: string, e: Event) {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1;
+  min-height: 0;
+  max-height: calc(14 * 80px + 13 * 6px);
+  overflow-y: auto;
 }
 
 .extensions-row {
@@ -215,6 +302,9 @@ function onToggle(typeId: string, e: Event) {
   padding: 12px 14px;
   border-radius: 14px;
   background: rgba(var(--fg-rgb), 0.04);
+  box-sizing: border-box;
+  min-height: 80px;
+  flex-shrink: 0;
 }
 
 /* The row opens; the switch does not. Two controls, so the toggle keeps
@@ -251,22 +341,6 @@ function onToggle(typeId: string, e: Event) {
 .extensions-row:has(.switch input:focus-visible) {
   outline: 2px solid rgba(var(--fg-rgb), 0.55);
   outline-offset: 2px;
-}
-
-.extensions-icon {
-  flex: none;
-  color: rgba(var(--fg-rgb), 0.72);
-}
-
-.extensions-icon-mask {
-  flex: none;
-  display: block;
-  width: 18px;
-  height: 18px;
-  background: currentColor;
-  color: rgba(var(--fg-rgb), 0.72);
-  -webkit-mask: var(--ext-icon) center / contain no-repeat;
-  mask: var(--ext-icon) center / contain no-repeat;
 }
 
 .extensions-row-text {

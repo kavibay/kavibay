@@ -102,7 +102,15 @@ import { useExtensionsPrefs } from "../settings/useExtensionsPrefs";
 import { useSettingsModal } from "../settings/useSettingsModal";
 import { useExtensionAboutModal } from "../extensions/useExtensionAboutModal";
 import { hostDismissHeld } from "@sdk";
-import { inlineWidgetInstanceId, paletteDropActive, requestInlineWidget } from "../palette/inlineWidgetRequest";
+import {
+  inlineWidgetInstanceId,
+  paletteDropActive,
+  paletteDropTypeId,
+  paletteShortcutDropActive,
+  paletteShortcutSlotEl,
+  requestInlineWidget,
+} from "../palette/inlineWidgetRequest";
+import { usePaletteWidgetPrefs } from "../settings/usePaletteWidgetPrefs";
 import { withBackgroundWidgets } from "./backgroundWidgets";
 import { useOnboarding } from "../onboarding/useOnboarding";
 import { setupState, startSetupIfNeeded } from "../onboarding/setupSession";
@@ -166,6 +174,7 @@ const { show: showExtensionAbout } = useExtensionAboutModal();
 const { rescan: rescanRuntimeExtensions, developerExtensionsEnabled } =
   useRuntimeExtensions();
 const onboarding = useOnboarding();
+const paletteWidgetPrefs = usePaletteWidgetPrefs();
 
 // All positions are centers. Widget offsets remain relative to the palette.
 /** Authoritative layout-v4 document; palette + instances mirror the active desk. */
@@ -313,6 +322,11 @@ function scaleLiveLayout(from: ViewportSize, to: ViewportSize): void {
  */
 function ensureViewportAdaptation(persistAfter = false): void {
   void nextTick(recoverLayoutIntoViewport);
+  adaptLayoutToViewport(persistAfter);
+}
+
+/** The scaling half of `ensureViewportAdaptation`, without scheduling recovery. */
+function adaptLayoutToViewport(persistAfter: boolean): void {
   const to = currentViewportSize();
   if (to.width < 1 || to.height < 1) return;
 
@@ -1031,7 +1045,13 @@ function onPointerMove(event: PointerEvent) {
 
   // Dragging a card onto the palette hands it to the panel. Group-drag moves the
   // whole layout including the palette, so there is nothing to drop onto there.
-  paletteDropActive.value = !drag.moveGroup && pointerOverPalette(event);
+  const overPalette = !drag.moveGroup && pointerOverPalette(event);
+  paletteDropActive.value = overPalette;
+  paletteDropTypeId.value = overPalette ? instance.typeId : null;
+  const slot = overPalette ? paletteShortcutSlotEl.value?.getBoundingClientRect() : undefined;
+  paletteShortcutDropActive.value = !!slot &&
+    event.clientX >= slot.left && event.clientX <= slot.right &&
+    event.clientY >= slot.top && event.clientY <= slot.bottom;
 
   if (drag.moveGroup) {
     // Keep the grabbed widget under the cursor; shift palette so all offsets stay put.
@@ -1059,8 +1079,11 @@ function onPointerUp(event: PointerEvent) {
   // Released over the palette: this was a move into the panel, not to a spot on
   // the desk, so put the card's offset back before handing the widget over.
   const droppedOnPalette = paletteDropActive.value && movedWidgetId !== null;
+  const droppedOnShortcutSlot = paletteShortcutDropActive.value && movedWidgetId !== null;
   const restoreOffset = drag.startOffset;
   paletteDropActive.value = false;
+  paletteDropTypeId.value = null;
+  paletteShortcutDropActive.value = false;
   // Clear the state before touching the DOM. `releasePointerCapture` throws
   // NotFoundError once the pointer is already released, and that exception used to
   // strand every line below it — leaving `drag` set and click-through paused.
@@ -1076,6 +1099,12 @@ function onPointerUp(event: PointerEvent) {
   persist();
   setClickThroughPaused(false);
   syncInteractiveRegions();
+  if (droppedOnShortcutSlot && movedWidgetId) {
+    // The card goes back to its spot; only its type joins the palette shortcuts.
+    const moved = instances.find((item) => item.instanceId === movedWidgetId);
+    if (moved) paletteWidgetPrefs.setEnabled(moved.typeId, true);
+    return;
+  }
   if (droppedOnPalette && movedWidgetId) {
     onMoveToPanel(movedWidgetId);
     return;
@@ -2047,6 +2076,10 @@ function ensurePaletteOnScreen(): boolean {
 
 /** Recover old layouts after mount, reveal, undo, or a change of work area. */
 function recoverLayoutIntoViewport(): void {
+  // Scale to this window first. Opening on a smaller monitor clamps one tick
+  // after reveal, a frame before the rescale; clamping the other monitor's
+  // layout and persisting it marked it adapted, so the rescale did nothing.
+  adaptLayoutToViewport(true);
   let changed = ensurePaletteOnScreen();
   for (const instance of instances) {
     const rect = document.querySelector<HTMLElement>(
@@ -3153,7 +3186,7 @@ provide("kavibayPaletteMovePointerdown", (event: PointerEvent) => {
     />
     <!-- Palette-Anker (Mitte). Top drag strip + pin live inside CommandPalette. -->
     <div
-      v-show="paletteVisible"
+      v-show="!settingsOpen && paletteVisible"
       ref="paletteAnchorEl"
       class="palette-anchor"
       :class="{ 'palette-anchor--front': paletteFront }"
@@ -3178,7 +3211,7 @@ provide("kavibayPaletteMovePointerdown", (event: PointerEvent) => {
         'widget-anchor--front': frontInstanceId === instance.instanceId,
       }"
       :style="widgetStyle(instance)"
-      v-show="visibleMountedInstances.some((visible) => visible.instanceId === instance.instanceId)"
+      v-show="!settingsOpen && visibleMountedInstances.some((visible) => visible.instanceId === instance.instanceId)"
       @pointerdown.capture="raiseWidget(instance.instanceId)"
       @focusin="onCardFocusIn(instance.instanceId)"
       @pointermove="onPointerMove"
