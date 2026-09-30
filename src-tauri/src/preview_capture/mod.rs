@@ -2,8 +2,6 @@
 //! Only the host calls these commands; they are deliberately absent from both SDK bridges.
 
 mod artifacts;
-#[cfg(windows)]
-mod cursor_windows;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -12,6 +10,8 @@ mod macos;
 mod media_foundation;
 mod recording_commands;
 mod recording_session;
+#[cfg(windows)]
+mod screen_windows;
 #[cfg(windows)]
 mod video_windows;
 #[cfg(windows)]

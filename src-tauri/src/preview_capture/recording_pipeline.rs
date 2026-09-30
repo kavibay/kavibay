@@ -7,29 +7,46 @@ use tauri::{ipc::Channel, Manager};
 use tokio::sync::{mpsc, oneshot};
 
 use super::{
-    artifacts, capture_snapshot,
-    recording::{output_dimensions, recording_end_ms, MAX_DURATION_MS},
+    artifacts,
+    recording::{output_dimensions, recording_end_ms, MAX_DURATION_MS, MIN_EDGE},
     recording_commands::{RecordedClip, RecordingProgress},
     recording_session::{RecordingControl, Session},
     CaptureRegion,
 };
 
 #[cfg(target_os = "macos")]
-use super::{cursor_macos as cursor, video_macos::Encoder};
+use super::{capture_snapshot, cursor_macos as cursor, video_macos::Encoder};
 #[cfg(windows)]
-use super::{cursor_windows as cursor, video_windows::Encoder};
+use super::{screen_windows as screen, video_windows::Encoder};
 
-async fn capture_cursor(
+/// A frame as captured: on macOS the region's snapshot and the pointer, both
+/// decoded on the encoder worker; on Windows the finished pixels.
+#[cfg(target_os = "macos")]
+type Captured = (Vec<u8>, Option<cursor::CursorSnapshot>);
+#[cfg(windows)]
+type Captured = image::RgbaImage;
+
+async fn capture_frame(
     window: &tauri::WebviewWindow,
-) -> Result<Option<cursor::CursorSnapshot>, String> {
+    region: CaptureRegion,
+    bounds: WindowBounds,
+) -> Result<Captured, String> {
     #[cfg(target_os = "macos")]
     {
-        cursor::capture(window).await
+        let _ = bounds;
+        let snapshot = capture_snapshot(window, Duration::from_millis(500), Some(region)).await?;
+        Ok((snapshot, cursor::capture(window).await?))
     }
     #[cfg(windows)]
     {
         let _ = window;
-        cursor::capture()
+        // Even sides, which H.264 needs, so a region within 1,280 pixels
+        // reaches the encoder without resampling.
+        let (x, y, width, height) = region.pixels(bounds.size.0, bounds.size.1)?;
+        let (x, y) = (bounds.origin.0 + x as i32, bounds.origin.1 + y as i32);
+        tauri::async_runtime::spawn_blocking(move || screen::grab(x, y, width & !1, height & !1))
+            .await
+            .map_err(|e| e.to_string())?
     }
 }
 
@@ -40,10 +57,10 @@ pub(super) fn availability(cache: &Path) -> Result<(), String> {
         .get_or_init(|| {
             let probe = || {
                 let (_, probe) = artifacts::prepare(cache)?;
-                let encoder = Encoder::new(&probe.0, 32, 32)
+                let encoder = Encoder::new(&probe.0, MIN_EDGE, MIN_EDGE)
                     .map_err(|e| format!("The system H.264 encoder is unavailable: {e}"))?;
                 encoder.finish(
-                    &image::RgbaImage::from_pixel(32, 32, image::Rgba([0, 0, 0, 255])),
+                    &image::RgbaImage::from_pixel(MIN_EDGE, MIN_EDGE, image::Rgba([0, 0, 0, 255])),
                     0,
                     50,
                 )
@@ -81,9 +98,8 @@ fn bounds(window: &tauri::WebviewWindow) -> Result<WindowBounds, String> {
 }
 
 struct Frame {
-    png: Vec<u8>,
+    captured: Captured,
     at_ms: u64,
-    cursor: Option<cursor::CursorSnapshot>,
 }
 
 enum EncoderInput {
@@ -91,35 +107,22 @@ enum EncoderInput {
     Finish(u64),
 }
 
-fn decode(
-    frame: &Frame,
-    region: CaptureRegion,
-    _bounds: WindowBounds,
-) -> Result<image::RgbaImage, String> {
-    let source = image::load_from_memory_with_format(&frame.png, image::ImageFormat::Png)
-        .map_err(|e| e.to_string())?;
-    #[cfg(windows)]
-    let image = {
-        let dimensions = (source.width(), source.height());
-        let (x, y, w, h) = region.pixels(dimensions.0, dimensions.1)?;
-        let mut image = source.crop_imm(x, y, w, h).into_rgba8();
-        cursor::composite(
-            frame.cursor.as_ref(),
-            &mut image,
-            dimensions,
-            _bounds.origin,
-            _bounds.size,
-            region,
-        )?;
-        image
-    };
+fn decode(captured: Captured, region: CaptureRegion) -> Result<image::RgbaImage, String> {
     #[cfg(target_os = "macos")]
     let image = {
-        let mut image = source.into_rgba8();
-        cursor::composite(frame.cursor.as_ref(), &mut image, region)?;
+        let (snapshot, pointer) = captured;
+        let mut image = image::load_from_memory_with_format(&snapshot, image::ImageFormat::Png)
+            .map_err(|e| e.to_string())?
+            .into_rgba8();
+        cursor::composite(pointer.as_ref(), &mut image, region)?;
         image
     };
+    #[cfg(windows)]
+    let (image, _) = (captured, region);
     let (w, h) = output_dimensions(image.width(), image.height())?;
+    if (w, h) == image.dimensions() {
+        return Ok(image);
+    }
     Ok(image::imageops::resize(
         &image,
         w,
@@ -129,12 +132,11 @@ fn decode(
 }
 
 fn encode(
-    first: Frame,
+    first: Captured,
     mut frames: mpsc::Receiver<EncoderInput>,
     ready: oneshot::Sender<(u32, u32)>,
     control: Arc<RecordingControl>,
     region: CaptureRegion,
-    bounds: WindowBounds,
     path: &Path,
 ) -> Result<(u32, u32), String> {
     let check = || {
@@ -145,10 +147,7 @@ fn encode(
         }
     };
     check()?;
-    let probe = decode(&first, region, bounds)?;
-    let (width, height) = probe.dimensions();
-    drop(probe);
-    drop(first);
+    let (width, height) = decode(first, region)?.dimensions();
     let encoder = Encoder::new(path, width, height)
         .map_err(|e| format!("Could not start the H.264 encoder: {e}"))?;
     let _ = ready.send((width, height));
@@ -163,7 +162,7 @@ fn encode(
                 break;
             }
         };
-        let next = decode(&frame, region, bounds)?;
+        let next = decode(frame.captured, region)?;
         if next.dimensions() != (width, height) {
             return Err("The preview size changed during recording.".into());
         }
@@ -207,28 +206,14 @@ pub(super) async fn record(
             .map_err(|_| "The recording dialog closed.".to_string())
     };
     progress("preparing", 0)?;
-    let first = Frame {
-        png: capture_snapshot(window, Duration::from_millis(500), Some(region)).await?,
-        at_ms: 0,
-        cursor: None,
-    };
+    let first = capture_frame(window, region, initial_bounds).await?;
     session.check()?;
     let (sender, receiver) = mpsc::channel(2);
     let (ready_tx, ready_rx) = oneshot::channel();
     let control = session.control.clone();
     let output = partial.0.clone();
     let worker = tauri::async_runtime::spawn_blocking(move || {
-        let work = || {
-            encode(
-                first,
-                receiver,
-                ready_tx,
-                control,
-                region,
-                initial_bounds,
-                &output,
-            )
-        };
+        let work = || encode(first, receiver, ready_tx, control, region, &output);
         #[cfg(target_os = "macos")]
         {
             objc2::rc::autoreleasepool(|_| work())
@@ -246,15 +231,10 @@ pub(super) async fn record(
         session.check()?;
         // Encoder initialization is preparation. Only a fresh snapshot can
         // establish frame zero and the interaction clock.
-        let png = capture_snapshot(window, Duration::from_millis(500), Some(region)).await?;
-        let cursor = capture_cursor(window).await?;
+        let captured = capture_frame(window, region, initial_bounds).await?;
         let start = Instant::now();
         sender
-            .send(EncoderInput::Frame(Frame {
-                png,
-                at_ms: 0,
-                cursor,
-            }))
+            .send(EncoderInput::Frame(Frame { captured, at_ms: 0 }))
             .await
             .map_err(|_| "The video encoder stopped.".to_string())?;
         let mut ticks = tokio::time::interval_at(
@@ -285,15 +265,14 @@ pub(super) async fn record(
             if sender.capacity() == 0 {
                 continue;
             }
-            let png = capture_snapshot(window, Duration::from_millis(500), Some(region)).await?;
-            let cursor = capture_cursor(window).await?;
+            let captured = capture_frame(window, region, initial_bounds).await?;
             let at_ms = start.elapsed().as_millis() as u64;
             // A snapshot can finish after Stop. Extend the last accepted frame
             // to the stop timestamp instead of including interaction after it.
             if session.control.stopped_at().is_some() || at_ms >= MAX_DURATION_MS {
                 continue;
             }
-            match sender.try_send(EncoderInput::Frame(Frame { png, at_ms, cursor })) {
+            match sender.try_send(EncoderInput::Frame(Frame { captured, at_ms })) {
                 Ok(()) => last_frame_ms = at_ms,
                 Err(mpsc::error::TrySendError::Full(_)) => (),
                 Err(mpsc::error::TrySendError::Closed(_)) => {

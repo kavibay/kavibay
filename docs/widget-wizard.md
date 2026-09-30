@@ -94,7 +94,9 @@ On Windows and macOS, **Record clip** records the preview as an MP4 without audi
 Click the main button to start immediately, or open its dropdown and choose
 **Start recording in 1s** for a one-second countdown. When the red timer starts
 counting up, click, type or scroll inside the widget. The background and pointer
-are included. Framing controls are disabled during the recording. The **Stop recording**
+are included. On Windows the clip is copied from the screen, so anything shown
+over the preview, such as a notification, is recorded too. Framing controls are
+disabled during the recording. The **Stop recording**
 icon or Escape finishes the clip and keeps Share open. Recording also finishes
 automatically at 90 seconds. Escape during the countdown or preparation cancels
 the start without replacing the previous clip.
