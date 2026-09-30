@@ -38,6 +38,11 @@ interface InstallRecord {
 const installed = new Map<string, PackageFile[]>();
 const installs = new Map<string, InstallRecord>();
 
+/** Whether `id` is saved and switched on — what the palette needs to list it. */
+export function isEnabledPackage(id: string): boolean {
+  return installed.has(id) && installs.get(id)?.enabled === true;
+}
+
 /** Files behind a package id: a saved package first, else the draft of that name. */
 export function packageFiles(id: string): PackageFile[] {
   return installed.get(id) ?? demoDraftFiles(id);

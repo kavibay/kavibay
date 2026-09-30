@@ -101,12 +101,13 @@ const DESK: Record<string, string> = {
  * opens the Wizard from it, the way a person would.
  *
  * The Wizard opens centred on the palette at the size last used for its type
- * (typeSizeMemory.ts). 940×490 over a palette at y=545 puts the card at
- * 300–790: it covers the palette and leaves the page's headline and case
- * buttons above it readable.
+ * (typeSizeMemory.ts): 940×460 over a palette at y=570 puts it at 340–800,
+ * below the page's headline and case buttons and above its playback bar. When
+ * the tour closes it and opens the result, the new card spawns just above the
+ * palette — clear of the buttons too.
  */
-const WIZARD_SIZE = { w: 940, h: 490 };
-const WIZARD_TOP = 300;
+const WIZARD_SIZE = { w: 940, h: 460 };
+const WIZARD_TOP = 340;
 const WIZARD: Record<string, string> = {
   ...SETTLED,
   "kavibay:layout-v4": JSON.stringify(layoutOf([], { x: SCREEN.width / 2, y: WIZARD_TOP + WIZARD_SIZE.h / 2 })),
