@@ -53,6 +53,31 @@ withDefaults(
 </template>
 
 <style>
+/* Fuchsia, with the ring trailing off behind the leading arc like a speed blur. Tile colours — see ListTodoIcon.vue for how the host reads them. */
+[data-icon-tile]:has(> .lmi-clock-fading) {
+  --icon-tile-bg: rgba(217, 70, 239, 0.2);
+  --icon-tile-fg: #f5d0fe;
+  --lmi-stopwatch-lead: #f0abfc;
+  --lmi-stopwatch-trail: 0.55;
+}
+
+html[data-color-mode="light"] [data-icon-tile]:has(> .lmi-clock-fading) {
+  --icon-tile-bg: rgba(192, 38, 211, 0.13);
+  --icon-tile-fg: #86198f;
+  --lmi-stopwatch-lead: #c026d3;
+  --lmi-stopwatch-trail: 0.55;
+}
+
+.lmi-clock-fading-arc:first-child,
+.lmi-clock-fading-hands {
+  stroke: var(--lmi-stopwatch-lead, currentColor);
+}
+
+.lmi-clock-fading-a4,
+.lmi-clock-fading-a5 {
+  stroke-opacity: var(--lmi-stopwatch-trail, 1);
+}
+
 /* Resting state is each animation's end state, so the static variant is right
    without the keyframes ever running. */
 .lmi-clock-fading-arc {

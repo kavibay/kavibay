@@ -46,6 +46,24 @@ withDefaults(
 </template>
 
 <style>
+/* Orange, with the operator column lit. Tile colours — see ListTodoIcon.vue for how the host reads them. */
+[data-icon-tile]:has(> .lmi-calculator) {
+  --icon-tile-bg: rgba(216, 90, 48, 0.22);
+  --icon-tile-fg: #f5c4b3;
+  --lmi-calc-op: #ffb38a;
+}
+
+html[data-color-mode="light"] [data-icon-tile]:has(> .lmi-calculator) {
+  --icon-tile-bg: rgba(216, 90, 48, 0.14);
+  --icon-tile-fg: #712b13;
+  --lmi-calc-op: #d85a30;
+}
+
+.lmi-calculator-k3,
+.lmi-calculator-bar {
+  stroke: var(--lmi-calc-op, currentColor);
+}
+
 /* Resting state is each animation's end state, so the static variant is right
    without the keyframes ever running. */
 .lmi-calculator-screen,

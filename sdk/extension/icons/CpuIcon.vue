@@ -16,7 +16,7 @@ withDefaults(
 <template>
   <IconBase class="lmi-cpu" :size="size" :stroke-width="strokeWidth" :animated="animated">
     <rect rx="2" x="4" y="4" width="16" height="16" />
-    <rect rx="1" x="9" y="9" width="6" height="6" />
+    <rect class="lmi-cpu-core" rx="1" x="9" y="9" width="6" height="6" />
     <path class="lmi-cpu-y" d="M15 2v2" />
     <path class="lmi-cpu-y" d="M15 20v2" />
     <path class="lmi-cpu-x" d="M2 15h2" />
@@ -29,6 +29,30 @@ withDefaults(
 </template>
 
 <style>
+/* An indigo chip on gold pins, the die washed in. Tile colours — see ListTodoIcon.vue for how the host reads them. */
+[data-icon-tile]:has(> .lmi-cpu) {
+  --icon-tile-bg: rgba(99, 102, 241, 0.22);
+  --icon-tile-fg: #c7d2fe;
+  --lmi-cpu-pin: #fbbf24;
+  --lmi-cpu-core: rgba(165, 180, 252, 0.35);
+}
+
+html[data-color-mode="light"] [data-icon-tile]:has(> .lmi-cpu) {
+  --icon-tile-bg: rgba(99, 102, 241, 0.14);
+  --icon-tile-fg: #3730a3;
+  --lmi-cpu-pin: #b45309;
+  --lmi-cpu-core: rgba(99, 102, 241, 0.25);
+}
+
+.lmi-cpu-x,
+.lmi-cpu-y {
+  stroke: var(--lmi-cpu-pin, currentColor);
+}
+
+.lmi-cpu-core {
+  fill: var(--lmi-cpu-core, none);
+}
+
 .lmi-cpu-x,
 .lmi-cpu-y {
   transform-box: fill-box;
