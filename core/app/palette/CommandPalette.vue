@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { sevenResultRowsHeight } from "./resultListHeight";
 import {
   computed,
   inject,
@@ -47,6 +48,7 @@ import {
   buildWidgetOverviewRows,
   buildInstanceSearchIndex,
   groupInstancesWithCreateRow,
+  prioritizeWidgetSearchRows,
   mergePaletteCatalog,
   filterPaletteRows,
   paletteRowAction,
@@ -54,6 +56,7 @@ import {
   resolveTypeSmart,
   toCommandRow,
   typeMatchesWidgetFilter,
+  widgetTypeLabel,
   type PaletteRowAction,
   type PalettePathRow,
   type PaletteRow,
@@ -143,7 +146,14 @@ import {
   withInlineZoom,
   type InlineZoomMap,
 } from "./inlineWidgetZoom";
-import { inlineWidgetRequest, inlineWidgetInstanceId, paletteDropActive } from "./inlineWidgetRequest";
+import {
+  inlineWidgetRequest,
+  inlineWidgetInstanceId,
+  paletteDropActive,
+  paletteDropTypeId,
+  paletteShortcutDropActive,
+  paletteShortcutSlotEl,
+} from "./inlineWidgetRequest";
 import { pickAndImport } from "../runtime/widgetImport";
 import {
   getExtension,
@@ -169,7 +179,7 @@ import { evaluate, formatResult } from "../../../extensions/calculator/widgets/c
 import { useAppearance } from "../settings/useAppearance";
 import { useExtensionsPrefs } from "../settings/useExtensionsPrefs";
 import { useSettingsModal } from "../settings/useSettingsModal";
-import { SquareArrowOutUpRightIcon } from "@sdk/icons";
+import { FolderIcon, SquareArrowOutUpRightIcon } from "@sdk/icons";
 import InlineWidgetBody from "../host/InlineWidgetBody.vue";
 import PinIcon from "../host/PinIcon.vue";
 import {
@@ -497,6 +507,14 @@ const instanceDeskLabels = inject<(instanceId: string) => string>(
 );
 const palettePinned = inject<Ref<boolean>>("kavibayPalettePinned", ref(false));
 const togglePalettePinned = inject<() => void>("kavibayTogglePalettePinned");
+
+function onChromePinPointerDown(event: PointerEvent) {
+  if (event.button === 0) togglePalettePinned?.();
+}
+
+function onChromePinClick(event: MouseEvent) {
+  if (event.detail === 0) togglePalettePinned?.();
+}
 const paletteMovePointerdown = inject<(event: PointerEvent) => void>(
   "kavibayPaletteMovePointerdown",
 );
@@ -653,6 +671,8 @@ const viewportListHeight = ref(Number.POSITIVE_INFINITY);
 const renderedListHeight = computed(() =>
   Math.max(0, Math.min(resizeListHeight.value, viewportListHeight.value)),
 );
+const sevenRowsHeight = ref(Number.POSITIVE_INFINITY);
+const resultsListHeight = computed(() => Math.min(renderedListHeight.value, sevenRowsHeight.value));
 
 function syncViewportListHeight() {
   const top = listShellEl.value?.getBoundingClientRect().top;
@@ -833,7 +853,11 @@ const widgetSearchIndex = computed(() =>
   ),
 );
 
-const resultState = computed(() => {
+const resultState = computed<{
+  rows: PaletteRow[];
+  hasOtherResults: boolean;
+  otherResultsStart?: number;
+}>(() => {
   // Inside a folder, that folder is the whole world — mixing apps and widgets
   // back in would defeat the point of having scoped the search. Sorting here
   // (not at fetch time) is what makes switching the order instant.
@@ -890,10 +914,11 @@ const resultState = computed(() => {
     showHiddenApps.value && hiddenAppMatches.value.length > 0
       ? [...withPaths, ...hiddenAppMatches.value]
       : withPaths;
-  if (query.value.trim().length > 0 && (widgetsOpen.value || recentOpen.value)) {
-    const scopedRows = widgetsOpen.value
-      ? [...searchableWidgetRows, ...typeRows]
-      : resolveRecentRows(recentRuns.value);
+  if (widgetsOpen.value && query.value.trim().length > 0) {
+    return { ...prioritizeWidgetSearchRows(allRows), hasOtherResults: false };
+  }
+  if (recentOpen.value && query.value.trim().length > 0) {
+    const scopedRows = resolveRecentRows(recentRuns.value);
     const scopedIds = new Set(scopedRows.map((row) => row.id));
     return {
       rows: allRows.filter((row) => scopedIds.has(row.id)),
@@ -906,11 +931,16 @@ const resultState = computed(() => {
 const results = computed(() => resultState.value.rows);
 const scopedSearchHasOtherResults = computed(() => resultState.value.hasOtherResults);
 
-/** Section titles for the empty-query widget overview; headers are not rows. */
+/** Section titles for the widget overview and its search; headers are not rows. */
 const widgetOverviewSectionTitles = computed(() => {
-  if (!widgetsOpen.value || query.value.trim().length !== 0) return new Map<number, string>();
-
   const titles = new Map<number, string>();
+  if (!widgetsOpen.value) return titles;
+  if (query.value.trim().length > 0) {
+    const firstOther = resultState.value.otherResultsStart;
+    if (firstOther !== undefined) titles.set(firstOther, "Other results");
+    return titles;
+  }
+
   const rows = results.value;
   const firstOpen = rows.findIndex(
     (row) => row.kind === "widget" && !row.hidden && !row.offDesk,
@@ -1214,7 +1244,10 @@ const enumSuggestionIndex = ref(0);
  * row, or a parameterized OS command. Null when the row has none.
  */
 const activeAction = computed<PaletteRowAction | null>(() =>
-  paletteRowAction(results.value[selectedIndex.value] as PaletteRow | undefined),
+  paletteRowAction(
+    results.value[selectedIndex.value] as PaletteRow | undefined,
+    showActionChips.value,
+  ),
 );
 
 /** Params of the row currently selected (previewed) or collecting arguments. */
@@ -1477,6 +1510,10 @@ function openWidgetShortcut(typeId: string) {
   const row = buildTypeRows([widget], widgetInstances ?? [])[0];
   const target = resolveInlineWidgetTarget(row);
   if (target) showInlineWidget(target, true);
+}
+
+function setShortcutSlotEl(el: unknown) {
+  paletteShortcutSlotEl.value = el instanceof HTMLElement ? el : null;
 }
 
 function leaveWidgetShortcuts() {
@@ -2072,6 +2109,10 @@ function syncListOverlay() {
     listOverlay.needed = false;
     return;
   }
+  sevenRowsHeight.value = sevenResultRowsHeight(
+    [...el.querySelectorAll<HTMLElement>(".palette-item[data-index]")],
+    parseFloat(getComputedStyle(el).paddingBottom) || 0,
+  );
   // Runs on every results/height change, so it is also where the rendered
   // height gets picked up for the drag handle.
   const rendered = Math.round(el.getBoundingClientRect().height);
@@ -2207,6 +2248,24 @@ function modKeys(letter: string): string[] {
     typeof navigator !== "undefined" &&
     /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   return [mac ? "⌘" : "Ctrl", letter];
+}
+
+/**
+ * Held Ctrl/⌘ swaps a row's Enter action for its chorded ones. The modifier is
+ * shown once up front, so each action only carries its own key.
+ */
+const modKeyLabel = modKeys("")[0];
+const modHeld = ref(false);
+function syncModHeld(event: KeyboardEvent) {
+  modHeld.value = modKeyLabel === "⌘" ? event.metaKey : event.ctrlKey;
+}
+function releaseModHeld() {
+  modHeld.value = false;
+}
+
+/** Keys for a secondary action: bare while the modifier is held, full chord on hover. */
+function secondaryKeys(key: string): string[] {
+  return modHeld.value ? [key] : modKeys(key);
 }
 
 /**
@@ -3320,6 +3379,9 @@ onMounted(async () => {
   window.addEventListener("kavibay:focus-palette", onFocusPaletteEvent);
   window.addEventListener("resize", syncViewportListHeight);
   document.addEventListener("keydown", onDocumentShiftTab, true);
+  document.addEventListener("keydown", syncModHeld, true);
+  document.addEventListener("keyup", syncModHeld, true);
+  window.addEventListener("blur", releaseModHeld);
   listOverlayRo = new ResizeObserver(() => syncListOverlay());
   void nextTick().then(() => {
     if (listEl.value) listOverlayRo?.observe(listEl.value);
@@ -3367,6 +3429,9 @@ onUnmounted(() => {
   clearWidgetFocus?.();
   window.removeEventListener("pointerdown", onRowMenuOutsidePointerDown, true);
   document.removeEventListener("keydown", onDocumentShiftTab, true);
+  document.removeEventListener("keydown", syncModHeld, true);
+  document.removeEventListener("keyup", syncModHeld, true);
+  window.removeEventListener("blur", releaseModHeld);
   if (docListening) {
     document.removeEventListener("pointerdown", onDocumentPointerDown, true);
     document.removeEventListener("keydown", onDocumentKeydown, true);
@@ -3427,7 +3492,8 @@ onUnmounted(() => {
         v-tip="shortcutHintVisible ? pinShortcutTip : 'Pin'"
         aria-label="Toggle palette pin"
         :aria-pressed="palettePinned"
-        @click.stop="togglePalettePinned?.()"
+        @pointerdown.stop="onChromePinPointerDown"
+        @click.stop="onChromePinClick"
       >
         <PinIcon :active="palettePinned" />
         <span v-if="shortcutHintVisible" class="palette-shortcut-hint" aria-hidden="true">
@@ -3526,7 +3592,7 @@ onUnmounted(() => {
       class="palette-input-row"
       :class="{
         'palette-input-row--enum-open': enumSuggestions.length > 0,
-        'palette-input-row--search-actions': showSearchActions || showWidgetShortcuts,
+        'palette-input-row--search-actions': showSearchActions,
       }"
     >
       <!-- With chips present the input hugs its text (field-sizing), so the
@@ -3666,16 +3732,6 @@ onUnmounted(() => {
         @select="runSearchAction"
         @back="focusSearchInput"
       />
-      <PaletteWidgetShortcuts
-        v-else-if="showWidgetShortcuts"
-        ref="widgetShortcutsEl"
-        :widgets="widgetShortcuts"
-        :active-id="inlineShortcutId"
-        @select="openWidgetShortcut"
-        @enter="enterWidgetShortcut"
-        @back="leaveWidgetShortcuts"
-        @settings="openSettingsSection('search', 'widgets')"
-      />
     </div>
 
     <div class="palette-statusbar">
@@ -3805,6 +3861,28 @@ onUnmounted(() => {
         </div>
       </div>
       <div class="palette-statusbar-right">
+        <PaletteWidgetShortcuts
+          v-if="paletteDropTypeId || (showWidgetShortcuts && !showSearchActions)"
+          ref="widgetShortcutsEl"
+          :widgets="widgetShortcuts"
+          :active-id="inlineShortcutId"
+          @select="openWidgetShortcut"
+          @enter="enterWidgetShortcut"
+          @back="leaveWidgetShortcuts"
+          @settings="openSettingsSection('search', 'widgets')"
+        />
+        <!-- Drop a dragged card here to add its widget as a shortcut. -->
+        <span
+          v-if="paletteDropTypeId"
+          :ref="setShortcutSlotEl"
+          class="palette-shortcut-slot"
+          :class="{ 'palette-shortcut-slot--active': paletteShortcutDropActive }"
+          aria-hidden="true"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 3a2 2 0 0 0-2 2M19 3a2 2 0 0 1 2 2M21 19a2 2 0 0 1-2 2M5 21a2 2 0 0 1-2-2M9 3h1M9 21h1M14 3h1M14 21h1M3 9v1M21 9v1M3 14v1M21 14v1" />
+          </svg>
+        </span>
         <button
           v-if="onboardingProgress"
           ref="onboardingTriggerEl"
@@ -4101,13 +4179,12 @@ onUnmounted(() => {
           @update:menu-open="inlineMenuOpen = $event"
         />
       </div>
-      <!-- Reserve room for seven standard results; the drag handle persists a
-           different height per desk when the user resizes this panel. -->
+      <!-- Cap the panel at seven actual rows, including any section headings. -->
       <div
         v-else-if="calcDisplay === null"
         ref="listShellEl"
         class="palette-list-shell"
-        :style="{ height: `${renderedListHeight}px` }"
+        :style="{ height: `${resultsListHeight}px` }"
       >
       <ul
         ref="listEl"
@@ -4134,7 +4211,7 @@ onUnmounted(() => {
             'palette-item--create-attached': row.kind === 'type' && row.attachedToGroup === true,
           }"
           :data-icon-motion="index === selectedIndex ? 'on' : null"
-          @mouseenter="selectedIndex = index"
+          @mousemove="($event.movementX || $event.movementY) && (selectedIndex = index)"
           @click="runResultAt(index)"
         >
           <!-- App rows: shell icon. Folder rows: folder mark. Widget rows: extension mark. -->
@@ -4153,25 +4230,14 @@ onUnmounted(() => {
             v-else-if="row.kind === 'folder' || row.kind === 'path'"
             class="palette-item-icon"
             :class="{ 'palette-item-icon--folder': !rowFileTypeIcon(row) }"
+            :data-icon-tile="rowFileTypeIcon(row) ? null : ''"
             aria-hidden="true"
           >
             <!-- The shell's own icon for this file type, once it has arrived;
                  until then (and on non-Windows) the drawn mark below stands in. -->
             <img v-if="rowFileTypeIcon(row)" :src="rowFileTypeIcon(row)!" alt="" />
-            <svg
-              v-else-if="row.kind === 'folder' || row.isDir"
-              viewBox="0 0 24 24"
-              width="18"
-              height="18"
-            >
-              <path
-                d="M3 7a2 2 0 0 1 2-2h4.2a2 2 0 0 1 1.4.6l1.2 1.2H19a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.75"
-                stroke-linejoin="round"
-              />
-            </svg>
+            <!-- Not animated: a folder row is a place, not an action. -->
+            <FolderIcon v-else-if="row.kind === 'folder' || row.isDir" :size="18" />
             <svg v-else viewBox="0 0 24 24" width="18" height="18">
               <path
                 d="M8 3h6l4 4v14H8V3z"
@@ -4209,6 +4275,7 @@ onUnmounted(() => {
           <span
             v-else-if="row.kind === 'type' || row.kind === 'widget' || row.kind === 'extensionAction'"
             class="palette-item-icon palette-item-icon--widget"
+            data-icon-tile
             aria-hidden="true"
           >
             <!-- First-party extensions can ship a real component (animatable);
@@ -4217,7 +4284,7 @@ onUnmounted(() => {
               :is="extensionIconComponent(resultExtensionId(row) ?? '')"
               v-if="resultExtensionId(row) && extensionIconComponent(resultExtensionId(row) ?? '')"
               class="palette-ext-icon-svg"
-              :size="16"
+              :size="18"
               animated
             />
             <span
@@ -4248,6 +4315,10 @@ onUnmounted(() => {
           <div class="palette-item-main">
             <span class="palette-item-title-line">
               <span class="palette-item-title">{{ rowDisplayTitle(row) }}</span>
+              <span
+                v-if="row.kind === 'widget' && widgetTypeLabel(row, widgetCatalog)"
+                class="palette-item-widget-type"
+              >{{ widgetTypeLabel(row, widgetCatalog) }}</span>
               <span
                 v-if="row.kind === 'widget'"
                 class="palette-item-widget-status"
@@ -4281,21 +4352,13 @@ onUnmounted(() => {
             </span>
             <!-- The attached create row skips the kind line: one line instead of
                  two is what separates it from the instances above it. -->
-            <!--
-              An extension that declares an action says what its row does; the
-              rest say what kind of thing it is. "WIDGET" under every row is a
-              category the icon and the Open button already give away, and it
-              was spending the one descriptive line a row has on it.
-
-              Not uppercased in that case: the label is a category word, the
-              subtitle is a sentence, and small caps with letter-spacing across
-              a sentence is a header treatment applied to prose.
-            -->
+            <!-- Prefer the action's subtitle, then the widget's description.
+                 Descriptive sentences use normal case instead of category caps. -->
             <span
               v-else-if="row.kind === 'type' && !row.attachedToGroup"
               class="palette-item-kind"
-              :class="{ 'palette-item-kind--said': Boolean(row.action?.subtitle) }"
-              >{{ row.action?.subtitle || "Widget" }}</span
+              :class="{ 'palette-item-kind--said': Boolean(row.action?.subtitle || row.description) }"
+              >{{ row.action?.subtitle || row.description || "Widget" }}</span
             >
             <span
               v-if="row.kind === 'widget' && row.snippet"
@@ -4417,13 +4480,43 @@ onUnmounted(() => {
           </div>
           <div
             v-else-if="row.kind === 'type'"
-            class="palette-item-actions"
+            class="palette-item-actions palette-item-actions--layered"
+            :class="{ 'palette-item-actions--mod': modHeld }"
             @click.stop
             @pointerdown.stop
           >
+            <KbdHint class="palette-item-mod" :keys="[modKeyLabel]" />
             <button
               type="button"
-              class="palette-item-action"
+              class="palette-item-action palette-item-action--secondary"
+              v-tip="'Open inside the palette'"
+              @click="openInlineWidget(index)"
+            >
+              <KbdHint :keys="secondaryKeys('enter')" />
+              <span>Inline</span>
+            </button>
+            <button
+              v-if="row.canHide"
+              type="button"
+              class="palette-item-action palette-item-action--secondary"
+              @click="hideTypeTarget(row)"
+            >
+              <KbdHint :keys="secondaryKeys('W')" />
+              <span>Hide</span>
+            </button>
+            <!-- Ctrl/Cmd+N New when an instance already exists; bare Enter creates when none. -->
+            <button
+              v-if="row.smart !== 'create'"
+              type="button"
+              class="palette-item-action palette-item-action--secondary"
+              @click="openNewTypeAction(row.typeId)"
+            >
+              <KbdHint :keys="secondaryKeys('N')" />
+              <span>New</span>
+            </button>
+            <button
+              type="button"
+              class="palette-item-action palette-item-action--primary"
               v-tip="
                 row.smart !== 'create' && row.targetInstanceId
                   ? 'Jump to its card'
@@ -4436,39 +4529,14 @@ onUnmounted(() => {
                 row.smart !== "create" && row.targetInstanceId ? "Focus" : typePrimaryLabel(row)
               }}</span>
             </button>
-            <button
-              type="button"
-              class="palette-item-action"
-              v-tip="'Open inside the palette'"
-              @click="openInlineWidget(index)"
-            >
-              <KbdHint :keys="modKeys('enter')" />
-              <span>Inline</span>
-            </button>
-            <button
-              v-if="row.canHide"
-              type="button"
-              class="palette-item-action"
-              @click="hideTypeTarget(row)"
-            >
-              <KbdHint :keys="modKeys('W')" />
-              <span>Hide</span>
-            </button>
-            <!-- Ctrl/Cmd+N New when an instance already exists; bare Enter creates when none. -->
-            <button
-              v-if="row.smart !== 'create'"
-              type="button"
-              class="palette-item-action"
-              @click="openNewTypeAction(row.typeId)"
-            >
-              <KbdHint :keys="modKeys('N')" />
-              <span>New</span>
-            </button>
           </div>
           <div
             v-else-if="row.kind === 'widget' && !row.snippet"
-            class="palette-item-actions"
-            :class="{ 'palette-item-actions--confirm': deleteRequest?.instanceId === row.instanceId }"
+            class="palette-item-actions palette-item-actions--layered"
+            :class="{
+              'palette-item-actions--confirm': deleteRequest?.instanceId === row.instanceId,
+              'palette-item-actions--mod': modHeld,
+            }"
             @click.stop
             @pointerdown.stop
           >
@@ -4477,41 +4545,42 @@ onUnmounted(() => {
               :request="deleteRequest"
             />
             <template v-else>
+              <KbdHint class="palette-item-mod" :keys="[modKeyLabel]" />
               <button
                 type="button"
-                class="palette-item-action"
-                v-tip="row.hidden ? 'Put its card back on the desk' : 'Jump to its card'"
-                @click="focusWidgetRow(row)"
-              >
-                <KbdHint :keys="['enter']" />
-                <span>{{ row.hidden ? "Show" : "Focus" }}</span>
-              </button>
-              <button
-                type="button"
-                class="palette-item-action"
+                class="palette-item-action palette-item-action--secondary"
                 v-tip="'Open inside the palette'"
                 @click="openInlineWidget(index)"
               >
-                <KbdHint :keys="modKeys('enter')" />
+                <KbdHint :keys="secondaryKeys('enter')" />
                 <span>Inline</span>
               </button>
               <!-- Hidden rows have nothing to hide; Enter already reveals them. -->
               <button
                 v-if="!row.hidden"
                 type="button"
-                class="palette-item-action"
+                class="palette-item-action palette-item-action--secondary"
                 @click="toggleWidgetRow(row)"
               >
-                <KbdHint :keys="modKeys('W')" />
+                <KbdHint :keys="secondaryKeys('W')" />
                 <span>Hide</span>
               </button>
               <button
                 type="button"
-                class="palette-item-action palette-item-action--danger"
+                class="palette-item-action palette-item-action--secondary palette-item-action--danger"
                 @click="removeWidgetRow(row)"
               >
-                <KbdHint :keys="modKeys('R')" />
+                <KbdHint :keys="secondaryKeys('R')" />
                 <span>Delete</span>
+              </button>
+              <button
+                type="button"
+                class="palette-item-action palette-item-action--primary"
+                v-tip="row.hidden ? 'Put its card back on the desk' : 'Jump to its card'"
+                @click="focusWidgetRow(row)"
+              >
+                <KbdHint :keys="['enter']" />
+                <span>{{ row.hidden ? "Show" : "Focus" }}</span>
               </button>
             </template>
           </div>
@@ -4710,7 +4779,7 @@ onUnmounted(() => {
 .palette-card-chrome {
   position: absolute;
   top: var(--card-chrome-top, -40px);
-  right: 0;
+  right: calc(var(--surface-radius, 16px) * 0.667);
   z-index: 3;
   display: flex;
   flex-direction: row;
@@ -5327,19 +5396,34 @@ onUnmounted(() => {
   border-radius: 6px;
 }
 
+/*
+ * Widget and folder tiles are 28px but overhang the 20px slot, so every row
+ * keeps its title column. An icon can colour its own tile through the
+ * --icon-tile-* vars (see ListTodoIcon.vue); the rest stay neutral.
+ */
+.palette-item-icon--widget,
+.palette-item-icon--folder {
+  width: 28px;
+  height: 28px;
+  margin: -4px -2px -4px -6px;
+  border-radius: 8px;
+  color: var(--icon-tile-fg, rgba(var(--fg-rgb), 0.72));
+  background: var(--icon-tile-bg, rgba(var(--fg-rgb), 0.08));
+}
+
 /* Inline component icons already stroke in currentColor; they only need to
    match the masked variant's box so the two never shift the row. */
 .palette-ext-icon-svg {
   display: block;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 
 /* Extension icon via CSS mask so mono SVGs pick up currentColor. */
 .palette-ext-icon {
   display: block;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   background: currentColor;
   -webkit-mask: var(--ext-icon) center / contain no-repeat;
   mask: var(--ext-icon) center / contain no-repeat;
@@ -5450,6 +5534,7 @@ onUnmounted(() => {
   opacity: 0.58;
 }
 
+.palette-item-widget-type,
 .palette-item-widget-desk {
   color: rgba(var(--fg-rgb), 0.45);
   font-size: 11px;
@@ -5558,6 +5643,31 @@ onUnmounted(() => {
 
 .palette-item--selected .palette-item-action {
   color: rgba(var(--fg-rgb), 0.72);
+}
+
+/*
+ * Layered rows show only their Enter action. Holding the modifier swaps it for
+ * the chorded ones behind a single modifier cap; hovering the block shows
+ * everything with full chords, for the mouse. Secondaries sit left of the
+ * primary, so expanding never moves the button under the cursor.
+ */
+.palette-item-actions--layered .palette-item-mod,
+.palette-item-actions--layered .palette-item-action--secondary {
+  display: none;
+}
+
+.palette-item-actions--layered:hover .palette-item-action--secondary,
+.palette-item-actions--mod .palette-item-action--secondary {
+  display: inline-flex;
+}
+
+.palette-item-actions--mod .palette-item-mod {
+  display: inline-flex;
+  margin-right: 2px;
+}
+
+.palette-item-actions--mod .palette-item-action--primary {
+  display: none;
 }
 
 .palette-item-action--danger:hover {
@@ -5816,6 +5926,24 @@ onUnmounted(() => {
   min-height: 28px;
   margin-left: auto;
   flex-shrink: 0;
+}
+
+.palette-shortcut-slot {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-left: 4px;
+  border-radius: 999px;
+  corner-shape: var(--surface-corner-shape, round);
+  color: var(--text-muted);
+  transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+}
+
+.palette-shortcut-slot--active {
+  color: var(--text);
+  background: var(--fill);
+  transform: scale(1.1);
 }
 
 .palette-onboarding {
