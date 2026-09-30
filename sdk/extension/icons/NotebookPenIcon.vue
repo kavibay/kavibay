@@ -41,6 +41,24 @@ withDefaults(
 </template>
 
 <style>
+/* Kraft paper and a blue pen. Tile colours — see ListTodoIcon.vue for how the
+   host reads them. */
+[data-icon-tile]:has(> .lmi-notebook-pen) {
+  --icon-tile-bg: rgba(200, 162, 122, 0.3);
+  --icon-tile-fg: #f3e1c7;
+  --lmi-notes-pen: #93c5fd;
+}
+
+html[data-color-mode="light"] [data-icon-tile]:has(> .lmi-notebook-pen) {
+  --icon-tile-bg: rgba(168, 121, 72, 0.2);
+  --icon-tile-fg: #6b4423;
+  --lmi-notes-pen: #2563eb;
+}
+
+.lmi-notebook-pen-pen {
+  stroke: var(--lmi-notes-pen, currentColor);
+}
+
 /* Resting state is each animation's end state, so the static variant is right
    without the keyframes ever running. */
 .lmi-notebook-pen-ring {

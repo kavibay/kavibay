@@ -37,6 +37,24 @@ withDefaults(
 </template>
 
 <style>
+/* A sunset: orange sky into violet, and a solid sun. Tile colours — see ListTodoIcon.vue for how the host reads them. */
+[data-icon-tile]:has(> .lmi-image) {
+  --icon-tile-bg: linear-gradient(180deg, rgba(251, 146, 60, 0.3), rgba(139, 92, 246, 0.28));
+  --icon-tile-fg: #fed7aa;
+  --lmi-image-sun: #fcd34d;
+}
+
+html[data-color-mode="light"] [data-icon-tile]:has(> .lmi-image) {
+  --icon-tile-bg: linear-gradient(180deg, rgba(251, 146, 60, 0.22), rgba(139, 92, 246, 0.18));
+  --icon-tile-fg: #7c2d12;
+  --lmi-image-sun: #f59e0b;
+}
+
+.lmi-image-sun {
+  fill: var(--lmi-image-sun, none);
+  stroke: var(--lmi-image-sun, currentColor);
+}
+
 /* Resting state is each animation's end state, so the static variant is right
    without the keyframes ever running. */
 .lmi-image-ridge {
