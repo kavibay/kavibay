@@ -15,10 +15,13 @@ import {
   filterPaletteRows,
   buildOpenNewRows,
   groupInstancesWithCreateRow,
+  prioritizeWidgetSearchRows,
+  toCommandRow,
   resolveTypeSmart,
   subtitleForSmart,
   attachNotePreviews,
   typeMatchesWidgetFilter,
+  widgetTypeLabel,
   buildOffDeskWidgetRows,
   mergePaletteCatalog,
   buildInstanceSearchIndex,
@@ -90,9 +93,22 @@ const visible: WidgetInstance = {
 assert(resolveTypeSmart("snake", [visible]).smart === "focus", "visible → focus");
 
 const typeRows = buildTypeRows([snake, clock], [visible]);
+{
+  const commandRows = registeredCommands.filter((command) => command.id.includes("settings")).map(toCommandRow);
+  assert(commandRows.length > 0, "settings commands exist for the widget-search regression");
+  const instanceRows = buildWidgetRows([visible], () => "Snake", () => ["snake"]);
+  const grouped = prioritizeWidgetSearchRows([commandRows[0]!, typeRows[0]!, ...instanceRows, ...commandRows.slice(1)]);
+  assert(grouped.otherResultsStart === 2, "other-results heading follows the widget matches");
+  assert(grouped.rows[0] === typeRows[0] && grouped.rows[1] === instanceRows[0], "widget rank is preserved");
+  assert(grouped.rows.slice(2).every((row, index) => row === commandRows[index]), "other matches keep their rank and remain visible");
+  const onlyOther = prioritizeWidgetSearchRows(commandRows);
+  assert(onlyOther.otherResultsStart === 0 && onlyOther.rows.length === commandRows.length, "settings stays visible with no widget matches");
+  assert(prioritizeWidgetSearchRows(typeRows).otherResultsStart === undefined, "no empty other-results section");
+}
 const snakeRow = typeRows.find((r) => r.typeId === "snake")!;
 assert(snakeRow.canHide === true, "visible type row can hide");
 assert(snakeRow.smart === "focus", "visible type row focuses");
+assert(snakeRow.description === snake.description, "smart rows keep the widget description");
 
 {
   const noteRows = buildWidgetRows(
@@ -127,6 +143,8 @@ const renamed: WidgetInstance = {
   assert(row.title === "Snake", "create row is titled with the type name");
   assert(row.smart === "create", "create row always creates");
   assert(row.canHide === false, "create row has nothing to hide");
+  assert(row.description === snake.description, "create rows keep the widget description");
+  assert(!row.keywords.includes(snake.description), "descriptions are display text, not search keywords");
   assert(
     openNew.length === 2,
     "one create row per extension, instances or not",
@@ -363,6 +381,12 @@ assert(
     (instance) => ["snake", "Snake", ...(instance.title ? [instance.title] : [])],
   );
   const hits = filterPaletteRows("police", commands, renamedRows, typeRows);
+  const row = renamedRows[0]!;
+  assert(widgetTypeLabel(row, [snake]) === "Snake", "renamed widgets retain their type label");
+  assert(widgetTypeLabel({ ...row, hidden: true }, [snake]) === "Snake", "hidden widgets retain their type label");
+  assert(widgetTypeLabel({ ...row, offDesk: true }, [snake]) === "Snake", "off-desk widgets retain their type label");
+  assert(widgetTypeLabel({ ...row, title: "Snake" }, [snake]) === "", "default names do not repeat the type");
+  assert(widgetTypeLabel(row, []) === "snake", "unknown types fall back to the type id");
   assert(
     hits.some((r) => r.kind === "widget" && r.title === "Grammar Police"),
     "searching the custom title finds the renamed widget",
@@ -617,6 +641,14 @@ console.log("paletteResults.assert.ts: merge ok");
   const fromWidget = paletteRowAction(widgetRow);
   assert(fromWidget?.instanceId === "hidden-llm", "widget action retains its exact target instance");
   assert(fromWidget?.actionId === "use-template", "widget rows expose their declared action");
+  assert(
+    paletteRowAction(widgetRow, true) === null,
+    "instance actions replace declared action chips, so parameters render once and Tab reaches them",
+  );
+  assert(
+    paletteRowAction(typeRow, true)?.actionId === "pomodoro",
+    "instance actions do not suppress catalog action chips",
+  );
 
   const osRow = filterPaletteRows(
     "vol",
