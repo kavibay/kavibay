@@ -3,14 +3,20 @@
  * Uses import.meta.glob(?url) — dynamic `new URL(\`./sounds/${x}\`)` breaks in Tauri.
  */
 
-import { categoryDefs } from "./soundInventory";
+import type { NoiseColor } from "./noise";
+import { categoryDefs, loopWindow, type MoodistSoundDef } from "./soundInventory";
 
-/** One playable ambient sound. */
+/** One playable loop. */
 export interface MoodistSound {
   id: string;
   label: string;
   icon: string;
-  src: string;
+  /** Bundled recording to fetch; absent for generated noise. */
+  src?: string;
+  /** Generated noise to compute instead of fetching (noise.ts). */
+  noise?: NoiseColor;
+  /** Loop points inside the decoded file, in seconds (see soundInventory.loopWindow). */
+  loop: { start: number; end: number };
 }
 
 /** Category grouping sounds for the browse UI. */
@@ -22,7 +28,7 @@ export interface MoodistCategory {
 }
 
 /** Eager URL map for every vendored loop under ./sounds/. */
-const soundAssets = import.meta.glob("./sounds/**/*.{mp3,wav}", {
+const soundAssets = import.meta.glob("./sounds/**/*.webm", {
   eager: true,
   query: "?url",
   import: "default",
@@ -39,18 +45,34 @@ function soundUrl(relativePath: string): string {
   return url;
 }
 
-/** Curated v1 catalog — order is nature, rain, noise. */
-export const categories: MoodistCategory[] = categoryDefs.map((cat) => ({
-  id: cat.id,
-  title: cat.title,
-  icon: cat.icon,
-  sounds: cat.sounds.map((s) => ({
-    id: s.id,
-    label: s.label,
-    icon: s.icon,
-    src: soundUrl(s.file),
-  })),
-}));
+/**
+ * Whether this engine decodes the file's format.
+ *
+ * The recordings are Opus in WebM. WebView2 and WebKitGTK play it; WKWebView
+ * only reliably from Safari 17.4, and the app still runs on macOS 13. A sound
+ * the engine cannot decode is left out rather than listed and silent.
+ */
+function playable(sound: MoodistSoundDef): boolean {
+  if (!sound.file) return true;
+  if (typeof Audio === "undefined") return true;
+  return new Audio().canPlayType('audio/webm; codecs="opus"') !== "";
+}
+
+/** Catalog in inventory order (see soundInventory.ts); categories left empty are dropped. */
+export const categories: MoodistCategory[] = categoryDefs
+  .map((cat) => ({
+    id: cat.id,
+    title: cat.title,
+    icon: cat.icon,
+    sounds: cat.sounds.filter(playable).map((s) => ({
+      id: s.id,
+      label: s.label,
+      icon: s.icon,
+      ...(s.source.kind === "generated" ? { noise: s.source.color } : { src: soundUrl(s.file ?? "") }),
+      loop: loopWindow(s),
+    })),
+  }))
+  .filter((cat) => cat.sounds.length > 0);
 
 /** All sound ids across every category. */
 export function allSoundIds(): ReadonlySet<string> {

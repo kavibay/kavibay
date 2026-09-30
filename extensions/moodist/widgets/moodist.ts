@@ -11,7 +11,8 @@ import {
   toggleSound as toggleSoundInVolumes,
   type MoodistPersisted,
 } from "../moodistLogic";
-import type { MoodistCategory } from "../catalog";
+import type { MoodistCategory, MoodistSound } from "../catalog";
+import { createLoopPlayer } from "../loopPlayer";
 
 export const MOODIST_DATA_KEY = "state";
 const DEBOUNCE_MS = 300;
@@ -47,7 +48,7 @@ export function duplicateMoodistData(key: string, value: unknown): unknown {
 export const moodistWidget = defineWidget({
   name: "moodist",
   displayName: "Moodist",
-  description: "Mix ambient sounds for focus and relaxation.",
+  description: "Mix rain, nature sounds and noise for focus.",
   defaultSize: { w: 4, h: 4 },
   minSize: { w: 3, h: 3 },
   mode: "both",
@@ -59,62 +60,32 @@ export const moodistWidget = defineWidget({
         ...emptyState(DEFAULT_CATEGORY_ID),
         playing: false,
       });
-      const audioMap = new Map<string, HTMLAudioElement>();
+      const player = createLoopPlayer();
       let categories: MoodistCategory[] = [];
       let persistTimer: ReturnType<typeof setTimeout> | undefined;
       let alive = true;
 
-      function soundSrc(soundId: string): string | undefined {
+      function findSound(soundId: string): MoodistSound | undefined {
         for (const category of categories) {
           const sound = category.sounds.find((item) => item.id === soundId);
-          if (sound) return sound.src;
+          if (sound) return sound;
         }
         return undefined;
       }
 
-      function tearDownElement(soundId: string): void {
-        const element = audioMap.get(soundId);
-        if (!element) return;
-        element.pause();
-        element.removeAttribute("src");
-        element.load();
-        audioMap.delete(soundId);
-      }
-
       function tearDownAllAudio(): void {
-        for (const soundId of [...audioMap.keys()]) tearDownElement(soundId);
-      }
-
-      function ensureElement(soundId: string, volume: number): HTMLAudioElement | undefined {
-        if (volume <= 0) return undefined;
-        const src = soundSrc(soundId);
-        if (!src) return undefined;
-        let element = audioMap.get(soundId);
-        if (!element) {
-          element = new Audio(src);
-          element.loop = true;
-          element.preload = "auto";
-          audioMap.set(soundId, element);
-        }
-        element.volume = volume;
-        return element;
-      }
-
-      function playElement(element: HTMLAudioElement, soundId: string): void {
-        void element.play().catch((error: unknown) => {
-          console.warn(`[moodist] play failed for "${soundId}":`, error);
-        });
+        for (const soundId of Object.keys(state.value.volumes)) player.remove(soundId);
       }
 
       function syncSoundAudio(soundId: string, volume: number, playing: boolean): void {
-        if (volume <= 0) {
-          tearDownElement(soundId);
+        const sound = findSound(soundId);
+        if (volume <= 0 || !sound || (!sound.src && !sound.noise)) {
+          player.remove(soundId);
           return;
         }
-        const element = ensureElement(soundId, volume);
-        if (!element) return;
-        if (playing) playElement(element, soundId);
-        else element.pause();
+        player.set(soundId, sound, volume);
+        if (playing) player.play();
+        else player.pause();
       }
 
       function syncAllActiveAudio(): void {
@@ -191,7 +162,7 @@ export const moodistWidget = defineWidget({
       }
 
       function pause(): void {
-        for (const element of audioMap.values()) element.pause();
+        player.pause();
         state.value = { ...state.value, playing: false };
       }
 
@@ -227,7 +198,7 @@ export const moodistWidget = defineWidget({
         if (persistTimer !== undefined) clearTimeout(persistTimer);
         persistNow();
         alive = false;
-        tearDownAllAudio();
+        player.dispose();
       });
 
       return { state, setCategory, toggleSound, setVolume, togglePlay, clear };
