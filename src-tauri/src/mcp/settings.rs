@@ -41,16 +41,24 @@ impl Default for McpServerConfig {
 mod hex_digest {
     use serde::{de::Error, Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S: Serializer>(value: &Option<[u8; 32]>, serializer: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(
+        value: &Option<[u8; 32]>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
         match value {
             Some(bytes) => serializer.serialize_some(
-                &bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
+                &bytes
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>(),
             ),
             None => serializer.serialize_none(),
         }
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<[u8; 32]>, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<[u8; 32]>, D::Error> {
         let Some(text) = Option::<String>::deserialize(deserializer)? else {
             return Ok(None);
         };
@@ -59,7 +67,8 @@ mod hex_digest {
         }
         let mut digest = [0u8; 32];
         for (index, byte) in digest.iter_mut().enumerate() {
-            *byte = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16).map_err(D::Error::custom)?;
+            *byte = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16)
+                .map_err(D::Error::custom)?;
         }
         Ok(Some(digest))
     }
@@ -212,7 +221,9 @@ mod tests {
             token_sha256: Some(digest),
         };
         assert_eq!(round_trip(&config), config);
-        assert!(!serde_json::to_string(&config).unwrap().contains(&token[4..]));
+        assert!(!serde_json::to_string(&config)
+            .unwrap()
+            .contains(&token[4..]));
 
         // Written before tokens existed: no field, no token.
         assert_eq!(
