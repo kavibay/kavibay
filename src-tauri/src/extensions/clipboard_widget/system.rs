@@ -438,8 +438,8 @@ fn dib_v5(image: &image::RgbaImage) -> Vec<u8> {
         )
     });
     for row in image.as_raw().chunks_exact(width as usize * 4).rev() {
-        for pixel in row.chunks_exact(4) {
-            dib.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
+        for &[r, g, b, a] in row.as_chunks::<4>().0 {
+            dib.extend_from_slice(&[b, g, r, a]);
         }
     }
     dib
