@@ -2,131 +2,86 @@
 /**
  * Settings → AI.
  *
- * One tab per LLM provider: the provider's key on top (the same schema-driven
- * `CredentialEditor` the Credentials panel renders — this panel adds no
- * per-provider form knowledge). Model switches appear only after a key is
- * stored for that tab.
+ * A list of LLM providers, one row each: logo, name, and whether it is
+ * connected. Opening a row shows its connection (`CredentialAccounts`, the same
+ * component the Credentials panel renders — no per-provider form knowledge
+ * here) and, once a key is stored, its model switches.
+ *
+ * A list rather than tabs: tabs showed one provider at a time, so "which of
+ * these have I set up?" took three clicks to answer.
  *
  * Switching a model off hides it from every picker in the app, because the
  * enable state lives in the backend next to the catalog rather than in this
  * panel's `localStorage`.
+ *
+ * Quick actions have their own section (`QuickActionsPanel.vue`).
  */
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import KavibaySelect from "@sdk/KavibaySelect.vue";
-import CredentialConnections from "../credentials/CredentialConnections.vue";
+import { nextTick, onMounted, ref, watch, type ComponentPublicInstance } from "vue";
+import { BrandMark } from "@sdk/brand";
+import CredentialAccounts from "../credentials/CredentialAccounts.vue";
 import {
   listCredentials,
   listCredentialTypes,
   type CredentialSummary,
   type CredentialTypeSchema,
 } from "../credentials/credentialsApi";
-import {
-  getQuickActionModel,
-  getQuickActionShortcut,
-  getDisabledQuickActionTemplates,
-  listLlmCatalog,
-  setLlmModelEnabled,
-  setQuickActionModel,
-  setQuickActionShortcutCapture,
-  setQuickActionShortcut,
-  setDisabledQuickActionTemplates,
-  type LlmModelOption,
-} from "./aiApi";
+import { listLlmCatalog, setLlmModelEnabled, type LlmModelOption } from "./aiApi";
 import {
   AI_PROVIDER_TABS,
-  altGrCharacter,
   credentialTypeForProvider,
-  enabledSummary,
   modelsForProvider,
   providerHasKey,
+  providerStatusLine,
   resolveAiProviderFocus,
-  quickModelChoices,
-  quickModelSelection,
-  shortcutFromKey,
   withModelEnabled,
   type AiProviderTab,
 } from "./aiPanelLogic";
-import { listTextActions } from "../../extensions/textActions";
 import { useSettingsModal } from "../useSettingsModal";
+
+type ProviderId = AiProviderTab["id"];
 
 const { aiProvider: focusProvider } = useSettingsModal();
 const models = ref<LlmModelOption[]>([]);
 const types = ref<CredentialTypeSchema[]>([]);
 const credentials = ref<CredentialSummary[]>([]);
-const activeProvider = ref<AiProviderTab["id"]>(
-  resolveAiProviderFocus(focusProvider.value) ?? AI_PROVIDER_TABS[0].id,
-);
+/** The one open row, or null with all of them closed. */
+const openProvider = ref<ProviderId | null>(resolveAiProviderFocus(focusProvider.value));
 const loading = ref(true);
 const error = ref<string | null>(null);
 /** Model id currently being written, so its row can show the pending state. */
 const toggling = ref<string | null>(null);
-/** Quick-action model as stored ("" = automatic) and as currently resolved. */
-const quickSelected = ref("");
-const quickResolved = ref("");
-const quickShortcut = ref("Ctrl+Shift+Q");
-const savingQuickShortcut = ref(false);
-const recordingQuickShortcut = ref(false);
-const disabledQuickTemplates = ref<string[]>([]);
-const savingQuickTemplate = ref<string | null>(null);
-const quickTemplates = ref<Awaited<ReturnType<typeof listTextActions>>>([]);
 
-const providerModels = computed(() => modelsForProvider(models.value, activeProvider.value));
-/** Model switches only appear after this tab's key is stored. */
-const showModels = computed(() => providerHasKey(models.value, activeProvider.value));
-
-const quickChoices = computed(() => quickModelChoices(models.value));
-const quickValue = computed(() => quickModelSelection(models.value, quickSelected.value));
-/** Label of the model "Automatic" currently lands on, for the hint line. */
-const quickResolvedLabel = computed(
-  () => models.value.find((model) => model.id === quickResolved.value)?.label ?? "",
-);
-
-/** Rows for the quick-action model picker, including Automatic. */
-const quickOptions = computed(() => [
-  {
-    value: "",
-    label: "Automatic",
-    note: quickResolvedLabel.value
-      ? `Currently ${quickResolvedLabel.value}`
-      : "First set-up model",
-  },
-  ...quickChoices.value.map((model) => ({
-    value: model.id,
-    label: model.label,
-    note: model.note,
-  })),
-]);
-
-/** Credential type definition for the open tab, or null while loading. */
-const activeType = computed<CredentialTypeSchema | null>(() => {
-  const typeId = credentialTypeForProvider(models.value, activeProvider.value);
+/** Credential type definition a provider's key form edits, or null while loading. */
+function credentialTypeOf(provider: ProviderId): CredentialTypeSchema | null {
+  const typeId = credentialTypeForProvider(models.value, provider);
   return types.value.find((type) => type.id === typeId) ?? null;
-});
-
-/** "2 / 4" badge per tab, so a fully switched-off provider is visible closed. */
-function tabSummary(provider: AiProviderTab["id"]): string {
-  const { enabled, total } = enabledSummary(models.value, provider);
-  return `${enabled}/${total}`;
 }
 
-const keyEditorEl = ref<HTMLElement | null>(null);
+function toggleProvider(provider: ProviderId) {
+  openProvider.value = openProvider.value === provider ? null : provider;
+}
 
-/** Select the provider tab a caller named, then consume the deep-link. */
+/** Only the open row renders a key form, so one element is enough. */
+const keyEditorEl = ref<HTMLElement | null>(null);
+function setKeyEditor(el: Element | ComponentPublicInstance | null) {
+  keyEditorEl.value = el instanceof HTMLElement ? el : null;
+}
+
+/** Open the provider a caller named, then consume the deep-link. */
 function applyProviderFocus(requested: string | null): boolean {
   const next = resolveAiProviderFocus(requested, models.value);
   if (!next) return false;
-  activeProvider.value = next;
+  openProvider.value = next;
   focusProvider.value = null;
   return true;
 }
 
 /**
- * Scroll Settings to the key card and focus the secret field.
+ * Scroll Settings to the key form and focus the secret field.
  *
- * Must run after `loading` is false — the Providers block is not in the DOM
- * while the panel still says Loading, so a scroll then is a no-op. The scroll
- * parent is `.settings-body`, not the window; `nearest` on the tab strip also
- * left the card below the fold.
+ * Must run after `loading` is false — the list is not in the DOM while the
+ * panel still says Loading, so a scroll then is a no-op. The scroll parent is
+ * `.settings-body`, not the window.
  */
 async function revealKeyEditor() {
   await nextTick();
@@ -151,23 +106,14 @@ async function revealKeyEditor() {
 async function reload() {
   error.value = null;
   try {
-    const [loadedModels, loadedTypes, loadedCredentials, quick, loadedShortcut, disabledTemplates, loadedTemplates] = await Promise.all([
+    const [loadedModels, loadedTypes, loadedCredentials] = await Promise.all([
       listLlmCatalog(),
       listCredentialTypes(),
       listCredentials(),
-      getQuickActionModel(),
-      getQuickActionShortcut(),
-      getDisabledQuickActionTemplates(),
-      listTextActions(),
     ]);
     models.value = loadedModels;
     types.value = loadedTypes;
     credentials.value = loadedCredentials;
-    quickSelected.value = quick.selected;
-    quickResolved.value = quick.resolved;
-    quickShortcut.value = loadedShortcut;
-    disabledQuickTemplates.value = disabledTemplates;
-    quickTemplates.value = loadedTemplates.filter((action) => action.widgetAction);
     const shouldReveal = applyProviderFocus(focusProvider.value);
     loading.value = false;
     if (shouldReveal) await revealKeyEditor();
@@ -196,9 +142,6 @@ async function onToggleModel(modelId: string, event: Event) {
   try {
     await setLlmModelEnabled(modelId, next);
     models.value = withModelEnabled(models.value, modelId, next);
-    // Switching off the model quick actions were pinned to changes what
-    // "Automatic" resolves to — re-read rather than guess.
-    await refreshQuickModel();
   } catch (cause) {
     error.value = String(cause);
     input.checked = !next;
@@ -207,263 +150,97 @@ async function onToggleModel(modelId: string, event: Event) {
   }
 }
 
-async function refreshQuickModel() {
-  const quick = await getQuickActionModel();
-  quickSelected.value = quick.selected;
-  quickResolved.value = quick.resolved;
-}
-
-/** Persist the quick-action model; "" means automatic. */
-async function onPickQuickModel(modelId: string | number) {
-  error.value = null;
-  try {
-    await setQuickActionModel(String(modelId));
-    await refreshQuickModel();
-  } catch (cause) {
-    error.value = String(cause);
-  }
-}
-
-/** User-created templates notify the dynamic action catalog in this window. */
-async function refreshQuickTemplates() {
-  quickTemplates.value = (await listTextActions()).filter((action) => action.widgetAction);
-}
-
-function quickTemplateKey(action: { extensionId: string; actionId: string }): string {
-  return `${action.extensionId}/${action.actionId}`;
-}
-
-async function onToggleQuickTemplate(action: { extensionId: string; actionId: string }, event: Event) {
-  const input = event.target as HTMLInputElement;
-  const key = quickTemplateKey(action);
-  const next = input.checked
-    ? disabledQuickTemplates.value.filter((id) => id !== key)
-    : [...disabledQuickTemplates.value, key];
-  savingQuickTemplate.value = key;
-  error.value = null;
-  try {
-    await setDisabledQuickActionTemplates(next);
-    disabledQuickTemplates.value = next;
-  } catch (cause) {
-    error.value = String(cause);
-    input.checked = !input.checked;
-  } finally {
-    savingQuickTemplate.value = null;
-  }
-}
-
-/** Capture and persist a native global shortcut as one deliberate keystroke. */
-async function captureQuickShortcut(event: KeyboardEvent) {
-  if (!recordingQuickShortcut.value) return;
-  event.preventDefault();
-  event.stopPropagation();
-  if (event.key === "Escape") {
-    recordingQuickShortcut.value = false;
-    await setQuickActionShortcutCapture(false);
-    return;
-  }
-  // Refused here rather than registered and regretted: Ctrl+Alt is AltGr, and
-  // the damage shows up later, in another application, as a character that
-  // stopped working for no visible reason. Recording stays on so the next press
-  // is simply the better shortcut.
-  const blocked = altGrCharacter(event);
-  if (blocked) {
-    error.value = `Ctrl+Alt is AltGr on this keyboard — that combination types "${blocked}", and a global shortcut would take it away in every app. Try Ctrl+Shift instead.`;
-    return;
-  }
-  const shortcut = shortcutFromKey(event);
-  if (!shortcut || savingQuickShortcut.value) return;
-  savingQuickShortcut.value = true;
-  error.value = null;
-  try {
-    await setQuickActionShortcut(shortcut);
-    quickShortcut.value = shortcut;
-    recordingQuickShortcut.value = false;
-    await setQuickActionShortcutCapture(false);
-  } catch (cause) {
-    error.value = String(cause);
-  } finally {
-    savingQuickShortcut.value = false;
-  }
-}
-
-async function beginQuickShortcutCapture(event: MouseEvent) {
-  error.value = null;
-  try {
-    await setQuickActionShortcutCapture(true);
-    recordingQuickShortcut.value = true;
-    (event.currentTarget as HTMLButtonElement | null)?.blur();
-  } catch (cause) {
-    error.value = String(cause);
-  }
-}
-
 onMounted(() => {
   void reload();
-  window.addEventListener("keydown", captureQuickShortcut, true);
-  window.addEventListener("kavibay:text-actions-changed", refreshQuickTemplates);
-});
-
-onUnmounted(() => {
-  window.removeEventListener("keydown", captureQuickShortcut, true);
-  window.removeEventListener("kavibay:text-actions-changed", refreshQuickTemplates);
-  void setQuickActionShortcutCapture(false);
 });
 </script>
 
 <template>
   <div class="ai">
+    <Teleport to=".settings-sticky">
     <header class="ai-head">
       <h2 class="ai-title">AI</h2>
       <p class="ai-lead">
-        Keys and models for the LLM providers. A model switched off here disappears
-        from every model picker in the app — the Widget Wizard included.
+        Connect an LLM provider with its API key, then choose which of its models
+        Kavibay may use. A model switched off here disappears from every model
+        picker in the app — the Widget Wizard included.
       </p>
     </header>
+    </Teleport>
 
     <p v-if="loading" class="ai-note">Loading…</p>
     <p v-else-if="error" class="ai-error">{{ error }}</p>
 
-    <template v-if="!loading">
-      <section class="ai-block">
-        <h3 class="ai-block-title">Quick actions</h3>
-        <p class="ai-block-hint">
-          Rewrites the current selection from anywhere, via the shortcut below.
-        </p>
+    <section v-if="!loading" class="settings-section">
+      <h3 class="settings-section-title">Providers</h3>
 
-        <div class="ai-group">
-          <span class="ai-field-label">Shortcut</span>
-          <div class="ai-shortcut-row">
-            <output id="ai-quick-shortcut" class="ai-shortcut-value">{{ quickShortcut }}</output>
-            <button
-              type="button"
-              class="ai-action"
-              :class="{ 'ai-action--recording': recordingQuickShortcut }"
-              :disabled="savingQuickShortcut"
-              @click="beginQuickShortcutCapture($event)"
-            >
-              {{ recordingQuickShortcut ? "Press shortcut…" : "Set new hotkey" }}
-            </button>
-          </div>
-          <p class="ai-field-hint">
-            {{
-              recordingQuickShortcut
-                ? "Press the new shortcut now, or Escape to cancel."
-                : "Needs Ctrl, Alt, Shift or Super. Ctrl+Alt is AltGr on many layouts and is refused."
-            }}
-          </p>
-
-          <span class="ai-field-label">Model</span>
-          <KavibaySelect
-            size="md"
-            aria-label="Quick action model"
-            :options="quickOptions"
-            :model-value="quickValue"
-            :disabled="quickChoices.length === 0"
-            @update:model-value="onPickQuickModel"
-          />
-          <p class="ai-field-hint">
-            <template v-if="quickChoices.length === 0">
-              Add a key below before quick actions can run.
-            </template>
-            <template v-else-if="quickValue">
-              Text selected anywhere is rewritten by this model.
-            </template>
-            <template v-else>
-              Uses the first set-up model{{
-                quickResolvedLabel ? ` — currently ${quickResolvedLabel}` : ""
-              }}.
-            </template>
-          </p>
-        </div>
-
-        <div v-if="quickTemplates.length > 0" class="ai-templates">
-          <span class="ai-field-label">Templates in the menu</span>
-          <label
-            v-for="action in quickTemplates"
-            :key="quickTemplateKey(action)"
-            class="toggle"
-            :class="{ 'toggle--off': disabledQuickTemplates.includes(quickTemplateKey(action)) }"
-          >
-            <span class="toggle-copy">
-              <span class="toggle-title">{{ action.title }}</span>
-              <span v-if="action.subtitle" class="toggle-hint">{{ action.subtitle }}</span>
-            </span>
-            <span class="switch">
-              <input
-                type="checkbox"
-                :checked="!disabledQuickTemplates.includes(quickTemplateKey(action))"
-                :disabled="savingQuickTemplate === quickTemplateKey(action)"
-                @change="onToggleQuickTemplate(action, $event)"
-              />
-              <span class="switch-ui" />
-            </span>
-          </label>
-        </div>
-      </section>
-
-      <section class="ai-block">
-        <h3 class="ai-block-title">Providers</h3>
-        <div class="ai-tabs" role="tablist">
-          <button
-            v-for="tab in AI_PROVIDER_TABS"
-            :key="tab.id"
-            type="button"
-            role="tab"
-            class="ai-tab"
-            :class="{ 'ai-tab--active': activeProvider === tab.id }"
-            :aria-selected="activeProvider === tab.id"
-            @click="activeProvider = tab.id"
-          >
-            {{ tab.label }}
-            <span class="ai-tab-count">{{ tabSummary(tab.id) }}</span>
-          </button>
-        </div>
-
-        <div v-if="activeType" ref="keyEditorEl" class="ai-key">
-          <CredentialConnections
-            :key="activeType.id"
-            :type="activeType"
-            :credentials="credentials"
-            @changed="reload"
-          />
-        </div>
-      </section>
-
-      <section v-if="showModels" class="ai-block">
-        <h3 class="ai-block-title">Models</h3>
-        <p class="ai-block-hint">
-          Only switched-on models are offered to widgets. Nothing is deleted —
-          switching one back on makes it available again immediately.
-        </p>
-
-        <label
-          v-for="model in providerModels"
-          :key="model.id"
-          class="toggle"
-          :class="{ 'toggle--off': !model.enabled }"
+      <div
+        v-for="tab in AI_PROVIDER_TABS"
+        :key="tab.id"
+        class="provider"
+        :class="{ 'provider--open': openProvider === tab.id }"
+      >
+        <button
+          type="button"
+          class="provider-head"
+          :aria-expanded="openProvider === tab.id"
+          @click="toggleProvider(tab.id)"
         >
-          <span class="toggle-copy">
-            <span class="toggle-title">{{ model.label }}</span>
-            <span class="toggle-hint">{{ model.note }}</span>
-            <span class="toggle-id">{{ model.id }}</span>
+          <span class="provider-tile">
+            <BrandMark :provider="credentialTypeForProvider(models, tab.id)" :size="18" />
           </span>
-          <span class="switch">
-            <input
-              type="checkbox"
-              :checked="model.enabled"
-              :disabled="toggling === model.id"
-              @change="onToggleModel(model.id, $event)"
-            />
-            <span class="switch-ui" />
+          <span class="settings-row-copy provider-copy">
+            <span class="settings-row-title">{{ tab.label }}</span>
+            <span class="settings-row-hint">{{ providerStatusLine(models, tab.id) }}</span>
           </span>
-        </label>
+          <span v-if="providerHasKey(models, tab.id)" class="provider-connected">Connected</span>
+          <span v-else-if="openProvider !== tab.id" class="provider-setup">Set up</span>
+          <svg class="provider-chevron" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
 
-        <p v-if="providerModels.length === 0" class="ai-block-hint">
-          No models for this provider.
-        </p>
-      </section>
-    </template>
+        <div v-if="openProvider === tab.id" class="provider-body">
+          <div v-if="credentialTypeOf(tab.id)" :ref="setKeyEditor">
+            <h4 class="provider-sub">Connection</h4>
+            <CredentialAccounts
+              :key="credentialTypeOf(tab.id)!.id"
+              :type="credentialTypeOf(tab.id)!"
+              :credentials="credentials"
+              @changed="reload"
+            />
+          </div>
+
+          <template v-if="providerHasKey(models, tab.id)">
+            <h4 class="provider-sub">Models</h4>
+            <p class="settings-section-hint">
+              Switched-off models are hidden from every picker. Nothing is deleted.
+            </p>
+            <label
+              v-for="model in modelsForProvider(models, tab.id)"
+              :key="model.id"
+              class="settings-row"
+            >
+              <span class="settings-row-copy" :class="{ 'ai-off': !model.enabled }">
+                <span class="settings-row-title">{{ model.label }}</span>
+                <span class="settings-row-hint">{{ model.note }}</span>
+                <span class="ai-model-id">{{ model.id }}</span>
+              </span>
+              <span class="switch">
+                <input
+                  type="checkbox"
+                  :aria-label="`Offer ${model.label}`"
+                  :checked="model.enabled"
+                  :disabled="toggling === model.id"
+                  @change="onToggleModel(model.id, $event)"
+                />
+                <span class="switch-ui" />
+              </span>
+            </label>
+          </template>
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -471,7 +248,7 @@ onUnmounted(() => {
 .ai {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 28px;
   padding-bottom: 8px;
 }
 
@@ -488,17 +265,11 @@ onUnmounted(() => {
   color: rgba(var(--fg-rgb), 0.95);
 }
 
-.ai-lead,
-.ai-block-hint,
-.ai-field-hint {
+.ai-lead {
   margin: 0;
   font-size: 13px;
   line-height: 1.4;
   color: rgba(var(--fg-rgb), 0.5);
-}
-
-.ai-field-hint {
-  font-size: 12px;
 }
 
 .ai-note,
@@ -515,177 +286,113 @@ onUnmounted(() => {
   color: rgba(255, 140, 140, 0.95);
 }
 
-.ai-block {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+/* One provider: a row that opens in place. Hairlines as between settings rows. */
+.provider {
+  border-bottom: 1px solid rgba(var(--fg-rgb), 0.08);
 }
 
-.ai-block-title {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 500;
-  color: rgba(var(--fg-rgb), 0.92);
+.provider:last-child {
+  border-bottom: 0;
 }
 
-.ai-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-  border-radius: 14px;
-  background: rgba(var(--fg-rgb), 0.035);
-}
-
-.ai-field-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: rgba(var(--fg-rgb), 0.55);
-}
-
-.ai-shortcut-row {
+.provider-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.ai-shortcut-value {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 12px;
-  border: 1px solid rgba(var(--fg-rgb), 0.1);
+  gap: 12px;
+  width: calc(100% + 16px);
+  margin: 0 -8px;
+  padding: 12px 8px;
+  border: 0;
   border-radius: 10px;
-  background: rgba(var(--inset-rgb), 0.28);
-  color: rgba(var(--fg-rgb), 0.8);
-  font-size: 13px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ai-action {
-  flex: none;
-  padding: 8px 12px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: rgba(var(--fg-rgb), 0.08);
-  color: rgba(var(--fg-rgb), 0.92);
+  background: transparent;
+  color: inherit;
   font: inherit;
-  font-size: 12px;
-  font-weight: 500;
+  text-align: left;
   cursor: pointer;
 }
 
-.ai-action:hover:not(:disabled),
-.ai-action:focus-visible {
-  background: var(--row-selected-sheen), var(--row-selected-bg);
-  box-shadow: var(--row-selected-rim), var(--row-selected-shadow);
+.provider-head:hover,
+.provider-head:focus-visible {
   outline: none;
-}
-
-.ai-action--recording {
-  background: var(--row-selected-sheen), var(--row-selected-bg);
-  box-shadow: var(--row-selected-rim), var(--row-selected-shadow);
-}
-
-.ai-action:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
-.ai-templates {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.ai-tabs {
-  display: flex;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 14px;
   background: rgba(var(--fg-rgb), 0.04);
 }
 
-.ai-tab {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  justify-content: center;
-  padding: 8px 10px;
-  border: none;
-  border-radius: 10px;
-  background: transparent;
-  color: rgba(var(--fg-rgb), 0.6);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.ai-tab:hover {
+.provider-tile {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: rgba(var(--fg-rgb), 0.07);
   color: rgba(var(--fg-rgb), 0.9);
 }
 
-.ai-tab--active {
-  background: var(--row-selected-sheen), var(--row-selected-bg);
-  box-shadow: var(--row-selected-rim), var(--row-selected-shadow);
-  color: rgba(var(--fg-rgb), 0.95);
+.provider-copy {
+  flex: 1;
 }
 
-.ai-tab-count {
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: rgba(var(--fg-rgb), 0.1);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: rgba(var(--fg-rgb), 0.55);
-}
-
-.ai-tab--active .ai-tab-count {
+.provider-connected {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
   color: rgba(var(--fg-rgb), 0.7);
 }
 
-.toggle {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(var(--fg-rgb), 0.04);
-  cursor: pointer;
+.provider-connected::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4ade80;
 }
 
-.toggle:hover {
-  background: rgba(var(--fg-rgb), 0.08);
-}
-
-.toggle--off {
-  opacity: 0.58;
-}
-
-.toggle-copy {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.toggle-title {
-  font-size: 13px;
+.provider-setup {
+  padding: 4px 10px;
+  border: 1px solid rgba(var(--fg-rgb), 0.12);
+  border-radius: 8px;
+  font-size: 12px;
   font-weight: 500;
+  color: rgba(var(--fg-rgb), 0.85);
+}
+
+.provider-chevron {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: rgba(var(--fg-rgb), 0.45);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 150ms ease;
+}
+
+.provider--open .provider-chevron {
+  transform: rotate(180deg);
+}
+
+/* Indented to the text column, so it reads as belonging to the row above. */
+.provider-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 18px 46px;
+}
+
+.provider-sub {
+  margin: 12px 0 0;
+  font-size: 13px;
+  font-weight: 600;
   color: rgba(var(--fg-rgb), 0.92);
 }
 
-.toggle-hint {
-  font-size: 12px;
-  line-height: 1.4;
-  color: rgba(var(--fg-rgb), 0.45);
+.ai-off {
+  opacity: 0.5;
 }
 
-.toggle-id {
+.ai-model-id {
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
   font-size: 11px;
   color: rgba(var(--fg-rgb), 0.3);
@@ -694,60 +401,13 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.switch {
-  position: relative;
-  display: inline-flex;
-  flex: none;
-  margin-top: 1px;
-}
-
-.switch input {
-  position: absolute;
-  width: 0;
-  height: 0;
-  opacity: 0;
-}
-
-.switch-ui {
-  position: relative;
-  width: 36px;
-  height: 20px;
-  border-radius: 999px;
-  background: rgba(var(--fg-rgb), 0.15);
-}
-
-.switch-ui::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: rgba(var(--fg-rgb), 0.85);
-}
-
-.switch input:checked + .switch-ui {
-  background: rgba(var(--fg-rgb), 0.82);
-}
-
-.switch input:checked + .switch-ui::after {
-  background: rgb(var(--surface-bg-rgb));
-  transform: translateX(16px);
-}
-
-.switch input:focus-visible + .switch-ui {
-  outline: 2px solid rgba(var(--fg-rgb), 0.55);
-  outline-offset: 2px;
-}
-
 .switch input:disabled + .switch-ui {
   opacity: 0.5;
 }
 
-@media (max-width: 560px) {
-  .ai-tabs {
-    flex-direction: column;
+@media (prefers-reduced-motion: reduce) {
+  .provider-chevron {
+    transition: none;
   }
 }
 </style>

@@ -6,6 +6,7 @@ import {
   type CornerShape,
   type DesktopFillMode,
   type FontId,
+  type IconStyle,
   type OpenMonitor,
   type ShadowStyleId,
   type WidgetLayoutMode,
@@ -13,6 +14,7 @@ import {
   applyCornerGeometryToDocument,
   applyDesktopFillToDocument,
   applyFontToDocument,
+  applyIconStyleToDocument,
   applySurfaceBlurToDocument,
   applySurfaceOpacityToDocument,
   applySurfaceShadowStyleToDocument,
@@ -23,6 +25,7 @@ import {
   normalizeDesktopFillColor,
   normalizeDesktopFillMode,
   normalizeDesktopFillOpacity,
+  normalizeIconStyle,
   normalizeOpenMonitor,
   normalizeShadowStyle,
   normalizeSurfaceBlur,
@@ -38,6 +41,7 @@ const hasTauri = () => "__TAURI_INTERNALS__" in window;
 
 const initial = loadAppearance();
 const colorMode: Ref<ColorMode> = ref(initial.colorMode);
+const iconStyle: Ref<IconStyle> = ref(initial.iconStyle);
 const fontId: Ref<FontId> = ref(initial.fontId);
 const hideOnOutsideClick: Ref<boolean> = ref(initial.hideOnOutsideClick);
 const openMonitor: Ref<OpenMonitor> = ref(initial.openMonitor);
@@ -54,6 +58,7 @@ const desktopFillOpacity: Ref<number> = ref(initial.desktopFillOpacity);
 
 /** Apply appearance tokens once (boot / first import). */
 applyColorModeToDocument(colorMode.value);
+applyIconStyleToDocument(iconStyle.value);
 if (typeof window !== "undefined" && window.matchMedia) {
   const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
   const handleSystemChange = () => {
@@ -93,6 +98,7 @@ function persist() {
   const state: AppearanceState = {
     fontId: fontId.value,
     colorMode: colorMode.value,
+    iconStyle: iconStyle.value,
     hideOnOutsideClick: hideOnOutsideClick.value,
     openMonitor: openMonitor.value,
     widgetLayoutMode: widgetLayoutMode.value,
@@ -125,6 +131,13 @@ function applyDesktopFill() {
 
 /** App-wide appearance shared by Settings UI and boot path. */
 export function useAppearance() {
+  /** Live-apply + persist widget and menu icon style. */
+  function setIconStyle(style: IconStyle) {
+    iconStyle.value = normalizeIconStyle(style);
+    applyIconStyleToDocument(iconStyle.value);
+    persist();
+  }
+
   /** Live-apply + persist a font choice. */
   function setFont(id: FontId) {
     fontId.value = id;
@@ -236,6 +249,7 @@ export function useAppearance() {
 
   return {
     colorMode,
+    iconStyle,
     fontId,
     hideOnOutsideClick,
     openMonitor,
@@ -263,6 +277,7 @@ export function useAppearance() {
     setDesktopFillColor,
     setDesktopFillOpacity,
     setColorMode,
+    setIconStyle,
     toggleColorMode,
   };
 }

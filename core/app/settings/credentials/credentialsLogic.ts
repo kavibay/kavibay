@@ -107,7 +107,7 @@ export function statusLabel(summary: CredentialSummary | null): string {
   if (summary.pending) return "Waiting for sign-in…";
   switch (summary.state) {
     case "connected":
-      return summary.accountLabel ? `Connected — ${summary.accountLabel}` : "Configured";
+      return summary.accountLabel ? `Connected — ${summary.accountLabel}` : "Connected";
     case "needsReauth":
       return "Reconnect required";
     default:
