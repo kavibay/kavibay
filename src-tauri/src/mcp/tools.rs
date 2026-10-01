@@ -17,7 +17,7 @@ use rmcp::{
         CallToolRequestParams, CallToolResult, ErrorCode, ErrorData, Implementation,
         ListResourcesResult, ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams,
         ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ServerCapabilities,
-        ServerInfo, Tool, ToolAnnotations,
+        ServerConfig, Tool, ToolAnnotations,
     },
     service::{RequestContext, RoleServer},
 };
@@ -221,8 +221,8 @@ impl McpAuthoringServer {
 }
 
 impl ServerHandler for McpAuthoringServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(
             ServerCapabilities::builder()
                 .enable_resources()
                 .enable_tools()
