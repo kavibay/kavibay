@@ -1,6 +1,6 @@
 //! Per-package call limits and the response cache.
 //!
-//! Design: `docs/superpowers/specs/2026-08-01-declarative-http-api-design.md` §6.7.
+//! Design: `docs/design/declarative-http-api.md` §6.7.
 //!
 //! Two layers, deliberately: `minIntervalSeconds` stops one endpoint from being
 //! polled in a tight loop, and the daily budget stops a package from spreading

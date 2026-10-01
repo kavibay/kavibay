@@ -11,8 +11,7 @@ flowchart LR
     r --> w["widget-wizard<br/>let a model build one"]
     r --> m["mcp-server<br/>author drafts from local clients"]
     w --> p
-    a --> s["superpowers/specs<br/>why, per feature"]
-    a --> pl["superpowers/plans<br/>what's next"]
+    a --> s["design<br/>why the sandbox is built this way"]
 ```
 
 ## Guides
@@ -40,22 +39,15 @@ Two more live outside this folder:
 
 ## Reference material
 
-`superpowers/` is the project's paper trail. It is not tidied-up documentation —
-it is what was decided and why, dated, at the time it was built.
+`design/` holds the two design documents that outrank a guide when they disagree:
 
-| Folder | Holds |
-|---|---|
-| [`superpowers/specs/`](superpowers/specs) | One design doc per feature: the contract, the alternatives, the trade-off that was taken |
-| [`superpowers/plans/`](superpowers/plans) | Phased implementation plans, marked done as phases land |
+- [`design/runtime-extensions.md`](design/runtime-extensions.md) — the sandbox
+  threat model.
+- [`design/declarative-http-api.md`](design/declarative-http-api.md) — declared
+  endpoints, end to end.
 
-The two that outrank everything else when they disagree with a guide:
-
-- [`specs/2026-07-18-extension-system-design.md`](superpowers/specs/2026-07-18-extension-system-design.md)
-  — the canonical extension contract.
-- [`specs/2026-07-22-runtime-extensions-design.md`](superpowers/specs/2026-07-22-runtime-extensions-design.md)
-  — the sandbox threat model.
-- [`specs/2026-08-01-declarative-http-api-design.md`](superpowers/specs/2026-08-01-declarative-http-api-design.md)
-  — declared endpoints, end to end.
+The extension contract itself is code: `sdk/extension/types.ts` (manifest) and
+`sdk/extension/contract/sdk.ts` (contract packages).
 
 [../PLAN.md](../PLAN.md) is the original V1 specification, kept for the record.
 Its file paths predate the repo restructure — read `architecture.md` for the

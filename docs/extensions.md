@@ -15,7 +15,7 @@ The host discovers folders automatically — do **not** register them in a barre
 4. Restart / reload the app — the widget appears in the palette.
 
 Agent workflow (tiers S / M / L, checklists): `.cursor/skills/kavibay-widget/`.  
-Canonical contract: `docs/superpowers/specs/2026-07-18-extension-system-design.md`.
+Canonical contract: `sdk/extension/types.ts` (manifest) and `sdk/extension/contract/sdk.ts` (contract packages).
 
 ## Layout
 
@@ -495,7 +495,7 @@ validators reject it in both FE and Rust.
 
 Writing one: **[docs/runtime-packages.md](runtime-packages.md)** — quick start,
 declared endpoints, credentials, format versioning.
-Architecture: [runtime extensions design](superpowers/specs/2026-07-22-runtime-extensions-design.md).
+Architecture: [runtime extensions design](design/runtime-extensions.md).
 FE-only drop-in loading (P1). Packages with a native sidecar backend are rejected until a later release.
 
 ### Install a sample package
@@ -577,7 +577,7 @@ What the host guarantees, so the package does not have to:
 `credential` on an endpoint is accepted by the validator but not executed yet —
 that lands with D2 of the design.
 
-Full contract: [declarative HTTP design](superpowers/specs/2026-08-01-declarative-http-api-design.md).
+Full contract: [declarative HTTP design](design/declarative-http-api.md).
 
 ### Install the declared-HTTP probe
 

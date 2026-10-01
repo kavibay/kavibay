@@ -259,7 +259,7 @@ Folders are license boundaries — a new file adopts its directory's license.
 | `sdk/runtime/` | postMessage SDK for sandboxed packages | MIT |
 | `extensions/` | First-party widgets, compiled into the app | MIT |
 | `examples/` | Runtime package template + security probes | MIT |
-| `docs/` | Guides, plus `superpowers/{specs,plans}` | CC-BY-4.0 |
+| `docs/` | Guides, plus `design/` | CC-BY-4.0 |
 | `scripts/` | Repo guards / tooling | GPL-3.0-or-later |
 
 `sdk/` never imports from `core/` or `extensions/` — it has to stay

@@ -1,6 +1,6 @@
 //! Declared endpoints for **first-party** extensions.
 //!
-//! Design: `docs/superpowers/specs/2026-08-01-declarative-http-api-design.md` §11.1.
+//! Design: `docs/design/declarative-http-api.md` §11.1.
 //!
 //! Runtime packages keep their declaration on disk, where the user can read it
 //! before enabling. First-party extensions ship inside the binary, so their
