@@ -111,6 +111,78 @@ No prose after this block. Do not copy these examples unless they fit the
 current widget and would add something it does not already have.
 "#;
 
+/// Both formats name their catalog icon the same way: a top-level `icon` key.
+///
+/// Written against the bundled icons (`extensions/*/icon.svg`), which the
+/// palette draws as a mask over a tinted tile — so only the shape counts, and a
+/// fill, a colour or a gradient is lost or turns into a blob.
+const ICON_HINT: &str = r##"
+# Icon
+
+The reply that **creates** a widget also gives it an icon: emit `icon.svg` and
+name it with a top-level `"icon": "icon.svg"` in `manifest.json`. It is what the
+person sees beside the widget's name in the palette and in the Wizard.
+
+```svg path=icon.svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 3.5h5"/><path d="M10 3.5v2"/><circle cx="10" cy="11" r="5.5"/><path d="M10 11h2.8"/></svg>
+```
+
+That is the timer's icon, and every icon follows its rules:
+
+- `viewBox="0 0 20 20"`, `fill="none"`, `stroke="#000"`, `stroke-width="1.5"`,
+  round caps and joins — exactly these attributes on the root.
+- Two to four simple shapes, kept inside 3…17 so nothing touches the edge.
+- One object that says what the widget is *for* — a cup for a water tracker, a
+  book for a reading goal, a bell for a reminder. Not a chart or a generic
+  square because the widget happens to show one.
+- No text, no letters, no numbers, no colours, no gradients, no filled areas.
+  The host draws only the outline's shape, so anything else disappears. A dot
+  may be a tiny filled circle (`fill="#000" stroke="none"`, `r` under 1).
+- It must read at 18 pixels. If a detail is smaller than a stroke, leave it out.
+
+On later turns leave `icon.svg` alone. Redraw it only when the person asks or
+the widget has become something else.
+"##;
+
+/// What a widget should be by default: the version someone keeps, not the
+/// first sketch.
+///
+/// The rest of the prompt is mostly restraint — one colour, small sizes, no
+/// chrome — and a model that only hears "less" builds the least: a number, a
+/// bar, two buttons. A one-line request ("a habit tracker") then came back as
+/// exactly that. This is the counterweight, and it says where depth goes so it
+/// does not turn into a busy card: into behaviour and a second view.
+const DEPTH_HINT: &str = r#"
+# Build the widget someone keeps
+
+A request is usually one line — "a habit tracker", "a reading log". Read it as
+the name of a category, not a full specification, and build a solid 1.0: the
+version somebody still uses next week. The bare sketch — a number, a bar, two
+buttons — is too little; a dashboard with every feature you can think of is too
+much.
+
+Every widget has these:
+
+- **A core action in one click.** The thing it exists for — tick a habit, log
+  a glass, start a session — is on the first view and answers at once.
+- **A first run that invites the first action**, not a screen of zeros, and the
+  state after the goal is reached or the day rolls over.
+- **Undo** where a click can be a mistake, and a confirm step built in the
+  widget (never `confirm()`) for anything that deletes.
+
+Then add **one or two** of these, whichever fit the widget best — not all:
+
+- **Memory:** a streak, the last seven days, today against yesterday.
+- **Shaping:** the goal, the items or the units editable in the widget, behind
+  a small gear that swaps to a settings view.
+- **Keyboard:** Enter adds and Escape cancels, where the widget takes text.
+
+Keep the first view calm and readable at a glance; extra depth goes one click
+away, in a second view inside the same card. Aim for roughly 100–250 lines of
+`app.js`. Unless the person asks for something minimal ("just", "simple",
+"only"), or for more, this is the size to build.
+"#;
+
 /// Full system prompt for a widget-authoring turn.
 pub fn system_prompt() -> String {
     format!(
@@ -172,7 +244,9 @@ The rules for your reply:
 - Draw from defaults immediately and reconcile when storage answers. Never gate
   the interface on a reply that may not come.
 
+{DEPTH_HINT}
 {SUGGESTIONS_HINT}
+{ICON_HINT}
 
 # Images
 
@@ -190,8 +264,9 @@ last resort. If a request needs something the format cannot express, say so
 plainly in your explanation and build the part that is possible — never invent
 sample data and present it as real.
 
-Keep the UI small. These are desktop widgets, often 260x200; a layout that
-needs scrolling to read one number is a failed widget.
+Keep the footprint small: these are desktop widgets, usually 260 to 340 wide.
+Get depth from a second view inside the card, not from a bigger one. A layout
+that needs scrolling to read one number is a failed widget.
 
 # Network and credentials
 
@@ -352,7 +427,9 @@ The rules for your reply:
 - **Never draw a spinner, an error, a retry or a connect screen.** The host
   draws all of those around your widget. Yours would be the second one.
 
+{DEPTH_HINT}
 {SUGGESTIONS_HINT}
+{ICON_HINT}
 
 # The format
 
@@ -718,6 +795,39 @@ mod tests {
             assert!(
                 prompt.contains("unless the message says otherwise"),
                 "{name}: the partial form is granted per turn, so the prompt must defer to it"
+            );
+        }
+    }
+
+    /// The Wizard header and the palette both read the icon from the manifest's
+    /// top-level `icon`; a prompt that asks for the file without the key ships
+    /// an icon nothing shows.
+    #[test]
+    fn both_prompts_ask_for_a_complete_widget_by_default() {
+        for (name, prompt) in [
+            ("runtime", system_prompt()),
+            ("contract", contract_system_prompt(&[])),
+        ] {
+            assert!(prompt.contains("# Build the widget someone keeps"), "{name}");
+            assert!(prompt.contains("**one or two**"), "{name}: a measured amount, not everything");
+            assert!(prompt.contains("second view"), "{name}: where depth goes");
+        }
+    }
+
+    #[test]
+    fn both_prompts_ask_for_an_icon_on_creation() {
+        for (name, prompt) in [
+            ("runtime", system_prompt()),
+            ("contract", contract_system_prompt(&[])),
+        ] {
+            assert!(prompt.contains("path=icon.svg"), "{name}: the icon file is shown");
+            assert!(
+                prompt.contains(r#""icon": "icon.svg""#),
+                "{name}: and the manifest key that makes it count"
+            );
+            assert!(
+                prompt.contains(r#"viewBox="0 0 20 20""#),
+                "{name}: in the bundled icons' grid"
             );
         }
     }

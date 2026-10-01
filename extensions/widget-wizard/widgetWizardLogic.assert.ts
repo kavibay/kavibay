@@ -87,6 +87,7 @@ import {
   sampleBody,
   updateLiveVersion,
   manifestSize,
+  manifestIconSvg,
   parseGeneratedFiles,
   previewPermissionsFor,
   renderFilesForPrompt,
@@ -2917,6 +2918,18 @@ assert(
   );
   assertEq(reply.files.map((f) => f.path).join(","), "manifest.json,ui/app.js", "and the glued block is a file");
   assertEq(reply.files[0].contents, '{ "id": "holiday-countdown" }', "with its contents intact");
+}
+
+{
+  const svg = '<svg viewBox="0 0 20 20"/>';
+  const manifest = (body: string) => ({ path: "manifest.json", contents: body });
+  const icon = { path: "icon.svg", contents: svg };
+  assertEq(manifestIconSvg([manifest('{"icon":"icon.svg"}'), icon]), svg, "the named svg is read");
+  assertEq(manifestIconSvg([manifest('{"icon":"./icon.svg"}'), icon]), svg, "a ./ prefix names the same file");
+  assertEq(manifestIconSvg([manifest('{"icon":"icon.svg"}')]), null, "named but not emitted");
+  assertEq(manifestIconSvg([manifest('{"icon":"icon.png"}'), icon]), null, "a png is not shown inline");
+  assertEq(manifestIconSvg([manifest("{}"), icon]), null, "a stray icon.svg the manifest does not name");
+  assertEq(manifestIconSvg([manifest("{ broken"), icon]), null, "broken manifest");
 }
 
 console.log("widgetWizardLogic.assert.ts: ok");

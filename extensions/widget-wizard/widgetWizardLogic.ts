@@ -2282,6 +2282,27 @@ export function manifestSize(files: GeneratedFile[]): { w: number; h: number } |
   return null;
 }
 
+/**
+ * The SVG a package names as its icon, read from the files themselves.
+ *
+ * Only an `.svg` the manifest points at and the package actually contains: the
+ * Wizard shows it before anything is published, so there is no URL to ask the
+ * host for yet. A PNG icon is the catalog's business and is left to it.
+ */
+export function manifestIconSvg(files: GeneratedFile[]): string | null {
+  const manifest = files.find((file) => file.path === "manifest.json");
+  if (!manifest) return null;
+  let icon: unknown;
+  try {
+    icon = (JSON.parse(manifest.contents) as { icon?: unknown }).icon;
+  } catch {
+    return null;
+  }
+  if (typeof icon !== "string" || !icon.toLowerCase().endsWith(".svg")) return null;
+  const path = icon.replace(/^\.\//, "");
+  return files.find((file) => file.path === path)?.contents ?? null;
+}
+
 /** Read ui.defaultScale from a package manifest, when it declares one. */
 export function manifestScale(files: GeneratedFile[]): number | null {
   const manifest = files.find((file) => file.path === "manifest.json");

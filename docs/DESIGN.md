@@ -89,7 +89,8 @@ todo 280x260, stocks 280x240, calendar 260x320. **Between 200 and 320 wide is
 normal; anything past 360 needs a reason.**
 
 A layout that needs scrolling to read one number is a failed widget. If the
-content does not fit, show less, not smaller.
+content does not fit, show less, not smaller, and move the rest to a second
+view one click away: history, details and settings live there.
 
 ## Interaction
 
@@ -243,5 +244,6 @@ Behaviour, all of it required:
 - Don't use a native `<select>` — see Dropdowns above.
 - Don't add a title inside the content — the card already has one.
 - Don't use a font the machine may not have; there is no network for webfonts.
-- Don't fill the widget with chrome. Most of these do one thing; the fastest way
-  to look wrong here is to look busy.
+- Don't fill the first view with chrome. Depth belongs in behaviour and in a
+  second view inside the card, not in more controls up front; the fastest way to
+  look wrong here is to look busy.
