@@ -14,6 +14,12 @@
         "dev"
       ],
       "port": 1420
+    },
+    {
+      "name": "site",
+      "runtimeExecutable": "php",
+      "runtimeArgs": ["-S", "localhost:8099", "-t", "../kavibay.com"],
+      "port": 8099
     }
   ]
 }
