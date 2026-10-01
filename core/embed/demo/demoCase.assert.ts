@@ -12,6 +12,7 @@ resetDemoCase();
 assert(demoCase() === "water-tracker", "a page starts on the water tracker");
 assert(isDemoCaseId("water-tracker"), "the water tracker is a known case");
 assert(isDemoCaseId("linear-github-todos"), "the Linear/GitHub inbox is a known case");
+assert(isDemoCaseId("lisbon-countdown"), "the Lisbon countdown is a known case");
 assert(!isDemoCaseId("calendar"), "an unknown name is not a case");
 assert(!isDemoCaseId(""), "an empty name is not a case");
 
