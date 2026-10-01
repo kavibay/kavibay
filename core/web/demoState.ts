@@ -26,6 +26,9 @@ interface Card {
   y: number;
   width: number;
   height: number;
+  /** Put away: on no desk, but the app reveals it instead of making another. */
+  hidden?: boolean;
+  hideTitle?: boolean;
 }
 
 const CARDS: Card[] = [
@@ -50,16 +53,21 @@ function layoutOf(cards: Card[], palette = { x: SCREEN.width / 2, y: SCREEN.heig
           offset: { x: card.x, y: card.y },
           width: card.width,
           height: card.height,
+          ...(card.hidden ? { hidden: true } : {}),
         })),
       },
     ],
-    catalog: cards.map((card) => ({ instanceId: card.id, typeId: card.typeId })),
+    catalog: cards.map((card) => ({
+      instanceId: card.id,
+      typeId: card.typeId,
+      ...(card.hideTitle ? { hideTitle: true } : {}),
+    })),
   };
 }
 
 /** `ctx.data` lives under `kavibay:widget-data:<instance>\0<key>` (data-store.ts). */
-const widgetData = (instanceId: string, value: unknown) => ({
-  [`kavibay:widget-data:${instanceId}\u0000state`]: JSON.stringify(value),
+const widgetData = (instanceId: string, value: unknown, key = "state") => ({
+  [`kavibay:widget-data:${instanceId}\u0000${key}`]: JSON.stringify(value),
 });
 
 const todo = (id: string, text: string, done: boolean, order: number) => ({
@@ -109,18 +117,33 @@ const DESK: Record<string, string> = {
  * The Wizard stage: nothing but the palette. The scripted tour (webTour.ts)
  * opens the Wizard from it, the way a person would.
  *
- * The Wizard opens centred on the palette at the size last used for its type
- * (typeSizeMemory.ts): 940×460 over a palette at y=570 puts it at 340–800,
- * below the page's headline and case buttons and above its playback bar. When
- * the tour closes it and opens the result, the new card spawns just above the
- * palette — clear of the buttons too.
+ * The Wizard is already there, put away: "New Widget" reveals a hidden Wizard
+ * rather than making another (WidgetHost `onAddType`), so this card is the one
+ * that opens — centred on the palette, without its title row, and with chat and
+ * preview split about 60:40 through the Wizard's own saved layout. 990×510 over
+ * a palette at y=575 puts it at 320–830, below the page's headline and case
+ * buttons and above its playback bar. When the tour closes it and opens the
+ * result, the new card spawns just above the palette — clear of the buttons too.
  */
-const WIZARD_SIZE = { w: 940, h: 460 };
-const WIZARD_TOP = 340;
+const WIZARD_SIZE = { w: 990, h: 510 };
+const WIZARD_TOP = 320;
+const WIZARD_PREVIEW = 370;
+const WIZARD_CARD: Card = {
+  id: "demo-wizard",
+  typeId: "widget-wizard",
+  x: 0,
+  y: 0,
+  width: WIZARD_SIZE.w,
+  height: WIZARD_SIZE.h,
+  hidden: true,
+  hideTitle: true,
+};
 const WIZARD: Record<string, string> = {
   ...SETTLED,
-  "kavibay:layout-v4": JSON.stringify(layoutOf([], { x: SCREEN.width / 2, y: WIZARD_TOP + WIZARD_SIZE.h / 2 })),
-  "kavibay:widget-type-size-v1": JSON.stringify({ "widget-wizard": WIZARD_SIZE }),
+  "kavibay:layout-v4": JSON.stringify(
+    layoutOf([WIZARD_CARD], { x: SCREEN.width / 2, y: WIZARD_TOP + WIZARD_SIZE.h / 2 }),
+  ),
+  ...widgetData(WIZARD_CARD.id, { preview: WIZARD_PREVIEW, collapsed: true }, "wizard:layout"),
 };
 
 export const SCENES = { desk: DESK, wizard: WIZARD } as const;
