@@ -1881,6 +1881,77 @@ export function lintGeneratedFiles(files: GeneratedFile[]): string[] {
     }
   }
 
+  notes.push(...sandboxLint(files));
+  return notes;
+}
+
+/**
+ * The guide's list of silent failures, checked instead of hoped for.
+ *
+ * Each of these renders a widget that looks right and does nothing — no error
+ * in any console the person can see — which is why the guide spends a section
+ * on them and why a model still writes them. Found here, they go back in the
+ * repair round the wizard already runs, before anybody clicks a dead button.
+ *
+ * Biased towards silence like `maskLiterals`: a false positive costs a repair
+ * round and reads as the model failing, so each check is narrow.
+ */
+function sandboxLint(files: GeneratedFile[]): string[] {
+  const notes: string[] = [];
+  const html = files.filter((file) => /\.html?$/i.test(file.path));
+  const scripts = files.filter((file) => /\.js$/i.test(file.path));
+  const markup = html.map((file) => file.contents).join("\n");
+  const raw = [...html, ...scripts].map((file) => file.contents).join("\n");
+  const code = scripts.map((file) => maskLiterals(file.contents)).join("\n");
+
+  const inline = [...markup.matchAll(/<script\b(?![^>]*\bsrc\s*=)[^>]*>([\s\S]*?)<\/script>/gi)];
+  if (inline.some((match) => match[1].trim() !== "")) {
+    notes.push(
+      "This widget has an inline <script>, which the sandbox never runs. Move the " +
+        'code into a .js file and load it with <script src="app.js"></script>.',
+    );
+  }
+  if (/<[a-z][^>]*\son[a-z]+\s*=\s*["']/i.test(markup)) {
+    notes.push(
+      "This widget uses inline event handlers (onclick=…), which never fire in the " +
+        "sandbox. Attach them with addEventListener in the script file.",
+    );
+  }
+  if (/\.addEventListener\(\s*["']submit["']|\.onsubmit\s*=/.test(raw)) {
+    notes.push(
+      "This widget listens for a form submit, which never fires in the sandbox. Use " +
+        "a click listener on the button and a keydown listener for Enter.",
+    );
+  }
+  if (/\bfetch\s*\(|\bXMLHttpRequest\b/.test(code)) {
+    notes.push(
+      "This widget calls fetch or XMLHttpRequest, which the sandbox blocks. Declare " +
+        "the request in api.json and call it with kavibay.http.",
+    );
+  }
+  if (/(^|[^.\w$])(alert|confirm|prompt)\s*\(/m.test(code)) {
+    notes.push(
+      "This widget calls alert, confirm or prompt, which do nothing in the sandbox. " +
+        "Build the question or message into the widget itself.",
+    );
+  }
+
+  // An element looked up by an id that nothing creates: `null.addEventListener`
+  // on load, and every control after it is dead.
+  const looked = new Set<string>();
+  for (const match of raw.matchAll(/getElementById\(\s*["'`]([\w-]+)["'`]\s*\)|querySelector\(\s*["'`]#([\w-]+)["'`]\s*\)/g)) {
+    looked.add(match[1] ?? match[2]);
+  }
+  const missing = [...looked].filter((id) => {
+    const escaped = id.replace(/[-]/g, "\\-");
+    return !new RegExp(`\\bid\\s*[=:]\\s*["'\`]${escaped}["'\`]|\\.id\\s*=\\s*["'\`]${escaped}["'\`]`).test(raw);
+  });
+  if (missing.length > 0) {
+    notes.push(
+      `The script looks up ${missing.map((id) => `#${id}`).join(", ")}, but no element ` +
+        "has that id, so the lookup returns null and the code after it throws.",
+    );
+  }
   return notes;
 }
 

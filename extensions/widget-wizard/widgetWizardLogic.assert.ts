@@ -2986,4 +2986,37 @@ assertEq(
 );
 assert(!turnForPackage("make it grey", "habits", { scope: "rich" }).includes("Scope:"), "not on a change");
 
+// --- sandbox lint -----------------------------------------------------------
+{
+  const html = (body: string) => file("ui/index.html", `<!doctype html><body>${body}</body>`);
+  const js = (code: string) => file("ui/app.js", code);
+  const notes = (...files: GeneratedFile[]) => lintGeneratedFiles([file("manifest.json", "{}"), ...files]);
+
+  assert(notes(html("<script>go()</script>")).some((n) => n.includes("inline <script>")), "inline script");
+  assertEq(notes(html('<script src="app.js"></script>')), [], "an external script is fine");
+  assert(notes(html('<button onclick="go()">Go</button>')).some((n) => n.includes("onclick")), "inline handler");
+  assert(notes(js('form.addEventListener("submit", go);')).some((n) => n.includes("submit")), "form submit");
+  assert(notes(js("fetch(url);")).some((n) => n.includes("fetch")), "fetch");
+  assertEq(notes(js("// we never fetch(url) here")), [], "a comment that mentions fetch is not a call");
+  assert(notes(js("if (confirm('Sure?')) wipe();")).some((n) => n.includes("confirm")), "confirm()");
+  assertEq(notes(js("dialog.confirm(); state.prompt();")), [], "methods with the same name are fine");
+
+  assert(
+    notes(html('<p id="total"></p>'), js('document.getElementById("count").textContent = 1;')).some((n) =>
+      n.includes("#count"),
+    ),
+    "a lookup for an id nothing has",
+  );
+  assertEq(
+    notes(html('<p id="total"></p>'), js('document.getElementById("total").textContent = 1;')),
+    [],
+    "an id the markup has",
+  );
+  assertEq(
+    notes(html(""), js('el.id = "row"; document.getElementById("row");')),
+    [],
+    "an id the script creates",
+  );
+}
+
 console.log("widgetWizardLogic.assert.ts: ok");
