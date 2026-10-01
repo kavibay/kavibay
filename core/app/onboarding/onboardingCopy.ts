@@ -11,104 +11,47 @@ export type OnboardingCopy = {
 };
 
 /**
- * Fixed copy, by step, for the keyboard this machine has.
+ * Fixed copy, by step.
+ *
+ * One voice throughout, here and on the setup card: plain, warm, second
+ * person, short sentences. No jokes and no idioms — the copy is read once, by
+ * somebody deciding whether to keep the app, and often not in their first
+ * language.
  *
  * Two steps are absent on purpose: the hotkey step, whose text depends on which
- * keystroke the host reports (`onboardingHotkeyCopy`), and the core card, which
- * is a branch rather than a lesson (`onboardingCoreDoneCopy`).
+ * keystroke the host reports (`onboardingHotkeyCopy`), and the ending card
+ * (`onboardingDoneCopy`).
  */
-const fixedCopy = (
-  platform: KeyPlatform,
-): Record<Exclude<OnboardingStep, 2 | 6>, OnboardingCopy> => ({
+const fixedCopy: Record<Exclude<OnboardingStep, 2 | 6>, OnboardingCopy> = {
   1: {
-    title: "Hey — welcome to Kavibay",
+    title: "Welcome to Kavibay",
     segments: [
       {
-        text: "Your desk, your launcher, your little superpowers. Quick tour — about a minute — and you’ll feel at home.",
+        text: "Your launcher and your widgets, one keystroke away. This tour takes about a minute.",
       },
     ],
   },
   3: {
-    title: "Launch anything, fast",
+    title: "Launch anything",
     segments: [
-      { text: "Your apps live right here. Try typing " },
+      { text: "Your apps are right here. Type " },
       { text: "notepad", typed: true },
-      { text: " — Kavibay finds it on your system." },
+      { text: " and Kavibay finds it." },
     ],
   },
   4: {
-    title: "Explore widgets",
+    title: "Find a widget",
     segments: [
-      { text: "This is where the fun stuff lives. Type " },
+      { text: "Widgets live in the gallery. Type " },
       { text: "widget gallery", typed: true },
-      { text: " (or hit Widgets) and take a peek." },
+      { text: " or click Widgets." },
     ],
   },
   5: {
-    title: "Make it yours",
-    segments: [
-      {
-        text: "See something you like? Add it — your desk starts to feel like home.",
-      },
-    ],
+    title: "Add one",
+    segments: [{ text: "Pick a widget you like and click Add. It goes on your desk." }],
   },
-  7: {
-    title: "Put things where they belong",
-    segments: [
-      {
-        text: "Grab the top strip and drag — arrange your desk however feels right.",
-      },
-    ],
-  },
-  8: {
-    title: "Give it room to breathe",
-    segments: [
-      {
-        text: "Need it bigger or tighter? Pull the bottom-right corner until it feels right.",
-      },
-    ],
-  },
-  9: {
-    title: "Keep your favorites close",
-    segments: [
-      {
-        text: `Pin a widget and it stays put when you tuck Kavibay away with a double tap on ${doubleTapKeyLabel(platform)} — perfect for clocks and notes.`,
-      },
-    ],
-  },
-  10: {
-    title: "Clear the clutter",
-    segments: [
-      {
-        text: "Tap × to hide a widget; it’s waiting when you need it again.",
-      },
-    ],
-  },
-  11: {
-    title: "Bring it back",
-    segments: [
-      {
-        text: "Changed your mind? Search for the hidden widget and Show it — back on the desk in a flash.",
-      },
-    ],
-  },
-  12: {
-    title: "Start fresh when you need to",
-    segments: [
-      {
-        text: "Press and hold × until the trash icon appears, then release. Click the red trash icon in the controls to confirm. This also deletes the widget’s content.",
-      },
-    ],
-  },
-  13: {
-    title: "Now you know the lot",
-    segments: [
-      {
-        text: "Your desk, your rules. Everything here is in Settings → Behavior if you want it again.",
-      },
-    ],
-  },
-});
+};
 
 /** Where a started Kavibay waits: the Windows tray or the macOS menu bar. */
 export function waitingPlace(platform: KeyPlatform): string {
@@ -121,27 +64,28 @@ export function waitingPlace(platform: KeyPlatform): string {
  * icon opens its menu on a single click, and the menu's Open item does the rest.
  */
 const TRAY_ONLY: Record<KeyPlatform, string> = {
-  pc: "the tray is your way in: double-click the Kavibay icon down by the clock and the desk comes back.",
-  mac: "the menu bar is your way in: click the Kavibay icon up there and choose Open, and the desk comes back.",
+  pc: "use the tray instead: double-click the Kavibay icon next to the clock to bring it back.",
+  mac: "use the menu bar instead: click the Kavibay icon and choose Open to bring it back.",
 };
 
 /**
- * The card that ends the core tour.
+ * The card that ends the tour.
  *
- * Deliberately an ending first and an offer second. The user has reached
- * Kavibay with the keyboard, launched something and put a widget on the desk —
- * that is the whole product working, and saying so is more useful than treating
- * it as the fifth of eleven things. The six lessons behind it are real but they
- * are housekeeping, and housekeeping is worth learning when you have something
- * to keep house for.
+ * An ending first: the user has reached Kavibay with the keyboard, launched
+ * something and put a widget on the desk, which is the whole product working.
+ * Then the one thing other launchers cannot do — the card's second button opens
+ * the Widget Wizard — and where the tour lives if they want it again, since
+ * nothing else on screen says so.
  */
-export function onboardingCoreDoneCopy(): OnboardingCopy {
+export function onboardingDoneCopy(): OnboardingCopy {
   return {
-    title: "That is the whole idea",
+    title: "You've got the basics",
     segments: [
       {
-        text: "You can reach Kavibay from anywhere, launch anything, and put widgets on your desk. Go and use it — or take one more minute and learn to arrange, pin and clear the cards.",
+        text: "Reach Kavibay from any app, launch anything, keep widgets on your desk. Missing a widget? Describe it and Kavibay builds it for you. To see this tour again, search for ",
       },
+      { text: "Replay Tour", typed: true },
+      { text: "." },
     ],
   };
 }
@@ -156,6 +100,7 @@ export function onboardingCoreDoneCopy(): OnboardingCopy {
 export function onboardingHotkeyCopy(
   gesture: RevealGesture | null,
   platform: KeyPlatform,
+  afterSetupGesture = false,
 ): OnboardingCopy {
   if (gesture === "cursorHotkey") {
     return {
@@ -164,7 +109,7 @@ export function onboardingHotkeyCopy(
         { text: "Press " },
         { text: "Shift+Ctrl+Space", typed: true },
         {
-          text: " — everything disappears, this card included. Press it again and it is all back. That is how you reach Kavibay from anywhere.",
+          text: " and everything disappears, this card included. Press it again and it's all back. That's how you reach Kavibay from any app.",
         },
       ],
     };
@@ -174,7 +119,7 @@ export function onboardingHotkeyCopy(
       title: "First, the way back in",
       segments: [
         {
-          text: `No keyboard shortcut is free on this machine, so ${TRAY_ONLY[platform]} Worth knowing before anything else.`,
+          text: `No keyboard shortcut is free on this computer, so ${TRAY_ONLY[platform]}`,
         },
       ],
     };
@@ -184,14 +129,26 @@ export function onboardingHotkeyCopy(
   // comes back has to be read *before* it happens. Somebody who taps twice
   // expecting a menu and gets an empty desktop thinks they closed the app.
   const key = doubleTapKeyLabel(platform);
+  // Answering the setup card with the double tap already taught the gesture;
+  // what is left is the round trip, so the card picks up from there.
+  if (afterSetupGesture) {
+    return {
+      title: "That's the one",
+      segments: [
+        { text: "Now the round trip. Tap " },
+        { text: key, typed: true },
+        { text: " twice and everything disappears, this card included. Tap it twice again and it's all back." },
+      ],
+    };
+  }
   return {
-    title: "First, the only key that matters",
+    title: "First, the way back in",
     segments: [
       { text: "Tap " },
       { text: key, typed: true },
-      { text: " twice — everything disappears, this card included. Tap " },
+      { text: " twice and everything disappears, this card included. Tap " },
       { text: key, typed: true },
-      { text: " twice again and it is all back. That is how you reach Kavibay from anywhere." },
+      { text: " twice again and it's all back. That's how you reach Kavibay from any app." },
     ],
   };
 }
@@ -199,10 +156,10 @@ export function onboardingHotkeyCopy(
 /**
  * The one line the welcome card cannot leave out.
  *
- * A statement, not the instruction `onboardingHotkeyCopy` gives: the card is
- * not the place to practise the gesture — performing it there would hide the
- * card before its autostart answer has been committed — but it is the only
- * place everybody passes through. Somebody who takes `Skip the tour` never
+ * The setup card's fallback for machines without the Ctrl double tap. Where
+ * the double tap exists the card asks for it instead, and the gesture starts
+ * the tour (see `setupGestureCount`). Either way the card is the only place
+ * everybody passes through. Somebody who takes `Skip the tour` never
  * reaches the lesson, and without this they have just been handed an app they
  * cannot find again.
  *
@@ -220,7 +177,7 @@ export function onboardingRevealHintCopy(
         { text: "Press " },
         { text: "Shift+Ctrl+Space", typed: true },
         {
-          text: " any time, in any app — that brings Kavibay up. Press it again and everything is out of the way.",
+          text: " in any app to bring Kavibay up. Press it again to put everything away.",
         },
       ],
     };
@@ -230,7 +187,7 @@ export function onboardingRevealHintCopy(
       title: "The one thing to remember",
       segments: [
         {
-          text: `No keyboard shortcut was free on this machine, so ${TRAY_ONLY[platform]}`,
+          text: `No keyboard shortcut is free on this computer, so ${TRAY_ONLY[platform]}`,
         },
       ],
     };
@@ -241,7 +198,7 @@ export function onboardingRevealHintCopy(
       { text: "Tap " },
       { text: doubleTapKeyLabel(platform), typed: true },
       {
-        text: " twice, any time, in any app — that brings Kavibay up. Tap it twice again and everything is out of the way.",
+        text: " twice in any app to bring Kavibay up. Tap it twice again to put everything away.",
       },
     ],
   };
@@ -271,16 +228,16 @@ export function onboardingHotkeyFallbackCopy(
 ): OnboardingCopy {
   const cause =
     gesture !== "ctrlDoubleTap"
-      ? "That shortcut did not reach me; another program is most likely holding it. "
+      ? "The shortcut didn't come through. Another program is probably using it. "
       : platform === "mac"
-        ? "The double tap on ⌃ Control never made it through to me. "
-        : "The double tap needs to see your keyboard, and something on this machine is keeping it from me — an elevated window or a remote session will do that. ";
+        ? "The double tap on ⌃ Control didn't come through. "
+        : "The double tap didn't come through. Kavibay can't see the keyboard while an app running as administrator or a remote session has focus. ";
   const trayRoute =
     platform === "mac"
       ? "click the Kavibay icon in the menu bar and choose Open"
       : "double-click the Kavibay icon in the tray";
   return {
-    title: "That one did not reach me",
+    title: "Kavibay didn't get that",
     segments: [
       { text: `${cause}Two ways in that always work: ${trayRoute}, or hold ` },
       { text: "Ctrl+Space", typed: true },
@@ -289,29 +246,15 @@ export function onboardingHotkeyFallbackCopy(
   };
 }
 
-/**
- * Bubble copy for the active step.
- * Pass `hiddenWidgetName` on the restore step so the hint names the widget just hidden.
- */
+/** Bubble copy for the active step. */
 export function onboardingCopyForStep(
   step: OnboardingStep,
   platform: KeyPlatform,
-  opts?: { hiddenWidgetName?: string | null; revealGesture?: RevealGesture | null },
+  opts?: { revealGesture?: RevealGesture | null; afterSetupGesture?: boolean },
 ): OnboardingCopy {
-  if (step === 2) return onboardingHotkeyCopy(opts?.revealGesture ?? null, platform);
-  if (step === 6) return onboardingCoreDoneCopy();
-  if (step === 11) {
-    const name = opts?.hiddenWidgetName?.trim();
-    if (name) {
-      return {
-        title: "Bring it back",
-        segments: [
-          { text: "Search for " },
-          { text: name, typed: true },
-          { text: " and Show it — back on the desk in a flash." },
-        ],
-      };
-    }
+  if (step === 2) {
+    return onboardingHotkeyCopy(opts?.revealGesture ?? null, platform, opts?.afterSetupGesture);
   }
-  return fixedCopy(platform)[step];
+  if (step === 6) return onboardingDoneCopy();
+  return fixedCopy[step];
 }

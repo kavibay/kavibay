@@ -7,7 +7,6 @@ import {
   declinedState,
   defaultActiveState,
   stateAfterSetup,
-  ONBOARDING_CORE_DONE_STEP,
   ONBOARDING_DONE_STEP,
   ONBOARDING_HOTKEY_STEP,
   ONBOARDING_INTRO_STEP,
@@ -22,7 +21,6 @@ import {
 } from "./onboardingLogic";
 import {
   bumpCoachReveal,
-  lastHiddenWidgetName,
   loadStoredRaw,
   onboardingHydrated,
   onboardingReady,
@@ -45,13 +43,12 @@ function advanceIfStep(step: OnboardingStep) {
  *
  * EVERY WIDGET EVENT CARRIES ITS TYPE ID, AND THE FILTERING HAPPENS HERE.
  *
- * The tour teaches by having the user act on a widget they added *from* the
- * gallery, so the gallery's own move/resize/pin/hide/remove events must not
- * advance it. That used to be `if (typeId !== "gallery")` at nine call sites in
- * the host — the same rule restated once per event, with the widget's name
- * spelled into a file that has no other business knowing it, and nothing
- * connecting the nine to each other. A caller that forgot the guard would have
- * advanced the tour on the wrong action, silently.
+ * The gallery opening is one lesson and adding a widget from it is the next,
+ * so the gallery's own appearance must not count as "added a widget". That
+ * rule used to be restated as `if (typeId !== "gallery")` at each call site in
+ * the host, with the widget's name spelled into a file that has no other
+ * business knowing it; a caller that forgot the guard would have advanced the
+ * tour on the wrong action, silently.
  *
  * The host now reports what happened and to which type; which of those count is
  * this module's judgement, made once.
@@ -87,7 +84,6 @@ export function useOnboarding() {
     const storedRaw = loadStoredRaw();
     if (shouldAutoStartOnboarding({ firstOpenConsumed, storedRaw })) {
       onboardingState.value = defaultActiveState();
-      lastHiddenWidgetName.value = null;
       persistOnboardingState();
       bumpCoachReveal();
     }
@@ -149,7 +145,6 @@ export function useOnboarding() {
   function startAfterSetup() {
     if (loadStoredRaw() != null) return;
     onboardingState.value = stateAfterSetup();
-    lastHiddenWidgetName.value = null;
     persistOnboardingState();
     bumpCoachReveal();
   }
@@ -163,7 +158,6 @@ export function useOnboarding() {
   function declineTour() {
     if (loadStoredRaw() != null) return;
     onboardingState.value = declinedState();
-    lastHiddenWidgetName.value = null;
     persistOnboardingState();
   }
 
@@ -203,51 +197,6 @@ export function useOnboarding() {
     if (isGalleryWidget(typeId)) notifyGalleryVisible();
   }
 
-  /** Step 7: user dragged a widget. */
-  function notifyWidgetMoved(typeId: string) {
-    if (isGalleryWidget(typeId)) return;
-    advanceIfStep(7);
-  }
-
-  /** Step 8: user resized a widget. */
-  function notifyWidgetResized(typeId: string) {
-    if (isGalleryWidget(typeId)) return;
-    advanceIfStep(8);
-  }
-
-  /** Step 9: user toggled pin on a widget. */
-  function notifyPinToggled(typeId: string) {
-    if (isGalleryWidget(typeId)) return;
-    advanceIfStep(9);
-  }
-
-  /**
-   * Step 10: user hid a widget (data kept).
-   * `displayName` is remembered for the restore-step copy.
-   */
-  function notifyWidgetHidden(typeId: string, displayName: string) {
-    if (isGalleryWidget(typeId)) return;
-    const s = onboardingState.value;
-    if (s?.status === "active" && s.step === 10) {
-      const trimmed = displayName.trim();
-      lastHiddenWidgetName.value = trimmed.length > 0 ? trimmed : null;
-      onboardingState.value = advanceStep(s);
-      persistOnboardingState();
-    }
-  }
-
-  /** Step 11: user revealed a soft-hidden widget. */
-  function notifyWidgetRestored(typeId: string) {
-    if (isGalleryWidget(typeId)) return;
-    advanceIfStep(11);
-  }
-
-  /** Step 12: user removed a widget (data deleted). */
-  function notifyWidgetRemoved(typeId: string | undefined) {
-    if (!typeId || isGalleryWidget(typeId)) return;
-    advanceIfStep(12);
-  }
-
   /** Leave the welcome intro and start teaching step 1. */
   function acknowledgeIntro() {
     const s = onboardingState.value;
@@ -257,42 +206,11 @@ export function useOnboarding() {
     bumpCoachReveal();
   }
 
-  /**
-   * Take the six optional lessons offered by the core card.
-   *
-   * Plain `advanceStep`, because step 7 is simply what follows step 6 — the
-   * branch is in the card's two buttons, not in the state machine, and keeping
-   * it that way means `stepBack` out of the extras lands back on the offer.
-   */
-  function continueToExtras() {
-    const s = onboardingState.value;
-    if (s?.status !== "active" || s.step !== ONBOARDING_CORE_DONE_STEP) return;
-    onboardingState.value = advanceStep(s);
-    persistOnboardingState();
-    bumpCoachReveal();
-  }
-
-  /**
-   * Finish at the core card without taking the extras.
-   *
-   * `skipTour` under a different name, and the name matters: from here it is
-   * somebody who finished the tour, not somebody who abandoned it. The stored
-   * step records which of the two happened.
-   */
-  function finishAtCore() {
-    const s = onboardingState.value;
-    if (s?.status !== "active" || s.step !== ONBOARDING_CORE_DONE_STEP) return;
-    onboardingState.value = skipTour(s);
-    lastHiddenWidgetName.value = null;
-    persistOnboardingState();
-  }
-
-  /** Finish the completion card (Got it). */
+  /** Close the ending card. */
   function acknowledgeDone() {
     const s = onboardingState.value;
     if (s?.status !== "active" || s.step !== ONBOARDING_DONE_STEP) return;
     onboardingState.value = advanceStep(s);
-    lastHiddenWidgetName.value = null;
     persistOnboardingState();
   }
 
@@ -305,19 +223,17 @@ export function useOnboarding() {
     bumpCoachReveal();
   }
 
-  /** Dismiss the whole tour (skips the completion card). */
+  /** Dismiss the whole tour (skips the ending card). */
   function skipTourAction() {
     const s = onboardingState.value;
     if (s == null) return;
     onboardingState.value = skipTour(s);
-    lastHiddenWidgetName.value = null;
     persistOnboardingState();
   }
 
   /** Reset tour to the welcome intro (Settings → Replay Tour). */
   function replay() {
     onboardingState.value = replayOnboarding();
-    lastHiddenWidgetName.value = null;
     persistOnboardingState();
     kavibayCockpitOpen.value = true;
     bumpCoachReveal();
@@ -338,7 +254,6 @@ export function useOnboarding() {
     activeStep,
     statusLabel,
     progress,
-    lastHiddenWidgetName,
     persist: persistOnboardingState,
     startIfNeeded,
     startAfterSetup,
@@ -349,15 +264,7 @@ export function useOnboarding() {
     notifyGalleryVisible,
     notifyWidgetAdded,
     notifyWidgetVisible,
-    notifyWidgetMoved,
-    notifyWidgetResized,
-    notifyPinToggled,
-    notifyWidgetHidden,
-    notifyWidgetRestored,
-    notifyWidgetRemoved,
     acknowledgeIntro,
-    continueToExtras,
-    finishAtCore,
     acknowledgeDone,
     stepBack,
     skipTourAction,
