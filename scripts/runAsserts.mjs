@@ -3,7 +3,7 @@
  *
  * The project deliberately has no test framework (AGENTS.md): pure logic gets a
  * colocated assert file with plain node asserts. This is only the aggregator so
- * CI and humans have one entry point — `npm run test:assert`.
+ * CI and humans have one entry point — `pnpm run test:assert`.
  *
  * It keeps going after a failure and prints every broken file at the end. A
  * contributor should see all of them in one run, not one per push.

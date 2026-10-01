@@ -107,7 +107,7 @@ const splitCompounds = (selector) => selector.split(/[\s>+~]+/).filter(Boolean);
 
 if (!existsSync(EMBED_CSS)) {
   // Same courtesy `embedImportGuard.assert.mjs` extends: the bundle is a build
-  // artifact (`npm run build:embed`), not something a fresh clone has.
+  // artifact (`pnpm run build:embed`), not something a fresh clone has.
   console.log("scripts/landingCssIsolation.assert.mjs: skipped (no built embed CSS)");
   process.exit(0);
 }
