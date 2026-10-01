@@ -124,4 +124,24 @@ assert(extensionIdFromIntroPath("/extensions/notes/icon.svg") === null, "reject 
   assert(filterGalleryTiles(empty, "x", "tools").length === 0, "empty filter");
 }
 
+{
+  // Good first picks lead, in their own order, ahead of every video tile.
+  const entry = (id: string, pick?: number) => ({
+    id,
+    title: id,
+    description: "",
+    categories: [],
+    keywords: [],
+    pick,
+  });
+  const order = buildGalleryTiles(
+    [entry("alpha"), entry("zeta", 2), entry("beta"), entry("mid", 1)],
+    { alpha: "a.mp4" },
+  ).map((t) => t.id);
+  assert(
+    JSON.stringify(order) === JSON.stringify(["mid", "zeta", "alpha", "beta"]),
+    `picks first by rank, then video, then A→Z (got ${order.join(",")})`,
+  );
+}
+
 console.log("galleryLogic.assert.ts: ok");
