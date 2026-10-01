@@ -8,6 +8,7 @@ import {
   bestScore,
   clampBoardSize,
   createGame,
+  hostHudFontSize,
   isGridFull,
   normalizeHighScore,
   occupies,
@@ -22,6 +23,13 @@ function assert(cond: unknown, msg: string): asserts cond {
 }
 
 const fixedRng = () => 0;
+
+// A 389px LCD used to alternate 24/25px as the field switched 343/342px.
+assert(hostHudFontSize(389, 389) === 24, "HUD resolves the hidden-title rounding boundary once");
+assert(hostHudFontSize(200, 600) === 13, "a narrow LCD limits HUD size by width");
+assert(hostHudFontSize(600, 200) === 12, "a short LCD reserves room for the HUD");
+assert(hostHudFontSize(0, 0) === 11, "unmeasured LCD keeps the minimum font size");
+assert(hostHudFontSize(1000, 1000) === 28, "large LCD keeps the font size cap");
 
 const game = createGame(fixedRng);
 assert(game.phase === "ready", "initial phase");

@@ -11,6 +11,7 @@ import {
 } from "@sdk/mcp/mcpServerApi";
 import {
   buildClaudeCodeCommand,
+  buildClaudeDesktopConfigSnippet,
   buildCodexCommand,
   buildMcpUrl,
   MCP_DEFAULT_PORT,
@@ -202,13 +203,29 @@ onUnmounted(release);
               <code>{{ MCP_TOKEN_ENV_VAR }}</code>. A lost token can be replaced in Settings.
             </p>
             <p>For Codex, you can also copy the configuration from Settings.</p>
+            <!-- The chat app cannot take an HTTP server on localhost, so it
+                 needs a bridge. Folded: most people here use Claude Code or
+                 Codex, and the setup is long for the few who need it. -->
+            <details class="mcp-help-desktop">
+              <summary>Using the Claude Desktop chat? See how</summary>
+              <p>
+                It needs a small bridge and Node.js. Quit Claude from the tray
+                first (a running Claude overwrites the file), add the
+                <code>kavibay</code> entry to <code>mcpServers</code> in
+                <code>%APPDATA%\Claude\claude_desktop_config.json</code>, then
+                start Claude again.
+              </p>
+              <pre><code>{{ buildClaudeDesktopConfigSnippet(serverUrl, tokenRequired) }}</code></pre>
+            </details>
           </li>
           <li>
             <h3>Ask for a widget</h3>
             <p>Try this in your connected client:</p>
             <blockquote>
-              Use Kavibay MCP to read the authoring guide and create a water
-              tracker widget draft.
+              Use Kavibay MCP to read the authoring guide and create a habit
+              tracker widget draft: three habits I tick off daily, a 7-day
+              streak row per habit, and a quiet celebration when all three are
+              done.
             </blockquote>
             <p>
               The draft appears in this Wizard. Open it, review the preview,
@@ -420,6 +437,27 @@ blockquote {
 code {
   font-size: 11px;
   overflow-wrap: anywhere;
+}
+
+.mcp-help-desktop {
+  margin: 10px 0;
+}
+
+.mcp-help-desktop summary {
+  color: rgba(var(--fg-rgb), 0.7);
+  cursor: pointer;
+}
+
+.mcp-help-desktop summary:hover {
+  color: rgba(var(--fg-rgb), 0.95);
+}
+
+.mcp-help-desktop pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(var(--fg-rgb), 0.04);
+  white-space: pre-wrap;
 }
 
 blockquote {

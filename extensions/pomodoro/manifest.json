@@ -8,6 +8,7 @@
   "engines": { "kavibay": "^0.1" },
   "widgets": {
     "pomodoro": {
+      "galleryPick": 2,
       "replaces": "pomodoro",
       "keywords": ["pomodoro", "focus", "timer", "session"],
       "categories": ["productivity"],

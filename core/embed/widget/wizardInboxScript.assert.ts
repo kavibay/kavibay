@@ -65,26 +65,38 @@ assertEq(
 
 const manifest = JSON.parse(parsed.files.find((file) => file.path === "manifest.json")!.contents) as {
   name?: string;
-  widget?: { requires?: { providers?: string[] } };
+  widget?: { requires?: { providers?: { id: string; queries?: string[] }[] } };
 };
 assert(manifest.name === "inbox", "the contract field is name, not id");
 assert(
   JSON.stringify(manifest.widget?.requires?.providers) ===
-    JSON.stringify(["kavibay.linear/linear", "kavibay.github/github"]),
-  "the package asks for the two accounts the prompt named",
+    JSON.stringify([
+      { id: "kavibay.linear/linear", queries: ["assignedIssues"] },
+      { id: "kavibay.github/github", queries: ["reviewRequests"] },
+    ]),
+  "the package asks for the two accounts the prompt named, and names the query it reads from each",
 );
 
 const html = parsed.files.find((file) => file.path === "index.html")!.contents;
-assert(html.includes("@kavibay/runtime.js"), "the embed preview can inline the runtime");
-assert(html.includes("kavibay-widget"), "the script mounts into the host node");
+assert(html.includes('<script src="@kavibay/contract.js"></script>'), "a contract package loads the host's contract runtime");
+assert(!html.includes("type=\"module\""), "both scripts are classic, as contract-packages.md requires");
+assert(html.includes('id="kavibay-widget"'), "the runtime mounts into the host node");
 
 const script = parsed.files.find((file) => file.path === "widget.js")!.contents;
 assert(script.includes(INBOX_FINAL_MARKER), "the tour's finished-package marker is in the widget");
+assert(script.includes("kavibayWidget.define"), "the widget is defined through the contract runtime");
+assert(
+  script.includes('ctx.providers["kavibay.linear/linear"].query("assignedIssues"'),
+  "Linear rows come from the provider's assignedIssues query",
+);
+assert(
+  script.includes('ctx.providers["kavibay.github/github"].query("reviewRequests"'),
+  "GitHub rows come from the provider's reviewRequests query",
+);
+assert(!script.includes("ENG-"), "no issue is written into the package; the rows are the account's");
 assert(!script.includes('textContent = "Inbox"'), "the list does not repeat the card title");
 assert(script.includes("review requested"), "GitHub rows are pull-request review requests");
-assert(script.includes("ENG-"), "Linear rows carry issue identifiers");
 assert(script.includes("LINEAR_MARK") && script.includes("GITHUB_MARK"), "each row carries that account's mark");
-assert(!script.includes("ctx.providers"), "the preview has no provider bridge, so the rows are fixtures");
 
 function assertEq<T>(actual: T, expected: T, msg: string): void {
   if (actual !== expected) throw new Error(`${msg}: ${JSON.stringify(actual)} !== ${JSON.stringify(expected)}`);

@@ -18,7 +18,7 @@ double-click the tray icon to open it.
 
 ### Prerequisites
 
-- **Node 20+** and **Rust stable** ([rustup](https://rustup.rs/))
+- **Node 22.13+** with pnpm (`corepack enable`) and **Rust stable** ([rustup](https://rustup.rs/))
 - **Visual Studio Build Tools** with *Desktop development with C++*
 - **WebView2** — already on Windows 11; older Windows needs the Evergreen runtime
 
@@ -27,11 +27,11 @@ After installing rustup, open a *new* terminal or the build cannot find `cargo`.
 ### Development
 
 ```bash
-npm install
+pnpm install
 ```
 
 ```bash
-npm run tauri dev
+pnpm run tauri dev
 ```
 
 First start compiles the Rust backend and takes a few minutes. Later starts are
@@ -42,7 +42,7 @@ fast and the Vue side hot-reloads.
 Prebuilt downloads: *not published yet.* Build one yourself:
 
 ```bash
-npm run package:win:standalone
+pnpm run package:win:standalone
 ```
 
 A single `kavibay.exe` in `src-tauri/target/release/`. No installer, no registry.
@@ -52,7 +52,7 @@ A single `kavibay.exe` in `src-tauri/target/release/`. No installer, no registry
 Prebuilt downloads: *not published yet.* Build one yourself:
 
 ```bash
-npm run package:win
+pnpm run package:win
 ```
 
 NSIS setup in `src-tauri/target/release/bundle/nsis/`. Installs for the current
@@ -70,7 +70,7 @@ is saved in plaintext. See [SECURITY.md](../SECURITY.md#data-at-rest).
 
 ### Prerequisites
 
-- **Rust stable** ([rustup](https://rustup.rs/)) and **Node 20+** — the `node`
+- **Rust stable** ([rustup](https://rustup.rs/)) and **Node 22.13+** with pnpm (`corepack enable`) — the `node`
   from apt is usually too old for Vite 6, check with `node -v`
 - System libraries (Debian/Ubuntu):
 
@@ -80,8 +80,8 @@ sudo apt install build-essential curl wget file libwebkit2gtk-4.1-dev libxdo-dev
 
 Note `4.1` — the `4.0` package is for Tauri v1 and will not build this.
 
-Then `npm install` and `npm run tauri dev`, same as Windows. In a VM without GPU
-passthrough use `npm run dev:linux` instead; it silences a failing driver probe
+Then `pnpm install` and `pnpm run tauri dev`, same as Windows. In a VM without GPU
+passthrough use `pnpm run dev:linux` instead; it silences a failing driver probe
 (but makes nothing faster).
 
 ### Limitations
@@ -117,7 +117,7 @@ development. Packaging and a platform-specific first-run tour are outside this
 release; the current tour still uses the Windows `notepad` example.
 
 After changing the runtime package protocol or its CSP, run
-`npm run verify:webkit` on macOS. It opens an ephemeral WebKit instance and checks
+`pnpm run verify:webkit` on macOS. It opens an ephemeral WebKit instance and checks
 button clicks, storage across an iframe reload, gesture forwarding, rendered
 iframe sizes after live zoom changes, local assets and sandbox restrictions.
 It does not read or change your Kavibay profile. This catches

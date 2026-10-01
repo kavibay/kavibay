@@ -54,8 +54,8 @@ sandboxed package genuinely can't do the job.
 ```bash
 git clone https://github.com/aswetlow/kavibay
 cd kavibay
-npm ci
-npm run tauri dev
+pnpm install
+pnpm run tauri dev
 ```
 
 Toolchain prerequisites per OS: [`docs/getting-started.md`](docs/getting-started.md).
@@ -104,8 +104,8 @@ module groups kept sorted — it keeps merges from conflicting on every PR.
 ## Before you open the PR
 
 ```bash
-npm run verify        # typecheck + lint + all 75 assert files, ~1 min
-npm run verify:rust   # only if you touched src-tauri/
+pnpm run verify        # typecheck + lint + all 75 assert files, ~1 min
+pnpm run verify:rust   # only if you touched src-tauri/
 ```
 
 CI runs exactly these. If they're green locally, they're green there.
@@ -113,9 +113,9 @@ CI runs exactly these. If they're green locally, they're green there.
 Individual pieces, when you want a faster loop:
 
 ```bash
-npm run typecheck
-npm run lint
-npm run test:assert
+pnpm run typecheck
+pnpm run lint
+pnpm run test:assert
 npx tsx extensions/<id>/<name>Logic.assert.ts
 ```
 

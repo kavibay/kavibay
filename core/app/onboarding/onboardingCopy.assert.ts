@@ -8,14 +8,13 @@
  */
 import {
   onboardingCopyForStep,
-  onboardingCoreDoneCopy,
+  onboardingDoneCopy,
   onboardingHotkeyCopy,
   onboardingHotkeyFallbackCopy,
   onboardingRevealHintCopy,
   waitingPlace,
 } from "./onboardingCopy";
 import {
-  ONBOARDING_CORE_DONE_STEP,
   ONBOARDING_DONE_STEP,
   ONBOARDING_HOTKEY_STEP,
   type OnboardingStep,
@@ -84,7 +83,7 @@ const failedDoubleTap = onboardingHotkeyFallbackCopy("ctrlDoubleTap", "pc");
 assert(text(failedDoubleTap).includes("double tap"), "double-tap fallback blames the double tap");
 const failedElsewhere = onboardingHotkeyFallbackCopy("cursorHotkey", "pc");
 assert(
-  text(failedElsewhere).includes("another program"),
+  text(failedElsewhere).toLowerCase().includes("another program"),
   "accelerator fallback blames the program holding it",
 );
 for (const copy of [failedDoubleTap, failedElsewhere, onboardingHotkeyFallbackCopy(null, "pc")]) {
@@ -92,31 +91,26 @@ for (const copy of [failedDoubleTap, failedElsewhere, onboardingHotkeyFallbackCo
   assert(text(copy).includes("Ctrl+Space"), "every fallback names peek");
 }
 
-// The restore step names the widget the user just hid, when there is one.
-const RESTORE_STEP = 11;
-const restore = onboardingCopyForStep(RESTORE_STEP, "pc", { hiddenWidgetName: "  Clock  " });
+// Answering the setup card with the double tap already taught the gesture, so
+// the lesson picks up with the round trip instead of asking for it again.
+const roundTrip = onboardingHotkeyCopy("ctrlDoubleTap", "pc", true);
+assert(roundTrip.title !== doubleTap.title, "after the setup gesture the lesson reads as a follow-up");
+assert(text(roundTrip).includes("again"), "the follow-up still promises it all comes back");
 assert(
-  restore.segments.some((s) => s.typed && s.text === "Clock"),
-  "restore copy names the hidden widget, trimmed",
-);
-assert(
-  !onboardingCopyForStep(RESTORE_STEP, "pc", { hiddenWidgetName: "   " }).segments.some((s) => s.typed),
-  "a blank widget name falls back to the generic hint",
+  text(onboardingCopyForStep(ONBOARDING_HOTKEY_STEP, "pc", {
+    revealGesture: "ctrlDoubleTap",
+    afterSetupGesture: true,
+  })) === text(roundTrip),
+  "copyForStep routes the setup gesture to the follow-up",
 );
 
-// The core card is an ending that offers more, so it has to read as both.
-const coreDone = onboardingCopyForStep(ONBOARDING_CORE_DONE_STEP, "pc");
+// The ending card is an ending: nothing to skip, and it says where the tour lives.
+const done = onboardingCopyForStep(ONBOARDING_DONE_STEP, "pc");
+assert(text(done) === text(onboardingDoneCopy()), "copyForStep routes the ending to its own copy");
+assert(!text(done).toLowerCase().includes("skip"), "the ending does not offer to skip");
 assert(
-  text(coreDone) === text(onboardingCoreDoneCopy()),
-  "copyForStep routes the core card to its own copy",
-);
-assert(
-  !text(coreDone).toLowerCase().includes("skip"),
-  "the core card does not offer to skip something already finished",
-);
-assert(
-  text(coreDone).toLowerCase().includes("or take"),
-  "the core card offers the rest rather than continuing into it",
+  done.segments.some((s) => s.typed && s.text === "Replay Tour"),
+  "the ending names the command that brings the tour back",
 );
 
 // The welcome card's hint is the only mention of the gesture that everybody
@@ -141,8 +135,8 @@ assert(
   text(onboardingRevealHintCopy(null, "pc")).toLowerCase().includes("tray"),
   "with no keystroke the hint names the tray",
 );
-// A statement, not an instruction: performing the gesture on the card would
-// hide it before the autostart answer is committed.
+// A statement, not an instruction: the setup card shows this where the double
+// tap does not exist, so there is nothing for the card to make disappear.
 assert(
   !text(onboardingRevealHintCopy("ctrlDoubleTap", "pc")).includes("this card"),
   "the hint does not ask the user to make the card disappear",
@@ -152,7 +146,7 @@ assert(
 // for ⌘ first. Every place the tour names that key says so; a PC keeps "Ctrl".
 assert(
   text(onboardingHotkeyCopy("ctrlDoubleTap", "mac")) ===
-    "Tap ⌃ Control twice — everything disappears, this card included. Tap ⌃ Control twice again and it is all back. That is how you reach Kavibay from anywhere.",
+    "Tap ⌃ Control twice and everything disappears, this card included. Tap ⌃ Control twice again and it's all back. That's how you reach Kavibay from any app.",
   "the Mac lesson names ⌃ Control",
 );
 assert(
@@ -163,45 +157,35 @@ assert(
 );
 assert(
   text(onboardingHotkeyCopy("ctrlDoubleTap", "pc")) ===
-    "Tap Ctrl twice — everything disappears, this card included. Tap Ctrl twice again and it is all back. That is how you reach Kavibay from anywhere.",
-  "the PC lesson is unchanged",
+    "Tap Ctrl twice and everything disappears, this card included. Tap Ctrl twice again and it's all back. That's how you reach Kavibay from any app.",
+  "the PC lesson names Ctrl",
 );
 assert(
   text(onboardingRevealHintCopy("ctrlDoubleTap", "mac")) ===
-    "Tap ⌃ Control twice, any time, in any app — that brings Kavibay up. Tap it twice again and everything is out of the way.",
+    "Tap ⌃ Control twice in any app to bring Kavibay up. Tap it twice again to put everything away.",
   "the Mac hint names ⌃ Control",
 );
 assert(
   text(onboardingRevealHintCopy("ctrlDoubleTap", "pc")) ===
-    "Tap Ctrl twice, any time, in any app — that brings Kavibay up. Tap it twice again and everything is out of the way.",
-  "the PC hint is unchanged",
-);
-const PIN_STEP = 9;
-assert(
-  text(onboardingCopyForStep(PIN_STEP, "mac")).includes("with a double tap on ⌃ Control"),
-  "the Mac pin lesson names ⌃ Control",
-);
-assert(
-  text(onboardingCopyForStep(PIN_STEP, "pc")).includes("with a double tap on Ctrl"),
-  "the PC pin lesson names Ctrl",
+    "Tap Ctrl twice in any app to bring Kavibay up. Tap it twice again to put everything away.",
+  "the PC hint names Ctrl",
 );
 
 // With no keystroke at all, the Mac copy points at the menu bar icon, which
 // opens its menu on one click; the PC copy keeps the tray double click.
 assert(
   text(onboardingHotkeyCopy(null, "mac")) ===
-    "No keyboard shortcut is free on this machine, so the menu bar is your way in: click the Kavibay icon up there and choose Open, and the desk comes back. Worth knowing before anything else.",
+    "No keyboard shortcut is free on this computer, so use the menu bar instead: click the Kavibay icon and choose Open to bring it back.",
   "the Mac no-gesture lesson names the menu bar and Open",
 );
 assert(
   text(onboardingHotkeyCopy(null, "pc")) ===
-    "No keyboard shortcut is free on this machine, so the tray is your way in: double-click the Kavibay icon down by the clock and the desk comes back. Worth knowing before anything else.",
-  "the PC no-gesture lesson is unchanged",
+    "No keyboard shortcut is free on this computer, so use the tray instead: double-click the Kavibay icon next to the clock to bring it back.",
+  "the PC no-gesture lesson names the tray",
 );
 assert(
-  text(onboardingRevealHintCopy(null, "mac")) ===
-    "No keyboard shortcut was free on this machine, so the menu bar is your way in: click the Kavibay icon up there and choose Open, and the desk comes back.",
-  "the Mac no-gesture hint names the menu bar and Open",
+  text(onboardingRevealHintCopy(null, "mac")) === text(onboardingHotkeyCopy(null, "mac")),
+  "with no keystroke the hint and the lesson say the same thing",
 );
 
 // The Mac give-up copy names no cause: Secure Event Input was measured and does
@@ -209,20 +193,20 @@ assert(
 const macFailedDoubleTap = text(onboardingHotkeyFallbackCopy("ctrlDoubleTap", "mac"));
 assert(
   macFailedDoubleTap ===
-    "The double tap on ⌃ Control never made it through to me. Two ways in that always work: click the Kavibay icon in the menu bar and choose Open, or hold Ctrl+Space for a peek at your widgets.",
+    "The double tap on ⌃ Control didn't come through. Two ways in that always work: click the Kavibay icon in the menu bar and choose Open, or hold Ctrl+Space for a peek at your widgets.",
   "the Mac double-tap fallback says the tap did not arrive and names the menu bar",
 );
-assert(!macFailedDoubleTap.includes("elevated"), "the Mac fallback names no elevated window");
+assert(!macFailedDoubleTap.includes("administrator"), "the Mac fallback names no elevated window");
 assert(!macFailedDoubleTap.includes("remote session"), "the Mac fallback names no remote session");
 assert(!macFailedDoubleTap.includes("double-click"), "the Mac fallback asks for no double click");
 assert(
   text(failedDoubleTap) ===
-    "The double tap needs to see your keyboard, and something on this machine is keeping it from me — an elevated window or a remote session will do that. Two ways in that always work: double-click the Kavibay icon in the tray, or hold Ctrl+Space for a peek at your widgets.",
-  "the PC double-tap fallback is unchanged",
+    "The double tap didn't come through. Kavibay can't see the keyboard while an app running as administrator or a remote session has focus. Two ways in that always work: double-click the Kavibay icon in the tray, or hold Ctrl+Space for a peek at your widgets.",
+  "the PC double-tap fallback names the Windows causes",
 );
 assert(
   text(onboardingHotkeyFallbackCopy("cursorHotkey", "mac")) ===
-    "That shortcut did not reach me; another program is most likely holding it. Two ways in that always work: click the Kavibay icon in the menu bar and choose Open, or hold Ctrl+Space for a peek at your widgets.",
+    "The shortcut didn't come through. Another program is probably using it. Two ways in that always work: click the Kavibay icon in the menu bar and choose Open, or hold Ctrl+Space for a peek at your widgets.",
   "the Mac accelerator fallback names the menu bar",
 );
 

@@ -61,7 +61,7 @@ const normalized = normalizeState(
   opts,
 );
 assert(normalized.version === 1, "normalize version");
-assert(normalized.activeCategoryId === "nature", "normalize bad category");
+assert(normalized.activeCategoryId === DEFAULT_CATEGORY_ID, "normalize bad category");
 assert(normalized.volumes.birds === 1, "normalize clamp high");
 assert(normalized.volumes.thunder === 0.3, "normalize string volume");
 assert(!("rain-light" in normalized.volumes), "normalize strip zero after clamp");
@@ -70,7 +70,7 @@ assert(!("unknown" in normalized.volumes), "normalize drop unknown key");
 
 // null / non-object → empty
 const fromNull = normalizeState(null, opts);
-assert(fromNull.activeCategoryId === "nature" && Object.keys(fromNull.volumes).length === 0, "null → empty");
+assert(fromNull.activeCategoryId === DEFAULT_CATEGORY_ID && Object.keys(fromNull.volumes).length === 0, "null → empty");
 
 // keep valid category
 const keepCat = normalizeState({ activeCategoryId: "rain", volumes: {} }, opts);

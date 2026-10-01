@@ -3,7 +3,7 @@
   "name": "moodist",
   "version": "1.0.0",
   "displayName": "Moodist",
-  "description": "Mix looping ambient sounds for focused work.",
+  "description": "Mix rain, nature sounds and noise for focused work.",
   "author": "kavibay",
   "engines": { "kavibay": "^0.1" },
   "widgets": {

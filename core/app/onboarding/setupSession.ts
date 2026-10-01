@@ -94,3 +94,18 @@ export function finishSetup(): void {
   setupState.value = next;
   write(next);
 }
+
+/**
+ * Counts reveal gestures made while the setup card is up. The card answers
+ * them as "Show me around": the keystroke it asks for is the one that starts
+ * the tour, so the first thing a new user does with Kavibay is the thing they
+ * most need to remember. The host bumps it instead of hiding the window.
+ */
+export const setupGestureCount = ref(0);
+
+/**
+ * True once the card was answered with the double tap itself. The tour's
+ * hotkey lesson then picks up from there instead of asking for the gesture the
+ * user has just made. Session-only: after a restart the lesson is a fresh ask.
+ */
+export const setupAnsweredByGesture = ref(false);

@@ -42,6 +42,7 @@ export interface ContractCatalogMetadata {
   defaultSize?: { w: number; h: number };
   allowDuplicate?: boolean;
   flush?: boolean;
+  padding?: boolean;
   compact?: boolean;
   defaultHideTitle?: boolean;
   defaultScale?: number;
@@ -176,6 +177,7 @@ function toCatalogMetadata(entry: Record<string, unknown>): ContractCatalogMetad
     defaultSize: asSize(ui.defaultSize),
     allowDuplicate: asBool(ui.allowDuplicate),
     flush: asBool(ui.flush),
+    padding: asBool(ui.padding),
     compact: asBool(ui.compact),
     defaultHideTitle: asBool(ui.defaultHideTitle),
     defaultScale: typeof ui.defaultScale === "number" ? ui.defaultScale : undefined,

@@ -1,6 +1,6 @@
 //! Binding caller arguments to a declared endpoint.
 //!
-//! Design: `docs/superpowers/specs/2026-08-01-declarative-http-api-design.md` §6.
+//! Design: `docs/design/declarative-http-api.md` §6.
 //!
 //! This module is where a package's arguments meet a request, so it is the
 //! module that has to be paranoid. The invariant it exists to hold:

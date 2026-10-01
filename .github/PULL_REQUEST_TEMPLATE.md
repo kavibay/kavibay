@@ -13,7 +13,7 @@
 
 ## Checks
 
-- [ ] `npm run verify` is green (plus `npm run verify:rust` if you touched `src-tauri/`)
+- [ ] `pnpm run verify` is green (plus `pnpm run verify:rust` if you touched `src-tauri/`)
 - [ ] The manifest is honest — declared `commands` / `permissions` match what the code actually calls
 - [ ] Screenshot or GIF below, for anything visible
 

@@ -158,7 +158,10 @@ Three rules that follow from it being asynchronous and remote:
       const state = { goalMl: 2000, day: today(), totalMl: 0 };
 
       function today() {
-        return new Date().toISOString().slice(0, 10);
+        // The person's calendar day. toISOString() is UTC, which ends
+        // "today" at 1 or 2 a.m. in Europe.
+        const d = new Date();
+        return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
       }
 
       // 2. Everything that turns state into pixels lives in one function, so
@@ -437,5 +440,5 @@ of those, it is a first-party integration rather than a package — open an issu
 and describe the API.
 
 Related: [extension guide](extensions.md) ·
-[runtime extensions design](superpowers/specs/2026-07-22-runtime-extensions-design.md) ·
-[declarative HTTP design](superpowers/specs/2026-08-01-declarative-http-api-design.md)
+[runtime extensions design](design/runtime-extensions.md) ·
+[declarative HTTP design](design/declarative-http-api.md)

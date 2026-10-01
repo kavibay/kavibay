@@ -22,22 +22,24 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: Typecheck
-        run: npm run typecheck
+        run: pnpm run typecheck
 
       - name: Lint
-        run: npm run lint
+        run: pnpm run lint
 
       # Includes the repo guards: sandbox, import boundaries, manifests, SPDX, versions.
       - name: Assert tests
-        run: npm run test:assert
+        run: pnpm run test:assert
 
   # Rust runs on Windows, not Linux: large parts of src-tauri are behind
   # #[cfg(windows)] (the windows crate, winreg, DPAPI in security/secrets.rs), so a

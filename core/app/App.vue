@@ -9,7 +9,8 @@ import WidgetImportModal from "./runtime/WidgetImportModal.vue";
 import OnboardingCoach from "./onboarding/OnboardingCoach.vue";
 import OnboardingSetup from "./onboarding/OnboardingSetup.vue";
 import SettingsModal from "./settings/SettingsModal.vue";
-import { useSettingsModal } from "./settings/useSettingsModal";
+import FirstTimeTip from "./onboarding/FirstTimeTip.vue";
+import { useSettingsModal, type SettingsSectionId } from "./settings/useSettingsModal";
 import { useRegionSync } from "./system/clickThrough";
 import FloatingTipHost from "./system/FloatingTipHost.vue";
 import CommandHost from "./extension-host/ui/CommandHost.vue";
@@ -18,7 +19,7 @@ import { hostDismissHeld } from "@sdk";
 
 useRegionSync();
 
-const { open: settingsOpen, show: showSettings } = useSettingsModal();
+const { open: settingsOpen, show: showSettings, showSection } = useSettingsModal();
 let unlistenSettingsShow: UnlistenFn | undefined;
 
 /** Hide window on Esc unless Settings or a widget is holding the gesture. */
@@ -30,9 +31,11 @@ function onKeydown(event: KeyboardEvent) {
 
 onMounted(async () => {
   window.addEventListener("keydown", onKeydown);
-  // Tray → Settings: open the same modal as the palette Settings command.
-  unlistenSettingsShow = await listen("settings:show", () => {
-    showSettings();
+  // Tray → Settings: open the same modal as the palette Settings command,
+  // on a given section when the tray names one (Check for Updates → About).
+  unlistenSettingsShow = await listen<SettingsSectionId | null>("settings:show", ({ payload }) => {
+    if (payload) showSection(payload);
+    else showSettings();
   });
 });
 onUnmounted(() => {
@@ -53,6 +56,7 @@ onUnmounted(() => {
         <WidgetImportModal />
         <OnboardingCoach />
         <OnboardingSetup />
+        <FirstTimeTip />
         <DurableStorageNotice />
       </template>
     </WidgetHost>

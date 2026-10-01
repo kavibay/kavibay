@@ -65,6 +65,14 @@ assert(
   /\d/.test(formatModified(now - 30 * 86_400_000, now)),
   "older than a week becomes a date",
 );
+assert(
+  formatModified(Date.UTC(2020, 11, 2, 12), Date.UTC(2026, 8, 30)).includes("2020"),
+  "an earlier year keeps its year",
+);
+assert(
+  !formatModified(Date.UTC(2026, 8, 4, 12), Date.UTC(2026, 8, 30)).includes("2026"),
+  "this year drops the year",
+);
 assert(formatModified(null, now) === "", "unknown timestamp has no label");
 assert(formatModified(0, now) === "", "epoch zero is unknown, not 1970");
 

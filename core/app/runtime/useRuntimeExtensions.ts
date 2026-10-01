@@ -119,6 +119,7 @@ export function scannedToHostRef(
     allowDuplicate: true,
     position: { x: 0, y: 0 },
     flush: false,
+    ...(row.padding === false ? { padding: false } : {}),
     compact: false,
     defaultHideTitle: row.defaultHideTitle === true,
     defaultScale:
@@ -159,6 +160,7 @@ export function builtinToHostRef(ext: RegisteredExtension): HostExtensionRef {
     position: { ...ext.position },
     defaultSize: { ...ext.defaultSize },
     flush: ext.flush,
+    ...(ext.padding === false ? { padding: false } : {}),
     compact: ext.compact,
     defaultHideTitle: ext.defaultHideTitle,
     defaultScale: ext.defaultScale,

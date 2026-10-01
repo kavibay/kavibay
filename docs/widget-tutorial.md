@@ -20,7 +20,7 @@ flowchart TB
     settings1 -- yes --> tierM["Tier M<br/>+ instance store + Settings.vue"]
 ```
 
-After creating the files: restart `npm run tauri dev`, then add the widget from
+After creating the files: restart `pnpm run tauri dev`, then add the widget from
 the command palette (`Ctrl+Space`). The Vite glob only reruns on start, so a new
 folder needs a restart — editing an existing one hot-reloads.
 

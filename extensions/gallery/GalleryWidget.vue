@@ -48,6 +48,7 @@ const manifestModules = import.meta.glob("/extensions/*/manifest.json", {
         replaces?: string;
         categories?: string[];
         keywords?: string[];
+        galleryPick?: number;
       }
     >;
     categories?: string[];
@@ -86,6 +87,7 @@ const registryLite = computed((): GalleryRegistryEntry[] => {
               ? raw.keywords.filter((k): k is string => typeof k === "string")
               : [],
           videoId: raw.name,
+          pick: typeof widget.galleryPick === "number" ? widget.galleryPick : undefined,
         });
       }
       continue;
@@ -202,8 +204,9 @@ async function onAdd(id: string) {
           />
           <div class="gallery-tile-chrome">
             <div class="gallery-tile-meta">
+              <span v-if="tile.pick != null" class="gallery-tile-pick">Good first pick</span>
               <span
-                v-if="tile.categories.length"
+                v-else-if="tile.categories.length"
                 class="gallery-tile-categories"
               >{{ tile.categories.join(" · ") }}</span>
               <span class="gallery-tile-title">{{ tile.title }}</span>
@@ -396,6 +399,18 @@ async function onAdd(id: string) {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.gallery-tile-pick {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  /* The tile chrome sits on the intro video, so it is white like the rest of it. */
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .gallery-tile-categories {

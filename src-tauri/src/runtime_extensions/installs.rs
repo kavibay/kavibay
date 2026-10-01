@@ -1,7 +1,7 @@
 //! Rust-owned record of which runtime packages are enabled and what they were
 //! granted.
 //!
-//! Design: `docs/superpowers/specs/2026-08-01-declarative-http-api-design.md` §8.
+//! Design: `docs/design/declarative-http-api.md` §8.
 //!
 //! These records used to live in `localStorage`. That is fine while the only
 //! consumer is the frontend deciding what to render — but Rust builds the HTTP

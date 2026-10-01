@@ -34,6 +34,9 @@ assert(brandMarkFor("kavibay.weather/weather") === "open-meteo", "weather mark")
 assert(brandMarkFor("anthropicApi") === "anthropic", "anthropic credential type");
 assert(brandMarkFor("openaiApi") === "openai", "openai credential type");
 assert(brandMarkFor("cloudflareWorkersAi") === "cloudflare", "cloudflare credential type");
+for (const provider of ["anthropic", "openai", "cloudflare"]) {
+  assert(brandMarkFor(provider) === provider, `${provider} LLM provider id`);
+}
 assert(brandMarkFor(undefined) === undefined, "undefined key");
 assert(brandMarkFor("") === undefined, "empty key");
 

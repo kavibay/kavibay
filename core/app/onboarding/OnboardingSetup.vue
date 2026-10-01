@@ -23,8 +23,10 @@
  * anything happens, and closing the card without pressing it leaves the machine
  * untouched.
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onScopeDispose, ref, watch } from "vue";
 import { availableMonitors } from "@tauri-apps/api/window";
+import { holdHostDismiss } from "@sdk";
+import logo from "../../../src-tauri/icons/icon.svg";
 import { syncInteractiveRegions } from "../system/clickThrough";
 import { openMonitorOptions, type OpenMonitor } from "../settings/appearanceLogic";
 import { useAppearance } from "../settings/useAppearance";
@@ -32,7 +34,12 @@ import { revealGesture } from "../host/revealGesture";
 import { doubleTapKeyLabel, keyPlatform } from "../host/shortcutHints";
 import { onboardingRevealHintCopy, waitingPlace } from "./onboardingCopy";
 import { isSetupVisible, shouldOfferDisplayChoice } from "./setupLogic";
-import { finishSetup, setupState } from "./setupSession";
+import {
+  finishSetup,
+  setupAnsweredByGesture,
+  setupGestureCount,
+  setupState,
+} from "./setupSession";
 import { useAutostart } from "./useAutostart";
 import { useOnboarding } from "./useOnboarding";
 
@@ -64,6 +71,39 @@ const platform = keyPlatform();
 const doubleTapKey = doubleTapKeyLabel(platform);
 const openMonitors = openMonitorOptions(platform);
 const revealHint = computed(() => onboardingRevealHintCopy(revealGesture.value, platform));
+/** The double tap is a gesture the card can ask for, so it becomes the way in. */
+const asksForDoubleTap = computed(() => revealGesture.value === "ctrlDoubleTap");
+
+// Neither Escape nor a click beside the card may close it: the window would
+// hide with the question unanswered, and a new user has no way back yet.
+let releaseDismiss: (() => void) | null = null;
+watch(
+  visible,
+  (shown) => {
+    if (shown && !releaseDismiss) releaseDismiss = holdHostDismiss("onboarding setup card");
+    else if (!shown && releaseDismiss) {
+      releaseDismiss();
+      releaseDismiss = null;
+    }
+  },
+  { immediate: true },
+);
+onScopeDispose(() => releaseDismiss?.());
+
+// The host hands over the reveal gesture while the card is up; see `setupGestureCount`.
+watch(setupGestureCount, () => {
+  if (!visible.value) return;
+  setupAnsweredByGesture.value = true;
+  void onContinue();
+});
+
+/** Counts what the card actually asks on this machine; a fixed "two" was wrong on one screen. */
+const lead = computed(() => {
+  const questions = (autostartSupported.value ? 1 : 0) + (offerDisplayChoice.value ? 1 : 0);
+  const asks =
+    questions === 0 ? "One thing to remember" : questions === 1 ? "One question" : "Two questions";
+  return `Your launcher and your widgets, one keystroke away. ${asks}, then a short tour of about a minute.`;
+});
 
 const busy = ref(false);
 
@@ -123,13 +163,25 @@ async function commit(opts: { tour?: boolean } = {}) {
 <template>
   <div v-if="visible" class="setup" aria-live="polite">
     <div class="setup-card" data-interactive role="dialog" aria-label="Set up Kavibay">
-      <p class="setup-title">Hey — welcome to Kavibay</p>
-      <p class="setup-lead">
-        Your desk, your launcher, your little superpowers. Two quick things and
-        then a short tour — about a minute, and you’ll feel at home.
-      </p>
+      <div class="setup-head">
+        <img class="setup-logo" :src="logo" alt="" width="40" height="40" />
+        <p class="setup-title">Welcome to Kavibay</p>
+      </div>
+      <p class="setup-lead">{{ lead }}</p>
 
-      <section class="setup-hint">
+      <section v-if="asksForDoubleTap" class="setup-gesture">
+        <div class="setup-keys" aria-hidden="true">
+          <kbd class="setup-keycap">{{ doubleTapKey }}</kbd>
+          <kbd class="setup-keycap">{{ doubleTapKey }}</kbd>
+        </div>
+        <p class="setup-gesture-title">Tap {{ doubleTapKey }} twice to start the tour</p>
+        <p class="setup-gesture-body">
+          Remember this one: it brings Kavibay up from any app, and tapping it
+          twice again puts everything out of the way.
+        </p>
+      </section>
+
+      <section v-else class="setup-hint">
         <p class="setup-hint-title">{{ revealHint.title }}</p>
         <p class="setup-hint-body">
           <template v-for="(seg, i) in revealHint.segments" :key="i">
@@ -183,8 +235,14 @@ async function commit(opts: { tour?: boolean } = {}) {
         <button type="button" class="setup-skip" :disabled="busy" @click="onSkipTour">
           Skip the tour
         </button>
-        <button type="button" class="setup-continue" :disabled="busy" @click="onContinue">
-          Show me around
+        <button
+          type="button"
+          class="setup-continue"
+          :class="{ 'setup-continue--quiet': asksForDoubleTap }"
+          :disabled="busy"
+          @click="onContinue"
+        >
+          {{ asksForDoubleTap ? "Or click here" : "Show me around" }}
         </button>
       </div>
     </div>
@@ -205,13 +263,27 @@ async function commit(opts: { tour?: boolean } = {}) {
 
 .setup-card {
   width: min(420px, calc(100vw - 48px));
-  padding: 20px 22px;
+  padding: 22px 24px;
   color: rgba(var(--fg-rgb), 0.92);
-  background: rgba(var(--surface-bg-rgb), 0.92);
-  border-radius: var(--surface-radius, 16px);
+  /* Opaque: the card floats over whatever app is behind it, and text read
+     through a busy terminal or page was hard to make out. */
+  background: rgb(var(--surface-bg-rgb));
+  border-radius: var(--surface-radius, 32px);
+  corner-shape: var(--surface-corner-shape, round);
   box-shadow: var(--surface-box-shadow);
   backdrop-filter: var(--surface-backdrop-filter, blur(16px));
   pointer-events: auto;
+}
+
+.setup-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.setup-logo {
+  flex: none;
+  border-radius: 10px;
 }
 
 .setup-title {
@@ -222,10 +294,10 @@ async function commit(opts: { tour?: boolean } = {}) {
 }
 
 .setup-lead {
-  margin: 6px 0 0;
+  margin: 12px 0 0;
   font-size: 13px;
   line-height: 1.45;
-  color: rgba(var(--fg-rgb), 0.55);
+  color: rgba(var(--fg-rgb), 0.7);
 }
 
 /* The card's centre of gravity: a panel, not a third setting. */
@@ -235,6 +307,75 @@ async function commit(opts: { tour?: boolean } = {}) {
   border-radius: 14px;
   background: rgba(var(--fg-rgb), 0.06);
   box-shadow: inset 0 0 0 1px rgba(var(--fg-rgb), 0.09);
+}
+
+/* The one gesture worth remembering, asked for rather than described. */
+.setup-gesture {
+  margin-top: 18px;
+  padding: 20px 16px 18px;
+  border-radius: 20px;
+  corner-shape: var(--surface-corner-shape, round);
+  background: rgba(var(--fg-rgb), 0.06);
+  box-shadow: inset 0 0 0 1px rgba(var(--fg-rgb), 0.1);
+  text-align: center;
+}
+
+.setup-keys {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.setup-keycap {
+  min-width: 64px;
+  padding: 10px 14px 12px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  color: rgb(var(--fg-rgb));
+  background: rgba(var(--fg-rgb), 0.1);
+  border: 1px solid rgba(var(--fg-rgb), 0.24);
+  border-bottom-width: 3px;
+  border-radius: 10px;
+  animation: setup-tap 1.6s ease-in-out infinite;
+}
+
+/* Two taps in quick succession, then a rest: the rhythm of the gesture. */
+.setup-keycap:nth-child(2) {
+  animation-delay: 0.22s;
+}
+
+@keyframes setup-tap {
+  0%,
+  10%,
+  100% {
+    transform: none;
+    border-bottom-width: 3px;
+  }
+  5% {
+    transform: translateY(2px);
+    border-bottom-width: 1px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .setup-keycap {
+    animation: none;
+  }
+}
+
+.setup-gesture-title {
+  margin: 14px 0 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.setup-gesture-body {
+  margin: 6px auto 0;
+  max-width: 320px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: rgba(var(--fg-rgb), 0.6);
 }
 
 .setup-hint-title {
@@ -296,7 +437,7 @@ async function commit(opts: { tour?: boolean } = {}) {
 .toggle-hint {
   font-size: 12px;
   line-height: 1.4;
-  color: rgba(var(--fg-rgb), 0.45);
+  color: rgba(var(--fg-rgb), 0.6);
 }
 
 .setup-block {
@@ -313,7 +454,7 @@ async function commit(opts: { tour?: boolean } = {}) {
   margin: 4px 0 0;
   font-size: 12px;
   line-height: 1.4;
-  color: rgba(var(--fg-rgb), 0.45);
+  color: rgba(var(--fg-rgb), 0.6);
 }
 
 .choice-row {
@@ -363,7 +504,7 @@ async function commit(opts: { tour?: boolean } = {}) {
   padding: 0;
   border: 0;
   background: none;
-  color: rgba(var(--fg-rgb), 0.5);
+  color: rgba(var(--fg-rgb), 0.65);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
@@ -390,6 +531,14 @@ async function commit(opts: { tour?: boolean } = {}) {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+}
+
+/* The keyboard is the way forward; the button is there for whoever prefers a click. */
+.setup-continue--quiet {
+  background: rgba(var(--fg-rgb), 0.06);
+  box-shadow: none;
+  color: rgba(var(--fg-rgb), 0.75);
+  font-weight: 500;
 }
 
 .setup-continue:disabled {

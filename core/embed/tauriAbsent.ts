@@ -30,3 +30,11 @@ export const once = absent("once");
 export const getCurrentWindow = absent("getCurrentWindow");
 export const homeDir = absent("homeDir");
 export const open = absent("open");
+
+/** A class, because callers `new` it; same contract as the functions above. */
+export class Channel {
+  onmessage: (message: unknown) => void = () => {};
+  constructor() {
+    absent("Channel")();
+  }
+}

@@ -54,6 +54,8 @@ const props = defineProps<{
   shareFeedback?: string;
   picking?: boolean;
   debugTarget?: HTMLElement | null;
+  /** Declared so it is not passed through as an attribute; the demo draws no ring. */
+  working?: boolean;
 }>();
 
 const emit = defineEmits<{

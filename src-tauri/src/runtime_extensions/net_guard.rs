@@ -1,6 +1,6 @@
 //! Which resolved addresses a package may reach.
 //!
-//! Design: `docs/superpowers/specs/2026-08-01-declarative-http-api-design.md` §6.3.
+//! Design: `docs/design/declarative-http-api.md` §6.3.
 //!
 //! A declared host is a name, never a literal address (the declaration validator
 //! enforces that). But a name can resolve anywhere, including back into this

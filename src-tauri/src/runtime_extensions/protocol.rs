@@ -99,12 +99,20 @@ fn file_response(
     } else {
         bytes
     };
-    Response::builder()
+    let mut response = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
         .header(header::CONTENT_SECURITY_POLICY, EXTENSION_FRAME_CSP)
         .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
-        .header(header::CACHE_CONTROL, "no-store")
+        .header(header::CACHE_CONTROL, "no-store");
+    // The palette draws a package's icon as a CSS mask, and a mask is always
+    // fetched in CORS mode — from the app's origin, not this one. Without the
+    // header the icon is refused and its tile renders empty. Images only: a
+    // package's scripts and documents stay readable to nobody but its frame.
+    if content_type.starts_with("image/") {
+        response = response.header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+    }
+    response
         .body(bytes)
         .unwrap_or_else(|_| status_response(StatusCode::INTERNAL_SERVER_ERROR))
 }
@@ -463,6 +471,22 @@ mod tests {
                 "no-store"
             );
         }
+    }
+
+    /// The palette masks package icons with CSS, which fetches in CORS mode;
+    /// only images open up, scripts and documents stay closed.
+    #[test]
+    fn only_images_are_readable_across_origins() {
+        let cors = |content_type| {
+            super::file_response(b"x".to_vec(), content_type, false)
+                .headers()
+                .get(tauri::http::header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .map(|v| v.to_str().unwrap().to_string())
+        };
+        assert_eq!(cors("image/svg+xml").as_deref(), Some("*"));
+        assert_eq!(cors("image/png").as_deref(), Some("*"));
+        assert_eq!(cors("text/javascript"), None);
+        assert_eq!(cors("text/html; charset=utf-8"), None);
     }
 
     /// Every file a frame can navigate to carries the frame CSP — an SVG is a

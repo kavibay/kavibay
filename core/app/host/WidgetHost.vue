@@ -113,7 +113,13 @@ import {
 import { usePaletteWidgetPrefs } from "../settings/usePaletteWidgetPrefs";
 import { withBackgroundWidgets } from "./backgroundWidgets";
 import { useOnboarding } from "../onboarding/useOnboarding";
-import { setupState, startSetupIfNeeded } from "../onboarding/setupSession";
+import { setupGestureCount, setupState, startSetupIfNeeded } from "../onboarding/setupSession";
+import { backgroundHintOnStart } from "../onboarding/backgroundHint";
+import {
+  armFirstTimeTips,
+  showWidgetHiddenTip,
+  showWidgetPinnedTip,
+} from "../onboarding/firstTimeTips";
 import { isSetupVisible } from "../onboarding/setupLogic";
 import { isGalleryWidget, WIDGET_WIZARD_ID } from "./builtinWidgetIds";
 import { pruneConnections } from "../settings/credentials/connections";
@@ -1109,10 +1115,6 @@ function onPointerUp(event: PointerEvent) {
     onMoveToPanel(movedWidgetId);
     return;
   }
-  if (movedWidgetId) {
-    const moved = instances.find((item) => item.instanceId === movedWidgetId);
-    if (moved) onboarding.notifyWidgetMoved(moved.typeId);
-  }
 }
 
 /** Duplicate one instance on the active desk and run onDuplicate. */
@@ -1210,9 +1212,8 @@ function onHide(instanceId: string) {
   persist();
   scheduleRegionSync();
   focusPaletteIfNoCardsLeft();
-  const def = defFor(instance.typeId);
-  const displayName = instance.title?.trim() || def?.title || instance.typeId;
-  onboarding.notifyWidgetHidden(instance.typeId, displayName);
+  const displayName = instance.title?.trim() || defFor(instance.typeId)?.title || instance.typeId;
+  showWidgetHiddenTip(displayName);
 }
 
 /** Click into the palette makes it the active surface again (above all cards). */
@@ -1267,7 +1268,6 @@ function onTogglePin(instanceId: string) {
   if (instance.pinned) {
     delete instance.pinned;
     persist();
-    onboarding.notifyPinToggled(instance.typeId);
     // Unpin in pinned-only mode: keep the card up until the user dismisses.
     if (!cockpitOpen.value) {
       void openCockpit();
@@ -1279,7 +1279,7 @@ function onTogglePin(instanceId: string) {
 
   instance.pinned = true;
   persist();
-  onboarding.notifyPinToggled(instance.typeId);
+  showWidgetPinnedTip();
   scheduleRegionSync();
 }
 
@@ -1570,7 +1570,6 @@ function onRevealWidget(instanceId: string) {
   if (wasHidden && instance.pinned) {
     runExtensionHook(getExtension(instance.typeId), "onResume", instance.instanceId);
   }
-  if (wasHidden) onboarding.notifyWidgetRestored(instance.typeId);
   onboarding.notifyWidgetVisible(instance.typeId);
   scheduleRegionSync();
 }
@@ -2247,6 +2246,12 @@ onMounted(async () => {
     (event) => {
       lastRustHotkeyAt = Date.now();
       const revealed = event.payload?.revealed === true;
+      // The setup card asks for this very gesture to start the tour; hiding
+      // the window would take the card away mid-question.
+      if (!revealed && isSetupVisible(setupState.value)) {
+        setupGestureCount.value++;
+        return;
+      }
       onPaletteHotkey(revealed);
       // The tour's hotkey step is passed here and nowhere else: this is the only
       // path on which Rust reports *which* gesture brought a hidden window back.
@@ -2312,6 +2317,12 @@ onMounted(async () => {
   } else if (firstOpen) {
     void revealFirstRun();
   }
+  // Armed on the first open; shown on a later start, but not while the setup
+  // card is up, since that start already shows the window.
+  if (firstOpen || !isSetupVisible(setupState.value)) backgroundHintOnStart(firstOpen);
+  // Widget chrome is taught by tips at first use rather than by the tour, and
+  // only to profiles that start now: a long-time user knows the cards.
+  if (firstOpen) armFirstTimeTips();
   warmDeskViewsWhenIdle();
 });
 
@@ -2452,7 +2463,6 @@ async function kavibayRemoveWidget(
   persist();
   scheduleRegionSync();
   focusPaletteIfNoCardsLeft();
-  onboarding.notifyWidgetRemoved(typeId);
 }
 
 /**
@@ -2563,7 +2573,6 @@ function onResizeInstanceEnd() {
   scheduleRegionSync();
   if (resizedId) {
     const resized = instances.find((item) => item.instanceId === resizedId);
-    if (resized) onboarding.notifyWidgetResized(resized.typeId);
     // Remember at gesture end, not per frame — the size someone settled on.
     if (resized && typeof resized.width === "number") {
       rememberTypeSize(resized.typeId, {

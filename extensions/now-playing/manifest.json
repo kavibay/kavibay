@@ -8,6 +8,7 @@
   "engines": { "kavibay": "^0.1" },
   "widgets": {
     "now-playing": {
+      "galleryPick": 3,
       "replaces": "now-playing",
       "keywords": ["music", "media", "now playing", "spotify"],
       "categories": ["media"],

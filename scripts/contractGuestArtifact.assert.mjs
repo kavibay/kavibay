@@ -21,7 +21,7 @@ try {
   built = readFileSync(TARGET, "utf8");
 } catch {
   throw new Error(
-    "sdk/contract-guest/kavibay-contract-guest.js is missing. Run `npm run build:guest` — it is committed on purpose, because Rust embeds it at compile time.",
+    "sdk/contract-guest/kavibay-contract-guest.js is missing. Run `pnpm run build:guest` — it is committed on purpose, because Rust embeds it at compile time.",
   );
 }
 
@@ -33,10 +33,10 @@ const declared = built
   .find((line) => line.startsWith(HASH_MARKER))
   ?.slice(HASH_MARKER.length)
   .trim();
-assert(declared, "the built guest carries no source fingerprint; rebuild with `npm run build:guest`");
+assert(declared, "the built guest carries no source fingerprint; rebuild with `pnpm run build:guest`");
 assert(
   declared === sourceHash(),
-  "sdk/contract-guest/kavibay-contract-guest.js is stale: guest.ts or sandbox-guest.ts changed since it was built. Run `npm run build:guest`.",
+  "sdk/contract-guest/kavibay-contract-guest.js is stale: guest.ts or sandbox-guest.ts changed since it was built. Run `pnpm run build:guest`.",
 );
 
 // --- classic, not a module ---
