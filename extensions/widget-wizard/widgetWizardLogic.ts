@@ -2239,6 +2239,21 @@ export interface WizardFault {
   where?: string;
 }
 
+/**
+ * A fault the package's own code caused, as opposed to its circumstances.
+ *
+ * Those are the faults worth fixing without asking: a ReferenceError or a
+ * `null.addEventListener` is the model's mistake on every machine. A network
+ * error, a missing token or a provider outage is not, and regenerating the
+ * widget would not touch it — those stay an offer the person decides on.
+ */
+export function isCodeFault(fault: WizardFault): boolean {
+  if (fault.source === "console") return false;
+  return /\b(ReferenceError|TypeError|SyntaxError|RangeError)\b|is not defined|is not a function|Cannot (read|set) propert/.test(
+    fault.message,
+  );
+}
+
 /** One runtime fault, phrased as something to fix rather than something to read. */
 export function faultProblem(fault: WizardFault): string {
   const where = fault.where ? ` at ${fault.where}` : "";

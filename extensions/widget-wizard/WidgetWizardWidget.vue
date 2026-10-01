@@ -96,6 +96,7 @@ import {
   sampleBody,
   faultProblem,
   type WidgetScope,
+  isCodeFault,
   repairTurnFor,
   attachmentProblem,
   base64FromDataUrl,
@@ -2987,6 +2988,12 @@ async function runTurn(mine: number, id: string, repairsLeft: number, repairFile
   // and an offer for the version being replaced is one the person would be
   // reading about a widget that no longer exists.
   if (outcome.written) offerEnable(id, merged);
+  // A clean write: its first code fault in the preview may be repaired
+  // without asking (see `onPreviewFault`). Not after an automatic repair, so
+  // a fix that throws again is offered rather than sent round again.
+  if (outcome.written && outcome.problems.length === 0 && !autoRepairing) {
+    autoRepairArmedFor.value = previewNonce.value;
+  }
 }
 
 /**
@@ -3355,16 +3362,53 @@ const faultOfferedFor = ref(-1);
  * knows whether the token is set or the API is up.
  */
 function onPreviewFault(fault: PreviewFault) {
-  // Mid-turn faults belong to a package that is already being replaced.
-  if (busy.value || !session.value.packageId) return;
+  // The preview of a fresh generation mounts while its turn is still settling,
+  // so its first fault arrives with `busy` set. Kept for that version and
+  // looked at once the turn has ended; a later version replaces it.
+  if (busy.value) {
+    if (autoRepairArmedFor.value === previewNonce.value) {
+      deferredFault = { fault, nonce: previewNonce.value };
+    }
+    return;
+  }
+  if (!session.value.packageId) return;
   if (faultOfferedFor.value === previewNonce.value) return;
   faultOfferedFor.value = previewNonce.value;
 
   const problem = faultProblem(fault);
-  session.value.bubbles.push({ role: "system", text: problem, repair: { problems: [problem] } });
+  const bubble: WizardBubble = { role: "system", text: problem, repair: { problems: [problem] } };
+  session.value.bubbles.push(bubble);
   scrollDown();
   void save(session.value);
+
+  // A code fault in the version just generated is the model's own mistake:
+  // send it back once without waiting for a click. Once — a repair that throws
+  // again is offered like any other fault, never looped on.
+  if (autoRepairArmedFor.value === previewNonce.value && isCodeFault(fault)) {
+    autoRepairArmedFor.value = -1;
+    autoRepairing = true;
+    void repairFromBubble(bubble).finally(() => {
+      autoRepairing = false;
+    });
+  }
 }
+
+/**
+ * The preview version whose first code fault is repaired automatically, or -1.
+ *
+ * Armed when a turn writes a package that passed every check, so it covers
+ * what the model just produced and nothing the person changed by hand.
+ */
+const autoRepairArmedFor = ref(-1);
+let autoRepairing = false;
+let deferredFault: { fault: PreviewFault; nonce: number } | null = null;
+
+watch(busy, (isBusy) => {
+  if (isBusy || !deferredFault) return;
+  const pending = deferredFault;
+  deferredFault = null;
+  if (pending.nonce === previewNonce.value) onPreviewFault(pending.fault);
+});
 
 /**
  * Send one offered fault back to the model.
