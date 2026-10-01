@@ -1,6 +1,6 @@
 //! Validation of a runtime package's `api.json` (declarative HTTP endpoints).
 //!
-//! Design: `docs/superpowers/specs/2026-08-01-declarative-http-api-design.md`.
+//! Design: `docs/design/declarative-http-api.md`.
 //! This is step D0 — the format and its validators. **Nothing here performs a
 //! request**; the host-side call path lands in D1.
 //!

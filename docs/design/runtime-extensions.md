@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-22  
 **Status:** Approved  
-**Supersedes / extends:** `2026-07-18-extension-system-design.md` (first-party build-time only; runtime was out of scope)
+**Extends:** the first-party extension system ([extensions.md](../extensions.md)), which was build-time only.
 
 ## Goal
 
@@ -180,7 +180,7 @@ flag, not a per-package protocol origin.
 `sandbox="allow-scripts"`.
 
 **Manual probe:** install `examples/ipc-probe/` (see
-[extensions.md](../../extensions.md)). Expected output — every row **PASS**
+[extensions.md](../extensions.md)). Expected output — every row **PASS**
 (blocked):
 
 | Check | Expected |

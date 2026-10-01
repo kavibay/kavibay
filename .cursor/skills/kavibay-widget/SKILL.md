@@ -18,7 +18,7 @@ mistakes that are invisible until the browser loads the module. Much of
 `reference.md` still describes the retired `index.ts` format — where the two
 disagree, `docs/extension-host.md` is right.
 
-Canonical contract: `docs/superpowers/specs/2026-07-18-extension-system-design.md`.  
+Canonical contract: `sdk/extension/types.ts` (manifest) and `sdk/extension/contract/sdk.ts` (contract packages).  
 Patterns and checklists: [reference.md](reference.md).
 
 **Editing `docs/runtime-packages.md` or `docs/DESIGN.md`?** Both are embedded

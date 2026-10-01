@@ -22,7 +22,7 @@ scaffold CLIs, no new test frameworks.
 | `sdk/runtime/` | postMessage SDK for sandboxed packages; the host serves it as `@kavibay/runtime.js` | MIT |
 | `extensions/` | First-party widgets, compiled into the app | MIT |
 | `examples/` | Runtime package templates + probes (`runtime-extension-s`, `ipc-probe`) | MIT |
-| `docs/` | Guides + `superpowers/{specs,plans}` | CC-BY-4.0 |
+| `docs/` | Guides + `design/` (design rationale) | CC-BY-4.0 |
 | `scripts/` | Repo guards / tooling | GPL-3.0-or-later |
 
 Licensing rules that constrain code changes:
@@ -85,8 +85,7 @@ run via `tsx`); Rust uses `#[cfg(test)]` modules. **No vitest / jest.**
 extension manifests, extension actions, SPDX headers, version sync).
 
 CI (`.github/workflows/ci.yml`) runs `verify` on Ubuntu and the Rust half on Windows —
-`src-tauri` is too `#[cfg(windows)]`-heavy for a Linux job to prove much. Plan and
-rationale: `docs/superpowers/plans/2026-08-08-ci-cd-open-source.md`.
+`src-tauri` is too `#[cfg(windows)]`-heavy for a Linux job to prove much.
 
 ## Architecture in 8 lines
 
@@ -189,21 +188,15 @@ rationale: `docs/superpowers/plans/2026-08-08-ci-cd-open-source.md`.
 - Widget/extension how-to: `docs/widget-tutorial.md` (walkthrough) and
   `docs/extensions.md` (reference); agent workflow + S/M/L tiers:
   `.cursor/skills/kavibay-widget/SKILL.md`; canonical contract:
-  `docs/superpowers/specs/2026-07-18-extension-system-design.md`.
+  `sdk/extension/types.ts` and `sdk/extension/contract/sdk.ts`.
+- Why the sandbox is built the way it is: `docs/design/runtime-extensions.md`
+  (threat model) and `docs/design/declarative-http-api.md` (declared endpoints).
 - `docs/runtime-packages.md` and `docs/DESIGN.md` are compiled into the Widget
   Wizard's system prompt (`src-tauri/src/wizard/prompt.rs`, `include_str!`) —
   editing them changes model behaviour, and moving them breaks the build.
-- Active roadmap: `docs/superpowers/plans/2026-07-23-architecture-security-hardening.md`
-  (P0–P2 ✅ or superseded; open: `http:` in the main CSP's `img-src`, and P3) and
-  `docs/superpowers/plans/2026-07-23-repo-structure-licensing.md` (restructure ✅).
-  After finishing a phase: run its verify steps, then mark it done in the plan doc
-  with a short completion note.
-- Landing demo, widget-store preconditions and the browser runtime:
-  `docs/superpowers/plans/2026-08-28-landing-demo-and-web-runtime.md` (L0–L1
-  done 2026-08-28; L2 not started).
-  Read its §3 before estimating anything about bundle size or what runs without
-  Tauri — those numbers are measured, and three of them contradict what the code
-  suggests.
+- Roadmap, open work and plans are tracked outside the repo. Do not add plan
+  files under `docs/`; `docs/superpowers/` is gitignored for skills that write
+  plans there.
 
 ## Definition of done (any change)
 

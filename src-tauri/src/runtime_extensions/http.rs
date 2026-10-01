@@ -1,6 +1,6 @@
 //! Executing a package's declared endpoint.
 //!
-//! Design: `docs/superpowers/specs/2026-08-01-declarative-http-api-design.md` §6–7.
+//! Design: `docs/design/declarative-http-api.md` §6–7.
 //!
 //! Everything a package can influence has already been validated by the time a
 //! request is built here: the declaration comes from disk (`api_declaration`),

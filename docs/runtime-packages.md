@@ -437,5 +437,5 @@ of those, it is a first-party integration rather than a package — open an issu
 and describe the API.
 
 Related: [extension guide](extensions.md) ·
-[runtime extensions design](superpowers/specs/2026-07-22-runtime-extensions-design.md) ·
-[declarative HTTP design](superpowers/specs/2026-08-01-declarative-http-api-design.md)
+[runtime extensions design](design/runtime-extensions.md) ·
+[declarative HTTP design](design/declarative-http-api.md)

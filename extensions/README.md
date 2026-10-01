@@ -16,7 +16,7 @@ the widget catalog — `confetti` and `kill-port` are the current pair. Their
 metadata lives in `manifest.json` and their handlers in `extension.ts`.
 
 - **Untrusted drop-ins:** [../docs/runtime-packages.md](../docs/runtime-packages.md)
-- **Design contract:** [../docs/superpowers/specs/2026-07-18-extension-system-design.md](../docs/superpowers/specs/2026-07-18-extension-system-design.md)
+- **Design contract:** [../docs/extensions.md](../docs/extensions.md) and [../docs/extension-host.md](../docs/extension-host.md)
 
 Add a widget from the command palette (tap `Ctrl` twice) or from the **Widget
 Gallery** widget.

@@ -92,7 +92,7 @@ Every widget is a first-party **extension** under `src/extensions/<id>/`:
 
 Host chrome lives in `src/core/host/` and must not contain `typeId` switches — lifecycle is dispatched via extension hooks. Layout `typeId`s stay stable across renames of the packaging system.
 
-See `docs/superpowers/specs/2026-07-18-extension-system-design.md`.
+See `docs/extensions.md` for the current contract.
 
 ### Verantwortlichkeiten (strikt getrennt)
 
