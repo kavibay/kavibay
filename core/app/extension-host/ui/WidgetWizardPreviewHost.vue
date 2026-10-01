@@ -44,6 +44,8 @@ const props = defineProps<{
   shareFeedback?: string;
   picking?: boolean;
   debugTarget?: HTMLElement | null;
+  /** A turn is reworking this widget: ring the card wherever it has been moved to. */
+  working?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -346,7 +348,7 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
       so a widget running on the desk cannot resize the wizard's card by
       reporting a size of its own.
     -->
-    <div v-if="entryUrl" ref="cardEl" class="stage-card" :style="cardStyle" @[CONTENT_OVERFLOW_EVENT]="onContentOverflow">
+    <div v-if="entryUrl" ref="cardEl" class="stage-card" :class="{ 'stage-card--working': working }" :style="cardStyle" @[CONTENT_OVERFLOW_EVENT]="onContentOverflow">
         <WidgetCard
           :capture-active="captureActive"
           :key="instanceId"
@@ -531,6 +533,49 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
 .stage-card {
   position: relative;
   flex-shrink: 0;
+}
+
+@property --stage-working-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+/*
+  A 1.5px ring 4px outside the card with a bright arc travelling round it.
+  On the card's own wrapper, so it follows a moved or resized card.
+*/
+.stage-card--working::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  z-index: 5;
+  padding: 1.5px;
+  border-radius: calc(var(--surface-radius, 16px) + 4px);
+  background: conic-gradient(
+    from var(--stage-working-angle),
+    rgba(var(--fg-rgb), 0.08) 0deg,
+    rgba(var(--fg-rgb), 0.08) 250deg,
+    rgba(var(--fg-rgb), 0.7) 330deg,
+    rgba(var(--fg-rgb), 0.08) 360deg
+  );
+  /* Only the ring: the padding box shows, the content box is cut out. */
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  pointer-events: none;
+  animation: stage-working-orbit 1.8s linear infinite;
+}
+
+@keyframes stage-working-orbit {
+  to { --stage-working-angle: 360deg; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-card--working::after {
+    animation: none;
+    background: rgba(var(--fg-rgb), 0.3);
+  }
 }
 
 .preview--share .stage {

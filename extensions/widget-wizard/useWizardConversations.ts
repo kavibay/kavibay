@@ -1,4 +1,4 @@
-import { onScopeDispose, ref, type Ref } from "vue";
+import { onScopeDispose, ref, watch, type Ref } from "vue";
 import type { WizardCapability, WidgetDataStore } from "@sdk/contract/sdk";
 import {
   conversationIsWorthKeeping,
@@ -18,6 +18,15 @@ interface StoredConversation {
 }
 
 const ACTIVE_CONVERSATION_KEY = "activeConversationId";
+/**
+ * The project on screen, remembered beside the conversation.
+ *
+ * A project that is only open — a draft an MCP client wrote, a widget opened
+ * to look at — has no conversation worth keeping (`conversationIsWorthKeeping`),
+ * so the active conversation id names a file that never gets written. Without
+ * this the next start could not load it and fell back to "New project".
+ */
+const ACTIVE_PACKAGE_KEY = "activePackageId";
 
 /** Ids are file names on the other side, so keep them to plain characters. */
 function newConversationId(): string {
@@ -37,6 +46,13 @@ export function useWizardConversations(wizard: WizardCapability, data: WidgetDat
   const headers: Ref<ConversationHeader[]> = ref([]);
   const active: Ref<WizardSession> = ref(emptyWizardSession(newConversationId()));
   let draftTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Set by `hydrate` when the conversation is gone but its project is not. */
+  let pendingPackageId: string | null = null;
+
+  watch(
+    () => active.value.packageId ?? "",
+    (packageId) => void data.set(ACTIVE_PACKAGE_KEY, packageId).catch(() => undefined),
+  );
 
   async function rememberActive(id: string): Promise<void> {
     await data.set(ACTIVE_CONVERSATION_KEY, id).catch(() => undefined);
@@ -44,9 +60,20 @@ export function useWizardConversations(wizard: WizardCapability, data: WidgetDat
 
   async function hydrate(): Promise<void> {
     const id = await data.get<string>(ACTIVE_CONVERSATION_KEY).catch(() => undefined);
-    if (!id) return;
-    const loaded = await load(id);
-    if (loaded) active.value = loaded;
+    const loaded = id ? await load(id) : null;
+    if (loaded) {
+      active.value = loaded;
+      return;
+    }
+    const packageId = await data.get<string>(ACTIVE_PACKAGE_KEY).catch(() => undefined);
+    pendingPackageId = packageId || null;
+  }
+
+  /** The project to reopen because its conversation was never kept; asked once. */
+  function takePendingPackage(): string | null {
+    const id = pendingPackageId;
+    pendingPackageId = null;
+    return id;
   }
 
   async function refresh(): Promise<ConversationHeader[]> {
@@ -114,6 +141,7 @@ export function useWizardConversations(wizard: WizardCapability, data: WidgetDat
     headers,
     active,
     hydrate,
+    takePendingPackage,
     refresh,
     start,
     load,
