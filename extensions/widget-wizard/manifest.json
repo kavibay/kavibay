@@ -19,6 +19,7 @@
         "defaultSize": { "w": 1060, "h": 660 },
         "grabCursor": false,
         "defaultHideTitle": false,
+        "padding": false,
         "opaque": true
       },
       "actions": [
