@@ -22,6 +22,9 @@ import { isEnabledPackage, packageFiles } from "./webWizard";
  * every pause and keystroke here, and the recorded model's thinking time
  * (wizardFixture.ts), runs at `BASE_PACE / speed` of its authored length.
  *
+ * It also tells the page where to look (`kavibay:tour-focus`): the palette,
+ * the conversation, the preview. The page's camera zooms there, or does not.
+ *
  * While it plays, the visitor's clicks and keys do not reach the app — a stray
  * click would otherwise strand the story halfway. Scrolling still passes, or the page would stop scrolling under
  * the pointer. Once the widget is on the desk, the app is the visitor's.
@@ -83,6 +86,41 @@ const STEPS = [
   "Opening it on the desk",
   "On the desk — try it",
 ];
+
+/**
+ * Where the action is, for the page's camera: the element's box in this
+ * window's pixels, or null for the whole desk. The page decides whether and how
+ * far to zoom; the tour only says where to look.
+ */
+/** Where typing happens: the composer box. */
+const COMPOSER_VIEW = ".wiz-compose";
+/** The widget card in the preview, else the preview while it is being sketched. */
+const PREVIEW_VIEW = [".wiz-preview-body .widget-card", ".wiz-preview-body iframe", ".wiz-preview-body"];
+
+/** The palette and, when open, its results — which hang below it, outside its box. */
+const PALETTE_VIEW = [".palette-anchor", ".palette-results"];
+
+const visibleBox = (selector: string) => {
+  const box = document.querySelector(selector)?.getBoundingClientRect();
+  return box && box.width > 0 && box.height > 0 ? box : null;
+};
+
+/**
+ * Frame `selectors`: the first one on screen (tried in order, not document
+ * order), or, for the palette, both of its parts together.
+ */
+function look(selectors: string | string[] | null): void {
+  const boxes =
+    selectors === PALETTE_VIEW
+      ? PALETTE_VIEW.map(visibleBox).filter((box) => box !== null)
+      : [[selectors ?? []].flat().map(visibleBox).find((box) => box !== null)].filter((box) => box != null);
+  const left = Math.min(...boxes.map((box) => box.left));
+  const top = Math.min(...boxes.map((box) => box.top));
+  const right = Math.max(...boxes.map((box) => box.right));
+  const bottom = Math.max(...boxes.map((box) => box.bottom));
+  const rect = boxes.length > 0 ? { x: left, y: top, w: right - left, h: bottom - top } : null;
+  window.parent.postMessage({ type: "kavibay:tour-focus", rect }, location.origin);
+}
 
 /** Tell the page where the tour is. Once done, it stays that way. */
 function report(next: Phase, step?: number): void {
@@ -164,12 +202,16 @@ async function run(): Promise<void> {
 
   await sleep(BEFORE_FIRST_TYPE_MS);
   report("playing", 1);
+  look(PALETTE_VIEW);
   if (!(await typeIntoPalette("new widget"))) return;
+  // The results have opened under it; keep them in frame.
+  look(PALETTE_VIEW);
   await sleep(AFTER_TYPE_MS);
   paletteInput()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
 
   const editor = await until(composer, MOUNT_TIMEOUT_MS);
   if (!editor) return;
+  look(COMPOSER_VIEW);
   // The query has done its job; its results would show under the card.
   const input = paletteInput();
   if (input) {
@@ -178,13 +220,20 @@ async function run(): Promise<void> {
   }
   // Room for the conversation in a card sized to leave the headline visible.
   document.querySelector<HTMLElement>('[aria-label="Collapse sidebar"]')?.click();
+  look(COMPOSER_VIEW);
   await sleep(LEAD_IN_MS);
   report("playing", 2);
 
   for (const [index, parts] of spec.prompts.entries()) {
     const before = answers();
+    if (index > 0) look(COMPOSER_VIEW);
     if (!(await sendPrompt(editor, parts))) return;
+    // The answer is the widget: watch it being built.
+    look(PREVIEW_VIEW);
     if (!(await until(() => answers() > before, ANSWER_TIMEOUT_MS))) return;
+    // Its card has a size now; frame that rather than the whole pane.
+    await sleep(LEAD_IN_MS);
+    look(PREVIEW_VIEW);
     if (index === 0) report("playing", 3);
     if (index < spec.prompts.length - 1) await sleep(BETWEEN_TURNS_MS);
   }
@@ -205,9 +254,11 @@ async function run(): Promise<void> {
   await sleep(AFTER_SAVE_MS);
   report("playing", 5);
   if (!(await closeWizard())) return;
+  look(PALETTE_VIEW);
   await sleep(AFTER_CLOSE_MS);
   const card = await openFromPalette(spec.draftId);
   if (!card) return;
+  look(null);
   await sleep(BEFORE_PLACE_MS);
   await placeBesidePalette(card);
   report("done", STEPS.length);
@@ -258,6 +309,7 @@ async function openFromPalette(id: string): Promise<HTMLElement | null> {
     MOUNT_TIMEOUT_MS,
   );
   if (!row) return null;
+  look(PALETTE_VIEW);
   await sleep(AFTER_TYPE_MS);
   const anchors = () => [...document.querySelectorAll<HTMLElement>(".widget-anchor")];
   const before = new Set(anchors());
