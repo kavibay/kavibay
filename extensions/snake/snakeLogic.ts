@@ -22,6 +22,12 @@ export const MAX_BOARD_SIZE = GRID_SIZE * 32;
 /** Upper bound when the host card drives board size. */
 export const MAX_HOST_BOARD_SIZE = GRID_SIZE * 96;
 
+/** Size the HUD from the LCD, before the HUD consumes any field height.
+ * The LCD has 8px padding; the HUD adds one font-height plus a 6px gap. */
+export function hostHudFontSize(width: number, height: number): number {
+  return Math.max(11, Math.min(28, Math.round(Math.min((width - 16) / 14, (height - 22) / 15))));
+}
+
 /** Clamp board size into allowed bounds (any integer — canvas scales cells). */
 export function clampBoardSize(size: number, max = MAX_BOARD_SIZE): number {
   const raw = Number.isFinite(size) ? size : DEFAULT_BOARD_SIZE;

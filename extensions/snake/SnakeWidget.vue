@@ -10,7 +10,7 @@ import {
   type ComputedRef,
 } from "vue";
 import { WIDGET_FOCUS_EVENT, widgetFocusRequestMatches, type WidgetSurface } from "@sdk";
-import { GRID_SIZE, directionFromKey } from "./snakeLogic";
+import { GRID_SIZE, directionFromKey, hostHudFontSize } from "./snakeLogic";
 import {
   claimSnakeKeyboard,
   ownsSnakeKeyboard,
@@ -39,6 +39,7 @@ const canvasEl = ref<HTMLCanvasElement | null>(null);
 const fieldW = ref(0);
 const fieldH = ref(0);
 const playgroundSide = ref(0);
+const hostHudFontPx = ref(11);
 
 const {
   game,
@@ -85,10 +86,12 @@ const drawH = computed(() =>
   fillLayout.value && fieldH.value > 0 ? fieldH.value : boardSize.value,
 );
 
-/** HUD / overlay type scales with the shorter field edge. */
+/** The HUD must not depend on the field height that its own text reduces. */
 const scaleEdge = computed(() => Math.min(drawW.value, drawH.value));
 const hudFontPx = computed(() =>
-  Math.max(11, Math.min(28, Math.round(scaleEdge.value / 14))),
+  fillLayout.value && !squareLayout.value
+    ? hostHudFontPx.value
+    : Math.max(11, Math.min(28, Math.round(scaleEdge.value / 14))),
 );
 const overlayFontPx = computed(() =>
   Math.max(11, Math.min(36, Math.round(scaleEdge.value / 12))),
@@ -280,6 +283,9 @@ function onWindowKeydown(event: KeyboardEvent) {
  */
 function syncBoardFromHost() {
   if (!fillLayout.value) return;
+  const root = rootEl.value;
+  if (!root) return;
+  hostHudFontPx.value = hostHudFontSize(root.clientWidth, root.clientHeight);
   if (!squareLayout.value) {
     const stage = stageEl.value;
     if (!stage) return;
@@ -292,9 +298,8 @@ function syncBoardFromHost() {
     scheduleDraw();
     return;
   }
-  const root = rootEl.value;
   const stage = stageEl.value;
-  if (!root || !stage) return;
+  if (!stage) return;
   const side = Math.floor(Math.min(root.clientWidth, root.clientHeight));
   if (side < 1) return;
   playgroundSide.value = side;
