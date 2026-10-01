@@ -2974,4 +2974,16 @@ assert(
   assertEq(broken.malformedEdits, ["ui/app.js"], "an edit block without markers is reported");
 }
 
+// --- scope ------------------------------------------------------------------
+// Read on the first turn only: afterwards a message is a change, and "rich" on
+// "make the dots grey" would invite a rebuild.
+assert(turnForPackage("a habit tracker", "", { scope: "rich" }).includes("Scope: rich"), "first turn, rich");
+assert(turnForPackage("a habit tracker", "", { scope: "simple" }).includes("Scope: simple"), "first turn, simple");
+assertEq(
+  turnForPackage("a habit tracker", "", { scope: "standard" }),
+  turnForPackage("a habit tracker", ""),
+  "standard adds nothing",
+);
+assert(!turnForPackage("make it grey", "habits", { scope: "rich" }).includes("Scope:"), "not on a change");
+
 console.log("widgetWizardLogic.assert.ts: ok");
