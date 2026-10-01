@@ -62,6 +62,7 @@ import {
   fileSetProblem,
   renderReachesForCtx,
   lintGeneratedFiles,
+  applyReplyEdits,
   REPAIR_BUDGET,
   SAMPLE_MAX,
   VERSION_LIMIT,
@@ -2930,6 +2931,47 @@ assert(
   assertEq(manifestIconSvg([manifest('{"icon":"icon.png"}'), icon]), null, "a png is not shown inline");
   assertEq(manifestIconSvg([manifest("{}"), icon]), null, "a stray icon.svg the manifest does not name");
   assertEq(manifestIconSvg([manifest("{ broken"), icon]), null, "broken manifest");
+}
+
+// --- edit blocks -------------------------------------------------------------
+// A follow-up turn may send only the change to a large file. The edit must land
+// exactly once, or the whole answer is refused and goes back for repair.
+{
+  const reply = [
+    "Made the goal bigger.",
+    "```edit path=ui/app.js",
+    "<<<<<<< SEARCH",
+    "const GOAL = 2000;",
+    "=======",
+    "const GOAL = 2500;",
+    ">>>>>>> REPLACE",
+    "```",
+  ].join("\n");
+  const parsed = parseGeneratedFiles(reply);
+  assertEq(parsed.files, [], "an edit block is not a file");
+  assertEq(
+    parsed.edits,
+    [{ path: "ui/app.js", search: "const GOAL = 2000;", replace: "const GOAL = 2500;" }],
+    "the pair is read",
+  );
+  assertEq(parsed.prose, "Made the goal bigger.", "and the prose stays prose");
+
+  const files = [file("ui/app.js", "const GOAL = 2000;\nrender();"), file("manifest.json", "{}")];
+  const applied = applyReplyEdits(files, parsed.edits ?? []);
+  assertEq(applied.problems, [], "an exact, unique match applies");
+  assertEq(applied.files[0].contents, "const GOAL = 2500;\nrender();", "to that text only");
+  assertEq(files[0].contents, "const GOAL = 2000;\nrender();", "without touching the input");
+
+  const twice = applyReplyEdits([file("ui/app.js", "x();\nx();")], [
+    { path: "ui/app.js", search: "x();", replace: "y();" },
+  ]);
+  assert(twice.problems[0].includes("more than once"), "an ambiguous edit is refused");
+  const nowhere = applyReplyEdits(files, [{ path: "ui/app.js", search: "nope", replace: "" }]);
+  assert(nowhere.problems[0].includes("did not match"), "a missing match is refused");
+  assertEq(nowhere.files, files, "and nothing is half-applied");
+
+  const broken = parseGeneratedFiles("```edit path=ui/app.js\njust some text\n```");
+  assertEq(broken.malformedEdits, ["ui/app.js"], "an edit block without markers is reported");
 }
 
 console.log("widgetWizardLogic.assert.ts: ok");

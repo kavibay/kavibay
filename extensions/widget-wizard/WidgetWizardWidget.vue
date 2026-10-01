@@ -76,6 +76,7 @@ import {
   formatTokens,
   readUsage,
   mergeGeneratedFiles,
+  applyReplyEdits,
   withoutOtherFormat,
   recordVersion,
   updateLiveVersion,
@@ -2878,8 +2879,15 @@ async function runTurn(mine: number, id: string, repairsLeft: number, repairFile
   // turn is asked for only what it changed, so `parsed.files` is usually a
   // fraction of the widget. A complete answer merges to itself, so nothing here
   // depends on which kind arrived.
-  const merged = withoutOtherFormat(before, mergeGeneratedFiles(before, parsed));
-  const problem = replyProblem(parsed, merged, id, format.value);
+  // Edit blocks apply after the whole files, so an edit can target a file the
+  // same answer also sent. Any edit that cannot be placed exactly refuses the
+  // answer and goes back as a repair, like any other unwritable package.
+  const edited = applyReplyEdits(
+    withoutOtherFormat(before, mergeGeneratedFiles(before, parsed)),
+    parsed.edits ?? [],
+  );
+  const merged = edited.files;
+  const problem = edited.problems[0] ?? replyProblem(parsed, merged, id, format.value);
   /**
    * The id the model chose, on the turn where nothing was named yet.
    *
