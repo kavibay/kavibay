@@ -183,6 +183,115 @@ away, in a second view inside the same card. Aim for roughly 100–250 lines of
 "only"), or for more, this is the size to build.
 "#;
 
+/// A working runtime skeleton, so the parts every widget needs are copied
+/// rather than reinvented.
+///
+/// Models rebuilt state, saving, undo, the settings view and the day boundary
+/// on every widget, and got the same things wrong each time — "today" in UTC
+/// was the common one, which rolls the day over at 1 or 2 a.m. in Europe.
+/// Starting from this is less output and fewer of those mistakes. Runtime only:
+/// a contract widget has `ctx.data` and Vue instead.
+const SKELETON_HINT: &str = r##"
+# Start from this skeleton
+
+Every runtime widget needs the same frame: inputs in state, one `render()`,
+save after each change, undo, a second view, and a day that ends at the
+person's midnight. Start from this and build the widget on it; rename and
+extend freely, but keep its shape.
+
+```html path=ui/index.html
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>/* house style, see below */</style>
+  </head>
+  <body>
+    <section id="main">
+      <p class="label">Today</p>
+      <p id="count" class="value"></p>
+      <button type="button" id="add">Add</button>
+      <button type="button" id="undo">Undo</button>
+    </section>
+    <section id="settings" hidden>
+      <label>Daily goal <input id="goal" type="number" min="1" /></label>
+    </section>
+    <button type="button" id="gear" aria-label="Settings">⚙</button>
+    <script src="@kavibay/runtime.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
+```
+
+```js path=ui/app.js
+// Inputs only. Totals, streaks and percentages are derived in render().
+const DEFAULTS = { goal: 8, entries: [] };
+let state = structuredClone(DEFAULTS);
+let before = null; // the state before the last change, for Undo
+let view = "main";
+
+const $ = (id) => document.getElementById(id);
+
+// The person's calendar day, not UTC's.
+function dayOf(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function render() {
+  $("main").hidden = view !== "main";
+  $("settings").hidden = view !== "settings";
+  const today = state.entries.filter((entry) => entry.day === dayOf()).length;
+  $("count").textContent = `${today} of ${state.goal}`;
+  $("goal").value = state.goal;
+  $("undo").disabled = before === null;
+}
+
+// Change state, redraw, persist — in that order, every time.
+function change(mutate) {
+  before = structuredClone(state);
+  mutate(state);
+  render();
+  kavibay.storage.set(state).catch(() => {});
+}
+
+$("add").addEventListener("click", () =>
+  change((s) => s.entries.push({ day: dayOf(), at: Date.now() })),
+);
+$("undo").addEventListener("click", () => {
+  if (before === null) return;
+  state = before;
+  before = null;
+  render();
+  kavibay.storage.set(state).catch(() => {});
+});
+$("goal").addEventListener("change", (event) =>
+  change((s) => (s.goal = Math.max(1, Number(event.target.value) || DEFAULTS.goal))),
+);
+$("gear").addEventListener("click", () => {
+  view = view === "main" ? "settings" : "main";
+  render();
+});
+
+// Left open overnight, the widget notices the new day by itself.
+setInterval(render, 60_000);
+
+// Draw now, reconcile when storage answers.
+render();
+kavibay.storage
+  .get()
+  .then((saved) => {
+    if (saved) state = { ...DEFAULTS, ...saved };
+    render();
+  })
+  .catch(() => {});
+```
+
+Keep history as dated entries, as here, rather than a counter that has to be
+reset: "today", "this week" and a streak are then all a filter over the same
+list, and nothing breaks at midnight.
+"##;
+
 /// Full system prompt for a widget-authoring turn.
 pub fn system_prompt() -> String {
     format!(
@@ -245,6 +354,7 @@ The rules for your reply:
   the interface on a reply that may not come.
 
 {DEPTH_HINT}
+{SKELETON_HINT}
 {SUGGESTIONS_HINT}
 {ICON_HINT}
 
@@ -808,10 +918,24 @@ mod tests {
             ("runtime", system_prompt()),
             ("contract", contract_system_prompt(&[])),
         ] {
-            assert!(prompt.contains("# Build the widget someone keeps"), "{name}");
-            assert!(prompt.contains("**one or two**"), "{name}: a measured amount, not everything");
+            assert!(
+                prompt.contains("# Build the widget someone keeps"),
+                "{name}"
+            );
+            assert!(
+                prompt.contains("**one or two**"),
+                "{name}: a measured amount, not everything"
+            );
             assert!(prompt.contains("second view"), "{name}: where depth goes");
         }
+    }
+
+    #[test]
+    fn the_runtime_prompt_offers_a_skeleton_with_a_local_day() {
+        let runtime = system_prompt();
+        assert!(runtime.contains("# Start from this skeleton"));
+        assert!(runtime.contains("getFullYear()"), "the day is local");
+        assert!(!contract_system_prompt(&[]).contains("# Start from this skeleton"));
     }
 
     #[test]
@@ -820,7 +944,10 @@ mod tests {
             ("runtime", system_prompt()),
             ("contract", contract_system_prompt(&[])),
         ] {
-            assert!(prompt.contains("path=icon.svg"), "{name}: the icon file is shown");
+            assert!(
+                prompt.contains("path=icon.svg"),
+                "{name}: the icon file is shown"
+            );
             assert!(
                 prompt.contains(r#""icon": "icon.svg""#),
                 "{name}: and the manifest key that makes it count"

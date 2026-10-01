@@ -698,7 +698,8 @@ fn apply_edits(
         file.contents = if edit.replace_all {
             file.contents.replace(&edit.old_string, &edit.new_string)
         } else {
-            file.contents.replacen(&edit.old_string, &edit.new_string, 1)
+            file.contents
+                .replacen(&edit.old_string, &edit.new_string, 1)
         };
     }
     Ok(files)
@@ -1007,7 +1008,10 @@ mod tests {
     }
 
     fn file(path: &str, contents: &str) -> drafts::DraftFile {
-        drafts::DraftFile { path: path.into(), contents: contents.into() }
+        drafts::DraftFile {
+            path: path.into(),
+            contents: contents.into(),
+        }
     }
 
     fn edit(path: &str, old: &str, new: &str, replace_all: bool) -> McpDraftEdit {
@@ -1021,37 +1025,73 @@ mod tests {
 
     #[test]
     fn edits_replace_exact_text_in_order_and_leave_other_files_alone() {
-        let files = vec![file("ui/app.js", "a = 1;
-b = 2;"), file("manifest.json", "{}")];
+        let files = vec![
+            file(
+                "ui/app.js",
+                "a = 1;
+b = 2;",
+            ),
+            file("manifest.json", "{}"),
+        ];
         let out = apply_edits(
             files,
-            &[edit("ui/app.js", "a = 1;", "a = 3;", false), edit("ui/app.js", "a = 3;", "a = 4;", false)],
+            &[
+                edit("ui/app.js", "a = 1;", "a = 3;", false),
+                edit("ui/app.js", "a = 3;", "a = 4;", false),
+            ],
         )
         .unwrap();
-        assert_eq!(out[0].contents, "a = 4;
-b = 2;");
+        assert_eq!(
+            out[0].contents,
+            "a = 4;
+b = 2;"
+        );
         assert_eq!(out[1].contents, "{}");
     }
 
     #[test]
     fn edits_refuse_anything_they_cannot_place_exactly() {
-        let files = || vec![file("ui/index.html", ".good {}
-.good {}")];
+        let files = || {
+            vec![file(
+                "ui/index.html",
+                ".good {}
+.good {}",
+            )]
+        };
         let error = |edits: &[McpDraftEdit]| apply_edits(files(), edits).unwrap_err();
-        assert_eq!(error(&[edit("ui/index.html", ".good {}", "", false)]), "edit_ambiguous:ui/index.html");
-        assert_eq!(error(&[edit("ui/index.html", ".bad {}", "", false)]), "edit_not_found:ui/index.html");
-        assert_eq!(error(&[edit("ui/app.js", "x", "y", false)]), "edit_file_not_found:ui/app.js");
-        assert_eq!(error(&[edit("ui/index.html", "", "y", false)]), "edit_empty:ui/index.html");
+        assert_eq!(
+            error(&[edit("ui/index.html", ".good {}", "", false)]),
+            "edit_ambiguous:ui/index.html"
+        );
+        assert_eq!(
+            error(&[edit("ui/index.html", ".bad {}", "", false)]),
+            "edit_not_found:ui/index.html"
+        );
+        assert_eq!(
+            error(&[edit("ui/app.js", "x", "y", false)]),
+            "edit_file_not_found:ui/app.js"
+        );
+        assert_eq!(
+            error(&[edit("ui/index.html", "", "y", false)]),
+            "edit_empty:ui/index.html"
+        );
         assert!(error(&[]).starts_with("edit_empty"));
         let all = apply_edits(files(), &[edit("ui/index.html", ".good {}", "", true)]).unwrap();
-        assert_eq!(all[0].contents, "
-");
+        assert_eq!(
+            all[0].contents,
+            "
+"
+        );
     }
 
     #[test]
     fn create_sentinels_mean_no_draft_expected() {
         for sentinel in ["", "null", "missing", " null "] {
-            assert_eq!(create_sentinel_as_none(Some(sentinel)), None, "{sentinel:?}");
+            assert_eq!(
+                create_sentinel_as_none(Some(sentinel)),
+                None,
+                "{sentinel:?}"
+            );
         }
         assert_eq!(create_sentinel_as_none(None), None);
         assert_eq!(create_sentinel_as_none(Some("ab12cd")), Some("ab12cd"));

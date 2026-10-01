@@ -24,10 +24,16 @@ pub enum Status {
     Unsupported,
     Idle,
     Checking,
-    Downloading { version: String },
+    Downloading {
+        version: String,
+    },
     UpToDate,
-    Ready { version: String },
-    Failed { message: String },
+    Ready {
+        version: String,
+    },
+    Failed {
+        message: String,
+    },
 }
 
 pub struct Updater {
@@ -54,7 +60,11 @@ fn is_installed() -> bool {
 pub fn spawn(app: AppHandle, row: MenuItem<Wry>) {
     let installed = is_installed();
     app.manage(Updater {
-        status: Mutex::new(if installed { Status::Idle } else { Status::Unsupported }),
+        status: Mutex::new(if installed {
+            Status::Idle
+        } else {
+            Status::Unsupported
+        }),
         pending: Mutex::new(None),
         row,
     });
@@ -156,10 +166,17 @@ fn offer(app: &AppHandle, update: Update, bytes: Vec<u8>) {
         if let Ok(mut pending) = updater.pending.lock() {
             *pending = Some((update, bytes));
         }
-        let _ = updater.row.set_text(format!("Restart to update to {version}"));
+        let _ = updater
+            .row
+            .set_text(format!("Restart to update to {version}"));
         let _ = updater.row.set_enabled(true);
     }
-    set_status(app, Status::Ready { version: version.clone() });
+    set_status(
+        app,
+        Status::Ready {
+            version: version.clone(),
+        },
+    );
     let _ = crate::notifications::widget_notification_show(
         format!("Kavibay {version} is ready"),
         "Open the Kavibay tray menu and choose Restart to update.".to_string(),
@@ -169,16 +186,25 @@ fn offer(app: &AppHandle, update: Update, bytes: Vec<u8>) {
 /// Run the downloaded installer. On success the process exits and the installer
 /// starts the new version.
 pub fn install(app: &AppHandle) -> Result<(), String> {
-    let pending = app
-        .try_state::<Updater>()
-        .and_then(|updater| updater.pending.lock().ok().and_then(|mut pending| pending.take()));
+    let pending = app.try_state::<Updater>().and_then(|updater| {
+        updater
+            .pending
+            .lock()
+            .ok()
+            .and_then(|mut pending| pending.take())
+    });
     let Some((update, bytes)) = pending else {
         return Err("No update has been downloaded yet".to_string());
     };
     update.install(bytes).map_err(|error| {
         eprintln!("[updater] install failed: {error}");
         // The download went with the attempt; a new check fetches it again.
-        set_status(app, Status::Failed { message: error.to_string() });
+        set_status(
+            app,
+            Status::Failed {
+                message: error.to_string(),
+            },
+        );
         error.to_string()
     })
 }
