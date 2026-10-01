@@ -754,8 +754,26 @@ export interface ParsedReply {
    * direction: a stale file is visible in the Files tab, a deleted one is gone.
    */
   removed: string[];
+  /**
+   * Search/replace edits to files the package already has, in reply order.
+   *
+   * The output saving for a large file: a follow-up turn may return a whole
+   * file it changed, but for a one-line change in a few hundred lines of
+   * `app.js` that is still the slow part. An ```edit path=…``` block carries
+   * only the change. See `applyReplyEdits`.
+   */
+  edits?: ReplyEdit[];
+  /** Paths of edit blocks whose SEARCH/REPLACE markers could not be read. */
+  malformedEdits?: string[];
   /** Follow-up metadata, never part of the generated package. */
   suggestions?: WizardSuggestion[];
+}
+
+/** One SEARCH/REPLACE pair from an ```edit path=…``` block. */
+export interface ReplyEdit {
+  path: string;
+  search: string;
+  replace: string;
 }
 
 /** One image attached to a turn. Base64, with no `data:` prefix. */
@@ -922,6 +940,85 @@ const GLUED_FILE_FENCE = /^(.*[^`\s])[ \t]*(`{3,}[^\s`]*\s*path=.*)$/;
  */
 const DELETED_ATTR = /\bdeleted(=(true|"true"|'true'))?(\s|$)/i;
 
+/** A file fence whose language is `edit`: SEARCH/REPLACE pairs, not contents. */
+const EDIT_FENCE = /^\s*`{3,}edit\s/i;
+
+/**
+ * The SEARCH/REPLACE pairs of one edit block, or `null` when its markers do
+ * not line up. Markers stand on their own lines, as models already write them:
+ *
+ *     <<<<<<< SEARCH
+ *     old text
+ *     =======
+ *     new text
+ *     >>>>>>> REPLACE
+ */
+export function parseEditBody(path: string, body: string[]): ReplyEdit[] | null {
+  const edits: ReplyEdit[] = [];
+  let phase: "outside" | "search" | "replace" = "outside";
+  let search: string[] = [];
+  let replace: string[] = [];
+  for (const line of body) {
+    if (/^<{5,}\s*SEARCH\s*$/.test(line)) {
+      if (phase !== "outside") return null;
+      phase = "search";
+      search = [];
+    } else if (/^={5,}\s*$/.test(line) && phase === "search") {
+      phase = "replace";
+      replace = [];
+    } else if (/^>{5,}\s*REPLACE\s*$/.test(line)) {
+      if (phase !== "replace") return null;
+      edits.push({ path, search: search.join("\n"), replace: replace.join("\n") });
+      phase = "outside";
+    } else if (phase === "search") {
+      search.push(line);
+    } else if (phase === "replace") {
+      replace.push(line);
+    } else if (line.trim() !== "") {
+      return null;
+    }
+  }
+  return phase === "outside" && edits.length > 0 ? edits : null;
+}
+
+/**
+ * Apply a reply's edits to a file set, each exactly once.
+ *
+ * The SEARCH text must occur exactly once in its file: an edit that matches
+ * nowhere or in two places is reported rather than guessed at, and the whole
+ * set is refused, because a half-applied change is a package nobody asked for.
+ */
+export function applyReplyEdits(
+  files: GeneratedFile[],
+  edits: ReplyEdit[],
+): { files: GeneratedFile[]; problems: string[] } {
+  if (edits.length === 0) return { files, problems: [] };
+  const next = files.map((file) => ({ ...file }));
+  const problems: string[] = [];
+  for (const edit of edits) {
+    const file = next.find((candidate) => candidate.path === edit.path);
+    if (!file) {
+      problems.push(`An edit names ${edit.path}, which the widget does not have. Send the whole file instead.`);
+      continue;
+    }
+    const at = edit.search === "" ? -1 : file.contents.indexOf(edit.search);
+    if (at < 0) {
+      problems.push(
+        `An edit for ${edit.path} did not match: its SEARCH text must be copied exactly from the current file, whitespace included.`,
+      );
+      continue;
+    }
+    if (file.contents.indexOf(edit.search, at + 1) >= 0) {
+      problems.push(
+        `An edit for ${edit.path} matched more than once: include enough surrounding lines to make its SEARCH text unique.`,
+      );
+      continue;
+    }
+    file.contents = file.contents.slice(0, at) + edit.replace + file.contents.slice(at + edit.search.length);
+  }
+  return problems.length > 0 ? { files, problems } : { files: next, problems };
+}
+
 /**
  * True when `line` closes a block opened with `ticks` backticks.
  *
@@ -976,18 +1073,25 @@ export function parseGeneratedFiles(text: string): ParsedReply {
   let suggestionBlock: { ticks: number; body: string[] } | null = null;
 
   const removed: string[] = [];
+  const edits: ReplyEdit[] = [];
+  const malformedEdits: string[] = [];
   let current: {
     path: string;
     indent: string;
     ticks: number;
     body: string[];
     deleted: boolean;
+    edit: boolean;
   } | null = null;
 
   for (let line of lines) {
     if (current) {
       if (closesFence(line, current.ticks)) {
-        if (current.deleted) removed.push(current.path);
+        if (current.edit) {
+          const pairs = parseEditBody(current.path, current.body);
+          if (pairs) edits.push(...pairs);
+          else malformedEdits.push(current.path);
+        } else if (current.deleted) removed.push(current.path);
         else files.push({ path: current.path, contents: current.body.join("\n") });
         current = null;
       } else {
@@ -1027,6 +1131,7 @@ export function parseGeneratedFiles(text: string): ParsedReply {
         ticks: opening[2].length,
         body: [],
         deleted: DELETED_ATTR.test(line),
+        edit: EDIT_FENCE.test(line),
       };
     } else {
       prose.push(line);
@@ -1040,6 +1145,8 @@ export function parseGeneratedFiles(text: string): ParsedReply {
     prose: prose.join("\n").trim(),
     files,
     removed,
+    edits,
+    malformedEdits,
     unterminated: current ? current.path : null,
     suggestions,
   };
@@ -1235,7 +1342,12 @@ export function fileSetProblem(
 export function describeReply(reply: ParsedReply, before: GeneratedFile[]): string {
   const known = new Set(before.map((file) => file.path));
   const added = reply.files.filter((file) => !known.has(file.path)).map((file) => file.path);
-  const changed = reply.files.filter((file) => known.has(file.path)).map((file) => file.path);
+  const changed = [
+    ...new Set([
+      ...reply.files.filter((file) => known.has(file.path)).map((file) => file.path),
+      ...(reply.edits ?? []).map((edit) => edit.path),
+    ]),
+  ];
 
   const name = (paths: string[], verb: string) => {
     if (paths.length === 0) return null;
@@ -1360,7 +1472,10 @@ export function replyProblem(
   // The merged set can be perfectly valid while the answer did nothing at all —
   // that is the "wrote its explanation and stopped" case, and it still needs
   // the same one-line follow-up.
-  if (reply.files.length === 0 && reply.removed.length === 0) {
+  if (reply.malformedEdits?.length) {
+    return `The edit block for ${reply.malformedEdits[0]} is not in SEARCH/REPLACE form. Send the whole file instead.`;
+  }
+  if (reply.files.length === 0 && reply.removed.length === 0 && !reply.edits?.length) {
     return 'The answer contained no files. Reply "Emit the files now." to ask for them.';
   }
   return fileSetProblem(merged, packageId, format);
@@ -1524,7 +1639,13 @@ export function turnForPackage(
       "This widget already exists, so return **only the files you change** — " +
         "every file you leave out is kept exactly as it is. Do not repeat a " +
         "file whose contents you are not changing. To remove a file, emit its " +
-        "block with `deleted=true` and an empty body.",
+        "block with `deleted=true` and an empty body.\n\n" +
+        "For a change to part of a file, send an edit block instead of the whole " +
+        "file. Each SEARCH text is copied exactly from the current file and occurs " +
+        "there once; add surrounding lines until it does:\n\n" +
+        "```edit path=app.js\n<<<<<<< SEARCH\nconst GOAL = 2000;\n=======\n" +
+        "const GOAL = 2500;\n>>>>>>> REPLACE\n```\n\n" +
+        "Send the whole file when you are rewriting most of it.",
     );
   }
 
