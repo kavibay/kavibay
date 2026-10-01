@@ -1523,6 +1523,22 @@ export function renderFilesForPrompt(files: GeneratedFile[]): string {
     .join("\n\n");
 }
 
+/** How much widget the first turn asks for; see `turnForPackage`. */
+export type WidgetScope = "simple" | "standard" | "rich";
+
+/**
+ * The line a scope adds to the first request. Standard adds nothing: it is
+ * what the system prompt already describes, so saying it again would only
+ * cost tokens.
+ */
+export const SCOPE_INSTRUCTION: Record<WidgetScope, string | null> = {
+  simple:
+    "Scope: simple. Build just the core action and its first-run state; leave out history, settings and extras.",
+  standard: null,
+  rich:
+    "Scope: rich. Build a complete tool: history, settings and keyboard support, plus whatever else makes it one somebody relies on daily. Put the depth in a second view inside the card.",
+};
+
 /**
  * The instruction appended to the person's own words.
  *
@@ -1534,6 +1550,8 @@ export function renderFilesForPrompt(files: GeneratedFile[]): string {
  * that starts the edit — afterwards the conversation already contains them.
  */
 export interface TurnContext {
+  /** How much widget to build. Read on the first turn only. */
+  scope?: WidgetScope;
   /** The package as it is on disk right now. */
   currentFiles?: GeneratedFile[];
   /**
@@ -1559,7 +1577,7 @@ export function turnForPackage(
   packageId: string,
   context: TurnContext = {},
 ): string {
-  const { currentFiles, knownFiles, samples } = context;
+  const { currentFiles, knownFiles, samples, scope } = context;
   /**
    * An empty id means this is the first turn and nothing is named yet.
    *
@@ -1580,6 +1598,10 @@ export function turnForPackage(
         "\n- a display name of one to three words, in the language of the " +
         'request — "Water Tracker".',
   ];
+  // Only while nothing exists: after that a request is a change, and "rich"
+  // on "make the dots grey" would be an invitation to rebuild the widget.
+  const scopeLine = !packageId && scope ? SCOPE_INSTRUCTION[scope] : null;
+  if (scopeLine) parts.push(scopeLine);
 
   /**
    * What the endpoints actually returned, when somebody pressed Try.

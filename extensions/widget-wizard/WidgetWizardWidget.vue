@@ -95,6 +95,7 @@ import {
   type ProviderUseState,
   sampleBody,
   faultProblem,
+  type WidgetScope,
   repairTurnFor,
   attachmentProblem,
   base64FromDataUrl,
@@ -270,6 +271,25 @@ const sideWidth = ref(180);
 const previewWidth = ref(360);
 const sidebarCollapsed = ref(false);
 const showSuggestions = ref(true);
+
+/**
+ * How much widget a new request asks for. A preference of this card rather
+ * than of a project, so it is kept in `ctx.data` and survives the next one.
+ */
+const SCOPE_KEY = "scope";
+const SCOPES: { id: WidgetScope; label: string; hint: string }[] = [
+  { id: "simple", label: "Simple", hint: "Just the core action" },
+  { id: "standard", label: "Standard", hint: "A solid widget with one or two extras" },
+  { id: "rich", label: "Rich", hint: "History, settings and more, in a second view" },
+];
+const scope = ref<WidgetScope>("standard");
+void props.model.data.get<WidgetScope>(SCOPE_KEY).then((saved) => {
+  if (saved && SCOPES.some((option) => option.id === saved)) scope.value = saved;
+});
+function setScope(next: WidgetScope): void {
+  scope.value = next;
+  void props.model.data.set(SCOPE_KEY, next).catch(() => undefined);
+}
 
 /**
  * Arrived here from the palette to start a widget, and nothing else.
@@ -2737,6 +2757,7 @@ async function send() {
      * wrote to disk, the preview updated, and the next sentence undid it.
      */
     content: turnForPackage(pointAndPromptRequest(request, elements).trim(), id, {
+      scope: scope.value,
       currentFiles: session.value.draftFiles ?? undefined,
       knownFiles: session.value.knownFiles,
       samples: session.value.samples,
@@ -5587,6 +5608,28 @@ async function enablePackage(
               <span class="wiz-accounts-label">{{ selectedProviderLabel }}</span>
             </button>
           </div>
+          <!-- Only before the widget exists: after that a message is a change. -->
+          <div
+            v-if="!session.packageId"
+            class="wiz-scope"
+            role="radiogroup"
+            aria-label="How much widget to build"
+          >
+            <button
+              v-for="option in SCOPES"
+              :key="option.id"
+              type="button"
+              role="radio"
+              class="wiz-scope-option"
+              :class="{ 'wiz-scope-option--on': scope === option.id }"
+              :aria-checked="scope === option.id"
+              :title="option.hint"
+              :disabled="busy"
+              @click="setScope(option.id)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
           <span class="wiz-spacer" />
           <!--
             One control, not two. Model and effort are read together and answer
@@ -6604,6 +6647,34 @@ async function enablePackage(
   margin: 16px 0 0;
   padding: 0;
   list-style: none;
+}
+
+.wiz-scope {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(var(--fg-rgb), 0.05);
+}
+
+.wiz-scope-option {
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: rgba(var(--fg-rgb), 0.55);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.wiz-scope-option:hover:not(:disabled) {
+  color: rgba(var(--fg-rgb), 0.9);
+}
+
+.wiz-scope-option--on {
+  background: rgba(var(--fg-rgb), 0.12);
+  color: rgba(var(--fg-rgb), 0.95);
 }
 
 .wiz-mcp-created {
