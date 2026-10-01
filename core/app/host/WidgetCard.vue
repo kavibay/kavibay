@@ -60,6 +60,8 @@ const props = withDefaults(
     canEditInWizard?: boolean;
     /** No card padding; body fills the chrome (e.g. Image widget). */
     flush?: boolean;
+    /** False: no card padding, but the title stays above the body (unlike `flush`). */
+    padding?: boolean;
     /** Drop the default min-width so narrow docks are not padded out. */
     compact?: boolean;
     /** When false, hide the Duplicate menu item. */
@@ -111,6 +113,7 @@ const props = withDefaults(
   }>(),
   {
     allowDuplicate: true,
+    padding: true,
     highlighted: false,
     previewed: false,
     pinned: false,
@@ -318,6 +321,8 @@ const sizedStyle = computed(() => {
  */
 const bodyStyle = computed(() => ({
   "--widget-content-scale": String(resolvedContentScale.value),
+  // An unpadded card's title floats over the body: 14 above, 16 tall, 6 below.
+  "--widget-title-inset": !props.padding && !props.hideTitle ? "36px" : "0px",
 }));
 
 provide("widgetInstanceId", props.instanceId);
@@ -836,6 +841,7 @@ watch(
     :class="{
       'widget-card--menu-open': menuOpen || settingsOpen || renaming || hidePressPhase !== 'idle' || deleteRequest,
       'widget-card--flush': flush,
+      'widget-card--unpadded': !padding,
       'widget-card--compact': compact,
       'widget-card--flash': flashing,
       'widget-card--preview': previewed,
@@ -1743,6 +1749,37 @@ watch(
 .widget-card--flush {
   min-width: 0;
   padding: 0;
+}
+
+/*
+  The body reaches every edge, the top included. The title floats over its
+  top-left corner where the padding used to put it, plain rather than on
+  `flush`'s gradient, and the body is told how much room it takes
+  (`--widget-title-inset`, 0 when hidden) so content can start below it while
+  backgrounds run underneath.
+*/
+.widget-card--unpadded {
+  padding: 0;
+}
+
+.widget-card--unpadded > .widget-card-title,
+.widget-card--unpadded > .widget-card-title-editor {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  z-index: 2;
+  margin: 0;
+}
+
+.widget-card--unpadded > .widget-card-title {
+  line-height: 16px;
+}
+
+.widget-card--unpadded > .widget-card-title-editor {
+  top: 8px;
+  right: 8px;
+  left: 8px;
+  width: auto;
 }
 
 .widget-card--flush .widget-card-title,

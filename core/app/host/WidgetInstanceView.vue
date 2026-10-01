@@ -295,6 +295,7 @@ onBeforeUnmount(() => stopShareMove?.());
     :can-share="!sharing"
     :can-edit-in-wizard="wizardEditable"
     :flush="Boolean(def.flush)"
+    :padding="def.padding !== false"
     :compact="Boolean(def.compact)"
     :allow-duplicate="def.allowDuplicate !== false"
     :highlighted="!sharing && Boolean(highlighted)"

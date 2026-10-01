@@ -49,6 +49,8 @@ export interface HostExtensionRef {
   /** Size the widget opens at, from the manifest. */
   defaultSize?: { w: number; h: number };
   flush: boolean;
+  /** False drops the card padding; the title stays in flow. Absent means padded. */
+  padding?: boolean;
   compact: boolean;
   defaultHideTitle: boolean;
   /** Content zoom new instances open at (1 = unzoomed). */
@@ -125,6 +127,8 @@ export interface ScannedRuntimeExtension {
   defaultSize?: { w: number; h: number };
   /** `ui.defaultHideTitle` from the manifest, when it declares one. */
   defaultHideTitle?: boolean;
+  /** `ui.padding` from the manifest, when it declares one. */
+  padding?: boolean;
   /** `ui.defaultScale` from the manifest, when it declares one. */
   defaultScale?: number;
   status: "ready" | "error" | string;
@@ -170,6 +174,7 @@ export interface RuntimeManifest {
     defaultScale?: number;
     allowDuplicate?: boolean;
     flush?: boolean;
+    padding?: boolean;
     compact?: boolean;
     defaultHideTitle?: boolean;
     grabCursor?: boolean;

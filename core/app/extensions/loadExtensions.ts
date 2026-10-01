@@ -240,6 +240,7 @@ function toRegistered(
     defaultSize: { w: manifest.ui.defaultSize.w, h: manifest.ui.defaultSize.h },
     allowDuplicate: manifest.ui.allowDuplicate !== false,
     flush: Boolean(manifest.ui.flush),
+    ...(manifest.ui.padding === false ? { padding: false } : {}),
     compact: Boolean(manifest.ui.compact),
     defaultHideTitle: Boolean(manifest.ui.defaultHideTitle),
     // Out-of-range values clamp instead of failing the load — a manifest asking

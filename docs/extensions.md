@@ -181,6 +181,8 @@ Host resolves first-party icons at load time (`loadExtensions.ts`); unsafe paths
 
 When `ui.hugHeight: true`, height follows widget content; only `defaultSize.w` is applied on Add (`defaultSize.h` is ignored for sizing).
 
+When `ui.padding: false`, the card drops its padding so the body reaches every card edge. The title floats over the top-left corner at its usual inset, without the gradient `ui.flush` puts behind it. The body gets `--widget-title-inset` (36px, or 0px with the title hidden): start content below it, let backgrounds run under it.
+
 ## Persistence (new extensions)
 
 Use the canonical key helper:
