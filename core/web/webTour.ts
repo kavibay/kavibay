@@ -12,7 +12,8 @@ import { isEnabledPackage, packageFiles } from "./webWizard";
  * `wizardAutoplay.ts`: type "new widget" into the palette, run the row, type
  * each prompt into the Wizard's composer — naming integrations through its @
  * menu — and send; once the widget is built, press Save, close the Wizard
- * (Ctrl+W) and open the widget from the palette onto the desk. Nothing here
+ * (Ctrl+W), open the widget from the palette and drag it beside the palette,
+ * clear of the page's headline above. Nothing here
  * reaches into a component: every step is something a visitor could do.
  *
  * The page starts it (`kavibay:tour-start`) once the stage is on screen and is
@@ -42,6 +43,10 @@ const DRAFT_TIMEOUT_MS = 60000;
 const AFTER_BUILT_MS = 1600;
 const AFTER_SAVE_MS = 1200;
 const AFTER_CLOSE_MS = 700;
+const BEFORE_PLACE_MS = 500;
+const PLACE_MS = 700;
+/** Room between the palette's right edge and the placed card. */
+const PLACE_GAP = 40;
 
 let phase: Phase = "ready";
 
@@ -201,7 +206,10 @@ async function run(): Promise<void> {
   report("playing", 5);
   if (!(await closeWizard())) return;
   await sleep(AFTER_CLOSE_MS);
-  if (!(await openFromPalette(spec.draftId))) return;
+  const card = await openFromPalette(spec.draftId);
+  if (!card) return;
+  await sleep(BEFORE_PLACE_MS);
+  await placeBesidePalette(card);
   report("done", STEPS.length);
 }
 
@@ -232,8 +240,8 @@ async function closeWizard(): Promise<boolean> {
   return Boolean(await until(() => !composer(), MOUNT_TIMEOUT_MS));
 }
 
-/** Its name into the palette, then Enter on the row that names it. */
-async function openFromPalette(id: string): Promise<boolean> {
+/** Its name into the palette, then Enter on the row that names it. The new card, or null. */
+async function openFromPalette(id: string): Promise<HTMLElement | null> {
   const manifest = JSON.parse(packageFiles(id).find((file) => file.path === "manifest.json")?.contents ?? "{}") as {
     displayName?: string;
     name?: string;
@@ -244,17 +252,18 @@ async function openFromPalette(id: string): Promise<boolean> {
     input.value = "";
     input.dispatchEvent(new Event("input", { bubbles: true }));
   }
-  if (!(await typeIntoPalette(name.toLocaleLowerCase()))) return false;
+  if (!(await typeIntoPalette(name.toLocaleLowerCase()))) return null;
   const row = await until(
     () => document.querySelector(".palette-item")?.textContent?.trim().startsWith(name) === true,
     MOUNT_TIMEOUT_MS,
   );
-  if (!row) return false;
+  if (!row) return null;
   await sleep(AFTER_TYPE_MS);
-  const cardsBefore = document.querySelectorAll(".widget-card").length;
+  const anchors = () => [...document.querySelectorAll<HTMLElement>(".widget-anchor")];
+  const before = new Set(anchors());
   paletteInput()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-  const opened = await until(() => document.querySelectorAll(".widget-card").length > cardsBefore, MOUNT_TIMEOUT_MS);
-  if (!opened) return false;
+  const opened = await until(() => anchors().find((anchor) => !before.has(anchor)) ?? null, MOUNT_TIMEOUT_MS);
+  if (!opened) return null;
   // The search did its job; leave the desk with the card and a quiet palette.
   await sleep(AFTER_TYPE_MS);
   const search = paletteInput();
@@ -262,7 +271,55 @@ async function openFromPalette(id: string): Promise<boolean> {
     search.value = "";
     search.dispatchEvent(new Event("input", { bubbles: true }));
   }
-  return true;
+  return opened;
+}
+
+/**
+ * Drag the card by its move strip until it sits right of the palette, level
+ * with it. The app opens a new card at the nearest free spot, which here is
+ * above the palette and under the page's headline; a person would move it.
+ * The drag snaps to the desk grid like any other.
+ */
+async function placeBesidePalette(anchor: HTMLElement): Promise<void> {
+  const strip = anchor.querySelector<HTMLElement>(".widget-card-drag");
+  const palette = document.querySelector(".palette")?.getBoundingClientRect();
+  if (!strip || !palette) return;
+  const card = anchor.getBoundingClientRect();
+  const grip = strip.getBoundingClientRect();
+  const from = { x: grip.left + grip.width / 2, y: grip.top + grip.height / 2 };
+  const target = {
+    x: palette.right + PLACE_GAP + card.width / 2,
+    y: palette.top + palette.height / 2,
+  };
+  // Where the grip goes when the card's centre lands on the target.
+  const to = {
+    x: from.x + target.x - (card.left + card.width / 2),
+    y: from.y + target.y - (card.top + card.height / 2),
+  };
+  const pointer = (type: string, x: number, y: number, buttons = 1) =>
+    new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+      button: 0,
+      buttons,
+      clientX: x,
+      clientY: y,
+    });
+
+  strip.dispatchEvent(pointer("pointerdown", from.x, from.y));
+  const frames = Math.max(1, Math.round((PLACE_MS * pace) / 16));
+  for (let frame = 1; frame <= frames; frame++) {
+    const t = frame / frames;
+    const eased = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+    anchor.dispatchEvent(
+      pointer("pointermove", from.x + (to.x - from.x) * eased, from.y + (to.y - from.y) * eased),
+    );
+    await realSleep(16);
+  }
+  anchor.dispatchEvent(pointer("pointerup", to.x, to.y, 0));
 }
 
 /** Arms the tour for `demo`; it starts when the page asks. */
