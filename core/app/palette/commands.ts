@@ -60,6 +60,13 @@ export const commands: Command[] = [
     subtitle: "Settings",
     keywords: ["settings", "api", "keys", "tokens", "integrations"],
   },
+  // About checks for updates when it opens, and installs from there.
+  {
+    id: "open-settings-about",
+    title: "Update Kavibay",
+    subtitle: "Check for updates in Settings → About",
+    keywords: ["update", "upgrade", "version", "about", "release", "check"],
+  },
   // Deliberately not `open-settings-*`: the dispatcher treats that prefix as
   // "open this Settings section", so an id shaped like the others would be
   // routed into the modal with `file` as a section name.

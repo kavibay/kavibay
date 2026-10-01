@@ -24,6 +24,7 @@ mod quick_action;
 mod runtime_extensions;
 mod security;
 mod settings_store;
+mod updater;
 mod web_storage;
 mod wizard;
 
@@ -320,6 +321,7 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -558,12 +560,20 @@ pub fn run() {
             if let Err(error) = (|| -> tauri::Result<()> {
                 let open_i = MenuItem::with_id(app, "open", "Open", true, None::<&str>)?;
                 let sep_top = PredefinedMenuItem::separator(app)?;
-                // Disabled label — informational only, mirrors Raycast's version row.
+                // Disabled label mirroring Raycast's version row, until `updater`
+                // has a download ready and turns it into the restart button.
                 let version_i = MenuItem::with_id(
                     app,
                     "version",
                     format!("Version: {}", env!("CARGO_PKG_VERSION")),
                     false,
+                    None::<&str>,
+                )?;
+                let check_updates_i = MenuItem::with_id(
+                    app,
+                    "check_updates",
+                    "Check for Updates...",
+                    true,
                     None::<&str>,
                 )?;
                 let settings_i =
@@ -576,6 +586,7 @@ pub fn run() {
                         &open_i,
                         &sep_top,
                         &version_i,
+                        &check_updates_i,
                         &settings_i,
                         &sep_bottom,
                         &quit_i,
@@ -601,7 +612,13 @@ pub fn run() {
                     .show_menu_on_left_click(true)
                     .on_menu_event(|app, event| match event.id().as_ref() {
                         "open" => reveal_main_window(app),
-                        "settings" => reveal_settings(app),
+                        "settings" => reveal_settings(app, None),
+                        // About runs the check itself, and shows how it went.
+                        "check_updates" => reveal_settings(app, Some("about")),
+                        // Only clickable once an update is downloaded.
+                        "version" => {
+                            let _ = updater::install(app);
+                        }
                         "quit" => app.exit(0),
                         _ => {}
                     })
@@ -615,6 +632,7 @@ pub fn run() {
                         }
                     })
                     .build(app)?;
+                updater::spawn(app.handle().clone(), version_i);
                 Ok(())
             })() {
                 eprintln!("[tray] failed to create tray icon: {error}");
@@ -637,6 +655,9 @@ pub fn run() {
             commands::needs_dom_gap_catcher,
             commands::set_open_monitor,
             commands::app_exit,
+            updater::updater_status,
+            updater::updater_check,
+            updater::updater_install,
             cockpit_reveal_gesture,
             appearance_prefs::onboarding_preferences_load,
             appearance_prefs::onboarding_preferences_save,
@@ -780,17 +801,23 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if let RunEvent::Exit = event {
-                if let (Some(state), Some(db)) = (
-                    app_handle.try_state::<Arc<focus_tracker::FocusTrackerState>>(),
-                    app_handle.try_state::<Arc<focus_tracker::FocusDb>>(),
-                ) {
-                    focus_tracker::shutdown_tracker(db.as_ref(), state.as_ref());
-                }
-                if let Some(mcp_state) = app_handle.try_state::<mcp::server::McpServerState>() {
-                    mcp_state.shutdown_for_exit();
-                }
+                shutdown(app_handle);
             }
         });
+}
+
+/// Stop what must not be cut off mid-write. Runs on a normal exit and before
+/// the updater's installer ends the process.
+fn shutdown(app_handle: &tauri::AppHandle) {
+    if let (Some(state), Some(db)) = (
+        app_handle.try_state::<Arc<focus_tracker::FocusTrackerState>>(),
+        app_handle.try_state::<Arc<focus_tracker::FocusDb>>(),
+    ) {
+        focus_tracker::shutdown_tracker(db.as_ref(), state.as_ref());
+    }
+    if let Some(mcp_state) = app_handle.try_state::<mcp::server::McpServerState>() {
+        mcp_state.shutdown_for_exit();
+    }
 }
 
 /// The one expansion of `generate_context!` in this crate.
@@ -815,10 +842,11 @@ fn reveal_main_window(app: &tauri::AppHandle) {
 }
 
 /// Tray Settings: reveal the cockpit, then open the global Settings modal.
-fn reveal_settings(app: &tauri::AppHandle) {
+/// `section` is a Settings section id; `None` opens on the default one.
+fn reveal_settings(app: &tauri::AppHandle, section: Option<&str>) {
     reveal_main_window(app);
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.emit("settings:show", ());
+        let _ = window.emit("settings:show", section);
     }
 }
 
