@@ -29,6 +29,23 @@ use super::{settings, tools::McpAuthoringServer};
 pub const MAX_REQUEST_BODY_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_CONCURRENT_REQUESTS: usize = 16;
 
+/// How long a client session may sit idle before the server forgets it.
+///
+/// rmcp's default is five minutes, and an authoring session is not idle in the
+/// way that assumes: a model reads the guide, then spends several minutes
+/// writing a widget before its next call. That call found the session gone and
+/// got a 404; Claude Code re-initializes and carries on, but `mcp-remote` (the
+/// bridge Claude Desktop needs) re-initialized and then never delivered the
+/// reply, so `write_draft` hung until the client gave up. Still bounded, so a
+/// client that vanished does not leave its session behind forever.
+const SESSION_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4 * 60 * 60);
+
+fn session_manager() -> Arc<LocalSessionManager> {
+    let mut manager = LocalSessionManager::default();
+    manager.session_config.keep_alive = Some(SESSION_IDLE_TIMEOUT);
+    Arc::new(manager)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum McpServerLifecycle {
@@ -404,7 +421,7 @@ fn build_router(
         .with_max_request_body_bytes(max_body_bytes);
     let service = StreamableHttpService::new(
         move || Ok(McpAuthoringServer::new_optional(app.clone())),
-        Arc::new(LocalSessionManager::default()),
+        session_manager(),
         config,
     );
     let guards = GuardState {
@@ -431,7 +448,7 @@ fn build_router(
         .with_max_request_body_bytes(max_body_bytes);
     let service = StreamableHttpService::new(
         || Ok(McpAuthoringServer::placeholder()),
-        Arc::new(LocalSessionManager::default()),
+        session_manager(),
         config,
     );
     let guards = GuardState {

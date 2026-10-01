@@ -40,12 +40,13 @@ const RUNTIME_RESOURCE: &str = "kavibay://authoring/runtime-package";
 const CONTRACT_RESOURCE: &str = "kavibay://authoring/contract-package";
 const PROVIDER_RESOURCE: &str = "kavibay://authoring/provider-schema";
 
-const TOOL_NAMES: [&str; 9] = [
+const TOOL_NAMES: [&str; 10] = [
     "get_authoring_guide",
     "list_widget_providers",
     "list_drafts",
     "read_draft",
     "write_draft",
+    "edit_draft",
     "validate_draft",
     "list_custom_widgets",
     "read_custom_widget",
@@ -85,6 +86,24 @@ struct CheckoutCustomWidgetInput {
 struct McpDraftFile {
     path: String,
     contents: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct McpDraftEdit {
+    path: String,
+    old_string: String,
+    new_string: String,
+    #[serde(default)]
+    replace_all: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct EditDraftInput {
+    id: String,
+    expected_revision: String,
+    edits: Vec<McpDraftEdit>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -440,11 +459,31 @@ fn dispatch_tool(
                 app,
                 &input.id,
                 &files,
-                input.expected_revision.as_deref(),
+                create_sentinel_as_none(input.expected_revision.as_deref()),
                 drafts::DraftWriteOrigin::Mcp,
                 client,
                 client_name,
             ))
+        }),
+        "edit_draft" => parse_input(arguments).and_then(|input: EditDraftInput| {
+            service_call(drafts::read_draft(app, &input.id).and_then(|current| {
+                // Checked here as well as by the write: the edits were written
+                // against one revision, and applying them to another could
+                // match an `oldString` that now means something else.
+                if current.revision != input.expected_revision {
+                    return Err(format!("draft_conflict:{}", current.revision));
+                }
+                let files = apply_edits(current.files, &input.edits)?;
+                drafts::write_draft_with_client(
+                    app,
+                    &input.id,
+                    &files,
+                    Some(&current.revision),
+                    drafts::DraftWriteOrigin::Mcp,
+                    client,
+                    client_name,
+                )
+            }))
         }),
         "validate_draft" => parse_input(arguments)
             .and_then(|input: IdInput| service_call(drafts::validate_draft(app, &input.id))),
@@ -593,6 +632,14 @@ fn tool_service_error(error: String) -> CallToolResult {
             "Another draft already uses that name. Rename it or pick a different one."
         }
         "custom_conflict" => "The saved widget changed; read it again before checking it out.",
+        "edit_file_not_found" => "No file at that path in the draft; edit_draft changes existing files only.",
+        "edit_not_found" => {
+            "oldString does not occur in that file. Read the draft and copy the exact text, whitespace included."
+        }
+        "edit_ambiguous" => {
+            "oldString occurs more than once. Include more surrounding text, or set replaceAll."
+        }
+        "edit_empty" => "Each edit needs a non-empty oldString, and at least one edit is required.",
         "missing_manifest" | "no_files" => {
             "A complete draft must include manifest.json and at least one file."
         }
@@ -602,6 +649,9 @@ fn tool_service_error(error: String) -> CallToolResult {
         "draft_conflict" => detail.map(|current| json!({ "currentRevision": current })),
         "custom_conflict" => detail.map(|current| json!({ "currentWidgetRevision": current })),
         "draft_exists" => detail.map(|current| json!({ "currentDraftRevision": current })),
+        "edit_file_not_found" | "edit_not_found" | "edit_ambiguous" | "edit_empty" => {
+            detail.map(|path| json!({ "path": path }))
+        }
         _ => None,
     };
     tool_error(code, message, extra)
@@ -614,6 +664,55 @@ fn placeholder_tool() -> Tool {
         Arc::new(Map::new()),
     )
     .with_annotations(ToolAnnotations::new().read_only(true))
+}
+
+/// Apply exact-text replacements to a draft's files, all or nothing.
+///
+/// `write_draft` takes the whole file set, so a one-line change meant a model
+/// re-emitting every file — hundreds of lines of output, which is where the
+/// time went. This is the same edit primitive coding agents already use: the
+/// text to find must occur exactly once (or `replaceAll`), so an edit can never
+/// land somewhere the model did not look.
+fn apply_edits(
+    mut files: Vec<drafts::DraftFile>,
+    edits: &[McpDraftEdit],
+) -> Result<Vec<drafts::DraftFile>, String> {
+    if edits.is_empty() {
+        return Err("edit_empty:no edits".into());
+    }
+    for edit in edits {
+        if edit.old_string.is_empty() {
+            return Err(format!("edit_empty:{}", edit.path));
+        }
+        let file = files
+            .iter_mut()
+            .find(|file| file.path == edit.path)
+            .ok_or_else(|| format!("edit_file_not_found:{}", edit.path))?;
+        let count = file.contents.matches(edit.old_string.as_str()).count();
+        if count == 0 {
+            return Err(format!("edit_not_found:{}", edit.path));
+        }
+        if count > 1 && !edit.replace_all {
+            return Err(format!("edit_ambiguous:{}", edit.path));
+        }
+        file.contents = if edit.replace_all {
+            file.contents.replace(&edit.old_string, &edit.new_string)
+        } else {
+            file.contents.replacen(&edit.old_string, &edit.new_string, 1)
+        };
+    }
+    Ok(files)
+}
+
+/// "Create this draft", however a client managed to say it.
+///
+/// Models reach for `null` even when the field is optional, and some clients
+/// turn that into the text "null"; the model then tries "missing", the value
+/// the conflict error just reported for a draft that does not exist. A real
+/// revision is a SHA-256 hex digest, so none of these can be one — reading
+/// them as "no draft expected" is the only meaning they can have.
+fn create_sentinel_as_none(expected: Option<&str>) -> Option<&str> {
+    expected.filter(|value| !matches!(value.trim(), "" | "null" | "missing"))
 }
 
 fn object_schema(properties: Value, required: &[&str]) -> Arc<Map<String, Value>> {
@@ -697,9 +796,14 @@ fn tool_definitions() -> Vec<Tool> {
                         "type": "string",
                         "description": "Draft id: letters, digits, '-' and '_', starting with a letter or digit, at most 64 characters."
                     },
+                    // Optional rather than a required `["string", "null"]`: some
+                    // clients drop a union type and then send null as the text
+                    // "null", which reads as a revision and made creation fail
+                    // with draft_conflict:missing. Leaving the field out cannot
+                    // be mangled. JSON null still means the same thing.
                     "expectedRevision": {
-                        "type": ["string", "null"],
-                        "description": "null creates a new draft and fails with draft_conflict if one exists; otherwise the revision read_draft or the last write returned. A stale revision fails with draft_conflict and the current one."
+                        "type": "string",
+                        "description": "Leave this out to create a new draft; that fails with draft_conflict if one exists. To update, pass the revision read_draft or the last write returned. A stale revision fails with draft_conflict and the current one."
                     },
                     "files": {
                         "type": "array",
@@ -718,7 +822,37 @@ fn tool_definitions() -> Vec<Tool> {
                         }
                     }
                 }),
-                &["id", "expectedRevision", "files"],
+                &["id", "files"],
+            ),
+            false,
+        ),
+        tool(
+            "edit_draft",
+            "Change an existing draft by exact text replacement instead of rewriting it: use this for every change that touches part of a file, and write_draft only to create a draft or rewrite most of it. Each oldString must occur exactly once in its file (set replaceAll to change every occurrence); copy it from read_draft, whitespace included. All edits apply or none do, then the draft is validated. The reply is the draft summary write_draft returns.",
+            object_schema(
+                json!({
+                    "id": { "type": "string", "description": "Draft id as list_drafts reports it." },
+                    "expectedRevision": {
+                        "type": "string",
+                        "description": "The revision read_draft or the last write returned. A stale revision fails with draft_conflict and the current one."
+                    },
+                    "edits": {
+                        "type": "array",
+                        "description": "Applied in order; a later edit sees the result of an earlier one.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": { "type": "string", "description": "Package-relative path of an existing file." },
+                                "oldString": { "type": "string", "description": "Exact text to find, unique in the file unless replaceAll is set." },
+                                "newString": { "type": "string", "description": "Replacement text; empty deletes oldString." },
+                                "replaceAll": { "type": "boolean", "description": "Replace every occurrence. Defaults to false." }
+                            },
+                            "required": ["path", "oldString", "newString"],
+                            "additionalProperties": false
+                        }
+                    }
+                }),
+                &["id", "expectedRevision", "edits"],
             ),
             false,
         ),
@@ -838,9 +972,16 @@ mod tests {
             .find(|tool| tool.name == "write_draft")
             .unwrap();
         assert_eq!(write.input_schema["additionalProperties"], false);
+        // Creation must not depend on a client sending JSON null correctly.
+        assert_eq!(write.input_schema["required"], json!(["id", "files"]));
         assert_eq!(
-            write.input_schema["properties"]["expectedRevision"]["type"][1],
-            "null"
+            parse_input::<WriteDraftInput>(Some(Map::from_iter([
+                ("id".into(), json!("x")),
+                ("files".into(), json!([])),
+            ])))
+            .unwrap()
+            .expected_revision,
+            None
         );
         assert_eq!(write.annotations.unwrap().read_only_hint, Some(false));
 
@@ -863,6 +1004,57 @@ mod tests {
             json!(["id", "expectedRevision"])
         );
         assert_eq!(checkout.annotations.unwrap().read_only_hint, Some(false));
+    }
+
+    fn file(path: &str, contents: &str) -> drafts::DraftFile {
+        drafts::DraftFile { path: path.into(), contents: contents.into() }
+    }
+
+    fn edit(path: &str, old: &str, new: &str, replace_all: bool) -> McpDraftEdit {
+        McpDraftEdit {
+            path: path.into(),
+            old_string: old.into(),
+            new_string: new.into(),
+            replace_all,
+        }
+    }
+
+    #[test]
+    fn edits_replace_exact_text_in_order_and_leave_other_files_alone() {
+        let files = vec![file("ui/app.js", "a = 1;
+b = 2;"), file("manifest.json", "{}")];
+        let out = apply_edits(
+            files,
+            &[edit("ui/app.js", "a = 1;", "a = 3;", false), edit("ui/app.js", "a = 3;", "a = 4;", false)],
+        )
+        .unwrap();
+        assert_eq!(out[0].contents, "a = 4;
+b = 2;");
+        assert_eq!(out[1].contents, "{}");
+    }
+
+    #[test]
+    fn edits_refuse_anything_they_cannot_place_exactly() {
+        let files = || vec![file("ui/index.html", ".good {}
+.good {}")];
+        let error = |edits: &[McpDraftEdit]| apply_edits(files(), edits).unwrap_err();
+        assert_eq!(error(&[edit("ui/index.html", ".good {}", "", false)]), "edit_ambiguous:ui/index.html");
+        assert_eq!(error(&[edit("ui/index.html", ".bad {}", "", false)]), "edit_not_found:ui/index.html");
+        assert_eq!(error(&[edit("ui/app.js", "x", "y", false)]), "edit_file_not_found:ui/app.js");
+        assert_eq!(error(&[edit("ui/index.html", "", "y", false)]), "edit_empty:ui/index.html");
+        assert!(error(&[]).starts_with("edit_empty"));
+        let all = apply_edits(files(), &[edit("ui/index.html", ".good {}", "", true)]).unwrap();
+        assert_eq!(all[0].contents, "
+");
+    }
+
+    #[test]
+    fn create_sentinels_mean_no_draft_expected() {
+        for sentinel in ["", "null", "missing", " null "] {
+            assert_eq!(create_sentinel_as_none(Some(sentinel)), None, "{sentinel:?}");
+        }
+        assert_eq!(create_sentinel_as_none(None), None);
+        assert_eq!(create_sentinel_as_none(Some("ab12cd")), Some("ab12cd"));
     }
 
     #[test]
