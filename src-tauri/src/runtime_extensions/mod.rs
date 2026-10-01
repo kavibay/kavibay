@@ -727,7 +727,21 @@ fn contract_partial(
         default_hide_title: None,
         padding: None,
         default_scale: None,
-        icon: None,
+        // Same rules as a runtime package's icon, but a bad one is no icon
+        // rather than a broken package: it is decoration, and the Wizard writes it.
+        icon: raw
+            .get("icon")
+            .and_then(|v| v.as_str())
+            .filter(|icon| {
+                let lower = icon.to_ascii_lowercase();
+                lower.ends_with(".svg") || lower.ends_with(".png")
+            })
+            .filter(|icon| {
+                safe_join(package_root, icon)
+                    .map(|p| p.is_file())
+                    .unwrap_or(false)
+            })
+            .map(str::to_string),
         permissions: endpoints
             .as_ref()
             .map(|_| vec![NETWORK_DECLARED.to_string()])
