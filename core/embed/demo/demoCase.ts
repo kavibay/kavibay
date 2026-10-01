@@ -1,7 +1,7 @@
 /**
  * Which Wizard story the landing page is playing.
  *
- * Two buttons sit above the desk. They do not each own a tour: there is one
+ * Buttons sit above the desk, one per case. They do not each own a tour: there is one
  * director (`tour.ts`) and one fixture, and this name is what both read to
  * decide which prompt, which package and which palette row belong to the run.
  *
@@ -10,7 +10,7 @@
  * ask the same question the director asks.
  */
 
-export const DEMO_CASE_IDS = ["water-tracker", "linear-github-todos"] as const;
+export const DEMO_CASE_IDS = ["water-tracker", "linear-github-todos", "lisbon-countdown"] as const;
 
 export type DemoCaseId = (typeof DEMO_CASE_IDS)[number];
 
