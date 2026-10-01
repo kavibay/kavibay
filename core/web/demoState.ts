@@ -119,8 +119,8 @@ const DESK: Record<string, string> = {
  *
  * The Wizard is already there, put away: "New Widget" reveals a hidden Wizard
  * rather than making another (WidgetHost `onAddType`), so this card is the one
- * that opens — without its title row, and with chat and preview split about
- * 60:40 through the Wizard's own saved layout. It sits at 270–830, below the
+ * that opens — without its title row, and with chat and preview split
+ * 50:50 through the Wizard's own saved layout. It sits at 270–830, below the
  * page's headline and case buttons and above its playback bar. The palette
  * starts at y=545, where it reads as the start; when the tour closes the Wizard
  * and opens the result, the new card spawns just above the palette — clear of
@@ -128,7 +128,7 @@ const DESK: Record<string, string> = {
  */
 const WIZARD_SIZE = { w: 990, h: 560 };
 const WIZARD_TOP = 270;
-const WIZARD_PREVIEW = 370;
+const WIZARD_PREVIEW = 456;
 const PALETTE_Y = 545;
 const WIZARD_CARD: Card = {
   id: "demo-wizard",
