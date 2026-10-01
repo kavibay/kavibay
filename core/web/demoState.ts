@@ -16,6 +16,9 @@
 
 export const SCREEN = { width: 1440, height: 930 } as const;
 
+/** Narrower than the app's default (640): on the page the palette shares the screen with the headline and the stage. */
+const PALETTE_WIDTH = 520;
+
 interface Card {
   id: string;
   typeId: string;
@@ -40,6 +43,7 @@ function layoutOf(cards: Card[], palette = { x: SCREEN.width / 2, y: SCREEN.heig
         id: "1",
         name: "Desk 1",
         palette,
+        paletteWidth: PALETTE_WIDTH,
         viewport: SCREEN,
         placements: cards.map((card) => ({
           instanceId: card.id,
