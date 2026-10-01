@@ -51,12 +51,12 @@ Licensing rules that constrain code changes:
 ## Commands
 
 ```bash
-npm run tauri dev                # run the app (Vite + cargo)
-npm run verify                   # incremental typecheck + oxlint + all asserts, in parallel — what CI runs
-npm run verify:rust              # cargo fmt --check + clippy -D warnings + cargo test --lib
-npm run build                    # vue-tsc typecheck + vite build
-npm run build:embed              # custom-element bundle the site loads (`core/embed/` → `../www.kavibay.com/embed/`)
-npm run build:web                # the real app for the landing's iframe (`core/web/` → `../www.kavibay.com/app/`)
+pnpm run tauri dev                # run the app (Vite + cargo)
+pnpm run verify                   # incremental typecheck + oxlint + all asserts, in parallel — what CI runs
+pnpm run verify:rust              # cargo fmt --check + clippy -D warnings + cargo test --lib
+pnpm run build                    # vue-tsc typecheck + vite build
+pnpm run build:embed              # custom-element bundle the site loads (`core/embed/` → `../www.kavibay.com/embed/`)
+pnpm run build:web                # the real app for the landing's iframe (`core/web/` → `../www.kavibay.com/app/`)
 npx tsx <path>/<name>.assert.ts  # run one colocated pure-logic test
 ```
 
@@ -65,7 +65,7 @@ The data directory is `~/.kavibay` (`%USERPROFILE%\.kavibay` on Windows), and
 for `app_data_dir()` anywhere else silently opts that module out of the override
 below. Regenerable files go in `~/.kavibay/cache/` via `paths::cache_dir`.
 
-`KAVIBAY_DATA_DIR=<absolute path> npm run tauri dev` points the whole data
+`KAVIBAY_DATA_DIR=<absolute path> pnpm run tauri dev` points the whole data
 directory somewhere else — settings, the localStorage mirror, credentials, the
 widget caches — so a dev run cannot migrate or corrupt the real profile. The path
 must be absolute; a relative one is refused rather than resolved. Such an instance
@@ -207,17 +207,17 @@ rationale: `docs/superpowers/plans/2026-08-08-ci-cd-open-source.md`.
 
 ## Definition of done (any change)
 
-`npm run verify` green · `npm run verify:rust` green when Rust was touched · manual UI
+`pnpm run verify` green · `pnpm run verify:rust` green when Rust was touched · manual UI
 smoke for widget changes (palette add, duplicate/dispose if stateful, settings if
 present). Report deviations honestly — a red check with an explanation beats a silent
 skip.
 
 Landing exception: when a task touches **only static files** under
 `../www.kavibay.com/` (HTML, CSS, images, `script.js`) and not `core/embed/` or
-`vite.embed.config.ts`, do **not** run `npm run verify`. Validate the relevant
+`vite.embed.config.ts`, do **not** run `pnpm run verify`. Validate the relevant
 static files and diff only unless the maintainer explicitly asks for broader
 checks.
 
 Anything that touches the embed package (`core/embed/`), the web entry
-(`core/web/`), their Vite configs, or the bundles the landing loads **does** run typecheck — `npm run verify`. A broken import
+(`core/web/`), their Vite configs, or the bundles the landing loads **does** run typecheck — `pnpm run verify`. A broken import
 there is a typecheck failure that the static-only exception would hide.

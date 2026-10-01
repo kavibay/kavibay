@@ -55,7 +55,7 @@ another window to manage.
 | | |
 |---|---|
 | OS | Windows 11 (Windows 10 should work) — see [Platforms](#platforms) |
-| Node | 20 or newer |
+| Node | 22.13 or newer, with pnpm (`corepack enable` installs the version `package.json` pins) |
 | Rust | Stable toolchain via [rustup](https://rustup.rs/) |
 | Build tools | Visual Studio Build Tools with **Desktop development with C++** |
 
@@ -64,13 +64,13 @@ The Tauri CLI comes from `devDependencies` — nothing to install globally.
 **1. Clone and install**
 
 ```bash
-git clone https://github.com/kavibay/kavibay && cd kavibay && npm install
+git clone https://github.com/kavibay/kavibay && cd kavibay && pnpm install
 ```
 
 **2. Run it**
 
 ```bash
-npm run tauri dev
+pnpm run tauri dev
 ```
 
 The first run compiles the Rust backend and takes a few minutes. Later runs are
@@ -90,7 +90,7 @@ in `Settings → Behavior`.
 On later starts, Kavibay stays hidden in the tray. Tap `Ctrl` twice or
 double-click the tray icon to open it.
 
-> `npm run dev` on its own starts only Vite on <http://localhost:1420>. The UI
+> `pnpm run dev` on its own starts only Vite on <http://localhost:1420>. The UI
 > renders in a browser, but every `invoke` fails — use it for pure CSS work, not
 > for anything that talks to Rust.
 
@@ -112,8 +112,8 @@ published SHA256 if you want to be sure of what you downloaded.
 **Option B — build it yourself on Windows.**
 
 ```bash
-npm run package:win              # NSIS installer  → src-tauri/target/release/bundle/nsis/
-npm run package:win:standalone   # single .exe     → src-tauri/target/release/kavibay.exe
+pnpm run package:win              # NSIS installer  → src-tauri/target/release/bundle/nsis/
+pnpm run package:win:standalone   # single .exe     → src-tauri/target/release/kavibay.exe
 ```
 
 ## Widgets

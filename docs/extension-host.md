@@ -24,7 +24,7 @@ questions instead and say so.
 | `core/app/extension-host/cockpit.ts` | Where the host meets the running app. |
 | `core/app/extension-host/widgetPackageLoad.ts` | Scanned packages + stored grants → loaded extensions. |
 | `src-tauri/src/extension_providers/` | The Rust broker: allowlist enforcement, credential injection, `{{placeholder}}` substitution. |
-| `src-tauri/src/extensions/generated.rs` | **Generated** from `extensions/*/provider.ts` by `npm run build:provider-doc`. The compiled allowlist; never edited by hand. |
+| `src-tauri/src/extensions/generated.rs` | **Generated** from `extensions/*/provider.ts` by `pnpm run build:provider-doc`. The compiled allowlist; never edited by hand. |
 
 ## The two boundaries that matter
 
@@ -385,7 +385,7 @@ that can be wrong.
 | Piece | What |
 |---|---|
 | `sdk/extension/contract/providerSchema.ts` | `describeProvider(id, def)`. Carries no actions — the rule made structural rather than remembered. |
-| `scripts/providerSchemaDoc.ts` | Renders the document. `npm run build:provider-doc` writes it. |
+| `scripts/providerSchemaDoc.ts` | Renders the document. `pnpm run build:provider-doc` writes it. |
 | `scripts/providerSchemaDoc.assert.ts` | Fails the build when document and code disagree. |
 | `providerSchemas()` | The same data at runtime, for the picker and the prompt block. |
 
