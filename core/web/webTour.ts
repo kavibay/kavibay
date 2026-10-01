@@ -15,7 +15,10 @@ import { isEnabledPackage, packageFiles } from "./webWizard";
  * reaches into a component: every step is something a visitor could do.
  *
  * The page starts it (`kavibay:tour-start`) once the stage is on screen and is
- * told how far it got (`kavibay:tour`). While it plays, the visitor's clicks
+ * told how far it got (`kavibay:tour`). It sets the pace with
+ * `kavibay:tour-speed` (or a `speed` on the start), any time, mid-tour included:
+ * every pause and keystroke here is divided by it. The recorded model's own
+ * thinking time (wizardFixture.ts) is not. While it plays, the visitor's clicks
  * and keys do not reach the app — a stray click would otherwise strand the
  * story halfway. Scrolling still passes, or the page would stop scrolling under
  * the pointer. Once the widget is on the desk, the app is the visitor's.
@@ -40,13 +43,23 @@ const AFTER_CLOSE_MS = 700;
 
 let phase: Phase = "ready";
 
+/** The playback rates the page offers. */
+const SPEEDS = [1, 1.25, 1.5, 2, 3];
+let speed = 1;
+
+function setSpeed(value: unknown): void {
+  if (typeof value === "number" && SPEEDS.includes(value)) speed = value;
+}
+
 /** What a visitor could use to act on the app mid-tour. Scrolling is not here on purpose. */
 const HELD_INPUT = [
   "pointerdown", "pointerup", "mousedown", "mouseup", "click", "dblclick", "contextmenu",
   "keydown", "keypress", "keyup", "beforeinput", "paste", "drop", "dragstart",
 ];
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** A pause in the tour's own pace. `until`'s polling and timeouts stay in real time. */
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms / speed));
+const realSleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const typingPause = () => sleep(TYPE_MIN_MS + Math.random() * TYPE_JITTER_MS);
 const playing = () => phase === "playing";
 
@@ -73,7 +86,7 @@ async function until<T>(find: () => T | null | false, timeoutMs: number): Promis
     if (!playing()) return null;
     const found = find();
     if (found) return found;
-    await sleep(POLL_MS);
+    await realSleep(POLL_MS);
   }
   return null;
 }
@@ -252,7 +265,10 @@ export function installWebTour(demo: DemoCaseId): void {
 
   window.addEventListener("message", (event) => {
     if (event.origin !== location.origin || event.source !== window.parent) return;
-    if ((event.data as { type?: unknown } | null)?.type !== "kavibay:tour-start") return;
+    const data = event.data as { type?: unknown; speed?: unknown } | null;
+    if (data?.type === "kavibay:tour-speed") setSpeed(data.speed);
+    if (data?.type !== "kavibay:tour-start") return;
+    setSpeed(data.speed);
     if (phase !== "ready") return;
     phase = "playing";
     void run();
