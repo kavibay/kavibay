@@ -2,6 +2,7 @@ import { setDemoCase, type DemoCaseId } from "../embed/demo/demoCase";
 import { finishedDraftFromThisRun } from "../embed/demo/tourLogic";
 import { isMentionPart, type DemoPromptPart } from "../embed/widget/wizardDemoScript";
 import { currentWizardDemo } from "../embed/widget/wizardDemos";
+import { setWizardThinkingPace } from "../embed/widget/wizardFixture";
 import { isEnabledPackage, packageFiles } from "./webWizard";
 
 /**
@@ -17,10 +18,11 @@ import { isEnabledPackage, packageFiles } from "./webWizard";
  * The page starts it (`kavibay:tour-start`) once the stage is on screen and is
  * told how far it got (`kavibay:tour`). It sets the pace with
  * `kavibay:tour-speed` (or a `speed` on the start), any time, mid-tour included:
- * every pause and keystroke here is divided by it. The recorded model's own
- * thinking time (wizardFixture.ts) is not. While it plays, the visitor's clicks
- * and keys do not reach the app — a stray click would otherwise strand the
- * story halfway. Scrolling still passes, or the page would stop scrolling under
+ * every pause and keystroke here, and the recorded model's thinking time
+ * (wizardFixture.ts), runs at `BASE_PACE / speed` of its authored length.
+ *
+ * While it plays, the visitor's clicks and keys do not reach the app — a stray
+ * click would otherwise strand the story halfway. Scrolling still passes, or the page would stop scrolling under
  * the pointer. Once the widget is on the desk, the app is the visitor's.
  */
 
@@ -45,10 +47,14 @@ let phase: Phase = "ready";
 
 /** The playback rates the page offers. */
 const SPEEDS = [1, 1.25, 1.5, 2, 3];
-let speed = 1;
+/** 1x is this much slower than the timings below: calm enough to read along. */
+const BASE_PACE = 1.5;
+let pace = BASE_PACE;
 
 function setSpeed(value: unknown): void {
-  if (typeof value === "number" && SPEEDS.includes(value)) speed = value;
+  if (typeof value !== "number" || !SPEEDS.includes(value)) return;
+  pace = BASE_PACE / value;
+  setWizardThinkingPace(pace);
 }
 
 /** What a visitor could use to act on the app mid-tour. Scrolling is not here on purpose. */
@@ -58,7 +64,7 @@ const HELD_INPUT = [
 ];
 
 /** A pause in the tour's own pace. `until`'s polling and timeouts stay in real time. */
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms / speed));
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms * pace));
 const realSleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const typingPause = () => sleep(TYPE_MIN_MS + Math.random() * TYPE_JITTER_MS);
 const playing = () => phase === "playing";
@@ -262,6 +268,7 @@ async function openFromPalette(id: string): Promise<boolean> {
 /** Arms the tour for `demo`; it starts when the page asks. */
 export function installWebTour(demo: DemoCaseId): void {
   setDemoCase(demo);
+  setSpeed(1);
 
   window.addEventListener("message", (event) => {
     if (event.origin !== location.origin || event.source !== window.parent) return;
