@@ -21,7 +21,10 @@
 Tap `Ctrl` twice. A command palette opens in the middle of the screen and brings
 your widgets with it. Tap twice again and everything is gone.
 
-<img src="https://kavibay.com/videos/launcher-poster.jpg" width="80%" alt="The Kavibay command palette over a desktop wallpaper" />
+<a href="https://kavibay.com/videos/launcher.mp4"><img src="https://kavibay.com/videos/launcher-poster.jpg" width="80%" alt="The Kavibay command palette over a desktop wallpaper — click to watch the video" /></a>
+
+**[Try it in your browser](https://kavibay.com/)** ·
+**[Download for Windows](https://github.com/kavibay/kavibay/releases/latest)**
 
 </div>
 
@@ -48,73 +51,60 @@ another window to manage.
   *whether* it is connected.
 
 
-## Quickstart
+## Install
+
+Version 0.1 runs on **Windows 10 and 11**. Grab the installer from the
+[latest release](https://github.com/kavibay/kavibay/releases/latest) — a
+standalone `.exe` and `SHA256SUMS.txt` are attached too. No Windows machine?
+[Try it in the browser](https://kavibay.com/) instead.
+
+The builds are **unsigned for now**, so SmartScreen warns once on first run
+("More info" → "Run anyway"). Compare the download against `SHA256SUMS.txt` if
+you want to be sure what you are running.
+
+The installer build updates itself: it downloads new releases in the background
+and offers **Restart to update** in the tray menu. The standalone `.exe` does not.
+
+**First start.** Setup asks whether to start at login and, with several
+displays, which screen to cover. Then take the short tour or **Skip the tour**.
+The desk arrives with a clock and a to-do list on it. `Settings → Behavior →
+Replay tour` brings the tour back. After that, Kavibay waits in the tray: tap
+`Ctrl` twice or double-click the tray icon.
+
+## Build from source
 
 **Prerequisites**
 
 | | |
 |---|---|
-| OS | Windows 11 (Windows 10 should work) — see [Platforms](#platforms) |
+| OS | Windows 11 or 10 — see [Platforms](#platforms) |
 | Node | 22.13 or newer, with pnpm (`corepack enable` installs the version `package.json` pins) |
 | Rust | Stable toolchain via [rustup](https://rustup.rs/) |
 | Build tools | Visual Studio Build Tools with **Desktop development with C++** |
 
 The Tauri CLI comes from `devDependencies` — nothing to install globally.
 
-**1. Clone and install**
-
 ```bash
 git clone https://github.com/kavibay/kavibay && cd kavibay && pnpm install
-```
-
-**2. Run it**
-
-```bash
 pnpm run tauri dev
 ```
 
 The first run compiles the Rust backend and takes a few minutes. Later runs are
 fast, and the Vue side hot-reloads.
 
-**3. Open it**
-
-On the first start, setup opens automatically. Choose whether to start at login
-and, if you have multiple displays, which screen to cover. Continue with the
-tour or choose **Skip the tour**. The desk arrives with a clock and a to-do list
-already on it. The optional Windows tour teaches the double tap, app search
-using `notepad`, and the widget desk.
-It ends there and offers the six card gestures rather than insisting on them.
-`Settings → Behavior → Replay tour` brings it back, and the startup switch stays
-in `Settings → Behavior`.
-
-On later starts, Kavibay stays hidden in the tray. Tap `Ctrl` twice or
-double-click the tray icon to open it.
-
 > `pnpm run dev` on its own starts only Vite on <http://localhost:1420>. The UI
 > renders in a browser, but every `invoke` fails — use it for pure CSS work, not
 > for anything that talks to Rust.
 
-Full Windows setup, experimental port notes, and troubleshooting:
-**[docs/getting-started.md](docs/getting-started.md)**.
-
-## Install
-
-**Option A — download a build.** Version 0.1 targets Windows only: an
-installer and a standalone `.exe`, plus `SHA256SUMS.txt`. Linux and macOS are
-outside the 0.1 release scope ([Platforms](#platforms)). Releases are built by
-[`release.yml`](.github/workflows/release.yml) when a `v*` tag is pushed, and land
-as a draft.
-
-Everything is **unsigned** — no free code-signing option exists that Windows
-trusts — so SmartScreen warns on first run ("More info" → "Run anyway"). Check the
-published SHA256 if you want to be sure of what you downloaded.
-
-**Option B — build it yourself on Windows.**
+To package it yourself:
 
 ```bash
 pnpm run package:win              # NSIS installer  → src-tauri/target/release/bundle/nsis/
 pnpm run package:win:standalone   # single .exe     → src-tauri/target/release/kavibay.exe
 ```
+
+Full Windows setup, experimental port notes, and troubleshooting:
+**[docs/getting-started.md](docs/getting-started.md)**.
 
 ## Widgets
 
