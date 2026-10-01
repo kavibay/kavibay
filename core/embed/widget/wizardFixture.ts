@@ -69,6 +69,12 @@ const nextRevision = () => `demo-${(revisionCounter += 1)}`;
 
 /** Long enough to read as work, short enough not to feel broken. */
 const THINKING_MS = 900;
+let thinkingMs = THINKING_MS;
+
+/** The landing's tour plays at a chosen pace; the "model" thinks at it too. */
+export function setWizardThinkingPace(factor: number): void {
+  thinkingMs = THINKING_MS * factor;
+}
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function summarize(entry: DraftEntry) {
@@ -128,7 +134,7 @@ export const wizardFixture: Pick<
    * last reply rather than going quiet.
    */
   wizardComplete: async (request) => {
-    await delay(THINKING_MS);
+    await delay(thinkingMs);
     const replies = currentWizardDemo().replies;
     const text = replies[Math.min(turn, replies.length - 1)]!;
     turn += 1;
