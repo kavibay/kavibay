@@ -103,12 +103,17 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # The release config adds the signed updater artifacts and `latest.json`,
+      # which installed copies read from the latest *published* release. Local
+      # builds leave it out, so they need no signing key.
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
-          args: --bundles ${{ matrix.bundles }}
+          args: --bundles ${{ matrix.bundles }} --config src-tauri/tauri.release.conf.json
 
       # The standalone .exe falls out of the same build in target/release — no second
       # compile needed. tauri-action only knows about bundles, so upload it by hand.

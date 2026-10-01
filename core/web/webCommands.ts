@@ -61,6 +61,7 @@ export const ANSWERS: Record<string, (args: Args) => unknown> = {
 
   autostart_supported: () => false,
   autostart_enabled: () => false,
+  updater_status: () => ({ state: "unsupported" }),
   demo_mode_enabled: () => false,
   // No native gap click on a page: the DOM catcher is the only way to dismiss.
   needs_dom_gap_catcher: () => true,
@@ -117,6 +118,8 @@ export const NO_OPS = new Set([
   "execute_action",
   "settings_file_open",
   "autostart_set",
+  "updater_check",
+  "updater_install",
   "send_virtual_key",
   // Cancels and cleanups for things that never started here.
   "cancel_preview_clip",
