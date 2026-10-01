@@ -16,6 +16,7 @@ import { installMemoryStorage } from "./memoryStorage";
 import { installWebTour } from "./webTour";
 import { installWebHotkey } from "./webWindow";
 import { installWizardPreview } from "./webWizardPreview";
+import "./web.css";
 
 const query = new URLSearchParams(location.search);
 

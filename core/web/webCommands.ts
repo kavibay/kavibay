@@ -16,8 +16,9 @@ import { WIZARD_ANSWERS } from "./webWizard";
  *   NO_OPS      the desktop side effect has no meaning here (click-through
  *               rects, monitor choice, saving to AppData). Answered with null.
  *   NOT_ON_WEB  a feature the page does not offer (yet): credentials, screen
- *               recording, the model APIs. Rejected with a message naming the
- *               command, so the app's own error handling shows it.
+ *               recording, the model APIs. Rejected with `DesktopOnly`, so the
+ *               app's own error handling shows a sentence a visitor can read
+ *               (styled as a note by web.css) instead of a command name.
  */
 
 type Args = Record<string, unknown>;
@@ -212,12 +213,27 @@ export const NOT_ON_WEB = new Set<string>([
 
 const unanswered = new Set<string>();
 
+/**
+ * What a visitor sees where the page cannot follow. The app prints errors with
+ * `String(cause)` as often as with `.message`; `toString` makes both the
+ * sentence alone, without the "Error: " prefix. The command stays on `command`.
+ */
+export class DesktopOnly extends Error {
+  constructor(readonly command: string) {
+    super("This needs the Kavibay desktop app. You're looking at a demo.");
+  }
+
+  override toString(): string {
+    return this.message;
+  }
+}
+
 export function webCommand(cmd: string, args: Args): unknown {
   const answer = ANSWERS[cmd];
   if (answer) return answer(args);
   if (NO_OPS.has(cmd)) return null;
   if (NOT_ON_WEB.has(cmd)) {
-    throw new Error(`${cmd} needs the desktop app`);
+    throw new DesktopOnly(cmd);
   }
   // Only Tauri's own plugin commands can land here; ours are all classified.
   if (!unanswered.has(cmd)) {
