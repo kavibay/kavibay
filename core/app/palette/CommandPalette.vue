@@ -672,7 +672,15 @@ const renderedListHeight = computed(() =>
   Math.max(0, Math.min(resizeListHeight.value, viewportListHeight.value)),
 );
 const sevenRowsHeight = ref(Number.POSITIVE_INFINITY);
-const resultsListHeight = computed(() => Math.min(renderedListHeight.value, sevenRowsHeight.value));
+/**
+ * Seven rows is the default cap, not a ceiling: once somebody has sized the
+ * list themselves (a stored height), that height is the one that counts.
+ */
+const resultsListHeight = computed(() =>
+  paletteListHeight.value === undefined
+    ? Math.min(renderedListHeight.value, sevenRowsHeight.value)
+    : renderedListHeight.value,
+);
 
 function syncViewportListHeight() {
   const top = listShellEl.value?.getBoundingClientRect().top;
@@ -707,6 +715,18 @@ function onPaletteResize(payload: {
   deltaOffset: { x: number; y: number };
 }) {
   resizePalette?.(payload);
+}
+
+/**
+ * The results panel's own lower edge: only the list grows, so the search bar
+ * and the width stay where they are — no centre shift, no grid snap.
+ */
+function onResultsResize(payload: { height: number }) {
+  resizePalette?.({
+    width: resizeWidth.value,
+    height: payload.height,
+    deltaOffset: { x: 0, y: 0 },
+  });
 }
 
 /** End palette resize gesture. */
@@ -3462,7 +3482,7 @@ onUnmounted(() => {
       :height="resizeHandleHeight"
       :measure-el="showResultsList ? resultsPanelEl : paletteRootEl"
       :clamps="DEFAULT_PALETTE_CLAMPS"
-      :edges="RESIZE_EDGES_NO_TOP"
+      :edges="showResultsList ? ['e', 'w'] : RESIZE_EDGES_NO_TOP"
       @resize="onPaletteResize"
       @resize-end="onPaletteResizeEnd"
     />
@@ -4036,6 +4056,17 @@ onUnmounted(() => {
       :class="{ 'palette-results--inline-menu-open': inlineWidgetOpen && inlineMenuOpen }"
       data-interactive
     >
+      <!-- The list's height is dragged from here, like a widget's lower edge. -->
+      <ResizeEdges
+        v-if="!inlineWidgetOpen && calcDisplay === null"
+        :width="resizeWidth"
+        :height="resultsListHeight"
+        :measure-el="listShellEl"
+        :clamps="DEFAULT_PALETTE_CLAMPS"
+        :edges="['s']"
+        @resize="onResultsResize"
+        @resize-end="onPaletteResizeEnd"
+      />
       <p v-if="paletteActionError" class="palette-action-error" role="alert">{{ paletteActionError }}</p>
       <div v-if="calcDisplay !== null" class="palette-calc" aria-live="polite">
         <span class="palette-calc-eq">=</span>
@@ -5079,10 +5110,17 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 14px;
+  /* 21 + 7 puts the 14px icon's centre on the folder tiles' (8 list + 12 row - 6 overhang + 14). */
+  padding: 6px 14px 6px 21px;
   border-bottom: 1px solid rgba(var(--fg-rgb), 0.08);
   color: rgba(var(--fg-rgb), 0.62);
   font-size: 12px;
+}
+
+/* ...and the path starts where the row titles do (8 + 12 + 20 + 10 = 50). */
+.palette-scope-bar > svg {
+  flex: 0 0 auto;
+  margin-right: 7px;
 }
 
 .palette-scope-path {
@@ -5899,6 +5937,11 @@ onUnmounted(() => {
 }
 
 /* Keep browser focus/pressed styles off the invisible hit area itself. */
+/* The tabs keep their 8px apart; the plus sits 4px off, as it does by Widgets. */
+.palette-desk-add-hit {
+  margin-left: -8px;
+}
+
 .palette-add-hit-area:focus,
 .palette-add-hit-area:focus-visible,
 .palette-add-hit-area:active {
