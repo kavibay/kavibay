@@ -101,14 +101,15 @@ Redacted is the example: its manifest makes a new cover black and opaque, and
 each cover can be turned into tinted, blurred glass. Like every `ui` field, this
 is read from bundled manifests only.
 
-Two more fields are not per-instance, because they are not starting states.
+A few more fields are not per-instance, because they are not starting states.
 
-`starter` sits beside `keywords` rather than under `ui` — it says which desk a
-widget belongs on, not where on it:
+`starter` and `galleryPick` sit beside `keywords` rather than under `ui` — they
+say where a widget belongs, not where on the desk:
 
 | Field | Default | Effect |
 |-------|---------|--------|
 | `starter` | absent | A number places this widget on the desk the **very first** time Kavibay is opened, lowest first. Absent means no. |
+| `galleryPick` | absent | A number puts this widget at the front of the Widget Gallery with a "Good first pick" label, lowest first. The tour sends every new user to the gallery, so keep it to widgets that work without an account or setup. |
 
 It exists so core does not have to hold a list of extension ids — the same
 reason `enabledByDefault` is a manifest field. An empty desk on a first run
