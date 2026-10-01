@@ -62,6 +62,8 @@ pub struct ScannedRuntimeExtension {
     pub default_size: Option<WidgetSize>,
     /// Whether the card opens with its title bar hidden, from `ui.defaultHideTitle`.
     pub default_hide_title: Option<bool>,
+    /// `false` when the card drops its padding, from `ui.padding`.
+    pub padding: Option<bool>,
     /// Content zoom the card opens at, from `ui.defaultScale` (1 = unzoomed).
     /// The host clamps it; anything non-positive is dropped here.
     pub default_scale: Option<f64>,
@@ -240,6 +242,7 @@ fn validate_manifest_on_disk(
         ui_entry: String::new(),
         default_size: None,
         default_hide_title: None,
+        padding: None,
         default_scale: None,
         icon: None,
         permissions: Vec::new(),
@@ -335,6 +338,7 @@ fn validate_manifest_on_disk(
     // Same shape as `defaultSize`: optional, and a bad value falls back to the
     // host default rather than failing the package.
     partial.default_hide_title = ui.get("defaultHideTitle").and_then(Value::as_bool);
+    partial.padding = ui.get("padding").and_then(Value::as_bool);
     partial.default_scale = ui
         .get("defaultScale")
         .and_then(Value::as_f64)
@@ -515,6 +519,7 @@ struct PartialScan {
     ui_entry: String,
     default_size: Option<WidgetSize>,
     default_hide_title: Option<bool>,
+    padding: Option<bool>,
     default_scale: Option<f64>,
     icon: Option<String>,
     permissions: Vec<String>,
@@ -556,6 +561,7 @@ fn scan_row(
         ui_entry: partial.ui_entry.clone(),
         default_size: partial.default_size,
         default_hide_title: partial.default_hide_title,
+        padding: partial.padding,
         default_scale: partial.default_scale,
         icon: partial.icon.clone(),
         permissions: partial.permissions.clone(),
@@ -586,6 +592,7 @@ fn scan_package_dir(
         ui_entry: String::new(),
         default_size: None,
         default_hide_title: None,
+        padding: None,
         default_scale: None,
         icon: None,
         permissions: Vec::new(),
@@ -718,6 +725,7 @@ fn contract_partial(
         ui_entry: "index.html".to_string(),
         default_size: None,
         default_hide_title: None,
+        padding: None,
         default_scale: None,
         icon: None,
         permissions: endpoints
@@ -873,6 +881,7 @@ mod tests {
             ui_entry: "ui/index.html".into(),
             default_size: None,
             default_hide_title: None,
+            padding: None,
             default_scale: None,
             icon: None,
             permissions: Vec::new(),

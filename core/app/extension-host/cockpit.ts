@@ -506,6 +506,7 @@ function toRegistered(definitionId: string): RegisteredExtension | undefined {
       : { w: widget.defaultSize.w * 120, h: widget.defaultSize.h * 90 },
     allowDuplicate: metadata.allowDuplicate ?? true,
     flush: metadata.flush ?? false,
+    ...(metadata.padding === false ? { padding: false } : {}),
     compact: metadata.compact ?? false,
     defaultHideTitle: metadata.defaultHideTitle ?? false,
     defaultScale: metadata.defaultScale ?? 1,
