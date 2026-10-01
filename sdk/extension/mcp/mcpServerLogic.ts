@@ -96,6 +96,28 @@ export function buildCodexConfigSnippet(port: number, tokenRequired = false): st
   return tokenRequired ? `${base}\nbearer_token_env_var = "${MCP_TOKEN_ENV_VAR}"` : base;
 }
 
+/**
+ * `claude_desktop_config.json` entry for Claude Desktop.
+ *
+ * Claude Desktop starts local MCP servers as processes over stdio and has no
+ * way to reach a Streamable HTTP server on localhost: its custom connectors are
+ * called from Anthropic's servers, which cannot see this machine. `mcp-remote`
+ * is the usual bridge — a stdio server that forwards to the HTTP one.
+ *
+ * The token travels in an environment variable rather than in `args` because
+ * Claude Desktop on Windows splits arguments on spaces, which would cut
+ * "Bearer <token>" in two (the workaround `mcp-remote` documents).
+ */
+export function buildClaudeDesktopConfigSnippet(url: string, tokenRequired = false): string {
+  const args = ["-y", "mcp-remote", url];
+  const server: Record<string, unknown> = { command: "npx", args };
+  if (tokenRequired) {
+    args.push("--header", "Authorization:${KAVIBAY_AUTH_HEADER}");
+    server.env = { KAVIBAY_AUTH_HEADER: `Bearer ${MCP_TOKEN_PLACEHOLDER}` };
+  }
+  return JSON.stringify({ mcpServers: { kavibay: server } }, null, 2);
+}
+
 /** Stands in for the token in a command when the token itself is not on screen. */
 export const MCP_TOKEN_PLACEHOLDER = "<your token>";
 
