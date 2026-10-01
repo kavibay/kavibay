@@ -64,7 +64,9 @@ export const ANSWERS: Record<string, (args: Args) => unknown> = {
   demo_mode_enabled: () => false,
   // No native gap click on a page: the DOM catcher is the only way to dismiss.
   needs_dom_gap_catcher: () => true,
-  cockpit_reveal_gesture: () => null,
+  // The page has the double tap too (`installWebHotkey`). Answering null sent
+  // the tour's hotkey lesson to "use the tray", which a browser does not have.
+  cockpit_reveal_gesture: () => "ctrlDoubleTap",
   "plugin:path|resolve_directory": (args) => DIRS[Number(args.directory)] ?? DEMO_HOME,
 
   llm_catalog: () => [],

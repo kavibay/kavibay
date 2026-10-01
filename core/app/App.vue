@@ -9,6 +9,7 @@ import WidgetImportModal from "./runtime/WidgetImportModal.vue";
 import OnboardingCoach from "./onboarding/OnboardingCoach.vue";
 import OnboardingSetup from "./onboarding/OnboardingSetup.vue";
 import SettingsModal from "./settings/SettingsModal.vue";
+import FirstTimeTip from "./onboarding/FirstTimeTip.vue";
 import { useSettingsModal } from "./settings/useSettingsModal";
 import { useRegionSync } from "./system/clickThrough";
 import FloatingTipHost from "./system/FloatingTipHost.vue";
@@ -53,6 +54,7 @@ onUnmounted(() => {
         <WidgetImportModal />
         <OnboardingCoach />
         <OnboardingSetup />
+        <FirstTimeTip />
         <DurableStorageNotice />
       </template>
     </WidgetHost>

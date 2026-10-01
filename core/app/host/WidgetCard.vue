@@ -30,7 +30,7 @@ import {
   resolveHidePressRelease,
   type HidePressPhase,
 } from "./hidePressLogic";
-import { onboardingState } from "../onboarding/onboardingSession";
+import { showWidgetChromeTip } from "../onboarding/firstTimeTips";
 import { WIDGET_FOCUS_EVENT, widgetFocusRequestMatches } from "@sdk";
 import { IconBase, SparklesIcon, SquareArrowDownRightIcon } from "@sdk/icons";
 import {
@@ -196,15 +196,6 @@ let hideArmTimer: ReturnType<typeof setTimeout> | undefined;
 let hideHintTimer: ReturnType<typeof setTimeout> | undefined;
 const hideBtnEl = ref<HTMLButtonElement | null>(null);
 
-/** Keep pin/hide chrome visible while the tour points at those controls. */
-const forceCoachChrome = computed(() => {
-  if (props.coachTargets !== true) return false;
-  const s = onboardingState.value;
-  return (
-    s?.status === "active" && (s.step === 7 || s.step === 8 || s.step === 10)
-  );
-});
-
 /**
  * Hover is tracked by position, not by a hit target: the buttons sit above the
  * band as siblings, so a zone element would fire `pointerleave` the moment the
@@ -226,9 +217,9 @@ const chromeVisible = computed(
     settingsOpen.value ||
     renaming.value ||
     hidePressPhase.value !== "idle" ||
-    shortcutHinting.value ||
-    forceCoachChrome.value,
+    shortcutHinting.value,
 );
+
 
 /** Ctrl-hold is scoped to this card, including its compact action menu. */
 const shortcutHinting = computed(
@@ -743,6 +734,11 @@ function syncDocListeners() {
   docListening = need;
 }
 
+// Chrome is taught when it first appears rather than by the tour.
+watch(chromeVisible, (shown) => {
+  if (shown && headerHovered.value) showWidgetChromeTip();
+});
+
 /** Pause click-through while an overlay needs outside-click dismissal. */
 watch([menuOpen, settingsOpen, renaming, hidePressPhase], () => {
   if (!menuOpen.value) {
@@ -893,7 +889,6 @@ watch(
       :class="{
         'card-chrome-reveal': chromeVisible,
         'widget-card-chrome--dormant': !chromeVisible,
-        'widget-card-chrome--coach': forceCoachChrome,
       }"
       :data-interactive="chromeVisible ? '' : undefined"
       @pointerdown.stop
@@ -944,9 +939,6 @@ watch(
                 hidePressPhase === 'pressing' && hidePressOver,
               'widget-card-chrome-btn--armed-remove':
                 hidePressPhase === 'armed' && hidePressOver,
-              'widget-card-chrome-btn--coach-hide':
-                forceCoachChrome &&
-                (onboardingState?.step === 8 || onboardingState?.step === 10),
             }"
             :style="{ '--hide-press-arm-ms': `${HIDE_PRESS_ARM_MS}ms` }"
             :data-onboarding-target="coachTargets ? 'widget-hide' : undefined"
@@ -1391,24 +1383,6 @@ watch(
 .widget-card-chrome--dormant {
   opacity: 0;
   pointer-events: none;
-}
-
-/* Tour steps that teach pin/hide — keep chrome readable without hover. */
-.widget-card-chrome--coach {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.widget-card-chrome--coach .widget-card-chrome-btn {
-  color: rgba(var(--fg-rgb), 0.9);
-  background: rgba(var(--fg-rgb), 0.1);
-}
-
-.widget-card-chrome-btn--coach-hide {
-  color: rgba(var(--fg-rgb), 0.95);
-  background: rgba(var(--fg-rgb), 0.16);
-  outline: 1px dashed rgba(var(--fg-rgb), 0.45);
-  outline-offset: 1px;
 }
 
 .widget-card-chrome-btn {

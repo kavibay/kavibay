@@ -23,19 +23,15 @@ export const ONBOARDING_LEGACY_STORAGE_KEYS = ["kavibay:onboarding-v2"] as const
 /**
  * Welcome card before teaching starts.
  *
- * # Two sections, one branch
+ * # Four lessons and an ending
  *
- * The tour used to be one run of nine lessons, six of which taught widget
- * chrome — move, resize, pin, hide, restore, delete — to somebody who had owned
- * a widget for about forty seconds. That is a lot of housekeeping before the
- * user has anything they would miss, and it is what made a one-minute tour take
- * four.
- *
- * So it now stops at [`ONBOARDING_CORE_DONE_STEP`], which is a real ending: the
- * user has reached Kavibay with the keyboard, launched something, and put a
- * widget on the desk. That card offers the rest rather than continuing into it.
- * Nothing was deleted — the six lessons are unchanged, they are just no longer
- * charged to everyone.
+ * The tour teaches what makes Kavibay worth keeping — reach it with the
+ * keyboard, launch something, put a widget on the desk — and then stops. It
+ * used to carry six more lessons on widget chrome (move, resize, pin, hide,
+ * restore, delete), offered from the ending card. Hardly anybody takes a second
+ * tour, and the few who do learn chrome better at the moment they first reach
+ * for it, so those lessons are now one-time tips the host shows in context
+ * (`firstTimeTips.ts`).
  */
 export const ONBOARDING_INTRO_STEP = 1;
 
@@ -59,37 +55,18 @@ export const ONBOARDING_HOTKEY_STEP = 2;
  */
 export const ONBOARDING_GALLERY_STEP = 4;
 
-/**
- * The card that ends the core tour and offers the rest.
- *
- * Both an ending and a branch: `skipTour` from here is somebody finishing, not
- * bailing out, and `advanceStep` is them asking for more.
- */
-export const ONBOARDING_CORE_DONE_STEP = 6;
+/** The card that ends the tour. */
+export const ONBOARDING_DONE_STEP = 6;
 
-/** Completion card after the optional lessons. */
-export const ONBOARDING_DONE_STEP = 13;
+/** 1 intro · 2 hotkey · 3 app · 4 gallery · 5 add · 6 done */
+export type OnboardingStep = 1 | 2 | 3 | 4 | 5 | 6;
 
-/**
- * 1 intro · 2 hotkey · 3 app · 4 gallery · 5 add · **6 core done** ·
- * 7 move · 8 resize · 9 pin · 10 hide · 11 restore · 12 delete · 13 done
- */
-export type OnboardingStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
+/** Lessons between the two cards: hotkey, app, gallery, add. */
+export const ONBOARDING_LESSONS = ONBOARDING_DONE_STEP - ONBOARDING_INTRO_STEP - 1;
 
-/** Lessons in the core tour: hotkey, app, gallery, add. */
-export const ONBOARDING_CORE_STEPS = ONBOARDING_CORE_DONE_STEP - ONBOARDING_INTRO_STEP - 1;
-
-/** Lessons behind the core card: move, resize, pin, hide, restore, delete. */
-export const ONBOARDING_EXTRA_STEPS = ONBOARDING_DONE_STEP - ONBOARDING_CORE_DONE_STEP - 1;
-
-/** True for the four lessons everybody is taught. */
-export function isCoreStep(step: OnboardingStep): boolean {
-  return step > ONBOARDING_INTRO_STEP && step < ONBOARDING_CORE_DONE_STEP;
-}
-
-/** True for the six lessons only somebody who asked for them is taught. */
-export function isExtraStep(step: OnboardingStep): boolean {
-  return step > ONBOARDING_CORE_DONE_STEP && step < ONBOARDING_DONE_STEP;
+/** True for the four lessons, false for the intro and the ending card. */
+export function isLessonStep(step: OnboardingStep): boolean {
+  return step > ONBOARDING_INTRO_STEP && step < ONBOARDING_DONE_STEP;
 }
 
 export type OnboardingState = {
@@ -200,7 +177,7 @@ export function isCoachVisible(state: OnboardingState): boolean {
 /**
  * True for steps drawn as a centered card with no arrow.
  *
- * The hotkey step joins the welcome and completion cards here for the same
+ * The hotkey step joins the welcome and ending cards here for the same
  * reason they are on the list: an arrow needs something on screen to point at,
  * and a key on the user's keyboard is not on screen.
  */
@@ -208,107 +185,40 @@ export function isCardStep(step: OnboardingStep): boolean {
   return (
     step === ONBOARDING_INTRO_STEP ||
     step === ONBOARDING_HOTKEY_STEP ||
-    step === ONBOARDING_CORE_DONE_STEP ||
     step === ONBOARDING_DONE_STEP
   );
 }
 
-/**
- * Position of `step` within its own section, 1-based, plus that section's size.
- *
- * Counted per section rather than across the whole tour, because the two
- * sections are separate promises. "Tour 4/10" on the last core lesson would
- * describe the user as 40% done when they are in fact one card away from a
- * genuine ending — and somebody who then takes the extras is not resuming a
- * count they abandoned, they are starting a second, shorter thing.
- *
- * Null on the three cards: they are punctuation, not lessons.
- */
-export function teachingProgress(
-  step: OnboardingStep,
-): { index: number; total: number; section: "core" | "extra" } | null {
-  if (isCoreStep(step)) {
-    return {
-      index: step - ONBOARDING_INTRO_STEP,
-      total: ONBOARDING_CORE_STEPS,
-      section: "core",
-    };
-  }
-  if (isExtraStep(step)) {
-    return {
-      index: step - ONBOARDING_CORE_DONE_STEP,
-      total: ONBOARDING_EXTRA_STEPS,
-      section: "extra",
-    };
-  }
-  return null;
-}
-
-/**
- * 1-based index into the current section, for status UI.
- * Null on the intro, the core card and the completion card.
- */
+/** 1-based lesson index for status UI; null on the two cards. */
 export function teachingProgressIndex(step: OnboardingStep): number | null {
-  return teachingProgress(step)?.index ?? null;
+  return isLessonStep(step) ? step - ONBOARDING_INTRO_STEP : null;
 }
 
 /** Status-bar label while the tour is active. */
 export function onboardingStatusLabel(state: OnboardingState): string | null {
   if (state.status !== "active") return null;
-  if (state.step === ONBOARDING_DONE_STEP) return "Tour complete";
-  // The core card has earned the word: everything the tour promised is done,
-  // and whatever comes after it the user asked for.
-  if (state.step === ONBOARDING_CORE_DONE_STEP) return "Tour done";
-  if (state.step === ONBOARDING_INTRO_STEP) return "Tour";
-  const progress = teachingProgress(state.step);
-  if (progress == null) return "Tour";
-  const name = progress.section === "core" ? "Tour" : "More";
-  return `${name} ${progress.index}/${progress.total}`;
+  if (state.step === ONBOARDING_DONE_STEP) return "Tour done";
+  const index = teachingProgressIndex(state.step);
+  return index == null ? "Tour" : `Tour ${index}/${ONBOARDING_LESSONS}`;
 }
 
 /** Arc + label model for the palette status control. */
 export type OnboardingProgress = {
-  /** Position within the current section, or 0 / `total` on that section's cards. */
+  /** Lessons done: 0 on the intro, all of them on the ending card. */
   current: number;
-  /** Size of the current section, not of the whole tour. */
   total: number;
-  /** 0–1 fraction of the arc to fill. Fills once per section. */
+  /** 0–1 fraction of the arc to fill. */
   ratio: number;
   label: string;
 };
 
 /** Progress for the status-bar arc; null when the tour is not active. */
 export function onboardingProgress(state: OnboardingState): OnboardingProgress | null {
-  if (state.status !== "active") return null;
   const label = onboardingStatusLabel(state);
   if (label == null) return null;
-  // Each card reads as the boundary it is: the intro as an empty core, the core
-  // card as a full one, the completion card as a full set of extras.
-  if (state.step === ONBOARDING_INTRO_STEP) {
-    return { current: 0, total: ONBOARDING_CORE_STEPS, ratio: 0, label };
-  }
-  if (state.step === ONBOARDING_CORE_DONE_STEP) {
-    return {
-      current: ONBOARDING_CORE_STEPS,
-      total: ONBOARDING_CORE_STEPS,
-      ratio: 1,
-      label,
-    };
-  }
-  if (state.step === ONBOARDING_DONE_STEP) {
-    return {
-      current: ONBOARDING_EXTRA_STEPS,
-      total: ONBOARDING_EXTRA_STEPS,
-      ratio: 1,
-      label,
-    };
-  }
-  const progress = teachingProgress(state.step);
-  if (progress == null) return null;
-  return {
-    current: progress.index,
-    total: progress.total,
-    ratio: progress.index / progress.total,
-    label,
-  };
+  const current =
+    state.step === ONBOARDING_DONE_STEP
+      ? ONBOARDING_LESSONS
+      : (teachingProgressIndex(state.step) ?? 0);
+  return { current, total: ONBOARDING_LESSONS, ratio: current / ONBOARDING_LESSONS, label };
 }

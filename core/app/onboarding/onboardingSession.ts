@@ -79,9 +79,6 @@ export const onboardingReady: Promise<void> = hasTauri()
       })
   : Promise.resolve();
 
-/** Display name of the widget hidden during step 7 (used in step 8 copy). */
-export const lastHiddenWidgetName: Ref<string | null> = ref(null);
-
 /**
  * Bumped on replay / continue so the coach re-layouts even when step is unchanged.
  */
