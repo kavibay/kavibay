@@ -158,7 +158,10 @@ Three rules that follow from it being asynchronous and remote:
       const state = { goalMl: 2000, day: today(), totalMl: 0 };
 
       function today() {
-        return new Date().toISOString().slice(0, 10);
+        // The person's calendar day. toISOString() is UTC, which ends
+        // "today" at 1 or 2 a.m. in Europe.
+        const d = new Date();
+        return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
       }
 
       // 2. Everything that turns state into pixels lives in one function, so
