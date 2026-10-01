@@ -30,7 +30,7 @@ import {
   resolveHidePressRelease,
   type HidePressPhase,
 } from "./hidePressLogic";
-import { onboardingState } from "../onboarding/onboardingSession";
+import { showWidgetChromeTip } from "../onboarding/firstTimeTips";
 import { WIDGET_FOCUS_EVENT, widgetFocusRequestMatches } from "@sdk";
 import { IconBase, SparklesIcon, SquareArrowDownRightIcon } from "@sdk/icons";
 import {
@@ -60,6 +60,8 @@ const props = withDefaults(
     canEditInWizard?: boolean;
     /** No card padding; body fills the chrome (e.g. Image widget). */
     flush?: boolean;
+    /** False: no card padding, but the title stays above the body (unlike `flush`). */
+    padding?: boolean;
     /** Drop the default min-width so narrow docks are not padded out. */
     compact?: boolean;
     /** When false, hide the Duplicate menu item. */
@@ -111,6 +113,7 @@ const props = withDefaults(
   }>(),
   {
     allowDuplicate: true,
+    padding: true,
     highlighted: false,
     previewed: false,
     pinned: false,
@@ -193,15 +196,6 @@ let hideArmTimer: ReturnType<typeof setTimeout> | undefined;
 let hideHintTimer: ReturnType<typeof setTimeout> | undefined;
 const hideBtnEl = ref<HTMLButtonElement | null>(null);
 
-/** Keep pin/hide chrome visible while the tour points at those controls. */
-const forceCoachChrome = computed(() => {
-  if (props.coachTargets !== true) return false;
-  const s = onboardingState.value;
-  return (
-    s?.status === "active" && (s.step === 7 || s.step === 8 || s.step === 10)
-  );
-});
-
 /**
  * Hover is tracked by position, not by a hit target: the buttons sit above the
  * band as siblings, so a zone element would fire `pointerleave` the moment the
@@ -223,9 +217,9 @@ const chromeVisible = computed(
     settingsOpen.value ||
     renaming.value ||
     hidePressPhase.value !== "idle" ||
-    shortcutHinting.value ||
-    forceCoachChrome.value,
+    shortcutHinting.value,
 );
+
 
 /** Ctrl-hold is scoped to this card, including its compact action menu. */
 const shortcutHinting = computed(
@@ -318,6 +312,8 @@ const sizedStyle = computed(() => {
  */
 const bodyStyle = computed(() => ({
   "--widget-content-scale": String(resolvedContentScale.value),
+  // An unpadded card's title floats over the body: 14 above, 16 tall, 6 below.
+  "--widget-title-inset": !props.padding && !props.hideTitle ? "36px" : "0px",
 }));
 
 provide("widgetInstanceId", props.instanceId);
@@ -738,6 +734,11 @@ function syncDocListeners() {
   docListening = need;
 }
 
+// Chrome is taught when it first appears rather than by the tour.
+watch(chromeVisible, (shown) => {
+  if (shown && headerHovered.value) showWidgetChromeTip();
+});
+
 /** Pause click-through while an overlay needs outside-click dismissal. */
 watch([menuOpen, settingsOpen, renaming, hidePressPhase], () => {
   if (!menuOpen.value) {
@@ -836,6 +837,7 @@ watch(
     :class="{
       'widget-card--menu-open': menuOpen || settingsOpen || renaming || hidePressPhase !== 'idle' || deleteRequest,
       'widget-card--flush': flush,
+      'widget-card--unpadded': !padding,
       'widget-card--compact': compact,
       'widget-card--flash': flashing,
       'widget-card--preview': previewed,
@@ -887,7 +889,6 @@ watch(
       :class="{
         'card-chrome-reveal': chromeVisible,
         'widget-card-chrome--dormant': !chromeVisible,
-        'widget-card-chrome--coach': forceCoachChrome,
       }"
       :data-interactive="chromeVisible ? '' : undefined"
       @pointerdown.stop
@@ -938,9 +939,6 @@ watch(
                 hidePressPhase === 'pressing' && hidePressOver,
               'widget-card-chrome-btn--armed-remove':
                 hidePressPhase === 'armed' && hidePressOver,
-              'widget-card-chrome-btn--coach-hide':
-                forceCoachChrome &&
-                (onboardingState?.step === 8 || onboardingState?.step === 10),
             }"
             :style="{ '--hide-press-arm-ms': `${HIDE_PRESS_ARM_MS}ms` }"
             :data-onboarding-target="coachTargets ? 'widget-hide' : undefined"
@@ -1387,24 +1385,6 @@ watch(
   pointer-events: none;
 }
 
-/* Tour steps that teach pin/hide — keep chrome readable without hover. */
-.widget-card-chrome--coach {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.widget-card-chrome--coach .widget-card-chrome-btn {
-  color: rgba(var(--fg-rgb), 0.9);
-  background: rgba(var(--fg-rgb), 0.1);
-}
-
-.widget-card-chrome-btn--coach-hide {
-  color: rgba(var(--fg-rgb), 0.95);
-  background: rgba(var(--fg-rgb), 0.16);
-  outline: 1px dashed rgba(var(--fg-rgb), 0.45);
-  outline-offset: 1px;
-}
-
 .widget-card-chrome-btn {
   position: relative;
   width: 28px;
@@ -1743,6 +1723,37 @@ watch(
 .widget-card--flush {
   min-width: 0;
   padding: 0;
+}
+
+/*
+  The body reaches every edge, the top included. The title floats over its
+  top-left corner where the padding used to put it, plain rather than on
+  `flush`'s gradient, and the body is told how much room it takes
+  (`--widget-title-inset`, 0 when hidden) so content can start below it while
+  backgrounds run underneath.
+*/
+.widget-card--unpadded {
+  padding: 0;
+}
+
+.widget-card--unpadded > .widget-card-title,
+.widget-card--unpadded > .widget-card-title-editor {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  z-index: 2;
+  margin: 0;
+}
+
+.widget-card--unpadded > .widget-card-title {
+  line-height: 16px;
+}
+
+.widget-card--unpadded > .widget-card-title-editor {
+  top: 8px;
+  right: 8px;
+  left: 8px;
+  width: auto;
 }
 
 .widget-card--flush .widget-card-title,

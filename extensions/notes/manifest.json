@@ -10,6 +10,7 @@
   "categories": ["productivity"],
   "widgets": {
     "notes": {
+      "galleryPick": 1,
       "replaces": "notes",
       "keywords": ["notes", "notiz", "text", "markdown", "write"],
       "categories": ["productivity"],

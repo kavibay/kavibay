@@ -620,6 +620,7 @@ function onResizeEnd() {
     :has-about="false"
     :highlighted="highlighted"
     :flush="Boolean(entry?.ui.flush)"
+    :padding="entry?.ui.padding !== false"
     :compact="Boolean(entry?.ui.compact)"
     :allow-duplicate="false"
     :resizable="true"

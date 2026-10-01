@@ -3,10 +3,11 @@
  *
  * One turn: the visitor asks for a list of things to take care of, naming
  * Linear and GitHub through the Wizard's own mention menu, and the recording
- * answers with a contract package whose preview is still a DOM widget — this
- * page has no provider bridge, so the rows are fixtures, not live queries.
- * The logos and the kinds of work (assigned issues, review requests) are
- * what those two accounts actually hold.
+ * answers with a real contract package: it asks the Linear provider for
+ * `assignedIssues` and the GitHub provider for `reviewRequests`, exactly as a
+ * package the app generates would. On the landing page the app answers those
+ * providers' HTTP calls with sample data (core/web/webProviders.ts), so the
+ * rows pass through the shipping provider code on their way to the widget.
  *
  * The prose is unwrapped on purpose; see wizardScript.ts.
  */
@@ -43,18 +44,27 @@ const MANIFEST = `{
     "displayName": "Inbox",
     "defaultSize": { "w": 2, "h": 3 },
     "requires": {
-      "providers": ["kavibay.linear/linear", "kavibay.github/github"]
+      "providers": [
+        { "id": "kavibay.linear/linear", "queries": ["assignedIssues"] },
+        { "id": "kavibay.github/github", "queries": ["reviewRequests"] }
+      ]
     }
   }
 }`;
 
-/**
- * Same mount the water tracker uses, so the embed preview can inline the
- * runtime. A shipping contract package would load `@kavibay/contract.js`;
- * this page has no provider bridge to answer it, and the rows are fixtures.
- */
-const INDEX_HTML = `<div id="kavibay-widget"></div>
+/** The document `contract-packages.md` tells the model to copy. */
+const INDEX_HTML = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
 <style>
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: transparent;
+    color-scheme: var(--native-color-scheme, dark);
+    font-family: var(--font-family, system-ui, sans-serif);
+  }
   #kavibay-widget {
     display: flex;
     flex-direction: column;
@@ -105,8 +115,13 @@ const INDEX_HTML = `<div id="kavibay-widget"></div>
     line-height: 1.3;
   }
 </style>
-<script src="@kavibay/runtime.js"></script>
-<script src="widget.js"></script>`;
+</head>
+<body>
+<div id="kavibay-widget"></div>
+<script src="@kavibay/contract.js"></script>
+<script src="widget.js"></script>
+</body>
+</html>`;
 
 /**
  * Linear's geometric mark and GitHub's octocat, inlined from
@@ -119,15 +134,10 @@ const LINEAR_MARK = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 10
 
 const GITHUB_MARK = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8C0 11.54 2.29 14.53 5.47 15.59C5.87 15.66 6.02 15.42 6.02 15.21C6.02 15.02 6.01 14.39 6.01 13.72C4 14.09 3.48 13.23 3.32 12.78C3.23 12.55 2.84 11.84 2.5 11.65C2.22 11.5 1.82 11.13 2.49 11.12C3.12 11.11 3.57 11.7 3.72 11.94C4.44 13.15 5.59 12.81 6.05 12.6C6.12 12.08 6.33 11.73 6.56 11.53C4.78 11.33 2.92 10.64 2.92 7.58C2.92 6.71 3.23 5.99 3.74 5.43C3.66 5.23 3.38 4.41 3.82 3.31C3.82 3.31 4.49 3.1 6.02 4.13C6.66 3.95 7.34 3.86 8.02 3.86C8.7 3.86 9.38 3.95 10.02 4.13C11.55 3.09 12.22 3.31 12.22 3.31C12.66 4.41 12.38 5.23 12.3 5.43C12.81 5.99 13.12 6.7 13.12 7.58C13.12 10.65 11.25 11.33 9.47 11.53C9.76 11.78 10.01 12.26 10.01 13.01C10.01 14.08 10 14.94 10 15.21C10 15.42 10.15 15.67 10.55 15.59C13.71 14.53 16 11.53 16 8C16 3.58 12.42 0 8 0Z"/></svg>';
 
-const ITEMS = [
-  { source: "github", title: "feat: Wizard mention chips in the composer", meta: "kavibay/kavibay · review requested" },
-  { source: "linear", title: "Palette should rank generated drafts first", meta: "ENG-412 · In Progress" },
-  { source: "github", title: "fix: runtime sandbox CSP on generated previews", meta: "kavibay/kavibay · review requested" },
-  { source: "linear", title: "Settings: remember the last credentials tab", meta: "ENG-398 · Todo" },
-  { source: "linear", title: "Desk: keep mention chips when duplicating a card", meta: "ENG-405 · In Review" },
-];
-
-const root = document.getElementById("kavibay-widget");
+/** "https://api.github.com/repos/kavibay/kavibay" → "kavibay/kavibay". */
+function repoName(url) {
+  return String(url).split("/").slice(-2).join("/");
+}
 
 function markFor(source) {
   const wrap = document.createElement("span");
@@ -136,38 +146,60 @@ function markFor(source) {
   return wrap;
 }
 
-function render() {
-  root.innerHTML = "";
+kavibayWidget.define({
+  async setup(ctx) {
+    const [issues, reviews] = await Promise.all([
+      ctx.providers["kavibay.linear/linear"].query("assignedIssues", {}),
+      ctx.providers["kavibay.github/github"].query("reviewRequests", {}),
+    ]);
 
-  const list = document.createElement("div");
-  list.className = "list";
+    const items = [
+      ...issues.map((issue) => ({
+        source: "linear",
+        title: issue.title,
+        meta: issue.identifier + " · " + issue.state,
+        updatedAt: issue.updatedAt,
+      })),
+      ...reviews.map((pull) => ({
+        source: "github",
+        title: pull.title,
+        meta: repoName(pull.repository) + " · review requested",
+        updatedAt: pull.updatedAt,
+      })),
+    ];
+    items.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+    return { items };
+  },
 
-  for (const item of ITEMS) {
-    const row = document.createElement("div");
-    row.className = "row";
-    row.appendChild(markFor(item.source));
+  render(model, root) {
+    const list = document.createElement("div");
+    list.className = "list";
 
-    const body = document.createElement("div");
-    body.className = "body";
+    for (const item of model.items) {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.appendChild(markFor(item.source));
 
-    const title = document.createElement("p");
-    title.className = "title";
-    title.textContent = item.title;
-    body.appendChild(title);
+      const body = document.createElement("div");
+      body.className = "body";
 
-    const meta = document.createElement("p");
-    meta.className = "meta";
-    meta.textContent = item.meta;
-    body.appendChild(meta);
+      const title = document.createElement("p");
+      title.className = "title";
+      title.textContent = item.title;
+      body.appendChild(title);
 
-    row.appendChild(body);
-    list.appendChild(row);
-  }
+      const meta = document.createElement("p");
+      meta.className = "meta";
+      meta.textContent = item.meta;
+      body.appendChild(meta);
 
-  root.appendChild(list);
-}
+      row.appendChild(body);
+      list.appendChild(row);
+    }
 
-render();`;
+    root.appendChild(list);
+  },
+});`;
 
 function reply(prose: string): string {
   return `${prose}

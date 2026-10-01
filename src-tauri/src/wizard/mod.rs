@@ -1,6 +1,6 @@
 //! Widget-Wizard: the model side of authoring a widget by describing it.
 //!
-//! Plan: `docs/superpowers/plans/2026-08-01-extension-roots.md`.
+//! Package roots and drafts: `docs/widget-wizard.md`.
 //!
 //! This module only turns a conversation into text. It never writes a file —
 //! the wizard widget hands the model's output to

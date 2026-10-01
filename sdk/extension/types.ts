@@ -236,6 +236,11 @@ export interface ExtensionManifest {
     defaultSize: WidgetSize;
     allowDuplicate?: boolean;
     flush?: boolean;
+    /**
+     * False drops the card's padding so the body reaches the card edges. Unlike
+     * `flush`, the title stays above the body instead of over it. Default true.
+     */
+    padding?: boolean;
     compact?: boolean;
     /** Spawn the card with its title bar hidden (menu can bring it back). */
     defaultHideTitle?: boolean;
@@ -430,6 +435,8 @@ export interface RegisteredExtension {
   defaultSize: WidgetSize;
   allowDuplicate: boolean;
   flush: boolean;
+  /** False drops the card padding (manifest `ui.padding`). Absent means padded. */
+  padding?: boolean;
   compact: boolean;
   defaultHideTitle: boolean;
   /** Content zoom applied to new instances (clamped, 1 = unzoomed). */

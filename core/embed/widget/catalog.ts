@@ -91,6 +91,7 @@ export interface EmbedWidgetUi {
   defaultHideTitle?: boolean;
   allowDuplicate?: boolean;
   flush?: boolean;
+  padding?: boolean;
   compact?: boolean;
   opaque?: boolean;
   fullDrag?: boolean;

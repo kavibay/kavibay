@@ -1,7 +1,7 @@
 /**
  * Validation of a runtime package's `api.json` (declarative HTTP endpoints).
  *
- * Design: `docs/superpowers/specs/2026-08-01-declarative-http-api-design.md`.
+ * Design: `docs/design/declarative-http-api.md`.
  * Step D0 — format + validators only; nothing here performs a request.
  *
  * Mirrors `src-tauri/src/runtime_extensions/api_declaration.rs` (AGENTS.md

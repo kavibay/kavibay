@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Widget preview</title>
+    <!--
+      The web build's stand-in for kavibay-ext://<id>/index.html
+      (see core/web/webWizardPreview.ts). It runs sandboxed in an opaque origin, so it
+      cannot read the draft itself: it asks the window that framed it, then
+      replaces itself with the answer. The URL stays this one, so the query
+      the app added (frameRun, wizardPreview) is still where the runtime looks.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: transparent;
+        color-scheme: dark;
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      (() => {
+        const query = new URLSearchParams(location.search);
+        window.addEventListener("message", (event) => {
+          if (event.source !== window.parent) return;
+          const data = event.data;
+          if (!data || data.type !== "kavibay-web:preview-document" || typeof data.html !== "string") return;
+          document.open();
+          document.write(data.html);
+          document.close();
+        });
+        window.parent.postMessage(
+          {
+            type: "kavibay-web:preview",
+            id: query.get("id"),
+            kind: query.get("kind"),
+            picker: query.has("wizardPreview"),
+          },
+          "*",
+        );
+      })();
+    </script>
+  </body>
+</html>

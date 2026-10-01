@@ -13,20 +13,21 @@ and GPL-compatible.
 
 - `@hiseb/confetti` 2.1.0: ISC — https://github.com/swetzel/confetti.js
 
-## Moodist extension (sounds & attribution)
+## Moodist extension (attribution)
 
-The Moodist first-party extension vendors ambient sounds and small UI icons.
-Authoritative per-extension notes live in:
+The Moodist first-party extension is modelled on the Moodist project and ships
+CC0 recordings, generated noise and small UI icons. Authoritative per-extension notes live in:
 
 `extensions/moodist/LICENSES.md`
 
 Summary (do not treat this as a substitute for that file):
 
 - Moodist project: MIT — https://github.com/remvze/moodist
-- Sound assets: mix of Pixabay Content License and CC0 — see the Moodist
-  LICENSES.md and upstream README. **Pixabay "as-is" redistribution needs a
-  separate review before advertising the repo; keep this entry until that
-  review lands.**
+- Sound assets: recordings from Freesound released under CC0 1.0, each listed
+  with its original in `extensions/moodist/LICENSES.md`; noise computed at
+  runtime (`extensions/moodist/noise.ts`), no file. Moodist's own
+  recordings, licensed upstream under Pixabay's Content License or CC0 without
+  a per-file record, are not redistributed.
 
 ## Icons — Lucide
 

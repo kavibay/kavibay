@@ -66,6 +66,7 @@ Notes:
 - Optional `intro.mp4` in the extension folder → Widget Gallery tile (muted video preview)
 - `hugHeight: true` → only `defaultSize.w` on Add; height follows content
 - `defaultHideTitle: true` → card opens without its title bar (menu can restore it)
+- `padding: false` → no card padding, the body reaches every edge; the title floats over the top-left, and `--widget-title-inset` (0 when hidden) says how far down content should start
 - `defaultScale` — content zoom on Add, the factor Ctrl+mousewheel writes; `1` = unzoomed, clamped to `0.5`…`3`
 - Declare Tauri command names in `commands` when the extension invokes them (enforcement later)
 - `credentials: [{ "type": "githubPat", "required": true }]` when the widget needs an account — type ids come from `src-tauri/src/credentials/registry.rs`

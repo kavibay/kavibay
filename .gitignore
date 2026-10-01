@@ -14,6 +14,8 @@ dist-ssr
 
 # Superpowers brainstorm / SDD session artifacts
 .superpowers/
+# Plans and specs that agent skills write; tracked in Linear instead.
+docs/superpowers/
 
 # Editor directories and files
 .vscode/*

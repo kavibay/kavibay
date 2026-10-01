@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.kavibay.kavibay",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "pnpm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "pnpm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -28,7 +28,7 @@
     ],
     "macOSPrivateApi": true,
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost kavibay-ext: http://kavibay-ext.localhost kavibay-img: http://kavibay-img.localhost https: http: data: blob:; media-src 'self' asset: http://asset.localhost blob: data:; connect-src ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src 'self' kavibay-ext: http://kavibay-ext.localhost https://kavibay-ext.localhost; child-src 'self' kavibay-ext: http://kavibay-ext.localhost https://kavibay-ext.localhost",
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost kavibay-ext: http://kavibay-ext.localhost kavibay-img: http://kavibay-img.localhost https: http: data: blob:; media-src 'self' asset: http://asset.localhost blob: data:; connect-src 'self' ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src 'self' kavibay-ext: http://kavibay-ext.localhost https://kavibay-ext.localhost; child-src 'self' kavibay-ext: http://kavibay-ext.localhost https://kavibay-ext.localhost",
       "assetProtocol": {
         "enable": true,
         "scope": []
@@ -47,11 +47,21 @@
     ],
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "./windows/hooks.nsh"
       }
     },
     "macOS": {
       "minimumSystemVersion": "13.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZEOUZDODNCMzJFRTE3MjYKUldRbUYrNHlPOGlmL2JyN2tDQWp5QzBNVWZzOHptNk42d3lLMENQRjU2TlkrQzNuVHFyTkFjMTAK",
+      "endpoints": [
+        "https://github.com/kavibay/kavibay/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true
     }
   }
 }

@@ -30,6 +30,8 @@ const props = defineProps<{
   picking?: boolean;
   /** Toolbar mount point for host-owned debug controls. */
   debugTarget?: HTMLElement | null;
+  /** A turn is reworking the widget; the host marks the card. */
+  working?: boolean;
 }>();
 
 /** Mirrors what the host's preview chrome emits; see WidgetWizardPreviewHost. */

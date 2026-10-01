@@ -33,6 +33,7 @@
     "core/embed/**/*.ts",
     "core/embed/**/*.d.ts",
     "core/embed/**/*.vue",
+    "core/web/**/*.ts",
     "sdk/extension/**/*.ts",
     "sdk/extension/**/*.vue",
     "extensions/**/*.ts",

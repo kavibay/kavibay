@@ -129,16 +129,16 @@ assert(
 );
 
 /**
- * The Linear/GitHub recording is a contract package on disk and a runtime
- * document on this page: the embed preview inlines `@kavibay/runtime.js`, and
- * the rows are fixtures because nothing here answers a provider query.
+ * The Linear/GitHub recording is a real contract package: it loads the host's
+ * `@kavibay/contract.js` and reads its rows from two providers. The embed
+ * preview has neither a contract runtime nor a provider bridge, so it is only
+ * shown where the app itself runs — the landing's web build, which assembles
+ * it in core/web/packageDocument.ts (asserted there). What this file still
+ * holds is that the package is not mistaken for a runtime one.
  */
 const inboxFiles = parseGeneratedFiles(INBOX_DEMO.replies[0]!).files;
-const inboxDoc = buildPreviewDocument(inboxFiles, runtimeSource);
-assert(inboxDoc !== null, "the inbox package produces a preview document");
-assert(!inboxDoc!.includes('src="@kavibay/runtime.js"'), "the inbox runtime is inlined too");
-assert(inboxDoc!.includes("review requested"), "GitHub review requests reach the preview");
-assert(inboxDoc!.includes("ENG-412"), "Linear issue identifiers reach the preview");
-assert(inboxDoc!.includes(INBOX_DEMO.finalMarker), "the tour's finished marker is in the document");
+const inboxHtml = inboxFiles.find((file) => file.path === "index.html")!.contents;
+assert(inboxHtml.includes('src="@kavibay/contract.js"'), "the inbox loads the contract runtime");
+assert(!inboxHtml.includes("@kavibay/runtime.js"), "and not the runtime-package one");
 
 console.log("scripts/wizardPreviewDocument.assert.ts: ok");

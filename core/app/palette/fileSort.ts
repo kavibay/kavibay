@@ -57,7 +57,14 @@ export function formatModified(
   if (hours < 24) return `${hours}h`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d`;
-  return new Date(ms).toLocaleDateString();
+  // "Sep 4" this year, "Dec 2020" before it: the day stops mattering once the
+  // year is what tells two dates apart.
+  const date = new Date(ms);
+  const thisYear = date.getFullYear() === new Date(now).getFullYear();
+  return date.toLocaleDateString(
+    undefined,
+    thisYear ? { month: "short", day: "numeric" } : { month: "short", year: "numeric" },
+  );
 }
 
 /** Bytes in the unit a person would say out loud. */

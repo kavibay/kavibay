@@ -83,7 +83,7 @@ The server exposes these host-owned resources:
 | `kavibay://authoring/contract-package` | Contract-package guide and provider rules used by the Wizard |
 | `kavibay://authoring/provider-schema` | Read-only provider schemas |
 
-The reviewed tool allowlist contains exactly these nine tools:
+The reviewed tool allowlist contains exactly these ten tools:
 
 | Tool | Purpose |
 |---|---|
@@ -92,6 +92,7 @@ The reviewed tool allowlist contains exactly these nine tools:
 | `list_drafts` | List custom authoring drafts as `{ id, files, revision, error, lastWriter, lastClient, lastClientName, updatedAt }` summaries. |
 | `read_draft` | Read the complete text file set, revision and current validation error for one draft. |
 | `write_draft` | Create or replace a complete draft file set with optimistic revision checking. |
+| `edit_draft` | Change an existing draft by exact text replacement, all edits or none, with the same revision check. |
 | `validate_draft` | Run the same validator used before promotion and return its stable error code. |
 | `list_custom_widgets` | List metadata for custom-root widgets only; installed packages are hidden. |
 | `read_custom_widget` | Read a custom widget's text source and content revision. |
@@ -109,7 +110,6 @@ MCP clients must not treat the call as a patch. Each file has a package-relative
 ```json
 {
   "id": "water-tracker",
-  "expectedRevision": null,
   "files": [
     { "path": "manifest.json", "contents": "{...}" },
     { "path": "index.html", "contents": "<!doctype html>..." }
@@ -117,11 +117,37 @@ MCP clients must not treat the call as a patch. Each file has a package-relative
 }
 ```
 
-Use `expectedRevision: null` only to create a draft that does not exist. For an
-update, call `read_draft` (or `list_drafts`) first and pass its exact `revision`.
+Leave `expectedRevision` out only to create a draft that does not exist
+(`null` means the same). For an update, call `read_draft` (or `list_drafts`)
+first and pass its exact `revision`.
 The revision is a deterministic SHA-256 content identity over normalized,
 sorted paths and file contents. It is a coordination value, not a secret or an
 authentication token.
+
+### Small changes: `edit_draft`
+
+`write_draft` takes every file, so a one-line change through it means the model
+writes the whole package out again — for a widget of a few hundred lines, that
+output is most of the wait. `edit_draft` takes only the change:
+
+```json
+{
+  "id": "habit-tracker",
+  "expectedRevision": "<revision returned by read_draft>",
+  "edits": [
+    { "path": "ui/index.html", "oldString": ".label.good { color: #8fd18f; }
+", "newString": "" }
+  ]
+}
+```
+
+Each `oldString` must occur exactly once in its file, unless `replaceAll` is
+set. Edits apply in order, all or none: one that cannot be placed fails the
+call with `edit_not_found`, `edit_ambiguous`, `edit_file_not_found` or
+`edit_empty` and the offending `path`, and nothing is written. A stale
+`expectedRevision` fails with `draft_conflict` as it does for `write_draft`.
+`edit_draft` changes existing files only; creating or removing a file is a
+`write_draft`.
 
 ### Who wrote it last
 

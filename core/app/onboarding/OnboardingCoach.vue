@@ -8,6 +8,8 @@ import {
   watch,
 } from "vue";
 import { kavibayCockpitOpen } from "../host/cockpitSession";
+import { WIDGET_WIZARD_ID } from "../host/builtinWidgetIds";
+import { getExtension, runExtensionAction } from "../extensions/loadExtensions";
 import { revealGesture, revealGestureKnown } from "../host/revealGesture";
 import { keyPlatform } from "../host/shortcutHints";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -23,17 +25,12 @@ import { onboardingCopyForStep, onboardingHotkeyFallbackCopy } from "./onboardin
 import {
   isCardStep,
   isCoachVisible,
-  ONBOARDING_CORE_DONE_STEP,
   ONBOARDING_DONE_STEP,
   ONBOARDING_HOTKEY_STEP,
   ONBOARDING_INTRO_STEP,
 } from "./onboardingLogic";
-import {
-  bumpCoachReveal,
-  coachRevealEpoch,
-  lastHiddenWidgetName,
-  onboardingState,
-} from "./onboardingSession";
+import { bumpCoachReveal, coachRevealEpoch, onboardingState } from "./onboardingSession";
+import { setupAnsweredByGesture } from "./setupSession";
 import { useOnboarding } from "./useOnboarding";
 
 // Read tour state from the session module (not destructured useOnboarding return)
@@ -47,9 +44,25 @@ const {
   stepBack,
   skipTourAction,
   skipHotkeyStep,
-  continueToExtras,
-  finishAtCore,
 } = useOnboarding();
+
+/**
+ * End the tour in the Widget Wizard: the thing Kavibay does that other
+ * launchers do not, offered at the moment somebody has just seen what a widget
+ * is.
+ *
+ * Through the Wizard's own "New Widget" action rather than by opening the card:
+ * that action opens it on a fresh project with only the question showing — no
+ * project list, no name field — which is the amount of Wizard a person meets
+ * for the first time should see.
+ */
+async function finishInWizard() {
+  acknowledgeDone();
+  await runExtensionAction(getExtension(WIDGET_WIZARD_ID), "new-widget", {
+    instanceId: "",
+    args: {},
+  });
+}
 
 /**
  * True once the tour has shown itself again because the double tap never came.
@@ -71,8 +84,8 @@ const copy = computed(() => {
     return onboardingHotkeyFallbackCopy(revealGesture.value, platform);
   }
   return onboardingCopyForStep(state.value.step, platform, {
-    hiddenWidgetName: lastHiddenWidgetName.value,
     revealGesture: revealGesture.value,
+    afterSetupGesture: setupAnsweredByGesture.value,
   });
 });
 
@@ -89,7 +102,6 @@ const hotkeyStepHasNothingToPress = computed(
   () => revealGestureKnown.value && revealGesture.value === null,
 );
 const isHotkeyStep = computed(() => state.value?.step === ONBOARDING_HOTKEY_STEP);
-const isCoreDoneStep = computed(() => state.value?.step === ONBOARDING_CORE_DONE_STEP);
 const isIntroStep = computed(() => state.value?.step === ONBOARDING_INTRO_STEP);
 const isDoneStep = computed(() => state.value?.step === ONBOARDING_DONE_STEP);
 const isCenteredCard = computed(
@@ -109,57 +121,21 @@ let movementObserver: MutationObserver | null = null;
 
 /** Preferred bubble placement for the active teaching step. */
 function preferredPlacement(step: number | undefined): BubblePlacement {
-  // Resize: sit below the SE corner so the bubble does not cover the card.
-  if (step === 8) return "below-left";
-  // Gallery / move: sit beside the card.
-  if (step === 5 || step === 7) return "left-of";
-  // Pin / hide / delete prefer above (layout falls back to left-of if tight).
-  return "above-left";
-}
-
-/** True for steps that teach widget chrome (pin / hide / delete). */
-function isChromeCoachStep(step: number | undefined): boolean {
-  return step === 9 || step === 10 || step === 12;
+  // Gallery: sit beside the card.
+  return step === 5 ? "left-of" : "above-left";
 }
 
 /** Resolve the element highlighted by the current onboarding step. */
 function resolveTarget(): Element | null {
   const step = state.value?.step;
   if (step == null || isCardStep(step)) return null;
-  if (step === 3 || step === 4 || step === 11) {
+  if (step === 3 || step === 4) {
     return document.querySelector('[data-onboarding-target="palette-search"]');
   }
   if (step === 5) {
     return (
       document.querySelector('[data-onboarding-target="widget-gallery"]') ??
       document.querySelector('[data-onboarding-target="widgets-button"]')
-    );
-  }
-  if (step === 7) {
-    return document.querySelector('[data-onboarding-target="widget-drag"]');
-  }
-  if (step === 8) {
-    return (
-      document.querySelector('[data-onboarding-target="widget-resize-se"]') ??
-      document.querySelector('[data-onboarding-target="widget-drag"]')
-    );
-  }
-  if (step === 9) {
-    return (
-      document.querySelector(
-        '.widget-card-chrome--coach [data-onboarding-target="widget-pin"]',
-      ) ?? document.querySelector('[data-onboarding-target="widget-pin"]')
-    );
-  }
-  if (step === 10 || step === 12) {
-    return (
-      document.querySelector(
-        '.widget-card-chrome--coach [data-onboarding-target="widget-hide"]',
-      ) ??
-      document.querySelector(
-        '.widget-card-chrome-btn--coach-hide[data-onboarding-target="widget-hide"]',
-      ) ??
-      document.querySelector('[data-onboarding-target="widget-hide"]')
     );
   }
   return null;
@@ -176,23 +152,6 @@ function targetRect(target: Element): Rect {
   };
 }
 
-/**
- * Rect used to park the bubble. Chrome steps use the whole card so the bubble
- * sits above/beside the widget while the arrow still tips at the control.
- */
-function placementRectFor(target: Element, step: number | undefined): Rect {
-  if (isChromeCoachStep(step)) {
-    const card =
-      target.closest(".widget-card") ?? target.closest(".widget-anchor");
-    if (card) return targetRect(card);
-  }
-  return targetRect(target);
-}
-
-/** True when the bubble fits between the viewport top and the card. */
-function fitsAboveCard(placeBox: Rect, bubbleHeight: number, gap = 20): boolean {
-  return placeBox.top - gap - 12 >= bubbleHeight;
-}
 
 /** Clamp a bubble origin so coach controls remain inside the viewport. */
 function clampBubble(point: Point, width: number, height: number): Point {
@@ -201,16 +160,6 @@ function clampBubble(point: Point, width: number, height: number): Point {
     x: Math.min(Math.max(point.x, inset), Math.max(inset, window.innerWidth - width - inset)),
     y: Math.min(Math.max(point.y, inset), Math.max(inset, window.innerHeight - height - inset)),
   };
-}
-
-/** True when two axis-aligned boxes overlap (inclusive of a small pad). */
-function rectsOverlap(a: Rect, b: Rect, pad = 8): boolean {
-  return !(
-    a.left + a.width + pad <= b.left ||
-    b.left + b.width + pad <= a.left ||
-    a.top + a.height + pad <= b.top ||
-    b.top + b.height + pad <= a.top
-  );
 }
 
 /** Place the completion card near the viewport center (no arrow target). */
@@ -253,57 +202,17 @@ function layout() {
     return;
   }
 
-  const tipBox = targetRect(target);
-  const placeBox = placementRectFor(target, state.value?.step);
+  const box = targetRect(target);
   const bubbleBox = bubble.getBoundingClientRect();
-  const step = state.value?.step;
-  let preferred = preferredPlacement(step);
-
-  // Pin / hide / delete: park above the card when there is room, else left.
-  if (isChromeCoachStep(step)) {
-    preferred = fitsAboveCard(placeBox, bubbleBox.height)
-      ? "above-left"
-      : "left-of";
-  }
-
-  let anchor = bubbleAnchorForTarget(placeBox, preferred);
-
-  let desired =
+  const preferred = preferredPlacement(state.value?.step);
+  const anchor = bubbleAnchorForTarget(box, preferred);
+  const origin = clampBubble(
     preferred === "left-of"
       ? { x: anchor.x - bubbleBox.width, y: anchor.y - bubbleBox.height / 2 }
-      : preferred === "below-left"
-        ? { x: anchor.x - bubbleBox.width, y: anchor.y }
-        : preferred === "above-left" && isChromeCoachStep(step)
-          ? // Center the chrome tip card above the widget.
-            {
-              x: placeBox.left + (placeBox.width - bubbleBox.width) / 2,
-              y: placeBox.top - 20 - bubbleBox.height,
-            }
-          : { x: anchor.x - bubbleBox.width, y: anchor.y - bubbleBox.height };
-
-  let origin = clampBubble(desired, bubbleBox.width, bubbleBox.height);
-
-  // If above was chosen but clamping shoved us onto the card, sit left instead.
-  if (isChromeCoachStep(step) && preferred === "above-left") {
-    const placed: Rect = {
-      left: origin.x,
-      top: origin.y,
-      width: bubbleBox.width,
-      height: bubbleBox.height,
-    };
-    if (rectsOverlap(placed, placeBox)) {
-      preferred = "left-of";
-      anchor = bubbleAnchorForTarget(placeBox, preferred);
-      origin = clampBubble(
-        {
-          x: anchor.x - bubbleBox.width,
-          y: anchor.y - bubbleBox.height / 2,
-        },
-        bubbleBox.width,
-        bubbleBox.height,
-      );
-    }
-  }
+      : { x: anchor.x - bubbleBox.width, y: anchor.y - bubbleBox.height },
+    bubbleBox.width,
+    bubbleBox.height,
+  );
 
   bubbleStyle.value = {
     left: `${origin.x}px`,
@@ -313,31 +222,11 @@ function layout() {
   const from =
     preferred === "left-of"
       ? { x: origin.x + bubbleBox.width, y: origin.y + bubbleBox.height / 2 }
-      : preferred === "below-left"
-        ? { x: origin.x + bubbleBox.width, y: origin.y }
-        : isChromeCoachStep(step)
-          ? // Centered above the card — shoot the arrow from the bottom middle.
-            {
-              x: origin.x + bubbleBox.width / 2,
-              y: origin.y + bubbleBox.height,
-            }
-          : { x: origin.x + bubbleBox.width, y: origin.y + bubbleBox.height };
-  // Tip always aims at the chrome control (or other resolved target), not the card.
+      : { x: origin.x + bubbleBox.width, y: origin.y + bubbleBox.height };
   const to =
-    preferred === "below-left"
-      ? {
-          x: tipBox.left + tipBox.width / 2,
-          y: tipBox.top + tipBox.height,
-        }
-      : preferred === "above-left"
-        ? {
-            x: tipBox.left + tipBox.width / 2,
-            y: tipBox.top,
-          }
-        : {
-            x: tipBox.left,
-            y: tipBox.top + tipBox.height / 2,
-          };
+    preferred === "left-of"
+      ? { x: box.left, y: box.top + box.height / 2 }
+      : { x: box.left + box.width / 2, y: box.top };
   const path = arrowPath(from, to);
   pathD.value = path.d;
   tipD.value = path.tip;
@@ -384,15 +273,9 @@ watch(
       notifyGalleryVisible();
       await nextTick();
     }
-    // Chrome for pin/hide mounts with the step change — wait a frame if needed.
-    const step = state.value?.step;
-    if (step === 9 || step === 10 || step === 12) {
-      for (let i = 0; i < 4 && !resolveTarget(); i += 1) {
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      }
-    }
     // One more frame so palette-search exists after replay → palette:show.
-    if (!resolveTarget() && (step === 3 || step === 4 || step === 11)) {
+    const step = state.value?.step;
+    if (!resolveTarget() && (step === 3 || step === 4)) {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     }
     reconnectResizeObserver();
@@ -497,6 +380,7 @@ onUnmounted(() => {
     <div
       ref="bubbleEl"
       class="onboarding-bubble"
+      :class="{ 'onboarding-bubble--card': isCenteredCard }"
       data-interactive
       :style="bubbleStyle"
     >
@@ -507,13 +391,14 @@ onUnmounted(() => {
           <template v-else>{{ seg.text }}</template>
         </template>
       </p>
-      <div v-if="isCoreDoneStep" class="onboarding-bubble-actions">
-        <button type="button" class="onboarding-link" @click="continueToExtras">
-          Show me the rest
+      <!-- The ending: one clear way out, and the one thing worth trying next. -->
+      <div v-if="isDoneStep" class="onboarding-bubble-actions">
+        <button type="button" class="onboarding-link" @click="finishInWizard">
+          Build your own widget
         </button>
         <div class="onboarding-bubble-actions-end">
-          <button type="button" class="onboarding-link" @click="finishAtCore">
-            I'm good
+          <button type="button" class="onboarding-primary" @click="acknowledgeDone">
+            Start using Kavibay
           </button>
         </div>
       </div>
@@ -528,20 +413,11 @@ onUnmounted(() => {
         </button>
         <div class="onboarding-bubble-actions-end">
           <button
-            v-if="isIntroStep"
             type="button"
             class="onboarding-link"
-            @click="acknowledgeIntro"
+            @click="skipTourAction"
           >
-            Let's go
-          </button>
-          <button
-            v-if="isDoneStep"
-            type="button"
-            class="onboarding-link"
-            @click="acknowledgeDone"
-          >
-            Got it
+            Skip tour
           </button>
           <!-- Only offered once the tour has come back on its own: before that
                the way past this step is to perform it, and a visible way out
@@ -549,18 +425,18 @@ onUnmounted(() => {
           <button
             v-if="isHotkeyStep && (hotkeyRescued || hotkeyStepHasNothingToPress)"
             type="button"
-            class="onboarding-link"
+            class="onboarding-primary"
             @click="skipHotkeyStep"
           >
             Carry on
           </button>
           <button
-            v-if="!isDoneStep"
+            v-if="isIntroStep"
             type="button"
-            class="onboarding-link"
-            @click="skipTourAction"
+            class="onboarding-primary"
+            @click="acknowledgeIntro"
           >
-            Skip tour
+            Let's go
           </button>
         </div>
       </div>
@@ -604,12 +480,13 @@ onUnmounted(() => {
   max-width: 300px;
   padding: 14px 16px;
   color: rgba(var(--fg-rgb), 0.92);
-  /* Same glass language as the palette, slightly more opaque so copy stays clear. */
-  background: rgba(var(--surface-bg-rgb), 0.9);
+  /* Opaque, like the setup card: coach copy sits over widgets and wallpaper,
+     and glass let them show through the text. */
+  background: rgb(var(--surface-bg-rgb));
   border: 0;
   border-radius: var(--surface-radius, 16px);
+  corner-shape: var(--surface-corner-shape, round);
   box-shadow: var(--surface-box-shadow);
-  backdrop-filter: var(--surface-backdrop-filter, blur(16px));
   pointer-events: auto;
 }
 
@@ -666,15 +543,37 @@ onUnmounted(() => {
 
 .onboarding-bubble-actions-end {
   display: flex;
+  align-items: center;
   gap: 14px;
   margin-left: auto;
 }
 
+/* Cards have no target to stay small beside, and carry two-button endings. */
+.onboarding-bubble--card {
+  max-width: 360px;
+}
+
+/* The step's way forward, styled like the setup card's button. */
+.onboarding-primary {
+  white-space: nowrap;
+  padding: 7px 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--row-selected-sheen), var(--row-selected-bg);
+  box-shadow: var(--row-selected-rim), var(--row-selected-shadow);
+  color: rgba(var(--fg-rgb), 0.95);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .onboarding-link {
+  white-space: nowrap;
   padding: 0;
   font: inherit;
   font-size: 12px;
-  color: rgba(var(--fg-rgb), 0.5);
+  color: rgba(var(--fg-rgb), 0.65);
   cursor: pointer;
   background: none;
   border: 0;

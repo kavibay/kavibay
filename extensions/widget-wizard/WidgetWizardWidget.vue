@@ -48,8 +48,7 @@ import { BrandMark, McpClientMark, brandMarkFor } from "@sdk/brand";
 import KavibaySelect from "@sdk/KavibaySelect.vue";
 import WizardModelMenu from "./WizardModelMenu.vue";
 import WizardMcpHelp from "./WizardMcpHelp.vue";
-import WizardChevron from "./WizardChevron.vue";
-import WizardGenerationStatus from "./WizardGenerationStatus.vue";
+import WizardGenerationFrame from "./WizardGenerationFrame.vue";
 import WizardSuggestions from "./WizardSuggestions.vue";
 import WizardConversationMenu from "./WizardConversationMenu.vue";
 import { appendWizardSuggestion, currentWizardSuggestions, type WizardSuggestion } from "./wizardSuggestions";
@@ -77,6 +76,7 @@ import {
   formatTokens,
   readUsage,
   mergeGeneratedFiles,
+  applyReplyEdits,
   withoutOtherFormat,
   recordVersion,
   updateLiveVersion,
@@ -95,6 +95,8 @@ import {
   type ProviderUseState,
   sampleBody,
   faultProblem,
+  type WidgetScope,
+  isCodeFault,
   repairTurnFor,
   attachmentProblem,
   base64FromDataUrl,
@@ -108,6 +110,7 @@ import {
   keepMineExpectedRevision,
   lintGeneratedFiles,
   manifestScale,
+  manifestIconSvg,
   manifestSize,
   packageIdFor,
   declaredPackageId,
@@ -156,6 +159,7 @@ import {
   appendNote,
   conversationTitle,
   buildProjectRows,
+  conversationIsWorthKeeping,
   describeDraftAuthor,
   describeDraftClient,
   describeDraftPresence,
@@ -268,6 +272,25 @@ const sideWidth = ref(180);
 const previewWidth = ref(360);
 const sidebarCollapsed = ref(false);
 const showSuggestions = ref(true);
+
+/**
+ * How much widget a new request asks for. A preference of this card rather
+ * than of a project, so it is kept in `ctx.data` and survives the next one.
+ */
+const SCOPE_KEY = "scope";
+const SCOPES: { id: WidgetScope; label: string; hint: string }[] = [
+  { id: "simple", label: "Simple", hint: "Just the core action" },
+  { id: "standard", label: "Standard", hint: "A solid widget with one or two extras" },
+  { id: "rich", label: "Rich", hint: "History, settings and more, in a second view" },
+];
+const scope = ref<WidgetScope>("standard");
+void props.model.data.get<WidgetScope>(SCOPE_KEY).then((saved) => {
+  if (saved && SCOPES.some((option) => option.id === saved)) scope.value = saved;
+});
+function setScope(next: WidgetScope): void {
+  scope.value = next;
+  void props.model.data.set(SCOPE_KEY, next).catch(() => undefined);
+}
 
 /**
  * Arrived here from the palette to start a widget, and nothing else.
@@ -389,7 +412,7 @@ const effectivePreview = computed(() => {
 const tooNarrow = computed(() => wizWidth.value > 0 && wizWidth.value < 620);
 
 const gridColumns = computed(() => {
-  if (tooNarrow.value) return "0px 0px minmax(0, 1fr) 0px 0px";
+  if (tooNarrow.value) return "0px 6px minmax(0, 1fr) 0px 0px";
   if (sidebarHidden.value) {
     return `0px 6px minmax(${MIDDLE_MIN}px, 1fr) 6px ${effectivePreview.value}px`;
   }
@@ -563,7 +586,7 @@ function toggleProvider(id: string, on: boolean) {
 function openProviderSettings(option: { credentialType?: string }, event: Event): void {
   event.preventDefault();
   event.stopPropagation();
-  if (accountsEl.value) accountsEl.value.open = false;
+  attachMenuOpen.value = false;
   closeIntegrationMenu();
   wizard.openSettings("credentials", option.credentialType);
 }
@@ -963,8 +986,6 @@ const starterPrompts = [
   { label: "Focus timer", prompt: "A focus timer with 25 minute work sessions, 5 minute breaks and pause and reset buttons." },
   { label: "Checklist", prompt: "A morning checklist with editable tasks that resets each day." },
 ];
-const accountsEl = ref<HTMLDetailsElement | null>(null);
-const accountsOpen = ref(false);
 const integrationMenuEl = ref<HTMLElement | null>(null);
 const integrationMenuOpen = ref(false);
 const integrationQuery = ref("");
@@ -1398,21 +1419,6 @@ onUnmounted(() => {
   window.removeEventListener("pointerdown", closeIntegrationMenuOnOutsidePointer, true);
 });
 
-function closeAccountsOnOutsidePointer(event: PointerEvent) {
-  const details = accountsEl.value;
-  if (details && !details.contains(event.target as Node)) {
-    details.open = false;
-    accountsOpen.value = false;
-  }
-}
-
-onMounted(() => {
-  window.addEventListener("pointerdown", closeAccountsOnOutsidePointer, true);
-});
-
-onUnmounted(() => {
-  window.removeEventListener("pointerdown", closeAccountsOnOutsidePointer, true);
-});
 
 /**
  * Bumped to abandon a reply in flight.
@@ -1428,7 +1434,14 @@ const pendingDelete = ref<string | null>(null);
 
 /** Open state of the attach menu. */
 const attachMenuOpen = ref(false);
+const plusView = ref<"root" | "integrations">("root");
 const plusEl = ref<HTMLElement | null>(null);
+
+/** The plus button opens the menu at its root; the integrations chip opens it on its list. */
+function togglePlusMenu(view: "root" | "integrations"): void {
+  attachMenuOpen.value = !(attachMenuOpen.value && plusView.value === view);
+  plusView.value = view;
+}
 
 function closeAttachMenuOnOutsidePointer(event: PointerEvent) {
   const plus = plusEl.value;
@@ -1460,6 +1473,15 @@ const fileText = ref("");
 const fileList = computed(() =>
   [...(session.value.draftFiles ?? [])].sort((a, b) => a.path.localeCompare(b.path)),
 );
+
+/**
+ * The widget's own icon beside its name, as the palette will show it: the SVG
+ * as a mask over the text colour, so a black-stroked file reads in both themes.
+ */
+const widgetIconUrl = computed(() => {
+  const svg = manifestIconSvg(session.value.draftFiles ?? []);
+  return svg ? `url("data:image/svg+xml,${encodeURIComponent(svg)}")` : null;
+});
 
 const fileRows = computed(() => fileTreeRows(fileList.value.map((file) => file.path)));
 
@@ -1549,7 +1571,8 @@ const middleTabs = computed(() => [
     id: "files" as MiddleTab,
     label: "Code",
     icon: CodeXmlIcon,
-    count: fileList.value.length,
+    // No badge: how many files a widget has is not something anyone acts on.
+    count: 0,
     disabled: !fileList.value.length,
   },
   ...(endpointProbes.value.length + usedProviders.value.length
@@ -1928,6 +1951,71 @@ function setQueuedConflict(
 }
 
 /** Event handler supplied by the host transport; extensions never import Tauri. */
+/**
+ * A draft an MCP client just created, offered rather than opened because the
+ * Wizard was busy with something else. A modal would interrupt that work; a
+ * line with an Open button waits for it.
+ */
+const mcpCreated = ref<{ id: string; by: string; verb: "created" | "wrote" } | null>(null);
+
+/** Open the offered draft and drop the offer. */
+function openMcpCreated(): void {
+  const id = mcpCreated.value?.id;
+  mcpCreated.value = null;
+  if (id) void openWidget(id);
+}
+
+/**
+ * Someone built a widget from Claude Code or Codex while the Wizard sat on an
+ * empty "New project": show it. Nothing on screen is lost, and the person is
+ * almost certainly waiting for exactly this. With work on screen, offer it.
+ */
+async function offerMcpCreatedDraft(
+  event: Pick<DraftChanged, "id" | "client">,
+  verb: "created" | "wrote" = "created",
+): Promise<void> {
+  const emptyProject = !session.value.packageId && !conversationIsWorthKeeping(session.value);
+  if (emptyProject && !busy.value) {
+    await openWidget(event.id);
+    return;
+  }
+  // "an MCP client" when the client is not one we know; it starts the sentence.
+  const by = describeDraftAuthor(draftAuthorOf("mcp", event.client ?? null));
+  mcpCreated.value = { id: event.id, by: by[0].toUpperCase() + by.slice(1), verb };
+}
+
+/** When this card last had the draft list in view; see `catchUpMcpDraft`. */
+const DRAFTS_SEEN_AT_KEY = "draftsSeenAt";
+
+function markDraftsSeen(): void {
+  void props.model.data.set(DRAFTS_SEEN_AT_KEY, Date.now()).catch(() => undefined);
+}
+
+/**
+ * The live event's job, for the time this card was not mounted.
+ *
+ * Ctrl Ctrl closes the cockpit and unmounts an unpinned Wizard, and that is
+ * the usual state while somebody works in Claude Code — so the event that
+ * would have opened their new widget fires with nobody listening. On the next
+ * mount, the newest draft an MCP client wrote since then gets the same
+ * treatment: opened on an empty project, offered otherwise.
+ */
+async function catchUpMcpDraft(): Promise<void> {
+  const seenAt = await props.model.data.get<number>(DRAFTS_SEEN_AT_KEY).catch(() => undefined);
+  // A first mount has missed nothing, however many drafts exist.
+  if (typeof seenAt !== "number") return;
+  const missed = drafts.value
+    .filter(
+      (draft) =>
+        draft.lastWriter != null &&
+        draft.lastWriter !== "wizard" &&
+        (draft.updatedAt ?? 0) > seenAt &&
+        draft.id !== session.value.packageId,
+    )
+    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
+  if (missed) await offerMcpCreatedDraft({ id: missed.id, client: missed.lastClient }, "wrote");
+}
+
 async function handleDraftChanged(event: DraftChanged): Promise<void> {
   const context = {
     activeId: session.value.packageId,
@@ -1937,7 +2025,13 @@ async function handleDraftChanged(event: DraftChanged): Promise<void> {
   };
   const decision = draftSyncDecision(event as DraftSyncEvent, context);
   if (decision === "other") {
+    const created =
+      event.origin === "mcp" &&
+      event.kind === "written" &&
+      !event.renamedFrom &&
+      !drafts.value.some((draft) => draft.id === event.id);
     await refreshDrafts();
+    if (created) await offerMcpCreatedDraft(event);
     return;
   }
   // A rename arrives under the new name. Retarget before anything reads the
@@ -2073,6 +2167,18 @@ const suggestions = computed(() =>
 const showFirstVersionGeneration = computed(
   () => firstVersionGeneration.value && busy.value,
 );
+
+/**
+ * The first build's frame just stepped aside: the widget it stood in for fades
+ * in where it was. A class on the preview body rather than a `<Transition>`,
+ * because the host's preview chrome is not a single-element root.
+ */
+const justBuilt = ref(false);
+watch(showFirstVersionGeneration, (showing, wasShowing) => {
+  if (showing || !wasShowing) return;
+  justBuilt.value = true;
+  window.setTimeout(() => (justBuilt.value = false), 700);
+});
 const previewUrl = computed(() => {
   const id = session.value.packageId;
   const entry = session.value.previewEntry;
@@ -2162,6 +2268,23 @@ function onPreviewResized(size: { w: number; h: number }, scale?: number) {
   void previewSettingsWrite.catch((error) => note(describeDraftError(String(error))));
 }
 
+/**
+ * The project that was open last time, when only the project survived the
+ * restart (see `takePendingPackage`). Reopened once the lists say it still
+ * exists.
+ */
+const reopenPackage = props.model.conversations.takePendingPackage();
+/**
+ * Blank until the project on screen can be drawn as itself.
+ *
+ * Its sidebar row is built from the draft and widget lists, which load after
+ * mount; until they arrive even a project restored in full reads as "New
+ * project". So this waits for the lists whenever there is a project to show.
+ */
+const restoring = ref(reopenPackage != null || Boolean(session.value.packageId));
+// A load that throws before the reopen must not leave the card blank for good.
+if (restoring.value) setTimeout(() => (restoring.value = false), 3000);
+
 onMounted(async () => {
   const subscription = wizard.onDraftChanged(handleDraftChanged);
   void subscription
@@ -2205,7 +2328,18 @@ onMounted(async () => {
     refreshDraftPresence(),
   ]);
   await reconcileActiveDraftFromList();
+  try {
+    if (reopenPackage && !session.value.packageId && takenPackageIds().includes(reopenPackage)) {
+      await openWidget(reopenPackage);
+    }
+    await catchUpMcpDraft();
+  } finally {
+    restoring.value = false;
+    markDraftsSeen();
+  }
 });
+
+onUnmounted(markDraftsSeen);
 
 async function loadModels() {
   try {
@@ -2624,6 +2758,7 @@ async function send() {
      * wrote to disk, the preview updated, and the next sentence undid it.
      */
     content: turnForPackage(pointAndPromptRequest(request, elements).trim(), id, {
+      scope: scope.value,
       currentFiles: session.value.draftFiles ?? undefined,
       knownFiles: session.value.knownFiles,
       samples: session.value.samples,
@@ -2766,8 +2901,15 @@ async function runTurn(mine: number, id: string, repairsLeft: number, repairFile
   // turn is asked for only what it changed, so `parsed.files` is usually a
   // fraction of the widget. A complete answer merges to itself, so nothing here
   // depends on which kind arrived.
-  const merged = withoutOtherFormat(before, mergeGeneratedFiles(before, parsed));
-  const problem = replyProblem(parsed, merged, id, format.value);
+  // Edit blocks apply after the whole files, so an edit can target a file the
+  // same answer also sent. Any edit that cannot be placed exactly refuses the
+  // answer and goes back as a repair, like any other unwritable package.
+  const edited = applyReplyEdits(
+    withoutOtherFormat(before, mergeGeneratedFiles(before, parsed)),
+    parsed.edits ?? [],
+  );
+  const merged = edited.files;
+  const problem = edited.problems[0] ?? replyProblem(parsed, merged, id, format.value);
   /**
    * The id the model chose, on the turn where nothing was named yet.
    *
@@ -2846,6 +2988,12 @@ async function runTurn(mine: number, id: string, repairsLeft: number, repairFile
   // and an offer for the version being replaced is one the person would be
   // reading about a widget that no longer exists.
   if (outcome.written) offerEnable(id, merged);
+  // A clean write: its first code fault in the preview may be repaired
+  // without asking (see `onPreviewFault`). Not after an automatic repair, so
+  // a fix that throws again is offered rather than sent round again.
+  if (outcome.written && outcome.problems.length === 0 && !autoRepairing) {
+    autoRepairArmedFor.value = previewNonce.value;
+  }
 }
 
 /**
@@ -3214,16 +3362,53 @@ const faultOfferedFor = ref(-1);
  * knows whether the token is set or the API is up.
  */
 function onPreviewFault(fault: PreviewFault) {
-  // Mid-turn faults belong to a package that is already being replaced.
-  if (busy.value || !session.value.packageId) return;
+  // The preview of a fresh generation mounts while its turn is still settling,
+  // so its first fault arrives with `busy` set. Kept for that version and
+  // looked at once the turn has ended; a later version replaces it.
+  if (busy.value) {
+    if (autoRepairArmedFor.value === previewNonce.value) {
+      deferredFault = { fault, nonce: previewNonce.value };
+    }
+    return;
+  }
+  if (!session.value.packageId) return;
   if (faultOfferedFor.value === previewNonce.value) return;
   faultOfferedFor.value = previewNonce.value;
 
   const problem = faultProblem(fault);
-  session.value.bubbles.push({ role: "system", text: problem, repair: { problems: [problem] } });
+  const bubble: WizardBubble = { role: "system", text: problem, repair: { problems: [problem] } };
+  session.value.bubbles.push(bubble);
   scrollDown();
   void save(session.value);
+
+  // A code fault in the version just generated is the model's own mistake:
+  // send it back once without waiting for a click. Once — a repair that throws
+  // again is offered like any other fault, never looped on.
+  if (autoRepairArmedFor.value === previewNonce.value && isCodeFault(fault)) {
+    autoRepairArmedFor.value = -1;
+    autoRepairing = true;
+    void repairFromBubble(bubble).finally(() => {
+      autoRepairing = false;
+    });
+  }
 }
+
+/**
+ * The preview version whose first code fault is repaired automatically, or -1.
+ *
+ * Armed when a turn writes a package that passed every check, so it covers
+ * what the model just produced and nothing the person changed by hand.
+ */
+const autoRepairArmedFor = ref(-1);
+let autoRepairing = false;
+let deferredFault: { fault: PreviewFault; nonce: number } | null = null;
+
+watch(busy, (isBusy) => {
+  if (isBusy || !deferredFault) return;
+  const pending = deferredFault;
+  deferredFault = null;
+  if (pending.nonce === previewNonce.value) onPreviewFault(pending.fault);
+});
 
 /**
  * Send one offered fault back to the model.
@@ -4173,7 +4358,12 @@ async function enablePackage(
   <div
     ref="wizEl"
     class="wiz"
-    :class="{ 'wiz--sidebar-collapsed': sidebarHidden }"
+    :class="{
+      'wiz--restoring': restoring,
+      'wiz--sidebar-collapsed': sidebarHidden,
+      'wiz--composing': composing,
+      'wiz--narrow': tooNarrow,
+    }"
     :style="{ gridTemplateColumns: gridColumns }"
   >
     <!-- Left: what you have already made or asked -->
@@ -4455,13 +4645,12 @@ async function enablePackage(
 
     <!-- Middle: name, chat, model -->
     <div
-      v-show="!tooNarrow"
       class="wiz-grip wiz-c2"
-      :class="{ 'wiz-c2--sidebar-collapsed': sidebarHidden }"
-      role="separator"
+      :class="{ 'wiz-c2--sidebar-collapsed': sidebarHidden || tooNarrow }"
+      :role="sidebarHidden || tooNarrow ? undefined : 'separator'"
       aria-orientation="vertical"
       aria-label="Sidebar width"
-      tabindex="0"
+      :tabindex="sidebarHidden || tooNarrow ? -1 : 0"
       @pointerdown.prevent="startDrag('side', $event)"
       @keydown.left.prevent="nudge('side', -1)"
       @keydown.right.prevent="nudge('side', 1)"
@@ -4469,10 +4658,11 @@ async function enablePackage(
       <!--
         In the divider's track because that is the one place left on screen when
         the sidebar is folded: the header above the conversation is hidden while
-        composing, which is exactly when the sidebar is tucked away.
+        composing. Not while composing itself: "New Widget" is the question and
+        nothing else, so the rail waits until there is a package.
       -->
       <button
-        v-if="sidebarHidden"
+        v-if="sidebarHidden && !tooNarrow && !composing"
         type="button"
         class="wiz-side-expand"
         aria-label="Show sidebar"
@@ -4502,6 +4692,12 @@ async function enablePackage(
         It returns by itself the moment there is a package to describe.
       -->
       <header v-if="!composing" class="wiz-head">
+        <span
+          v-if="widgetIconUrl"
+          class="wiz-head-icon"
+          :style="{ '--widget-icon': widgetIconUrl }"
+          aria-hidden="true"
+        />
         <input
           v-model="session.widgetName"
           class="wiz-name-input"
@@ -4930,6 +5126,13 @@ async function enablePackage(
         </div>
       </div>
 
+      <div v-if="mcpCreated" class="wiz-mcp-created" role="status">
+        <span>{{ mcpCreated.by }} {{ mcpCreated.verb }} “{{ mcpCreated.id }}”.</span>
+        <button type="button" class="wiz-mcp-created-open" @click="openMcpCreated">Open</button>
+        <button type="button" class="wiz-mcp-created-close" aria-label="Dismiss" @click="mcpCreated = null">
+          ×
+        </button>
+      </div>
       <div
         v-show="middleTab === 'chat'"
         ref="transcriptEl"
@@ -4963,10 +5166,19 @@ async function enablePackage(
               </button>
             </li>
           </ul>
+          <!-- The other way in, for people who already pay for an AI client:
+               the sidebar's MCP entry is folded away in the simple view. -->
+          <div class="wiz-keygate-mcp">
+            <p>
+              Already use Claude Code, Codex or another AI tool? Build widgets
+              from there over MCP, no API key needed here.
+            </p>
+            <WizardMcpHelp @open-settings="wizard.openSettings('mcp')" />
+          </div>
         </div>
         <div v-else-if="!session.bubbles.length" class="wiz-starters">
-          <p class="wiz-starters-title">What would you like to make?</p>
-          <p class="wiz-starters-hint">Describe your idea, or pick one and make it yours.</p>
+          <p class="wiz-starters-title">What's missing from your desk?</p>
+          <p class="wiz-starters-hint">Describe it in a sentence, or steal one of these to start.</p>
           <div class="wiz-starters-grid" role="group" aria-label="Widget ideas">
             <button
               v-for="starter in starterPrompts"
@@ -5234,7 +5446,9 @@ async function enablePackage(
           :suggestions="suggestions"
           @choose="chooseSuggestion"
         />
+        <!-- Usage, cost and export describe a conversation; none yet, nothing to show. -->
         <WizardConversationMenu
+          v-if="session.bubbles.length > 0"
           :key="session.id"
           :usage="sessionUsage"
           :cost="costLabel(sessionCost)"
@@ -5327,19 +5541,33 @@ async function enablePackage(
             hidden
             @change="onFilePicked"
           />
+          <!--
+            Which accounts the widget reads from — and, implicitly, which
+            package format is being authored: any account makes it a contract
+            widget, none makes it standalone.
+
+            Multiple rows can be selected because the question is not "which
+            account" but "which accounts": the widget people ask for first —
+            room temperatures with the outdoor temperature under them — needs
+            two, and a single-choice control would make that widget look
+            impossible.
+
+            A second view of the plus menu rather than its own dropdown in the
+            bar: it is one more thing to add to the request, like an image.
+          -->
           <div ref="plusEl" class="wiz-plus">
             <button
               type="button"
               class="wiz-attach"
               v-tip="'Add'"
-              aria-label="Add attachment"
+              aria-label="Add"
               :aria-expanded="attachMenuOpen"
               :disabled="busy"
-              @click="attachMenuOpen = !attachMenuOpen"
+              @click="togglePlusMenu('root')"
             >
               <IconBase :size="16"><path d="M12 5v14M5 12h14" /></IconBase>
             </button>
-            <div v-if="attachMenuOpen" class="wiz-plus-menu">
+            <div v-if="attachMenuOpen && plusView === 'root'" class="wiz-plus-menu">
               <button
                 type="button"
                 class="wiz-plus-item"
@@ -5348,43 +5576,24 @@ async function enablePackage(
                   fileInputEl?.click();
                 "
               >
-                Upload image
+                <ImageIcon :size="14" />
+                <span>Upload image</span>
+              </button>
+              <button
+                type="button"
+                class="wiz-plus-item"
+                @click="plusView = 'integrations'"
+              >
+                <ServerPlusIcon :size="14" />
+                <span>Integrations</span>
+                <span class="wiz-plus-item-more" aria-hidden="true">›</span>
               </button>
             </div>
-          </div>
-          <!--
-            Which accounts the widget reads from — and, implicitly, which
-            package format is being authored: any account makes it a contract
-            widget, none makes it standalone. That was a second dropdown until
-            it became clear it only ever restated this one.
-
-            Multiple rows can be selected because the question is not "which
-            account" but "which accounts": the widget people ask for first —
-            room temperatures with the outdoor temperature under them — needs
-            two, and a single-choice control would make that widget look
-            impossible.
-          -->
-          <details
-            ref="accountsEl"
-            class="wiz-accounts"
-            :class="{ 'wiz-accounts--standalone': selectedProviders.length === 0 }"
-            @toggle="accountsOpen = accountsEl?.open ?? false"
-          >
-            <!--
-              The icon replaces the status dot rather than joining it. The dot
-              said one thing with colour — is anything connected — and the icon
-              can say the same thing the same way while also saying what the
-              control is for, which the dot never did.
-            -->
-            <summary :aria-label="selectedProviderAria">
-              <ServerPlusIcon class="wiz-accounts-icon" :size="16" />
-              <span class="wiz-accounts-label">{{ selectedProviderLabel }}</span>
-              <WizardChevron
-                class="wiz-accounts-chevron"
-                :direction="accountsOpen ? 'up' : 'down'"
-              />
-            </summary>
-            <ul>
+            <ul
+              v-else-if="attachMenuOpen"
+              class="wiz-plus-menu wiz-plus-integrations"
+              :aria-label="selectedProviderAria"
+            >
               <li v-for="option in providerOptions" :key="option.id">
                 <button
                   type="button"
@@ -5426,7 +5635,45 @@ async function enablePackage(
                 </button>
               </li>
             </ul>
-          </details>
+            <!--
+              What the widget reads from stays on the bar once there is an answer:
+              it decides the package format, so it should not need a menu opened
+              to be seen. Nothing picked is the default and says nothing.
+            -->
+            <button
+              v-if="selectedProviders.length"
+              type="button"
+              class="wiz-accounts"
+              :aria-label="selectedProviderAria"
+              :disabled="busy"
+              @click="togglePlusMenu('integrations')"
+            >
+              <ServerPlusIcon class="wiz-accounts-icon" :size="16" />
+              <span class="wiz-accounts-label">{{ selectedProviderLabel }}</span>
+            </button>
+          </div>
+          <!-- Only before the widget exists: after that a message is a change. -->
+          <div
+            v-if="!session.packageId"
+            class="wiz-scope"
+            role="radiogroup"
+            aria-label="How much widget to build"
+          >
+            <button
+              v-for="option in SCOPES"
+              :key="option.id"
+              type="button"
+              role="radio"
+              class="wiz-scope-option"
+              :class="{ 'wiz-scope-option--on': scope === option.id }"
+              :aria-checked="scope === option.id"
+              :title="option.hint"
+              :disabled="busy"
+              @click="setScope(option.id)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
           <span class="wiz-spacer" />
           <!--
             One control, not two. Model and effort are read together and answer
@@ -5468,10 +5715,6 @@ async function enablePackage(
           </button>
         </div>
       </div>
-      <WizardMcpHelp
-        v-if="sidebarHidden || tooNarrow"
-        @open-settings="wizard.openSettings('mcp')"
-      />
     </section>
 
     <!-- Right: the draft, in the chrome it will actually wear -->
@@ -5488,7 +5731,16 @@ async function enablePackage(
     />
 
     <section v-show="!tooNarrow" class="wiz-preview wiz-c5">
-      <div class="wiz-actions" role="group" aria-label="Widget actions">
+      <!--
+        Only once there is a widget to act on. v-show, not v-if:
+        `previewDebugTarget` inside must stay mounted.
+      -->
+      <div
+        v-show="previewExtId && !showFirstVersionGeneration"
+        class="wiz-actions"
+        role="group"
+        aria-label="Widget actions"
+      >
         <span ref="previewDebugTarget" class="wiz-debug-action"></span>
         <button
           v-if="pointAndPromptEnabled"
@@ -5536,9 +5788,9 @@ async function enablePackage(
         </button>
       </div>
       <p v-if="pickingElement" class="wiz-pick-hint" role="status">Click elements to add them to your message. Esc to finish.</p>
-      <div class="wiz-preview-body">
+      <div class="wiz-preview-body" :class="{ 'wiz-arrive': justBuilt }">
         <div v-if="showFirstVersionGeneration" class="wiz-empty">
-          <WizardGenerationStatus />
+          <WizardGenerationFrame />
         </div>
         <WizardPreviewStage
           v-else-if="previewExtId"
@@ -5556,6 +5808,7 @@ async function enablePackage(
           :share-feedback="shareFeedback"
           :picking="pickingElement"
           :debug-target="previewDebugTarget"
+          :working="busy"
           @selected="selectPreviewElement"
           @cancel-pick="finishPreviewPick"
           @close-share="sharing = false"
@@ -5578,13 +5831,23 @@ async function enablePackage(
 .wiz-actions :deep(button[aria-expanded="true"]) { background: rgba(var(--fg-rgb), 0.12); opacity: 1; }
 .wiz-debug-action { display: contents; }
 
+.wiz--restoring {
+  visibility: hidden;
+}
+
 .wiz {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   align-items: stretch;
   gap: 10px;
   height: 100%;
-  padding: 10px;
+  /*
+    The card has no padding (`ui.padding: false`) so the preview can run to its
+    top, right and bottom edges, under the title. The other columns keep the
+    inset the card used to give them: 16 + 10 on the left, 14 + 10 at the
+    bottom, and below the title at the top.
+  */
+  padding: 0 0 0 26px;
   box-sizing: border-box;
   font-size: 12px;
   color: rgba(var(--fg-rgb), 0.9);
@@ -5624,12 +5887,28 @@ async function enablePackage(
 .wiz-c3 {
   grid-column: 3;
 }
+/* Composing leaves the rail empty, but its 6px track and both gaps beside it
+   still hold the conversation off the edge. Take that space back. */
+.wiz--composing .wiz-c3 {
+  margin-left: -26px;
+}
 
 .wiz-c4 {
   grid-column: 4;
 }
 .wiz-c5 {
   grid-column: 5;
+}
+
+.wiz--narrow {
+  padding-right: 26px;
+}
+
+.wiz-side,
+.wiz-main {
+  padding-top: calc(var(--widget-title-inset, 0px) + 10px);
+  padding-bottom: 24px;
+  box-sizing: border-box;
 }
 
 .wiz-side,
@@ -6220,6 +6499,16 @@ async function enablePackage(
  * somebody still has to do. The name is usually already right — the model sets
  * it — so it reads as text and only offers itself when the pointer is on it.
  */
+.wiz-head-icon {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  /* Pulled into the input's own 6px inset so the name does not jump right. */
+  margin-right: -6px;
+  background: rgba(var(--fg-rgb), 0.75);
+  mask: var(--widget-icon) center / contain no-repeat;
+}
+
 .wiz-name-input {
   flex: 1 1 auto;
   min-width: 60px;
@@ -6402,6 +6691,88 @@ async function enablePackage(
   margin: 16px 0 0;
   padding: 0;
   list-style: none;
+}
+
+.wiz-scope {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(var(--fg-rgb), 0.05);
+}
+
+.wiz-scope-option {
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: rgba(var(--fg-rgb), 0.55);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.wiz-scope-option:hover:not(:disabled) {
+  color: rgba(var(--fg-rgb), 0.9);
+}
+
+.wiz-scope-option--on {
+  background: rgba(var(--fg-rgb), 0.12);
+  color: rgba(var(--fg-rgb), 0.95);
+}
+
+.wiz-mcp-created {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 8px 10px 8px 12px;
+  border-radius: 10px;
+  background: rgba(var(--fg-rgb), 0.07);
+  color: rgba(var(--fg-rgb), 0.85);
+  font-size: 12.5px;
+}
+
+.wiz-mcp-created span {
+  flex: 1;
+  min-width: 0;
+}
+
+.wiz-mcp-created button {
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.wiz-mcp-created-open {
+  padding: 4px 10px;
+  background: rgba(var(--fg-rgb), 0.12) !important;
+  font-weight: 600 !important;
+}
+
+.wiz-mcp-created-close {
+  padding: 2px 6px;
+  color: rgba(var(--fg-rgb), 0.55) !important;
+}
+
+.wiz-keygate-mcp {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(var(--fg-rgb), 0.08);
+}
+
+.wiz-keygate-mcp p {
+  flex: 1;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(var(--fg-rgb), 0.6);
 }
 
 .wiz-keygate-option {
@@ -7020,7 +7391,7 @@ async function enablePackage(
 
 /* Both menus share one control height and type scale; only their labels shrink. */
 .wiz-compose-bar :deep(.picker-button),
-.wiz-compose-bar .wiz-accounts > summary {
+.wiz-compose-bar .wiz-accounts {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -7049,14 +7420,13 @@ async function enablePackage(
 
 .wiz-compose-bar :deep(.picker-button:hover:not(:disabled)),
 .wiz-compose-bar :deep(.picker-button[aria-expanded="true"]),
-.wiz-compose-bar .wiz-accounts > summary:hover,
-.wiz-compose-bar .wiz-accounts[open] > summary {
+.wiz-compose-bar .wiz-accounts:hover:not(:disabled) {
   background: rgba(var(--fg-rgb), 0.08);
   color: rgba(var(--fg-rgb), 0.95);
 }
 
 .wiz-compose-bar :deep(.picker-button:focus-visible),
-.wiz-accounts > summary:focus-visible,
+.wiz-accounts:focus-visible,
 .wiz-attach:focus-visible,
 .wiz-send:focus-visible {
   outline: 1px solid rgba(var(--fg-rgb), 0.5);
@@ -7096,7 +7466,11 @@ async function enablePackage(
 
 .wiz-plus {
   position: relative;
-  flex: 0 0 auto;
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .wiz-attach {
@@ -7132,6 +7506,9 @@ async function enablePackage(
 }
 
 .wiz-plus-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   border: none;
   background: none;
   color: inherit;
@@ -7146,6 +7523,17 @@ async function enablePackage(
 
 .wiz-plus-item:hover {
   background: rgba(var(--fg-rgb), 0.1);
+}
+
+.wiz-plus-item-more {
+  margin-left: auto;
+  padding-left: 16px;
+}
+
+.wiz-plus-integrations {
+  min-width: 260px;
+  margin: 0;
+  list-style: none;
 }
 
 .wiz-thumbs {
@@ -7583,11 +7971,22 @@ async function enablePackage(
   context below the toolbar, including its iframe and backdrop layers.
 */
 .wiz-preview-body {
+  position: relative;
   isolation: isolate;
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /*
+    It meets the card's corners, so it takes the card's curve — 1px inside it,
+    so the card's border still runs unbroken around the edge instead of
+    stopping where the canvas starts.
+  */
+  overflow: hidden;
+  margin: 1px 1px 1px 0;
+  border-top-right-radius: calc(var(--surface-radius, 16px) - 1px);
+  border-bottom-right-radius: calc(var(--surface-radius, 16px) - 1px);
+  corner-shape: var(--surface-corner-shape, round);
 }
 
 .wiz-preview-body > * {
@@ -7595,11 +7994,29 @@ async function enablePackage(
   min-height: 0;
 }
 
-/* Flush with the column top, the same line the Chat/Code tabs sit on. */
+.wiz-arrive > * {
+  animation: wiz-arrive 600ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes wiz-arrive {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+    filter: blur(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wiz-arrive > * {
+    animation: none;
+  }
+}
+
+/* The same line the Chat/Code tabs sit on, inset from the card edge. */
 .wiz-actions {
   position: absolute;
-  top: 0;
-  right: 0;
+  top: calc(var(--widget-title-inset, 0px) + 10px);
+  right: 10px;
   z-index: 1;
   justify-content: flex-end;
   flex-wrap: wrap;
@@ -7623,58 +8040,24 @@ button:disabled {
   cursor: default;
 }
 .wiz-accounts {
-  position: relative;
-  flex: 0 1 auto;
   min-width: 0;
   max-width: 180px;
-  font-size: 12px;
-}
-
-.wiz-accounts > summary {
   cursor: pointer;
-  overflow: hidden;
   white-space: nowrap;
-  list-style: none;
 }
 
-.wiz-accounts > summary::-webkit-details-marker {
-  display: none;
-}
-
-/*
-  Green once the widget reads from something, exactly as the dot it replaced
-  was. The state is worth a glance and the icon is already there; a dot beside
-  it would be a second element saying the same word.
-*/
-.wiz-accounts:not(.wiz-accounts--standalone) .wiz-accounts-icon {
+/* Green: the widget reads from something. */
+.wiz-accounts-icon {
+  flex: 0 0 auto;
   color: rgba(130, 205, 160, 0.95);
 }
 
-.wiz-accounts-icon {
-  flex: 0 0 auto;
-}
-
-/* Only the names truncate; the icon and the caret keep their size. */
+/* Only the names truncate; the icon keeps its size. */
 .wiz-accounts-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.wiz-accounts > ul {
-  position: absolute;
-  bottom: calc(100% + 4px);
-  left: 0;
-  z-index: 5;
-  min-width: 260px;
-  margin: 0;
-  padding: 6px;
-  list-style: none;
-  border: 1px solid var(--kavibay-border, rgba(255, 255, 255, 0.15));
-  border-radius: 8px;
-  background: var(--kavibay-surface, #1b1b1b);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
 }
 
 .wiz-account-item {
@@ -8099,8 +8482,19 @@ button:disabled {
 
 .wiz-side-expand {
   position: absolute;
-  top: 2px;
-  left: -13px;
+  /* The grip runs the full height now; stay level with the header below the title. */
+  top: calc(var(--widget-title-inset, 0px) + 12px);
+  /*
+    Centred in the strip left of the conversation: 14px padding + 10px gap put
+    the grip 24px in, the strip is 40px wide, and the button is 26px — so
+    20 - 24 - 13.
+  */
+  left: -17px;
+}
+
+/* Folded, the strip only holds that button, so it gives back the width. */
+.wiz--sidebar-collapsed:not(.wiz--composing):not(.wiz--narrow) {
+  padding-left: 14px;
 }
 
 </style>

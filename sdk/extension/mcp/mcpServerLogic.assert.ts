@@ -6,6 +6,7 @@ import {
   MCP_TOKEN_ENV_VAR,
   MCP_TOKEN_PLACEHOLDER,
   buildClaudeCodeCommand,
+  buildClaudeDesktopConfigSnippet,
   buildCodexCommand,
   buildCodexConfigSnippet,
   buildMcpUrl,
@@ -85,6 +86,25 @@ equal(
   buildCodexCommand(url, true),
   `codex mcp add kavibay --url ${url} --bearer-token-env-var ${MCP_TOKEN_ENV_VAR}`,
   "Codex reads the token from the environment",
+);
+
+// Claude Desktop only starts stdio servers, so the entry bridges to this URL.
+const desktop = JSON.parse(buildClaudeDesktopConfigSnippet(url)).mcpServers.kavibay;
+check(desktop.command === "npx", "Claude Desktop runs the bridge through npx");
+check(
+  JSON.stringify(desktop.args) === JSON.stringify(["-y", "mcp-remote", url]),
+  "the bridge points at this server",
+);
+check(desktop.env === undefined, "no token, no environment");
+// With a token, no argument may contain a space: Claude Desktop on Windows splits on them.
+const desktopToken = JSON.parse(buildClaudeDesktopConfigSnippet(url, true)).mcpServers.kavibay;
+check(
+  desktopToken.args.every((arg: string) => !arg.includes(" ")),
+  "the bearer token stays out of the arguments",
+);
+check(
+  desktopToken.env.KAVIBAY_AUTH_HEADER === `Bearer ${MCP_TOKEN_PLACEHOLDER}`,
+  "the token travels in the environment",
 );
 
 console.log("mcpServerLogic assertions passed");

@@ -15,7 +15,7 @@ The host discovers folders automatically — do **not** register them in a barre
 4. Restart / reload the app — the widget appears in the palette.
 
 Agent workflow (tiers S / M / L, checklists): `.cursor/skills/kavibay-widget/`.  
-Canonical contract: `docs/superpowers/specs/2026-07-18-extension-system-design.md`.
+Canonical contract: `sdk/extension/types.ts` (manifest) and `sdk/extension/contract/sdk.ts` (contract packages).
 
 ## Layout
 
@@ -101,14 +101,15 @@ Redacted is the example: its manifest makes a new cover black and opaque, and
 each cover can be turned into tinted, blurred glass. Like every `ui` field, this
 is read from bundled manifests only.
 
-Two more fields are not per-instance, because they are not starting states.
+A few more fields are not per-instance, because they are not starting states.
 
-`starter` sits beside `keywords` rather than under `ui` — it says which desk a
-widget belongs on, not where on it:
+`starter` and `galleryPick` sit beside `keywords` rather than under `ui` — they
+say where a widget belongs, not where on the desk:
 
 | Field | Default | Effect |
 |-------|---------|--------|
 | `starter` | absent | A number places this widget on the desk the **very first** time Kavibay is opened, lowest first. Absent means no. |
+| `galleryPick` | absent | A number puts this widget at the front of the Widget Gallery with a "Good first pick" label, lowest first. The tour sends every new user to the gallery, so keep it to widgets that work without an account or setup. |
 
 It exists so core does not have to hold a list of extension ids — the same
 reason `enabledByDefault` is a manifest field. An empty desk on a first run
@@ -180,6 +181,8 @@ Declare a package-relative icon for the **Widgets** menu and palette type rows:
 Host resolves first-party icons at load time (`loadExtensions.ts`); unsafe paths (`..`, absolute) are ignored.
 
 When `ui.hugHeight: true`, height follows widget content; only `defaultSize.w` is applied on Add (`defaultSize.h` is ignored for sizing).
+
+When `ui.padding: false`, the card drops its padding so the body reaches every card edge. The title floats over the top-left corner at its usual inset, without the gradient `ui.flush` puts behind it. The body gets `--widget-title-inset` (36px, or 0px with the title hidden): start content below it, let backgrounds run under it.
 
 ## Persistence (new extensions)
 
@@ -492,7 +495,7 @@ validators reject it in both FE and Rust.
 
 Writing one: **[docs/runtime-packages.md](runtime-packages.md)** — quick start,
 declared endpoints, credentials, format versioning.
-Architecture: [runtime extensions design](superpowers/specs/2026-07-22-runtime-extensions-design.md).
+Architecture: [runtime extensions design](design/runtime-extensions.md).
 FE-only drop-in loading (P1). Packages with a native sidecar backend are rejected until a later release.
 
 ### Install a sample package
@@ -574,7 +577,7 @@ What the host guarantees, so the package does not have to:
 `credential` on an endpoint is accepted by the validator but not executed yet —
 that lands with D2 of the design.
 
-Full contract: [declarative HTTP design](superpowers/specs/2026-08-01-declarative-http-api-design.md).
+Full contract: [declarative HTTP design](design/declarative-http-api.md).
 
 ### Install the declared-HTTP probe
 

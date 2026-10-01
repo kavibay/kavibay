@@ -476,5 +476,4 @@ real machine: install them and every row must read **PASS** / **BLOCKED**.
 | What can a manifest declare? | [extensions.md](extensions.md) |
 | What can a sandboxed package do? | [runtime-packages.md](runtime-packages.md) |
 | What should it look like? | [DESIGN.md](DESIGN.md) |
-| Why is it built this way? | `superpowers/specs/` — one design doc per feature |
-| What is being built next? | `superpowers/plans/` |
+| Why is the sandbox built this way? | [design/](design) — threat model and declared HTTP |

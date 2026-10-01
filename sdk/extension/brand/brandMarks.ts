@@ -55,6 +55,12 @@ const MARKS: Readonly<Record<string, BrandId>> = {
   anthropicapi: "anthropic",
   openaiapi: "openai",
   cloudflareworkersai: "cloudflare",
+
+  // LLM provider ids (settings/ai): the AI panel names a provider before, or
+  // without, the model catalog that links it to a credential type.
+  anthropic: "anthropic",
+  openai: "openai",
+  cloudflare: "cloudflare",
 };
 
 /**

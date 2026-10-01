@@ -524,7 +524,6 @@ onUnmounted(() => {
 
 /* Same lift the palette uses for the current result row. */
 .settings-nav-item--active,
-.settings-nav-item:hover,
 .settings-nav-item:focus-visible {
   background: var(--row-selected-sheen), var(--row-selected-bg);
   box-shadow: var(--row-selected-rim), var(--row-selected-shadow);
@@ -535,13 +534,9 @@ onUnmounted(() => {
   outline: none;
 }
 
-/* One sheen at a time: hovering (or focusing) another row takes the lift off
-   the open section, the way the palette follows the pointer. */
-.settings-nav:has(.settings-nav-item:hover, .settings-nav-item:focus-visible)
-  .settings-nav-item--active:not(:hover):not(:focus-visible) {
-  background: transparent;
-  box-shadow: none;
-  color: rgba(var(--fg-rgb), 0.75);
+.settings-nav-item:hover:not(.settings-nav-item--active):not(:focus-visible) {
+  background: rgba(var(--fg-rgb), 0.06);
+  color: rgba(var(--fg-rgb), 0.95);
 }
 
 .settings-content {

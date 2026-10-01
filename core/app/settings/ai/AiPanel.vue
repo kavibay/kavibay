@@ -187,7 +187,7 @@ onMounted(() => {
           @click="toggleProvider(tab.id)"
         >
           <span class="provider-tile">
-            <BrandMark :provider="credentialTypeForProvider(models, tab.id)" :size="18" />
+            <BrandMark :provider="credentialTypeForProvider(models, tab.id) ?? tab.id" :size="18" />
           </span>
           <span class="settings-row-copy provider-copy">
             <span class="settings-row-title">{{ tab.label }}</span>

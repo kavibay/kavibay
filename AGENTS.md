@@ -15,13 +15,14 @@ scaffold CLIs, no new test frameworks.
 |------|------|---------|
 | `core/app/` | Vue host: palette, settings, widget host, runtime sandbox | GPL-3.0-or-later |
 | `core/embed/` | Custom-element package the landing (and later the store) loads with one script tag | GPL-3.0-or-later |
+| `core/web/` | Browser entry for the real app: the Tauri backend answered in the page, for the landing's live demo | GPL-3.0-or-later |
 | `src-tauri/` | Rust backend — part of core; stays at repo root for the Tauri CLI | GPL-3.0-or-later |
 | `src-tauri/src/extensions/` | Rust backends belonging to one widget each. Shared by two? Then it is host code and stays a level up. | GPL-3.0-or-later |
 | `sdk/extension/` | Extension-facing SDK implementations (`@sdk` alias) | MIT |
 | `sdk/runtime/` | postMessage SDK for sandboxed packages; the host serves it as `@kavibay/runtime.js` | MIT |
 | `extensions/` | First-party widgets, compiled into the app | MIT |
 | `examples/` | Runtime package templates + probes (`runtime-extension-s`, `ipc-probe`) | MIT |
-| `docs/` | Guides + `superpowers/{specs,plans}` | CC-BY-4.0 |
+| `docs/` | Guides + `design/` (design rationale) | CC-BY-4.0 |
 | `scripts/` | Repo guards / tooling | GPL-3.0-or-later |
 
 Licensing rules that constrain code changes:
@@ -37,17 +38,25 @@ Licensing rules that constrain code changes:
   and `@sdk`. It must not import `core/app/extensions/*`, `@tauri-apps/*`, or
   the public site — consumers depend on the package, never the reverse. Guard:
   `scripts/embedImportGuard.assert.mjs`.
-- Don't touch the moodist sound files or their licensing (Pixabay review is a
-  tracked, separate task).
+- `core/web/` wraps `core/app/` without changing it: it installs Tauri's IPC mock
+  and imports `core/app/main.ts`. Nothing in `core/app/` may import `core/web/`.
+  Every `invoke("…")` the app makes must be in exactly one table of
+  `core/web/webCommands.ts` (ANSWERS, NO_OPS, NOT_ON_WEB) — a new Rust command
+  fails `core/web/webCommands.assert.ts` until it is classified there.
+- Moodist sounds: every file is listed in `extensions/moodist/soundInventory.ts`
+  with its source — CC0 recordings from Freesound (cut and encoded by
+  `buildSounds.mts`) or noise computed at runtime (`noise.ts`). Don't add upstream
+  Moodist recordings back: their Pixabay/CC0 licensing is not recorded per file.
 
 ## Commands
 
 ```bash
-npm run tauri dev                # run the app (Vite + cargo)
-npm run verify                   # incremental typecheck + oxlint + all asserts, in parallel — what CI runs
-npm run verify:rust              # cargo fmt --check + clippy -D warnings + cargo test --lib
-npm run build                    # vue-tsc typecheck + vite build
-npm run build:embed              # custom-element bundle the site loads (`core/embed/` → `../www.kavibay.com/embed/`)
+pnpm run tauri dev                # run the app (Vite + cargo)
+pnpm run verify                   # incremental typecheck + oxlint + all asserts, in parallel — what CI runs
+pnpm run verify:rust              # cargo fmt --check + clippy -D warnings + cargo test --lib
+pnpm run build                    # vue-tsc typecheck + vite build
+pnpm run build:embed              # custom-element bundle the site loads (`core/embed/` → `../www.kavibay.com/embed/`)
+pnpm run build:web                # the real app for the landing's iframe (`core/web/` → `../www.kavibay.com/app/`)
 npx tsx <path>/<name>.assert.ts  # run one colocated pure-logic test
 ```
 
@@ -56,7 +65,7 @@ The data directory is `~/.kavibay` (`%USERPROFILE%\.kavibay` on Windows), and
 for `app_data_dir()` anywhere else silently opts that module out of the override
 below. Regenerable files go in `~/.kavibay/cache/` via `paths::cache_dir`.
 
-`KAVIBAY_DATA_DIR=<absolute path> npm run tauri dev` points the whole data
+`KAVIBAY_DATA_DIR=<absolute path> pnpm run tauri dev` points the whole data
 directory somewhere else — settings, the localStorage mirror, credentials, the
 widget caches — so a dev run cannot migrate or corrupt the real profile. The path
 must be absolute; a relative one is refused rather than resolved. Such an instance
@@ -76,8 +85,7 @@ run via `tsx`); Rust uses `#[cfg(test)]` modules. **No vitest / jest.**
 extension manifests, extension actions, SPDX headers, version sync).
 
 CI (`.github/workflows/ci.yml`) runs `verify` on Ubuntu and the Rust half on Windows —
-`src-tauri` is too `#[cfg(windows)]`-heavy for a Linux job to prove much. Plan and
-rationale: `docs/superpowers/plans/2026-08-08-ci-cd-open-source.md`.
+`src-tauri` is too `#[cfg(windows)]`-heavy for a Linux job to prove much.
 
 ## Architecture in 8 lines
 
@@ -180,35 +188,35 @@ rationale: `docs/superpowers/plans/2026-08-08-ci-cd-open-source.md`.
 - Widget/extension how-to: `docs/widget-tutorial.md` (walkthrough) and
   `docs/extensions.md` (reference); agent workflow + S/M/L tiers:
   `.cursor/skills/kavibay-widget/SKILL.md`; canonical contract:
-  `docs/superpowers/specs/2026-07-18-extension-system-design.md`.
+  `sdk/extension/types.ts` and `sdk/extension/contract/sdk.ts`.
+- Why the sandbox is built the way it is: `docs/design/runtime-extensions.md`
+  (threat model) and `docs/design/declarative-http-api.md` (declared endpoints).
 - `docs/runtime-packages.md` and `docs/DESIGN.md` are compiled into the Widget
   Wizard's system prompt (`src-tauri/src/wizard/prompt.rs`, `include_str!`) —
   editing them changes model behaviour, and moving them breaks the build.
-- Active roadmap: `docs/superpowers/plans/2026-07-23-architecture-security-hardening.md`
-  (P0–P2 ✅ or superseded; open: `http:` in the main CSP's `img-src`, and P3) and
-  `docs/superpowers/plans/2026-07-23-repo-structure-licensing.md` (restructure ✅).
-  After finishing a phase: run its verify steps, then mark it done in the plan doc
-  with a short completion note.
-- Landing demo, widget-store preconditions and the browser runtime:
-  `docs/superpowers/plans/2026-08-28-landing-demo-and-web-runtime.md` (L0–L1
-  done 2026-08-28; L2 not started).
-  Read its §3 before estimating anything about bundle size or what runs without
-  Tauri — those numbers are measured, and three of them contradict what the code
-  suggests.
+- Roadmap, open work and plans are tracked outside the repo. Do not add plan
+  files under `docs/`; `docs/superpowers/` is gitignored for skills that write
+  plans there.
 
 ## Definition of done (any change)
 
-`npm run verify` green · `npm run verify:rust` green when Rust was touched · manual UI
+`pnpm run verify` green · `pnpm run verify:rust` green when Rust was touched · manual UI
 smoke for widget changes (palette add, duplicate/dispose if stateful, settings if
 present). Report deviations honestly — a red check with an explanation beats a silent
 skip.
 
 Landing exception: when a task touches **only static files** under
 `../www.kavibay.com/` (HTML, CSS, images, `script.js`) and not `core/embed/` or
-`vite.embed.config.ts`, do **not** run `npm run verify`. Validate the relevant
+`vite.embed.config.ts`, do **not** run `pnpm run verify`. Validate the relevant
 static files and diff only unless the maintainer explicitly asks for broader
 checks.
 
-Anything that touches the embed package (`core/embed/`), its Vite config, or the
-bundle landing loads **does** run typecheck — `npm run verify`. A broken import
+Anything that touches the embed package (`core/embed/`), the web entry
+(`core/web/`), their Vite configs, or the bundles the landing loads **does** run typecheck — `pnpm run verify`. A broken import
 there is a typecheck failure that the static-only exception would hide.
+
+# What you need from me
+- End every turn where you're blocked on me, or where the next step needs me, with a short "**What I need from you**" section. Numbered, one concrete action per item: exactly what to do, where (which site, app, file or person), and what to send back. e.g. "Add `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` under GitHub → kavibay/kavibay → Settings → Secrets → Actions, then tell me when they are in", not "I need the signing key".
+- If there are several, put the quickest or most blocking one first, and say what you'll get on with in the meantime.
+- If you don't need anything from me, say "Nothing needed from you right now" so I don't have to ask.
+- Never bury a request for me in the middle of a long update.

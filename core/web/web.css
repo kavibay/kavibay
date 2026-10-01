@@ -1,0 +1,40 @@
+/*
+ * Where the demo cannot follow, the settings panels show `DesktopOnly`
+ * (webCommands.ts) through their own error line. On the page that line is
+ * never a fault, so it reads as a note: calm colours and a "Web demo" tag.
+ * !important because each panel's rule is scoped (`.x[data-v-…]`) and wins
+ * on specificity otherwise.
+ */
+.ai-error,
+.creds-error,
+.mcp-error,
+.quick-error,
+.runtime-ext-error {
+  display: flex !important;
+  align-items: baseline;
+  gap: 10px;
+  margin: 4px 0 12px !important;
+  padding: 10px 12px !important;
+  border: 1px solid rgba(var(--fg-rgb), 0.08);
+  border-radius: 10px;
+  background: rgba(var(--fg-rgb), 0.04);
+  color: rgba(var(--fg-rgb), 0.72) !important;
+  font-size: 13px !important;
+  line-height: 1.45;
+}
+
+.ai-error::before,
+.creds-error::before,
+.mcp-error::before,
+.quick-error::before,
+.runtime-ext-error::before {
+  content: "Web demo";
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(var(--fg-rgb), 0.08);
+  color: rgba(var(--fg-rgb), 0.85);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}

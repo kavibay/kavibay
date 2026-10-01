@@ -15,6 +15,8 @@ export interface GalleryRegistryEntry {
   keywords: string[];
   /** Manifest folder whose intro.mp4 should preview this widget. */
   videoId?: string;
+  /** `galleryPick` from the manifest: a good first widget, lowest first. */
+  pick?: number;
 }
 
 export interface GalleryTile {
@@ -25,12 +27,19 @@ export interface GalleryTile {
   keywords: string[];
   /** Resolved intro URL, or null when the extension has no intro.mp4. */
   videoUrl: string | null;
+  /** Rank among the good first picks, or null. */
+  pick: number | null;
 }
 
 /**
  * One tile per registry extension (except gallery itself).
  * Missing intro.mp4 → `videoUrl: null` (blank tile media).
- * Sort: tiles with video first, then A→Z by id within each group.
+ * Sort: good first picks (by rank), then tiles with video, then A→Z by id.
+ *
+ * The picks lead because somebody opening the gallery for the first time — the
+ * tour sends everybody there — has no way to choose between thirty widgets
+ * they have never seen. They are declared in each manifest (`galleryPick`) for
+ * the same reason `starter` is: a list of ids here would drift.
  */
 export function buildGalleryTiles(
   registry: GalleryRegistryEntry[],
@@ -46,9 +55,15 @@ export function buildGalleryTiles(
       categories: [...entry.categories],
       keywords: [...entry.keywords],
       videoUrl: videoById[entry.id] ?? (entry.videoId ? videoById[entry.videoId] : undefined) ?? null,
+      pick: typeof entry.pick === "number" ? entry.pick : null,
     });
   }
   tiles.sort((a, b) => {
+    if (a.pick !== b.pick) {
+      if (a.pick == null) return 1;
+      if (b.pick == null) return -1;
+      return a.pick - b.pick;
+    }
     const aHas = a.videoUrl ? 0 : 1;
     const bHas = b.videoUrl ? 0 : 1;
     if (aHas !== bHas) return aHas - bHas;

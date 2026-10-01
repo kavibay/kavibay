@@ -62,6 +62,7 @@ import {
   fileSetProblem,
   renderReachesForCtx,
   lintGeneratedFiles,
+  applyReplyEdits,
   REPAIR_BUDGET,
   SAMPLE_MAX,
   VERSION_LIMIT,
@@ -87,6 +88,7 @@ import {
   sampleBody,
   updateLiveVersion,
   manifestSize,
+  manifestIconSvg,
   parseGeneratedFiles,
   previewPermissionsFor,
   renderFilesForPrompt,
@@ -2917,6 +2919,104 @@ assert(
   );
   assertEq(reply.files.map((f) => f.path).join(","), "manifest.json,ui/app.js", "and the glued block is a file");
   assertEq(reply.files[0].contents, '{ "id": "holiday-countdown" }', "with its contents intact");
+}
+
+{
+  const svg = '<svg viewBox="0 0 20 20"/>';
+  const manifest = (body: string) => ({ path: "manifest.json", contents: body });
+  const icon = { path: "icon.svg", contents: svg };
+  assertEq(manifestIconSvg([manifest('{"icon":"icon.svg"}'), icon]), svg, "the named svg is read");
+  assertEq(manifestIconSvg([manifest('{"icon":"./icon.svg"}'), icon]), svg, "a ./ prefix names the same file");
+  assertEq(manifestIconSvg([manifest('{"icon":"icon.svg"}')]), null, "named but not emitted");
+  assertEq(manifestIconSvg([manifest('{"icon":"icon.png"}'), icon]), null, "a png is not shown inline");
+  assertEq(manifestIconSvg([manifest("{}"), icon]), null, "a stray icon.svg the manifest does not name");
+  assertEq(manifestIconSvg([manifest("{ broken"), icon]), null, "broken manifest");
+}
+
+// --- edit blocks -------------------------------------------------------------
+// A follow-up turn may send only the change to a large file. The edit must land
+// exactly once, or the whole answer is refused and goes back for repair.
+{
+  const reply = [
+    "Made the goal bigger.",
+    "```edit path=ui/app.js",
+    "<<<<<<< SEARCH",
+    "const GOAL = 2000;",
+    "=======",
+    "const GOAL = 2500;",
+    ">>>>>>> REPLACE",
+    "```",
+  ].join("\n");
+  const parsed = parseGeneratedFiles(reply);
+  assertEq(parsed.files, [], "an edit block is not a file");
+  assertEq(
+    parsed.edits,
+    [{ path: "ui/app.js", search: "const GOAL = 2000;", replace: "const GOAL = 2500;" }],
+    "the pair is read",
+  );
+  assertEq(parsed.prose, "Made the goal bigger.", "and the prose stays prose");
+
+  const files = [file("ui/app.js", "const GOAL = 2000;\nrender();"), file("manifest.json", "{}")];
+  const applied = applyReplyEdits(files, parsed.edits ?? []);
+  assertEq(applied.problems, [], "an exact, unique match applies");
+  assertEq(applied.files[0].contents, "const GOAL = 2500;\nrender();", "to that text only");
+  assertEq(files[0].contents, "const GOAL = 2000;\nrender();", "without touching the input");
+
+  const twice = applyReplyEdits([file("ui/app.js", "x();\nx();")], [
+    { path: "ui/app.js", search: "x();", replace: "y();" },
+  ]);
+  assert(twice.problems[0].includes("more than once"), "an ambiguous edit is refused");
+  const nowhere = applyReplyEdits(files, [{ path: "ui/app.js", search: "nope", replace: "" }]);
+  assert(nowhere.problems[0].includes("did not match"), "a missing match is refused");
+  assertEq(nowhere.files, files, "and nothing is half-applied");
+
+  const broken = parseGeneratedFiles("```edit path=ui/app.js\njust some text\n```");
+  assertEq(broken.malformedEdits, ["ui/app.js"], "an edit block without markers is reported");
+}
+
+// --- scope ------------------------------------------------------------------
+// Read on the first turn only: afterwards a message is a change, and "rich" on
+// "make the dots grey" would invite a rebuild.
+assert(turnForPackage("a habit tracker", "", { scope: "rich" }).includes("Scope: rich"), "first turn, rich");
+assert(turnForPackage("a habit tracker", "", { scope: "simple" }).includes("Scope: simple"), "first turn, simple");
+assertEq(
+  turnForPackage("a habit tracker", "", { scope: "standard" }),
+  turnForPackage("a habit tracker", ""),
+  "standard adds nothing",
+);
+assert(!turnForPackage("make it grey", "habits", { scope: "rich" }).includes("Scope:"), "not on a change");
+
+// --- sandbox lint -----------------------------------------------------------
+{
+  const html = (body: string) => file("ui/index.html", `<!doctype html><body>${body}</body>`);
+  const js = (code: string) => file("ui/app.js", code);
+  const notes = (...files: GeneratedFile[]) => lintGeneratedFiles([file("manifest.json", "{}"), ...files]);
+
+  assert(notes(html("<script>go()</script>")).some((n) => n.includes("inline <script>")), "inline script");
+  assertEq(notes(html('<script src="app.js"></script>')), [], "an external script is fine");
+  assert(notes(html('<button onclick="go()">Go</button>')).some((n) => n.includes("onclick")), "inline handler");
+  assert(notes(js('form.addEventListener("submit", go);')).some((n) => n.includes("submit")), "form submit");
+  assert(notes(js("fetch(url);")).some((n) => n.includes("fetch")), "fetch");
+  assertEq(notes(js("// we never fetch(url) here")), [], "a comment that mentions fetch is not a call");
+  assert(notes(js("if (confirm('Sure?')) wipe();")).some((n) => n.includes("confirm")), "confirm()");
+  assertEq(notes(js("dialog.confirm(); state.prompt();")), [], "methods with the same name are fine");
+
+  assert(
+    notes(html('<p id="total"></p>'), js('document.getElementById("count").textContent = 1;')).some((n) =>
+      n.includes("#count"),
+    ),
+    "a lookup for an id nothing has",
+  );
+  assertEq(
+    notes(html('<p id="total"></p>'), js('document.getElementById("total").textContent = 1;')),
+    [],
+    "an id the markup has",
+  );
+  assertEq(
+    notes(html(""), js('el.id = "row"; document.getElementById("row");')),
+    [],
+    "an id the script creates",
+  );
 }
 
 console.log("widgetWizardLogic.assert.ts: ok");

@@ -213,6 +213,7 @@ export function validateRuntimeManifest(
   const chromeKeys = [
     "allowDuplicate",
     "flush",
+    "padding",
     "compact",
     "defaultHideTitle",
     "grabCursor",

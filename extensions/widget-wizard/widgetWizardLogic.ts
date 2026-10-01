@@ -754,8 +754,26 @@ export interface ParsedReply {
    * direction: a stale file is visible in the Files tab, a deleted one is gone.
    */
   removed: string[];
+  /**
+   * Search/replace edits to files the package already has, in reply order.
+   *
+   * The output saving for a large file: a follow-up turn may return a whole
+   * file it changed, but for a one-line change in a few hundred lines of
+   * `app.js` that is still the slow part. An ```edit path=…``` block carries
+   * only the change. See `applyReplyEdits`.
+   */
+  edits?: ReplyEdit[];
+  /** Paths of edit blocks whose SEARCH/REPLACE markers could not be read. */
+  malformedEdits?: string[];
   /** Follow-up metadata, never part of the generated package. */
   suggestions?: WizardSuggestion[];
+}
+
+/** One SEARCH/REPLACE pair from an ```edit path=…``` block. */
+export interface ReplyEdit {
+  path: string;
+  search: string;
+  replace: string;
 }
 
 /** One image attached to a turn. Base64, with no `data:` prefix. */
@@ -922,6 +940,85 @@ const GLUED_FILE_FENCE = /^(.*[^`\s])[ \t]*(`{3,}[^\s`]*\s*path=.*)$/;
  */
 const DELETED_ATTR = /\bdeleted(=(true|"true"|'true'))?(\s|$)/i;
 
+/** A file fence whose language is `edit`: SEARCH/REPLACE pairs, not contents. */
+const EDIT_FENCE = /^\s*`{3,}edit\s/i;
+
+/**
+ * The SEARCH/REPLACE pairs of one edit block, or `null` when its markers do
+ * not line up. Markers stand on their own lines, as models already write them:
+ *
+ *     <<<<<<< SEARCH
+ *     old text
+ *     =======
+ *     new text
+ *     >>>>>>> REPLACE
+ */
+export function parseEditBody(path: string, body: string[]): ReplyEdit[] | null {
+  const edits: ReplyEdit[] = [];
+  let phase: "outside" | "search" | "replace" = "outside";
+  let search: string[] = [];
+  let replace: string[] = [];
+  for (const line of body) {
+    if (/^<{5,}\s*SEARCH\s*$/.test(line)) {
+      if (phase !== "outside") return null;
+      phase = "search";
+      search = [];
+    } else if (/^={5,}\s*$/.test(line) && phase === "search") {
+      phase = "replace";
+      replace = [];
+    } else if (/^>{5,}\s*REPLACE\s*$/.test(line)) {
+      if (phase !== "replace") return null;
+      edits.push({ path, search: search.join("\n"), replace: replace.join("\n") });
+      phase = "outside";
+    } else if (phase === "search") {
+      search.push(line);
+    } else if (phase === "replace") {
+      replace.push(line);
+    } else if (line.trim() !== "") {
+      return null;
+    }
+  }
+  return phase === "outside" && edits.length > 0 ? edits : null;
+}
+
+/**
+ * Apply a reply's edits to a file set, each exactly once.
+ *
+ * The SEARCH text must occur exactly once in its file: an edit that matches
+ * nowhere or in two places is reported rather than guessed at, and the whole
+ * set is refused, because a half-applied change is a package nobody asked for.
+ */
+export function applyReplyEdits(
+  files: GeneratedFile[],
+  edits: ReplyEdit[],
+): { files: GeneratedFile[]; problems: string[] } {
+  if (edits.length === 0) return { files, problems: [] };
+  const next = files.map((file) => ({ ...file }));
+  const problems: string[] = [];
+  for (const edit of edits) {
+    const file = next.find((candidate) => candidate.path === edit.path);
+    if (!file) {
+      problems.push(`An edit names ${edit.path}, which the widget does not have. Send the whole file instead.`);
+      continue;
+    }
+    const at = edit.search === "" ? -1 : file.contents.indexOf(edit.search);
+    if (at < 0) {
+      problems.push(
+        `An edit for ${edit.path} did not match: its SEARCH text must be copied exactly from the current file, whitespace included.`,
+      );
+      continue;
+    }
+    if (file.contents.indexOf(edit.search, at + 1) >= 0) {
+      problems.push(
+        `An edit for ${edit.path} matched more than once: include enough surrounding lines to make its SEARCH text unique.`,
+      );
+      continue;
+    }
+    file.contents = file.contents.slice(0, at) + edit.replace + file.contents.slice(at + edit.search.length);
+  }
+  return problems.length > 0 ? { files, problems } : { files: next, problems };
+}
+
 /**
  * True when `line` closes a block opened with `ticks` backticks.
  *
@@ -976,18 +1073,25 @@ export function parseGeneratedFiles(text: string): ParsedReply {
   let suggestionBlock: { ticks: number; body: string[] } | null = null;
 
   const removed: string[] = [];
+  const edits: ReplyEdit[] = [];
+  const malformedEdits: string[] = [];
   let current: {
     path: string;
     indent: string;
     ticks: number;
     body: string[];
     deleted: boolean;
+    edit: boolean;
   } | null = null;
 
   for (let line of lines) {
     if (current) {
       if (closesFence(line, current.ticks)) {
-        if (current.deleted) removed.push(current.path);
+        if (current.edit) {
+          const pairs = parseEditBody(current.path, current.body);
+          if (pairs) edits.push(...pairs);
+          else malformedEdits.push(current.path);
+        } else if (current.deleted) removed.push(current.path);
         else files.push({ path: current.path, contents: current.body.join("\n") });
         current = null;
       } else {
@@ -1027,6 +1131,7 @@ export function parseGeneratedFiles(text: string): ParsedReply {
         ticks: opening[2].length,
         body: [],
         deleted: DELETED_ATTR.test(line),
+        edit: EDIT_FENCE.test(line),
       };
     } else {
       prose.push(line);
@@ -1040,6 +1145,8 @@ export function parseGeneratedFiles(text: string): ParsedReply {
     prose: prose.join("\n").trim(),
     files,
     removed,
+    edits,
+    malformedEdits,
     unterminated: current ? current.path : null,
     suggestions,
   };
@@ -1235,7 +1342,12 @@ export function fileSetProblem(
 export function describeReply(reply: ParsedReply, before: GeneratedFile[]): string {
   const known = new Set(before.map((file) => file.path));
   const added = reply.files.filter((file) => !known.has(file.path)).map((file) => file.path);
-  const changed = reply.files.filter((file) => known.has(file.path)).map((file) => file.path);
+  const changed = [
+    ...new Set([
+      ...reply.files.filter((file) => known.has(file.path)).map((file) => file.path),
+      ...(reply.edits ?? []).map((edit) => edit.path),
+    ]),
+  ];
 
   const name = (paths: string[], verb: string) => {
     if (paths.length === 0) return null;
@@ -1360,7 +1472,10 @@ export function replyProblem(
   // The merged set can be perfectly valid while the answer did nothing at all —
   // that is the "wrote its explanation and stopped" case, and it still needs
   // the same one-line follow-up.
-  if (reply.files.length === 0 && reply.removed.length === 0) {
+  if (reply.malformedEdits?.length) {
+    return `The edit block for ${reply.malformedEdits[0]} is not in SEARCH/REPLACE form. Send the whole file instead.`;
+  }
+  if (reply.files.length === 0 && reply.removed.length === 0 && !reply.edits?.length) {
     return 'The answer contained no files. Reply "Emit the files now." to ask for them.';
   }
   return fileSetProblem(merged, packageId, format);
@@ -1408,6 +1523,22 @@ export function renderFilesForPrompt(files: GeneratedFile[]): string {
     .join("\n\n");
 }
 
+/** How much widget the first turn asks for; see `turnForPackage`. */
+export type WidgetScope = "simple" | "standard" | "rich";
+
+/**
+ * The line a scope adds to the first request. Standard adds nothing: it is
+ * what the system prompt already describes, so saying it again would only
+ * cost tokens.
+ */
+export const SCOPE_INSTRUCTION: Record<WidgetScope, string | null> = {
+  simple:
+    "Scope: simple. Build just the core action and its first-run state; leave out history, settings and extras.",
+  standard: null,
+  rich:
+    "Scope: rich. Build a complete tool: history, settings and keyboard support, plus whatever else makes it one somebody relies on daily. Put the depth in a second view inside the card.",
+};
+
 /**
  * The instruction appended to the person's own words.
  *
@@ -1419,6 +1550,8 @@ export function renderFilesForPrompt(files: GeneratedFile[]): string {
  * that starts the edit — afterwards the conversation already contains them.
  */
 export interface TurnContext {
+  /** How much widget to build. Read on the first turn only. */
+  scope?: WidgetScope;
   /** The package as it is on disk right now. */
   currentFiles?: GeneratedFile[];
   /**
@@ -1444,7 +1577,7 @@ export function turnForPackage(
   packageId: string,
   context: TurnContext = {},
 ): string {
-  const { currentFiles, knownFiles, samples } = context;
+  const { currentFiles, knownFiles, samples, scope } = context;
   /**
    * An empty id means this is the first turn and nothing is named yet.
    *
@@ -1465,6 +1598,10 @@ export function turnForPackage(
         "\n- a display name of one to three words, in the language of the " +
         'request — "Water Tracker".',
   ];
+  // Only while nothing exists: after that a request is a change, and "rich"
+  // on "make the dots grey" would be an invitation to rebuild the widget.
+  const scopeLine = !packageId && scope ? SCOPE_INSTRUCTION[scope] : null;
+  if (scopeLine) parts.push(scopeLine);
 
   /**
    * What the endpoints actually returned, when somebody pressed Try.
@@ -1524,7 +1661,13 @@ export function turnForPackage(
       "This widget already exists, so return **only the files you change** — " +
         "every file you leave out is kept exactly as it is. Do not repeat a " +
         "file whose contents you are not changing. To remove a file, emit its " +
-        "block with `deleted=true` and an empty body.",
+        "block with `deleted=true` and an empty body.\n\n" +
+        "For a change to part of a file, send an edit block instead of the whole " +
+        "file. Each SEARCH text is copied exactly from the current file and occurs " +
+        "there once; add surrounding lines until it does:\n\n" +
+        "```edit path=app.js\n<<<<<<< SEARCH\nconst GOAL = 2000;\n=======\n" +
+        "const GOAL = 2500;\n>>>>>>> REPLACE\n```\n\n" +
+        "Send the whole file when you are rewriting most of it.",
     );
   }
 
@@ -1738,6 +1881,77 @@ export function lintGeneratedFiles(files: GeneratedFile[]): string[] {
     }
   }
 
+  notes.push(...sandboxLint(files));
+  return notes;
+}
+
+/**
+ * The guide's list of silent failures, checked instead of hoped for.
+ *
+ * Each of these renders a widget that looks right and does nothing — no error
+ * in any console the person can see — which is why the guide spends a section
+ * on them and why a model still writes them. Found here, they go back in the
+ * repair round the wizard already runs, before anybody clicks a dead button.
+ *
+ * Biased towards silence like `maskLiterals`: a false positive costs a repair
+ * round and reads as the model failing, so each check is narrow.
+ */
+function sandboxLint(files: GeneratedFile[]): string[] {
+  const notes: string[] = [];
+  const html = files.filter((file) => /\.html?$/i.test(file.path));
+  const scripts = files.filter((file) => /\.js$/i.test(file.path));
+  const markup = html.map((file) => file.contents).join("\n");
+  const raw = [...html, ...scripts].map((file) => file.contents).join("\n");
+  const code = scripts.map((file) => maskLiterals(file.contents)).join("\n");
+
+  const inline = [...markup.matchAll(/<script\b(?![^>]*\bsrc\s*=)[^>]*>([\s\S]*?)<\/script>/gi)];
+  if (inline.some((match) => match[1].trim() !== "")) {
+    notes.push(
+      "This widget has an inline <script>, which the sandbox never runs. Move the " +
+        'code into a .js file and load it with <script src="app.js"></script>.',
+    );
+  }
+  if (/<[a-z][^>]*\son[a-z]+\s*=\s*["']/i.test(markup)) {
+    notes.push(
+      "This widget uses inline event handlers (onclick=…), which never fire in the " +
+        "sandbox. Attach them with addEventListener in the script file.",
+    );
+  }
+  if (/\.addEventListener\(\s*["']submit["']|\.onsubmit\s*=/.test(raw)) {
+    notes.push(
+      "This widget listens for a form submit, which never fires in the sandbox. Use " +
+        "a click listener on the button and a keydown listener for Enter.",
+    );
+  }
+  if (/\bfetch\s*\(|\bXMLHttpRequest\b/.test(code)) {
+    notes.push(
+      "This widget calls fetch or XMLHttpRequest, which the sandbox blocks. Declare " +
+        "the request in api.json and call it with kavibay.http.",
+    );
+  }
+  if (/(^|[^.\w$])(alert|confirm|prompt)\s*\(/m.test(code)) {
+    notes.push(
+      "This widget calls alert, confirm or prompt, which do nothing in the sandbox. " +
+        "Build the question or message into the widget itself.",
+    );
+  }
+
+  // An element looked up by an id that nothing creates: `null.addEventListener`
+  // on load, and every control after it is dead.
+  const looked = new Set<string>();
+  for (const match of raw.matchAll(/getElementById\(\s*["'`]([\w-]+)["'`]\s*\)|querySelector\(\s*["'`]#([\w-]+)["'`]\s*\)/g)) {
+    looked.add(match[1] ?? match[2]);
+  }
+  const missing = [...looked].filter((id) => {
+    const escaped = id.replace(/[-]/g, "\\-");
+    return !new RegExp(`\\bid\\s*[=:]\\s*["'\`]${escaped}["'\`]|\\.id\\s*=\\s*["'\`]${escaped}["'\`]`).test(raw);
+  });
+  if (missing.length > 0) {
+    notes.push(
+      `The script looks up ${missing.map((id) => `#${id}`).join(", ")}, but no element ` +
+        "has that id, so the lookup returns null and the code after it throws.",
+    );
+  }
   return notes;
 }
 
@@ -2025,6 +2239,21 @@ export interface WizardFault {
   where?: string;
 }
 
+/**
+ * A fault the package's own code caused, as opposed to its circumstances.
+ *
+ * Those are the faults worth fixing without asking: a ReferenceError or a
+ * `null.addEventListener` is the model's mistake on every machine. A network
+ * error, a missing token or a provider outage is not, and regenerating the
+ * widget would not touch it — those stay an offer the person decides on.
+ */
+export function isCodeFault(fault: WizardFault): boolean {
+  if (fault.source === "console") return false;
+  return /\b(ReferenceError|TypeError|SyntaxError|RangeError)\b|is not defined|is not a function|Cannot (read|set) propert/.test(
+    fault.message,
+  );
+}
+
 /** One runtime fault, phrased as something to fix rather than something to read. */
 export function faultProblem(fault: WizardFault): string {
   const where = fault.where ? ` at ${fault.where}` : "";
@@ -2280,6 +2509,27 @@ export function manifestSize(files: GeneratedFile[]): { w: number; h: number } |
     // A manifest that does not parse is reported elsewhere.
   }
   return null;
+}
+
+/**
+ * The SVG a package names as its icon, read from the files themselves.
+ *
+ * Only an `.svg` the manifest points at and the package actually contains: the
+ * Wizard shows it before anything is published, so there is no URL to ask the
+ * host for yet. A PNG icon is the catalog's business and is left to it.
+ */
+export function manifestIconSvg(files: GeneratedFile[]): string | null {
+  const manifest = files.find((file) => file.path === "manifest.json");
+  if (!manifest) return null;
+  let icon: unknown;
+  try {
+    icon = (JSON.parse(manifest.contents) as { icon?: unknown }).icon;
+  } catch {
+    return null;
+  }
+  if (typeof icon !== "string" || !icon.toLowerCase().endsWith(".svg")) return null;
+  const path = icon.replace(/^\.\//, "");
+  return files.find((file) => file.path === path)?.contents ?? null;
 }
 
 /** Read ui.defaultScale from a package manifest, when it declares one. */

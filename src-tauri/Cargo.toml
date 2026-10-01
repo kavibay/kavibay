@@ -56,6 +56,7 @@ open = "5"
 # the tree through rustls, so this pins no new download; it is not macOS-only so
 # the sealed format stays under test on the Windows CI job too.
 ring = "0.17"
+tauri-plugin-updater = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 plist = "1.7"
@@ -96,7 +97,7 @@ cairo-rs = { version = "0.18", features = ["png"] }
 # (`clipboard_widget::write_png_clipboard`). Already in the tree through
 # arboard, so this pins no new download.
 clipboard-win = "5"
-webview2-com = "0.38"
+webview2-com = "0.39"
 winreg = "0.55"
 tauri-winrt-notification = "0.8.1"
 windows = { version = "0.62", features = [
