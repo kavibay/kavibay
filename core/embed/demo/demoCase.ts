@@ -10,7 +10,7 @@
  * ask the same question the director asks.
  */
 
-export const DEMO_CASE_IDS = ["water-tracker", "linear-github-todos", "lisbon-countdown", "tado-room-climate", "linear-quick-issue", "screenshot-status", "point-and-prompt"] as const;
+export const DEMO_CASE_IDS = ["water-tracker", "linear-github-todos", "lisbon-countdown", "tado-room-climate", "linear-quick-issue", "screenshot-status", "point-and-prompt", "service-health"] as const;
 
 export type DemoCaseId = (typeof DEMO_CASE_IDS)[number];
 

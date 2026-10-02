@@ -26,10 +26,11 @@ import { packageFiles } from "./webWizard";
 const PREVIEW_PAGE = `${import.meta.env.BASE_URL}web-preview.html`;
 
 /**
- * The tour's hand inside a preview (webTour.ts). The frame is sandboxed into an
+ * The tour's hand inside a package frame. The frame is sandboxed into an
  * opaque origin, so the page cannot click in it; asked by its parent, this
- * clicks an element the way a pointer would, and the app's own picker
- * (previewPickerGuest.js) takes the click from there. Only in picker documents.
+ * clicks an element the way a pointer would. In the Wizard's preview the app's
+ * own picker (previewPickerGuest.js) takes the click from there (webTour.ts);
+ * on the desk it presses a widget's button for the site's hero video.
  */
 const TOUR_HAND = `(() => {
   addEventListener("message", (event) => {
@@ -78,7 +79,7 @@ export function installWizardPreview(): void {
       runtime: RUNTIME_SOURCE,
       contract: CONTRACT_SOURCE,
       picker: data.picker === true ? `${PICKER_SOURCE}
-${TOUR_HAND}` : undefined,
+${TOUR_HAND}` : TOUR_HAND,
     });
     // "*": the frame is sandboxed into an opaque origin, which cannot be named.
     event.source.postMessage({ type: "kavibay-web:preview-document", html }, "*");
