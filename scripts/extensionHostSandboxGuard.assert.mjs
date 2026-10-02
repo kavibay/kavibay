@@ -20,7 +20,8 @@ function assert(cond, msg) {
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const framePath = join(root, "core", "app", "extension-host", "ui", "SandboxedWidgetFrame.vue");
-const guestPath = join(root, "core", "app", "extension-host-sandbox", "main.ts");
+// The guest that ships: built into sdk/contract-guest/ and served to every package.
+const guestPath = join(root, "sdk", "extension", "contract", "guest.ts");
 /**
  * Comments come out first, so the guard reads code rather than prose.
  *
