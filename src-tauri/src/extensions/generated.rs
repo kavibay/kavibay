@@ -75,7 +75,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
     },
     ProviderDef {
         id: "kavibay.weather/weather",
-        host_rule: HostRule::Exact(&["geocoding-api.open-meteo.com", "api.open-meteo.com"]),
+        host_rule: HostRule::Exact(&["geocoding-api.open-meteo.com", "api.open-meteo.com", "air-quality-api.open-meteo.com"]),
         credential_type: None,
         image_hosts: &[],
         link_hosts: &[],

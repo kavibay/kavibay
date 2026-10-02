@@ -65,6 +65,26 @@ interface ForecastJson {
 
 const GEOCODE = "https://geocoding-api.open-meteo.com/v1/search";
 const FORECAST = "https://api.open-meteo.com/v1/forecast";
+const AIR_QUALITY = "https://air-quality-api.open-meteo.com/v1/air-quality";
+
+export interface AirQuality {
+  place: string;
+  /** European AQI (EEA): 0 is clean air, above 100 extremely poor. */
+  aqi: number | null;
+  /** The EEA's band for it: Good, Fair, Moderate, Poor, Very poor, Extremely poor. */
+  level: string;
+}
+
+/** The EEA's bands for the European AQI, upper bounds inclusive. */
+export function aqiLevel(aqi: number | null): string {
+  if (aqi === null) return "Unknown";
+  if (aqi <= 20) return "Good";
+  if (aqi <= 40) return "Fair";
+  if (aqi <= 60) return "Moderate";
+  if (aqi <= 80) return "Poor";
+  if (aqi <= 100) return "Very poor";
+  return "Extremely poor";
+}
 
 const numberOrNull = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -111,7 +131,7 @@ export const weatherProvider = defineProvider({
   name: "weather",
   displayName: "Weather (Open-Meteo)",
   requiresCredential: false,
-  hosts: ["geocoding-api.open-meteo.com", "api.open-meteo.com"],
+  hosts: ["geocoding-api.open-meteo.com", "api.open-meteo.com", "air-quality-api.open-meteo.com"],
   queries: {
     places: {
       description: "Places matching a name, so a widget can offer a list to pick from",
@@ -225,6 +245,48 @@ export const weatherProvider = defineProvider({
             typeof current.weather_code === "number" ? current.weather_code : -1,
           ).condition,
         };
+      },
+    },
+    airQuality: {
+      description: "The current European air quality index (AQI) for a place",
+      args: {
+        location: {
+          type: "string",
+          label: "Place",
+          required: true,
+          source: { query: "places" },
+        },
+      },
+      result: {
+        type: "object",
+        fields: {
+          place: { type: "string" },
+          aqi: { type: "number", nullable: true },
+          level: { type: "string" },
+        },
+      },
+      key: (args: { location: string }) => [args.location],
+      staleTime: CURRENT_TTL_MS,
+      // A place nobody could find is a reading without a value, as in `current`.
+      fetch: async (args: { location: string }, host): Promise<AirQuality> => {
+        const geo = await host.http.get<{ results?: GeoResult[] }>(GEOCODE, {
+          name: args.location,
+          count: 1,
+          language: "en",
+          format: "json",
+        });
+        const place = geo?.results?.[0];
+        if (place?.latitude === undefined || place.longitude === undefined) {
+          return { place: args.location, aqi: null, level: aqiLevel(null) };
+        }
+        const json = await host.http.get<{ current?: { european_aqi?: number } }>(AIR_QUALITY, {
+          latitude: place.latitude,
+          longitude: place.longitude,
+          current: "european_aqi",
+          timezone: "auto",
+        });
+        const aqi = numberOrNull(json?.current?.european_aqi);
+        return { place: placeLabel(place), aqi, level: aqiLevel(aqi) };
       },
     },
     forecast: {
