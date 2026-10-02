@@ -10,7 +10,8 @@ import { webEmit } from "./ipc";
  * which forwards it as a `kavibay:hotkey` message.
  *
  * The page is told about every change (`kavibay:window`) so it can show a way
- * back to someone who does not know the shortcut.
+ * back to someone who does not know the shortcut. It can also put the window
+ * away (`kavibay:hide`), as clicking another app's window would.
  */
 
 /** Longest gap between the two taps, as on the desktop. */
@@ -61,6 +62,8 @@ export function installWebHotkey(): void {
   });
   window.addEventListener("message", (event) => {
     if (event.origin !== location.origin) return;
-    if ((event.data as { type?: string } | null)?.type === "kavibay:hotkey") hotkey();
+    const type = (event.data as { type?: string } | null)?.type;
+    if (type === "kavibay:hotkey") hotkey();
+    if (type === "kavibay:hide" && visible) setVisible(false);
   });
 }
