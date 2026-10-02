@@ -443,7 +443,10 @@ export function askedNothingNew(
   request: WizardPermissionRequest,
   granted: WizardApprovedGrant | null | undefined,
 ): boolean {
-  if (!granted) return false;
+  // A package that names no provider has nothing to decide on: a dialog
+  // titled "Choose what it may read" over "asks for nothing" is a question
+  // without options. A provider it names that is missing here still asks.
+  if (!granted) return request.choices.length === 0 && request.refused.length === 0;
   return request.choices.every(
     (choice) =>
       granted.providers.includes(choice.provider) &&
