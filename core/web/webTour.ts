@@ -3,6 +3,7 @@ import { finishedDraftFromThisRun } from "../embed/demo/tourLogic";
 import { isMentionPart, type DemoPromptPart } from "../embed/widget/wizardDemoScript";
 import { currentWizardDemo } from "../embed/widget/wizardDemos";
 import { setWizardThinkingPace } from "../embed/widget/wizardFixture";
+import { hideCursor, moveCursor, pressCursor } from "./tourCursor";
 import { isEnabledPackage, packageFiles } from "./webWizard";
 import STATUS_SCREENSHOT from "./assets/status-screenshot.png?url";
 
@@ -104,6 +105,23 @@ const sleep = async (ms: number) => {
   await held();
 };
 const realSleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** How long the pointer takes to travel to what it is about to use. */
+const POINTER_MS = 650;
+
+/** Glide the pointer to the middle of `target` (an element or a box in this window). */
+async function pointAt(target: Element | { x: number; y: number; width: number; height: number }): Promise<void> {
+  const box = target instanceof Element ? target.getBoundingClientRect() : target;
+  moveCursor(box.x + box.width / 2, box.y + box.height / 2, POINTER_MS * pace);
+  await sleep(POINTER_MS);
+}
+
+/** Point at it and press: the click itself is the caller's. */
+async function pressOn(target: Element): Promise<void> {
+  await pointAt(target);
+  pressCursor();
+  await sleep(120);
+}
+
 const typingPause = () => sleep(TYPE_MIN_MS + Math.random() * TYPE_JITTER_MS);
 const playing = () => phase === "playing";
 
@@ -183,6 +201,7 @@ const answers = () => document.querySelectorAll(".wiz-turn.assistant").length;
 async function typeIntoPalette(text: string): Promise<boolean> {
   const input = await until(paletteInput, MOUNT_TIMEOUT_MS);
   if (!input) return false;
+  await pressOn(input);
   input.focus();
   for (const character of text) {
     if (!playing()) return false;
@@ -242,25 +261,54 @@ async function pickInPreview(selector: string): Promise<boolean> {
     MOUNT_TIMEOUT_MS,
   );
   if (!button) return false;
+  await pressOn(button);
   button.click();
   await sleep(PICK_HOVER_MS);
   const frame = document.querySelector<HTMLIFrameElement>(".wiz-preview-body iframe");
+  if (!frame) return false;
   // "*": the preview is an opaque origin; the hand inside checks it is us.
   const hand = (click: boolean) =>
-    frame?.contentWindow?.postMessage({ type: "kavibay-web:tour-pick", selector, click }, "*");
+    frame.contentWindow?.postMessage({ type: "kavibay-web:tour-pick", selector, click }, "*");
+  // The hand hovers and says where the element is; the pointer goes there.
+  const where = new Promise<{ x: number; y: number; w: number; h: number } | null>((resolve) => {
+    const onRect = (event: MessageEvent) => {
+      if (event.source !== frame.contentWindow || event.data?.type !== "kavibay-web:tour-rect") return;
+      window.removeEventListener("message", onRect);
+      resolve(event.data);
+    };
+    window.addEventListener("message", onRect);
+    setTimeout(() => resolve(null), MOUNT_TIMEOUT_MS);
+  });
   hand(false);
+  const inner = await where;
+  if (inner) {
+    // The frame may be drawn scaled; its box against its own width says by how much.
+    const box = frame.getBoundingClientRect();
+    const scale = frame.clientWidth ? box.width / frame.clientWidth : 1;
+    await pointAt({
+      x: box.x + inner.x * scale,
+      y: box.y + inner.y * scale,
+      width: inner.w * scale,
+      height: inner.h * scale,
+    });
+  }
   await sleep(PICK_HOVER_MS);
+  pressCursor();
   hand(true);
   const chip = await until(() => document.querySelector("[data-preview-id]"), MOUNT_TIMEOUT_MS);
   if (!chip) return false;
   await sleep(AFTER_TYPE_MS);
-  if (button.getAttribute("aria-pressed") === "true") button.click();
+  if (button.getAttribute("aria-pressed") === "true") {
+    await pressOn(button);
+    button.click();
+  }
   look(COMPOSER_VIEW);
   await sleep(AFTER_TYPE_MS);
   return true;
 }
 
 async function sendPrompt(editor: HTMLElement, parts: DemoPromptPart[]): Promise<boolean> {
+  await pressOn(editor);
   for (const part of parts) {
     if (!isMentionPart(part)) {
       if (!(await typeIntoComposer(editor, part))) return false;
@@ -270,12 +318,14 @@ async function sendPrompt(editor: HTMLElement, parts: DemoPromptPart[]): Promise
     if (!(await typeIntoComposer(editor, `@${typed}`))) return false;
     const option = await until(() => mentionOption(part.mention), MOUNT_TIMEOUT_MS);
     if (!option) return false;
+    await pressOn(option);
     option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
     await sleep(BEFORE_SEND_MS);
   }
   await sleep(BEFORE_SEND_MS);
   const send = document.querySelector<HTMLElement>('[aria-label="Send"]');
   if (!playing() || !send) return false;
+  await pressOn(send);
   send.click();
   return true;
 }
@@ -351,6 +401,9 @@ async function run(): Promise<void> {
   await sleep(BEFORE_PLACE_MS);
   await placeBesidePalette(card);
   report("done", STEPS.length);
+  // The pointer was the tour's; from here on the visitor's own is the one that counts.
+  await sleep(AFTER_TYPE_MS);
+  hideCursor();
 }
 
 const enabledButton = (text: string) =>
@@ -366,6 +419,7 @@ async function save(id: string): Promise<boolean> {
   if (!isEnabledPackage(id)) {
     const button = await until(() => enabledButton("Save"), MOUNT_TIMEOUT_MS);
     if (!button) return false;
+    await pressOn(button);
     button.click();
   }
   return Boolean(await until(() => isEnabledPackage(id), MOUNT_TIMEOUT_MS));
@@ -450,14 +504,17 @@ async function placeBesidePalette(anchor: HTMLElement): Promise<void> {
       clientY: y,
     });
 
+  await pointAt({ x: from.x, y: from.y, width: 0, height: 0 });
+  pressCursor();
   strip.dispatchEvent(pointer("pointerdown", from.x, from.y));
   const frames = Math.max(1, Math.round((PLACE_MS * pace) / 16));
   for (let frame = 1; frame <= frames; frame++) {
     const t = frame / frames;
     const eased = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
-    anchor.dispatchEvent(
-      pointer("pointermove", from.x + (to.x - from.x) * eased, from.y + (to.y - from.y) * eased),
-    );
+    const x = from.x + (to.x - from.x) * eased;
+    const y = from.y + (to.y - from.y) * eased;
+    moveCursor(x, y, 0);
+    anchor.dispatchEvent(pointer("pointermove", x, y));
     await realSleep(skipping ? 0 : 16);
     await held();
   }
