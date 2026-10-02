@@ -1,5 +1,5 @@
 // Builder setup: window size/position, global shortcuts, and command registration.
-// main.rs remains a pure entry point (see PLAN.md §1).
+// main.rs remains a pure entry point.
 
 mod appearance_prefs;
 mod autostart;
@@ -433,7 +433,7 @@ pub fn run() {
             let open_monitor: SharedOpenMonitor = Arc::new(Mutex::new(OpenMonitor::default()));
             app.manage(open_monitor);
 
-            // Deliberately no `fullscreen: true` (see PLAN.md §2): size the window manually
+            // Deliberately no `fullscreen: true` (see docs/architecture.md): size the window manually
             // to the target monitor (physical pixels for DPI).
             fit_window_to_target_monitor(&window)?;
 

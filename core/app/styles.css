@@ -11,7 +11,7 @@
 
 /* Global styles for the transparent full-screen overlay window.
    html/body/#app MUST be transparent; otherwise WebView2 draws a white/milky background
-   and the window transparency configured in tauri.conf.json is lost visually (see PLAN.md §7). */
+   and the window transparency configured in tauri.conf.json is lost visually (see docs/architecture.md). */
 
 /*
  * Two knobs decide how a mode feels, and both are mode-scoped rather than

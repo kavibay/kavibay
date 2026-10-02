@@ -1,6 +1,6 @@
 //! All Tauri commands called by the frontend through `invoke()`.
 //!
-//! Important for the widget contract (see PLAN.md §3): this is the ONLY place where
+//! Important for the widget contract: this is the ONLY place where
 //! "real" data (system data and later external APIs) is acquired. The frontend
 //! (widgets) does not know how that data is produced; it only receives JSON.
 

@@ -49,9 +49,6 @@ Two more live outside this folder:
 The extension contract itself is code: `sdk/extension/types.ts` (manifest) and
 `sdk/extension/contract/sdk.ts` (contract packages).
 
-[../PLAN.md](../PLAN.md) is the original V1 specification, kept for the record.
-Its file paths predate the repo restructure — read `architecture.md` for the
-current layout.
 
 ## Note on `runtime-packages.md`
 
