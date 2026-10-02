@@ -52,6 +52,8 @@ const emit = defineEmits<{
   ];
   /** Fired when a resize gesture ends. */
   "resize-end": [];
+  /** Double-click on a handle: the owner may fit itself to its content. */
+  fit: [edge: ResizeEdge];
 }>();
 
 const activeEdge = ref<ResizeEdge | null>(null);
@@ -193,6 +195,7 @@ function onHandlePointerDown(event: PointerEvent, edge: ResizeEdge) {
       ]"
       :style="{ cursor: RESIZE_CURSOR[edge] }"
       @pointerdown="onHandlePointerDown($event, edge)"
+      @dblclick="emit('fit', edge)"
     />
   </div>
 </template>

@@ -29,6 +29,9 @@ export function reportContentOverflow(
   contentHeight: number,
 ): void {
   if (!frame || !Number.isFinite(contentHeight)) return;
+  // Kept on the frame for the card's fit-to-content gesture (`WidgetCard`),
+  // which needs the latest height on demand rather than an event stream.
+  frame.dataset.contentHeight = String(contentHeight);
   const overflow = Math.max(0, contentHeight - frame.getBoundingClientRect().height);
   frame.dispatchEvent(
     new CustomEvent(CONTENT_OVERFLOW_EVENT, { detail: overflow, bubbles: true }),

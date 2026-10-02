@@ -20,8 +20,10 @@ import { isCardHeaderHit, useCardChromePosition } from "./useCardChromePosition"
 import {
   clampContentScale,
   DEFAULT_CONTENT_SCALE,
+  DEFAULT_WIDGET_MIN_HEIGHT,
   RESIZE_EDGES_HORIZONTAL,
   RESIZE_EDGES_NO_TOP,
+  type ResizeEdge,
 } from "./resizeLogic";
 import {
   HIDE_PRESS_ARM_MS,
@@ -375,6 +377,47 @@ function onResize(payload: {
 function onResizeEnd() {
   emit("resize-end");
   void nextTick().then(() => scheduleRegionSync());
+}
+
+/**
+ * Double-click on a bottom handle: the card takes its content's height, top
+ * edge fixed.
+ *
+ * Measured rather than modelled: the card is laid out once at `fit-content` —
+ * what a card without a host size does anyway — and put back before anything
+ * paints. A sandboxed frame cannot be laid out by its content from out here,
+ * so its viewport is held at the height the guest last reported
+ * (`contentOverflow.ts`; the iframe is absolute inside `.widget-frame-viewport`,
+ * see `frameViewport.css`). Not grid-snapped: rounding would cut the content.
+ */
+function fitHeightToContent(edge: ResizeEdge) {
+  const el = rootEl.value;
+  // A playground body is absolutely positioned and has no content height.
+  if (!el || !edge.includes("s") || props.playground) return;
+  const frames = [...el.querySelectorAll<HTMLIFrameElement>("iframe[data-content-height]")];
+  const viewports = frames.map((frame) => frame.parentElement as HTMLElement);
+  const saved = viewports.map((viewport) => viewport.style.height);
+  frames.forEach((frame, i) => {
+    // The viewport cancels the body zoom; the iframe inside is scaled back up.
+    viewports[i].style.height =
+      `${Number(frame.dataset.contentHeight) * resolvedContentScale.value}px`;
+  });
+  const startHeight = el.offsetHeight;
+  const cardHeight = el.style.height;
+  el.style.height = "fit-content";
+  const height = Math.min(
+    Math.max(el.offsetHeight, DEFAULT_WIDGET_MIN_HEIGHT),
+    window.innerHeight,
+  );
+  el.style.height = cardHeight;
+  viewports.forEach((viewport, i) => (viewport.style.height = saved[i]));
+  if (height === startHeight) return;
+  emit("resize", {
+    width: props.width ?? el.offsetWidth,
+    height,
+    deltaOffset: { x: 0, y: (height - startHeight) / 2 },
+  });
+  onResizeEnd();
 }
 
 let stopContentZoom: (() => void) | undefined;
@@ -867,6 +910,7 @@ watch(
       :coach-targets="coachTargets"
       @resize="onResize"
       @resize-end="onResizeEnd"
+      @fit="fitHeightToContent"
     />
     <!--
       Always mounted (not hover-gated): click-through only enables [data-interactive]
