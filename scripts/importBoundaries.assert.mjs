@@ -88,9 +88,6 @@ const ALLOWED_APP_EXTENSION_IMPORTS = [
   // the v1 scope in docs/extension-sdk-reference/CLAUDE.md left out — so it is
   // debt, recorded rather than hidden.
   "core/app/palette/CommandPalette.vue",
-  // The Phase 3 dev board mounts a real extension on purpose; it is the harness
-  // for the gate states and ships in no build.
-  "core/app/extension-host-dev/DevBoard.vue",
   // Asserts two *real* providers against one host, which is the thing under
   // test — a fixture pair would assert the fixtures.
   "core/app/extension-host/two-providers.assert.ts",

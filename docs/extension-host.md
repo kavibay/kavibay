@@ -186,7 +186,7 @@ been a step down from the sandbox runtime packages already get.
 | `bridge.ts` | `JsonBridge.connect(instanceId, emit)` → one `BridgeConnection` per frame. Everything a frame may reach is fixed when the host opens it. |
 | `sandboxTransport.ts` | The postMessage protocol: request/response correlation, the ready/init handshake, and shape checks so foreign traffic is left alone. |
 | `ui/SandboxedWidgetFrame.vue` | The host end. Owns the iframe, `sandbox="allow-scripts"`, accepts messages only from its own `contentWindow`. |
-| `extension-host-sandbox/main.ts` | The guest end. Runs `setup` and renders — trusted with nothing. |
+| `sdk/extension/contract/guest.ts` | The guest end, built into `sdk/contract-guest/` and served to every package. Runs `setup` and renders — trusted with nothing. |
 | `scripts/extensionHostSandboxGuard.assert.mjs` | Greps both ends for the rules no test can reach. |
 
 Three rules, and none of them is optional:
