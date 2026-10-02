@@ -2,15 +2,15 @@ name: Preview build
 
 # Reviewing a widget without running it is guesswork, but building an installer on
 # every PR would blow the CI time budget. So: add the `build:installer` label to the
-# PRs where it matters, and every push to master produces a rolling build for testers.
+# PRs where it matters, and every push to main produces a rolling build for testers.
 on:
   pull_request:
     types: [labeled]
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
-# Only rolling master builds supersede each other. Label events must not cancel:
+# Only rolling main builds supersede each other. Label events must not cancel:
 # every label added to a PR starts a run here, and cancelling those turned the
 # no-op runs red instead of leaving them the grey "skipped" they actually are.
 concurrency:
@@ -41,7 +41,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-          save-if: ${{ github.ref == 'refs/heads/master' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm run package:win
