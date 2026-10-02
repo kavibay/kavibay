@@ -13,6 +13,7 @@ import { provideWizardPreviewPicker } from "../wizardPreviewPicker";
 import WidgetCard from "../../host/WidgetCard.vue";
 import RuntimeExtensionFrame from "../../runtime/RuntimeExtensionFrame.vue";
 import ContractPackageWidget from "./ContractPackageWidget.vue";
+import CockpitWidgetSettings from "./CockpitWidgetSettings.vue";
 import WidgetPreviewShare from "./WidgetPreviewShare.vue";
 import { clearWidgetLog, widgetCalls, widgetFaults, type WidgetFault } from "../cockpit";
 import type { WidgetCall } from "../bridge";
@@ -71,6 +72,18 @@ provideWizardPreviewPicker({
 
 const MIN = { w: 160, h: 120 };
 const isLoaded = computed(() => packageDefinitionId(props.extId) !== undefined);
+/**
+ * The same gear the desk shows for a contract widget's `configuration`. With
+ * it off, a value asked once by the gate (a webhook URL) could only be changed
+ * by asking the Wizard to move the field into the widget itself.
+ */
+const settingsId = computed(() => {
+  if (props.format !== "contract") return undefined;
+  const definitionId = packageDefinitionId(props.extId);
+  if (!definitionId) return undefined;
+  const fields = extensionHost.registry.widget(definitionId)?.widget.configuration;
+  return fields && Object.keys(fields).length > 0 ? definitionId : undefined;
+});
 const size = ref({ ...(props.initialSize ?? { w: 280, h: 200 }) });
 const scale = ref(props.initialScale ?? 1);
 watch(
@@ -355,7 +368,7 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
           :title="title"
           :hide-title="hideTitle"
           :instance-id="instanceId"
-          :has-settings="false"
+          :has-settings="!!settingsId"
           :allow-duplicate="false"
           :resizable="true"
           :width="size.w"
@@ -407,6 +420,9 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
             :entry-url="entryUrl"
             :granted-permissions="grantedPermissions"
           />
+          <template v-if="settingsId" #settings>
+            <CockpitWidgetSettings :definition-id="settingsId" />
+          </template>
         </WidgetCard>
       </div>
       <p v-else class="stage-empty">Your widget will appear here.</p>

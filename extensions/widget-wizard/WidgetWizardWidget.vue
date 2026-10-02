@@ -879,6 +879,21 @@ async function deleteRow(row: ProjectRow): Promise<void> {
   await discardDraftById(row.packageId);
 }
 const busy = ref(false);
+/** Seconds since `busy` went true — the "Working… 2m10s" counter. */
+const busySeconds = ref(0);
+let busyTimer: ReturnType<typeof setInterval> | undefined;
+watch(busy, (isBusy) => {
+  clearInterval(busyTimer);
+  busySeconds.value = 0;
+  if (!isBusy) return;
+  const startedAt = Date.now();
+  busyTimer = setInterval(() => (busySeconds.value = Math.floor((Date.now() - startedAt) / 1000)), 1000);
+});
+onUnmounted(() => clearInterval(busyTimer));
+const busyElapsed = computed(() => {
+  const s = busySeconds.value;
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
+});
 const sharing = ref(false);
 const shareFeedback = ref("");
 watch(() => session.value.id, () => {
@@ -4106,7 +4121,7 @@ async function keep(runAfterSave = false) {
       const request = approvalRequestFor(id);
       const granted = approvedGrantFor(id);
       if (request && askedNothingNew(request, granted)) {
-        await applyContractGrant(id, granted!, runAfterSave);
+        await applyContractGrant(id, granted ?? { providers: [], actions: {} }, runAfterSave);
       } else if (request && wizardAutoEnable.value && canAutoApprove(request)) {
         /**
          * The same bypass the runtime path has always honoured.
@@ -5436,6 +5451,8 @@ async function enablePackage(
             <BrainIcon :size="16" animated />
           </span>
           <span>Working…</span>
+          <!-- aria-hidden: the live region would otherwise announce every tick. -->
+          <span class="wiz-working-elapsed" aria-hidden="true">{{ busyElapsed }}</span>
         </p>
       </div>
 
@@ -6853,6 +6870,12 @@ async function enablePackage(
 .wiz-working-icon {
   display: inline-flex;
   flex: 0 0 auto;
+}
+
+/* Fixed-width digits so the line does not jitter every second. */
+.wiz-working-elapsed {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
 }
 
 /*

@@ -1234,6 +1234,8 @@ assert(
     "and neither is a request where nothing at all resolved",
   );
   assertEq(canAutoApprove(ask([])), false, "nothing to grant is not an approval");
+  assertEq(wizardAskedNothingNew(ask([]), null), true, "nothing asked on a first save is no question either");
+  assertEq(wizardAskedNothingNew(ask([], ["gh"]), null), false, "a missing provider still asks");
 }
 
 {
