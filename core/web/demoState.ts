@@ -34,7 +34,7 @@ interface Card {
 const CARDS: Card[] = [
   { id: "demo-todo", typeId: "todo", x: -500, y: -170, width: 285, height: 255 },
   { id: "demo-notes", typeId: "notes", x: -500, y: 150, width: 285, height: 195 },
-  { id: "demo-clock", typeId: "clock", x: 480, y: -230, width: 195, height: 120 },
+  { id: "demo-clock", typeId: "clock", x: 480, y: -230, width: 225, height: 140 },
   { id: "demo-calculator", typeId: "calculator", x: 480, y: 90, width: 195, height: 285 },
 ];
 
