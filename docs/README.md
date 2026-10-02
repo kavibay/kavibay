@@ -49,7 +49,6 @@ Two more live outside this folder:
 The extension contract itself is code: `sdk/extension/types.ts` (manifest) and
 `sdk/extension/contract/sdk.ts` (contract packages).
 
-
 ## Note on `runtime-packages.md`
 
 That file is also the **Widget Wizard's system prompt**:
