@@ -5,7 +5,7 @@
  * identical to the desktop instead of a lookalike.
  *
  * The page picks what it shows through the query:
- *   ?scene=desk|wizard   which saved desk the app boots into (demoState.ts)
+ *   ?scene=desk|wizard|playground  which saved desk the app boots into (demoState.ts)
  *   ?play=<demo case>    arm the scripted Wizard tour (webTour.ts)
  *   ?keep                real localStorage, for authoring a scene
  */
