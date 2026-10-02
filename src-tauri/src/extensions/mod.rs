@@ -23,7 +23,7 @@
 //! `quick_action`, `file_search`, `runtime_extensions`, `extension_providers`.
 //! Two live on the line and stay out deliberately — `llm` is shared by Single
 //! Purpose LLM and the Widget Wizard, and `wizard` is the AI builder's control
-//! plane, which CLAUDE.md keeps host-side.
+//! plane, which AGENTS.md keeps host-side.
 //!
 //! THIS IS ORGANISATION, NOT A BOUNDARY. Everything here is compiled into the
 //! same binary with the same privileges; moving a module in or out grants and
@@ -31,6 +31,9 @@
 //! allowlist in `extension_providers` and the credential path in `credentials`,
 //! and neither is here for that reason.
 
+// Written by `scripts/providerSchemaDoc.ts` and compared byte for byte by its
+// assert; rustfmt rewrapping a long line would fail that check.
+#[rustfmt::skip]
 mod generated;
 
 pub mod ai_usage;
