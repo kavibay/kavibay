@@ -38,6 +38,9 @@ const TOUR_HAND = `(() => {
     if (!target) return;
     // Hover first, so the picker's highlight shows; the click follows when asked.
     target.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
+    // Where it is, so the tour's pointer can go there; the page cannot measure in here.
+    const box = target.getBoundingClientRect();
+    parent.postMessage({ type: "kavibay-web:tour-rect", x: box.x, y: box.y, w: box.width, h: box.height }, "*");
     if (event.data.click) target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
   });
 })();`;
