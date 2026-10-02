@@ -12,7 +12,7 @@ export interface WidgetWizardModel {
    *
    * Column widths are not conversation state — they belong to this copy of the
    * Wizard on this desk, and `ctx.data` is where a widget keeps what is its
-   * own (CLAUDE.md: widget persistence is `ctx.data`).
+   * own (AGENTS.md: widget persistence is `ctx.data`).
    */
   data: WidgetContext<Record<string, never>>["data"];
   /**

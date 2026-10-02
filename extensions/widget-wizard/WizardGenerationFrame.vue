@@ -9,7 +9,7 @@
  * because the turn reports no progress of its own to pace it by.
  *
  * Drawn here rather than with the host's WidgetCard: an extension cannot import
- * host components (CLAUDE.md invariant 7), so the surface variables are what
+ * host components (AGENTS.md, extension SDK invariant 7), so the surface variables are what
  * keeps the two looking alike.
  */
 import { onMounted, onUnmounted, ref } from "vue";
