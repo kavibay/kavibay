@@ -24,6 +24,22 @@ import { packageFiles } from "./webWizard";
  */
 
 const PREVIEW_PAGE = `${import.meta.env.BASE_URL}web-preview.html`;
+
+/**
+ * The tour's hand inside a preview (webTour.ts). The frame is sandboxed into an
+ * opaque origin, so the page cannot click in it; asked by its parent, this
+ * clicks an element the way a pointer would, and the app's own picker
+ * (previewPickerGuest.js) takes the click from there. Only in picker documents.
+ */
+const TOUR_HAND = `(() => {
+  addEventListener("message", (event) => {
+    if (event.source !== parent || event.data?.type !== "kavibay-web:tour-pick") return;
+    const target = document.querySelector(event.data.selector);
+    if (!target) return;
+    target.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
+    target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  });
+})();`;
 const DRAFT_HOST_PREFIX = "__draft__";
 
 interface TauriInternals {
@@ -57,7 +73,8 @@ export function installWizardPreview(): void {
     const html = assemblePackageDocument(files, {
       runtime: RUNTIME_SOURCE,
       contract: CONTRACT_SOURCE,
-      picker: data.picker === true ? PICKER_SOURCE : undefined,
+      picker: data.picker === true ? `${PICKER_SOURCE}
+${TOUR_HAND}` : undefined,
     });
     // "*": the frame is sandboxed into an opaque origin, which cannot be named.
     event.source.postMessage({ type: "kavibay-web:preview-document", html }, "*");

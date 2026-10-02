@@ -226,6 +226,32 @@ async function pasteImage(editor: HTMLElement, name: string): Promise<boolean> {
   return Boolean(await until(() => document.querySelector(".wiz-thumb"), MOUNT_TIMEOUT_MS));
 }
 
+/**
+ * The Wizard's point-and-prompt: its "Select preview elements" button, a click
+ * on the element in the preview, and the button again to stop picking. The
+ * element lands in the composer as a chip, and the next prompt is about it.
+ */
+async function pickInPreview(selector: string): Promise<boolean> {
+  look(PREVIEW_VIEW);
+  const button = await until(
+    () => document.querySelector<HTMLButtonElement>('[aria-label="Select preview elements"]:not(:disabled)'),
+    MOUNT_TIMEOUT_MS,
+  );
+  if (!button) return false;
+  button.click();
+  await sleep(LEAD_IN_MS);
+  const frame = document.querySelector<HTMLIFrameElement>(".wiz-preview-body iframe");
+  // "*": the preview is an opaque origin; the hand inside checks it is us.
+  frame?.contentWindow?.postMessage({ type: "kavibay-web:tour-pick", selector }, "*");
+  const chip = await until(() => document.querySelector("[data-preview-id]"), MOUNT_TIMEOUT_MS);
+  if (!chip) return false;
+  await sleep(AFTER_TYPE_MS);
+  if (button.getAttribute("aria-pressed") === "true") button.click();
+  look(COMPOSER_VIEW);
+  await sleep(AFTER_TYPE_MS);
+  return true;
+}
+
 async function sendPrompt(editor: HTMLElement, parts: DemoPromptPart[]): Promise<boolean> {
   for (const part of parts) {
     if (!isMentionPart(part)) {
@@ -279,6 +305,7 @@ async function run(): Promise<void> {
   }
 
   for (const [index, parts] of spec.prompts.entries()) {
+    if (spec.pick?.before === index && !(await pickInPreview(spec.pick.selector))) return;
     const before = answers();
     if (index > 0) look(COMPOSER_VIEW);
     if (!(await sendPrompt(editor, parts))) return;

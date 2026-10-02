@@ -3,6 +3,7 @@ import { demoCase } from "../demo/demoCase";
 import { CLIMATE_DEMO } from "./wizardClimateScript";
 import { INBOX_DEMO } from "./wizardInboxScript";
 import { ISSUE_DEMO } from "./wizardIssueScript";
+import { PICK_DEMO } from "./wizardPickScript";
 import { STATUS_DEMO } from "./wizardStatusScript";
 import { LISBON_DEMO } from "./wizardLisbonScript";
 import { WATER_DEMO } from "./wizardScript";
@@ -22,6 +23,7 @@ export const WIZARD_DEMOS: Record<DemoCaseId, WizardDemoScript> = {
   "tado-room-climate": CLIMATE_DEMO,
   "linear-quick-issue": ISSUE_DEMO,
   "screenshot-status": STATUS_DEMO,
+  "point-and-prompt": PICK_DEMO,
 };
 
 export function currentWizardDemo(): WizardDemoScript {
