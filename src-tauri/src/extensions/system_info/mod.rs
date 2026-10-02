@@ -46,7 +46,8 @@ fn battery_info() -> Option<BatteryInfo> {
     let state = match battery.state() {
         BatteryState::Charging => "charging",
         BatteryState::Discharging => "discharging",
-        BatteryState::Full => "full",
+        // Paused: on mains but held below full (a charge limit). Shown like full.
+        BatteryState::Full | BatteryState::Paused => "full",
         BatteryState::Empty => "empty",
         BatteryState::Unknown => "unknown",
     };

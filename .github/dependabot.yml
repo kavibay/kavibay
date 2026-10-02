@@ -22,6 +22,10 @@ updates:
     directory: /src-tauri
     schedule: { interval: weekly }
     open-pull-requests-limit: 3
+    # cairo-rs (Linux only) must match the version gtk 0.18 builds against; a
+    # lone cairo bump breaks the Linux build. It moves together with gtk, by hand.
+    ignore:
+      - dependency-name: cairo-rs
     commit-message: { prefix: chore, include: scope }
     groups:
       cargo:
