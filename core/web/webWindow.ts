@@ -5,9 +5,12 @@ import { webEmit, webEmitWhenHeard } from "./ipc";
  *
  * On the desktop Rust shows and hides a transparent full-screen window and
  * turns a double Ctrl tap anywhere into `palette:hotkey`. Here the "window" is
- * the iframe's document: hiding it leaves the landing page's wallpaper, and the
- * same double tap brings it back — inside the iframe, or on the page around it,
- * which forwards it as a `kavibay:hotkey` message.
+ * the iframe's document: hiding it leaves the landing page's wallpaper. The
+ * page around it plays Rust's part: a double tap there arrives as a
+ * `kavibay:hotkey` message. A double tap inside the iframe is the app's own
+ * (WidgetHost `onCtrlTapKey`), as it is on the desktop when the webview has
+ * focus and Rust's hook sees nothing. Answering it here as well toggled twice:
+ * the window opened and closed again in the same tap.
  *
  * The page is told about every change (`kavibay:window`) so it can show a way
  * back to someone who does not know the shortcut. It can also put the window
@@ -15,14 +18,17 @@ import { webEmit, webEmitWhenHeard } from "./ipc";
  * the hold-to-peek keys when focus is on the page (`kavibay:peek`).
  */
 
-/** Longest gap between the two taps, as on the desktop. */
-const DOUBLE_TAP_MS = 400;
-
 let visible = true;
 
 function setVisible(next: boolean): void {
   visible = next;
   document.documentElement.style.visibility = next ? "" : "hidden";
+  // A hidden window has no focus on the desktop; the next keys go to whatever
+  // is behind it, and Rust's hook sees them. Here that is the page around us.
+  if (!next && window.parent !== window) {
+    (document.activeElement as HTMLElement | null)?.blur();
+    window.parent.focus();
+  }
   window.parent.postMessage({ type: "kavibay:window", visible: next }, location.origin);
 }
 
@@ -57,10 +63,7 @@ export const WINDOW_ANSWERS: Record<string, () => unknown> = {
 
 /** Two Ctrl taps with nothing in between, like the desktop gesture. */
 export function installWebHotkey(): void {
-  let lastTap = 0;
-  let clean = false;
   window.addEventListener("keydown", (event) => {
-    clean = event.key === "Control" && !event.repeat;
     if (event.code === "Space" && event.ctrlKey) {
       event.preventDefault();
       peek(true);
@@ -68,17 +71,6 @@ export function installWebHotkey(): void {
   });
   window.addEventListener("keyup", (event) => {
     if (peeking && (event.code === "Space" || event.key === "Control")) peek(false);
-    if (event.key !== "Control" || !clean) {
-      lastTap = 0;
-      return;
-    }
-    const now = performance.now();
-    if (now - lastTap < DOUBLE_TAP_MS) {
-      lastTap = 0;
-      hotkey();
-    } else {
-      lastTap = now;
-    }
   });
   window.addEventListener("message", (event) => {
     if (event.origin !== location.origin) return;
