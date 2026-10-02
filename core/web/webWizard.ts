@@ -66,6 +66,15 @@ function scanRow(id: string, files: PackageFile[]) {
   const manifest = manifestOf(files);
   const contract = typeof manifest.widget === "object" && manifest.widget !== null;
   const ui = (manifest.ui ?? {}) as { entry?: string; defaultSize?: { w: number; h: number } };
+  // Contract sizes are grid cells, converted with the cockpit's 120x90 cell —
+  // mirrors `contract_default_size` in src-tauri/src/runtime_extensions/mod.rs.
+  const cells = (manifest.widget as { defaultSize?: { w?: unknown; h?: unknown } } | undefined)
+    ?.defaultSize;
+  const defaultSize = !contract
+    ? ui.defaultSize
+    : typeof cells?.w === "number" && typeof cells.h === "number" && cells.w > 0 && cells.h > 0
+      ? { w: cells.w * 120, h: cells.h * 90 }
+      : undefined;
   return {
     id,
     name: String(manifest.displayName ?? manifest.name ?? id),
@@ -82,7 +91,7 @@ function scanRow(id: string, files: PackageFile[]) {
     origin: "custom",
     format: contract ? "contract" : "runtime",
     ...(contract ? { contractManifest: manifest } : {}),
-    ...(ui.defaultSize ? { defaultSize: ui.defaultSize } : {}),
+    ...(defaultSize ? { defaultSize } : {}),
     status: "ready",
     error: null,
   };

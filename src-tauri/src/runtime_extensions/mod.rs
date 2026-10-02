@@ -664,6 +664,23 @@ fn scan_package_dir(
     }
 }
 
+/// One grid cell of a contract `widget.defaultSize`, in CSS pixels. The same
+/// cell `core/app/extension-host/cockpit.ts` uses for bundled widgets, so a
+/// package opens at the size it would have if it shipped in the binary.
+const CONTRACT_CELL: WidgetSize = WidgetSize { w: 120.0, h: 90.0 };
+
+/// `widget.defaultSize` (grid cells) as pixels. Like `ui.defaultSize`, a
+/// missing or bad value is `None` — the host default — not a broken package.
+fn contract_default_size(raw: &Value) -> Option<WidgetSize> {
+    let size = raw.get("widget")?.get("defaultSize")?;
+    let w = size.get("w")?.as_f64()?;
+    let h = size.get("h")?.as_f64()?;
+    (w > 0.0 && h > 0.0).then_some(WidgetSize {
+        w: w * CONTRACT_CELL.w,
+        h: h * CONTRACT_CELL.h,
+    })
+}
+
 /// Scan-row fields for a contract package.
 ///
 /// A contract package's *account* grants are the user's, in a different
@@ -723,7 +740,7 @@ fn contract_partial(
             .map(|s| s.to_string()),
         // Always, and not named anywhere: the format has three files.
         ui_entry: "index.html".to_string(),
-        default_size: None,
+        default_size: contract_default_size(raw),
         default_hide_title: None,
         padding: None,
         default_scale: None,
@@ -1527,6 +1544,43 @@ mod contract_draft_tests {
             Some("Luftfeuchtigkeit"),
             "the manifest travels with the row, so the dialog and the loader read the same bytes"
         );
+    }
+
+    /// A contract manifest has no `ui` block; its size is `widget.defaultSize`
+    /// in grid cells. Unread, every contract package opened at the host's
+    /// fallback size instead of the one it declared.
+    #[test]
+    fn a_contract_package_opens_at_its_declared_size() {
+        let tmp = temp_dir();
+        write_good(tmp.as_path(), "sized");
+        let scan = |widget: &str| {
+            fs::write(
+                tmp.join("manifest.json"),
+                format!(
+                    r#"{{"name":"sized","version":"1.0.0","displayName":"S","widget":{widget}}}"#
+                ),
+            )
+            .unwrap();
+            super::scan_package_dir("sized", tmp.as_path(), super::PackageOrigin::Custom)
+                .default_size
+                .map(|size| (size.w, size.h))
+        };
+        assert_eq!(
+            scan(r#"{"name":"tile","defaultSize":{"w":2,"h":3}}"#),
+            Some((240.0, 270.0)),
+            "cells convert with the cockpit's 120x90 cell"
+        );
+        assert_eq!(
+            scan(r#"{"name":"tile"}"#),
+            None,
+            "no size is the host default"
+        );
+        assert_eq!(
+            scan(r#"{"name":"tile","defaultSize":{"w":0,"h":3}}"#),
+            None,
+            "a bad size is the host default, not a broken package"
+        );
+        let _ = fs::remove_dir_all(tmp);
     }
 
     /// The other half of the fork, and the one that must not move: a runtime
