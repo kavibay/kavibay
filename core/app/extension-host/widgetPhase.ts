@@ -26,6 +26,16 @@ export interface WidgetBodyInput {
    * call site was only where it happened to surface.
    */
   queryStates: readonly QueryState<unknown>[];
+  /**
+   * The body has been on screen since this mount began.
+   *
+   * After that, a query going back to loading is a refresh, not a first load:
+   * the widget already shows data. Swapping it for a skeleton hid the whole
+   * frame for the length of every request — a widget that reads per item on
+   * each 5-second poll flickered five times a minute, and nothing it could do
+   * from inside the frame prevented it.
+   */
+  shown?: boolean;
 }
 
 /**
@@ -53,7 +63,7 @@ export function resolveBodyPhase(input: WidgetBodyInput): WidgetBodyPhase {
   const q = aggregateQueryState(input.queryStates);
   // No query at all is the Todo and Clock case: nothing to wait for.
   if (!q) return "ready";
-  if (q.status === "loading") return "loading";
+  if (q.status === "loading") return input.shown ? "ready" : "loading";
   if (q.status === "error") return "error";
   return "ready";
 }

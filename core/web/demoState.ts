@@ -17,7 +17,7 @@
 export const SCREEN = { width: 1440, height: 930 } as const;
 
 /** Narrower than the app's default (640): on the page the palette shares the screen with the headline and the stage. */
-const PALETTE_WIDTH = 520;
+const PALETTE_WIDTH = 500;
 
 interface Card {
   id: string;
@@ -29,16 +29,22 @@ interface Card {
   /** Put away: on no desk, but the app reveals it instead of making another. */
   hidden?: boolean;
   hideTitle?: boolean;
+  /** Content zoom (Ctrl+wheel), as the app stores it on the placement. */
+  scale?: number;
 }
 
 const CARDS: Card[] = [
   { id: "demo-todo", typeId: "todo", x: -500, y: -170, width: 285, height: 255 },
   { id: "demo-notes", typeId: "notes", x: -500, y: 150, width: 285, height: 195 },
-  { id: "demo-clock", typeId: "clock", x: 480, y: -230, width: 195, height: 120 },
+  { id: "demo-clock", typeId: "clock", x: 480, y: -230, width: 225, height: 140 },
   { id: "demo-calculator", typeId: "calculator", x: 480, y: 90, width: 195, height: 285 },
 ];
 
-function layoutOf(cards: Card[], palette = { x: SCREEN.width / 2, y: SCREEN.height / 2 }) {
+function layoutOf(
+  cards: Card[],
+  palette = { x: SCREEN.width / 2, y: SCREEN.height / 2 },
+  viewport: { width: number; height: number } = SCREEN,
+) {
   return {
     activeDeskId: "1",
     desks: [
@@ -47,13 +53,14 @@ function layoutOf(cards: Card[], palette = { x: SCREEN.width / 2, y: SCREEN.heig
         name: "Desk 1",
         palette,
         paletteWidth: PALETTE_WIDTH,
-        viewport: SCREEN,
+        viewport,
         placements: cards.map((card) => ({
           instanceId: card.id,
           offset: { x: card.x, y: card.y },
           width: card.width,
           height: card.height,
           ...(card.hidden ? { hidden: true } : {}),
+          ...(card.scale ? { contentScale: card.scale } : {}),
         })),
       },
     ],
@@ -91,10 +98,8 @@ const SETTLED = {
   "kavibay:palette-widgets-v1": JSON.stringify([]),
 };
 
-/** The launcher stage: a lived-in desk around the palette. */
-const DESK: Record<string, string> = {
-  ...SETTLED,
-  "kavibay:layout-v4": JSON.stringify(layoutOf(CARDS)),
+/** What the todo and notes cards say, on every desk that has them. */
+const DESK_DATA: Record<string, string> = {
   ...widgetData("demo-todo", {
     items: [
       todo("t1", "Send Northwind invoice", true, 0),
@@ -106,12 +111,52 @@ const DESK: Record<string, string> = {
   }),
   ...widgetData("demo-notes", {
     markdown:
-      "**Standup**\n\n- Landing demo runs the real app\n- Wizard: water tracker next\n- Ask Sam about the tado key",
+      "**Standup**\n\n- Roadmap review at 11\n- Pair with Sam on onboarding\n- Lisbon: book the hotel",
     width: 280,
     height: 190,
     toolbarVisible: false,
   }),
 };
+
+/** The launcher stage: a lived-in desk around the palette. */
+const DESK: Record<string, string> = {
+  ...SETTLED,
+  "kavibay:layout-v4": JSON.stringify(layoutOf(CARDS)),
+  ...DESK_DATA,
+};
+
+/**
+ * /playground: the whole window to try things in, so a few more cards — a
+ * focus timer and the weather (webProviders.ts answers its forecast) — and the
+ * clock above the palette instead of the calculator.
+ */
+const PLAYGROUND_CARDS: Card[] = [
+  { id: "demo-todo", typeId: "todo", x: -520, y: -220, width: 285, height: 255 },
+  { id: "demo-notes", typeId: "notes", x: -520, y: 110, width: 285, height: 195 },
+  { id: "demo-clock", typeId: "clock", x: 0, y: -300, width: 225, height: 140 },
+  { id: "demo-weather", typeId: "weather", x: 520, y: -235, width: 258, height: 230, scale: 1.464 },
+  { id: "demo-pomodoro", typeId: "pomodoro", x: 535, y: 140, width: 228, height: 420, hideTitle: true },
+];
+
+/**
+ * Laid out for the window it opens in, not for `SCREEN`: the playground's
+ * frame is any shape at least that big, and the app fits a saved desk to a
+ * different window by stretching widths and heights apart — content that grows
+ * with a card's width (the weather) then no longer fits its height. Authored
+ * for the real size, there is nothing to stretch: the palette sits in the
+ * middle and the cards keep their sizes around it.
+ */
+function playground(extra: Card[] = []): Record<string, string> {
+  const viewport = { width: window.innerWidth, height: window.innerHeight };
+  const palette = { x: viewport.width / 2, y: viewport.height / 2 };
+  return {
+    ...SETTLED,
+    "kavibay:layout-v4": JSON.stringify(layoutOf([...PLAYGROUND_CARDS, ...extra], palette, viewport)),
+    ...DESK_DATA,
+    // Widget config, not ctx.data: the cockpit keeps it (cockpit.ts).
+    "kavibay:widget-config:demo-weather": JSON.stringify({ location: "Lisbon" }),
+  };
+}
 
 /**
  * The Wizard stage: nothing but the palette. The scripted tour (webTour.ts)
@@ -119,8 +164,8 @@ const DESK: Record<string, string> = {
  *
  * The Wizard is already there, put away: "New Widget" reveals a hidden Wizard
  * rather than making another (WidgetHost `onAddType`), so this card is the one
- * that opens — without its title row, and with chat and preview split about
- * 60:40 through the Wizard's own saved layout. It sits at 270–830, below the
+ * that opens — without its title row, and with chat and preview split
+ * 50:50 through the Wizard's own saved layout. It sits at 270–830, below the
  * page's headline and case buttons and above its playback bar. The palette
  * starts at y=545, where it reads as the start; when the tour closes the Wizard
  * and opens the result, the new card spawns just above the palette — clear of
@@ -128,7 +173,7 @@ const DESK: Record<string, string> = {
  */
 const WIZARD_SIZE = { w: 990, h: 560 };
 const WIZARD_TOP = 270;
-const WIZARD_PREVIEW = 370;
+const WIZARD_PREVIEW = 456;
 const PALETTE_Y = 545;
 const WIZARD_CARD: Card = {
   id: "demo-wizard",
@@ -149,7 +194,24 @@ const WIZARD: Record<string, string> = {
   ...widgetData(WIZARD_CARD.id, { preview: WIZARD_PREVIEW, collapsed: true }, "wizard:layout"),
 };
 
-export const SCENES = { desk: DESK, wizard: WIZARD } as const;
+/**
+ * The landing's hero video (the site's tools/video/hero.mjs): the playground's
+ * desk, plus a Wizard put away the way the Wizard stage has one — no title, chat
+ * and preview 50:50 — sized to the window, so "New Widget" opens it over the
+ * palette instead of a full-size Wizard with its sidebar.
+ */
+function hero(): Record<string, string> {
+  const width = Math.min(1040, window.innerWidth - 160);
+  const height = Math.min(600, window.innerHeight - 200);
+  const wizard: Card = { id: "demo-wizard", typeId: "widget-wizard", x: 0, y: -10, width, height, hidden: true, hideTitle: true };
+  return {
+    ...playground([wizard]),
+    // Half of what the grid leaves after its gutters (66px at any width).
+    ...widgetData(wizard.id, { preview: Math.round((width - 66) / 2), collapsed: true }, "wizard:layout"),
+  };
+}
+
+export const SCENES = { desk: () => DESK, wizard: () => WIZARD, playground: () => playground(), hero } as const;
 export type Scene = keyof typeof SCENES;
 
 export function isScene(value: string | null): value is Scene {
@@ -165,5 +227,5 @@ export function useScene(next: Scene): void {
 
 /** The saved state `web_storage_load` hands the app. */
 export function demoState(): Record<string, string> {
-  return SCENES[scene];
+  return SCENES[scene]();
 }

@@ -18,6 +18,8 @@ interface TauriInternals {
 const listeners = new Map<string, number[]>();
 /** Events that also reach listeners registering after they fired. */
 const sticky = new Map<string, unknown>();
+/** Events fired before anyone listened, held for the first listener only. */
+const pending = new Map<string, unknown>();
 
 function internals(): TauriInternals {
   return (window as unknown as { __TAURI_INTERNALS__: TauriInternals }).__TAURI_INTERNALS__;
@@ -38,6 +40,15 @@ export function webEmit(event: string, payload?: unknown): void {
  * subscribe at different points during boot; a plain emit reaches only those
  * that happened to be first.
  */
+/**
+ * Emit now, or — if nobody listens yet — to the first listener that does, once.
+ * For something that happened during boot and must not be replayed later.
+ */
+export function webEmitWhenHeard(event: string, payload?: unknown): void {
+  if (listeners.get(event)?.length) webEmit(event, payload);
+  else pending.set(event, payload);
+}
+
 export function webEmitSticky(event: string, payload?: unknown): void {
   sticky.set(event, payload);
   webEmit(event, payload);
@@ -49,6 +60,11 @@ function handleEventPlugin(cmd: string, args: Record<string, unknown>): unknown 
     case "plugin:event|listen": {
       const id = Number(args.handler);
       listeners.set(event, [...(listeners.get(event) ?? []), id]);
+      if (pending.has(event)) {
+        const payload = pending.get(event);
+        pending.delete(event);
+        queueMicrotask(() => internals().runCallback(id, { event, id, payload }));
+      }
       if (sticky.has(event)) {
         queueMicrotask(() => internals().runCallback(id, { event, id, payload: sticky.get(event) }));
       }

@@ -24,7 +24,7 @@ export interface HostScripts {
   runtime: string;
   /** sdk/contract-guest/kavibay-contract-guest.js */
   contract: string;
-  /** The Wizard's point-and-prompt picker, when it is picking. */
+  /** Inlined first in the head: the tour's hand, and the Wizard's point-and-prompt picker when it is picking. */
   picker?: string;
 }
 

@@ -45,6 +45,7 @@ const http: HttpCapability = {
       if (params?.name === "Atlantis") return { results: [] } as T;
       return { results: [{ name: "Berlin", latitude: 52.52, longitude: 13.405 }] } as T;
     }
+    if (url.includes("air-quality")) return { current: { european_aqi: 27 } } as T;
     return {
       current: {
         temperature_2m: 18.4,
@@ -157,6 +158,18 @@ scope.stop();
   equal(lostModel.error.value, "Location not found", "an unknown place surfaces as the widget's error");
   equal(lostModel.data.value, null, "and brings no data with it");
   lost.stop();
+}
+
+// The air quality query: one geocode, one AQI, the EEA band beside it.
+{
+  const air = await weatherProvider.queries.airQuality.fetch({ location: "Berlin" }, providerHost);
+  deepEqual(air, { place: "Berlin", aqi: 27, level: "Fair" }, "airQuality reads the European AQI and its band");
+  const nowhere = await weatherProvider.queries.airQuality.fetch({ location: "Atlantis" }, providerHost);
+  deepEqual(nowhere, { place: "Atlantis", aqi: null, level: "Unknown" }, "a place nobody found is a reading without a value");
+  assert(
+    Array.isArray(weatherProvider.hosts) && weatherProvider.hosts.includes("air-quality-api.open-meteo.com"),
+    "the provider declares the air quality host",
+  );
 }
 
 console.log("weather.assert.ts: ok");

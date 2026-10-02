@@ -10,7 +10,6 @@ interface PreviewPicker {
 const pickerKey: InjectionKey<PreviewPicker> = Symbol("wizard-preview-picker");
 
 export function provideWizardPreviewPicker(picker: PreviewPicker): PreviewPicker | undefined {
-  if (!import.meta.env.DEV) return undefined;
   provide(pickerKey, picker);
   return picker;
 }
@@ -21,7 +20,7 @@ export function useWizardPreviewPicker(
   runId: Readonly<Ref<string>>,
   picker = inject(pickerKey, undefined),
 ): boolean {
-  if (!import.meta.env.DEV || !picker) return false;
+  if (!picker) return false;
   const context = picker;
   let token: string | null = null;
 

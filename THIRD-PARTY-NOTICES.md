@@ -1,17 +1,14 @@
 # Third-party notices
 
-Skeleton inventory of third-party material shipped with Kavibay. Grow this file
-as dependencies and vendored assets are audited.
+Third-party material shipped with Kavibay that is not a package dependency:
+vendored sounds, icons, logos and fonts.
 
 ## Application dependencies
 
-Runtime and build dependencies are declared in `package.json` and
-`src-tauri/Cargo.toml`. A machine-checked allowlist (`cargo deny`, npm
-`license-checker`) is planned with CI (hardening P1.1). Current major stacks
-(Tauri, Vue, tiptap, rusqlite, windows-rs, reqwest, …) are MIT/Apache-licensed
-and GPL-compatible.
-
-- `@hiseb/confetti` 2.1.0: ISC — https://github.com/swetzel/confetti.js
+The license of every npm package and Rust crate that ships in the app is
+collected at build time by `scripts/licenses.mjs` into `dist/licenses.txt`,
+which the app shows under Settings → About → Open-source licenses. It is
+generated from the lockfiles, so it is not repeated here.
 
 ## Moodist extension (attribution)
 

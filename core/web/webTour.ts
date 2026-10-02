@@ -3,7 +3,9 @@ import { finishedDraftFromThisRun } from "../embed/demo/tourLogic";
 import { isMentionPart, type DemoPromptPart } from "../embed/widget/wizardDemoScript";
 import { currentWizardDemo } from "../embed/widget/wizardDemos";
 import { setWizardThinkingPace } from "../embed/widget/wizardFixture";
+import { hideCursor, moveCursor, pressCursor } from "./tourCursor";
 import { isEnabledPackage, packageFiles } from "./webWizard";
+import STATUS_SCREENSHOT from "./assets/status-screenshot.png?url";
 
 /**
  * The Wizard tour, played on the real app by working its UI.
@@ -12,7 +14,8 @@ import { isEnabledPackage, packageFiles } from "./webWizard";
  * `wizardAutoplay.ts`: type "new widget" into the palette, run the row, type
  * each prompt into the Wizard's composer — naming integrations through its @
  * menu — and send; once the widget is built, press Save, close the Wizard
- * (Ctrl+W) and open the widget from the palette onto the desk. Nothing here
+ * (Ctrl+W), open the widget from the palette and drag it beside the palette,
+ * clear of the page's headline above. Nothing here
  * reaches into a component: every step is something a visitor could do.
  *
  * The page starts it (`kavibay:tour-start`) once the stage is on screen and is
@@ -20,6 +23,11 @@ import { isEnabledPackage, packageFiles } from "./webWizard";
  * `kavibay:tour-speed` (or a `speed` on the start), any time, mid-tour included:
  * every pause and keystroke here, and the recorded model's thinking time
  * (wizardFixture.ts), runs at `BASE_PACE / speed` of its authored length.
+ * The page can also pause it (`kavibay:tour-pause`) and skip to the end
+ * (`kavibay:tour-skip`).
+ *
+ * It also tells the page where to look (`kavibay:tour-focus`): the palette,
+ * the conversation, the preview. The page's camera zooms there, or does not.
  *
  * While it plays, the visitor's clicks and keys do not reach the app — a stray
  * click would otherwise strand the story halfway. Scrolling still passes, or the page would stop scrolling under
@@ -42,6 +50,12 @@ const DRAFT_TIMEOUT_MS = 60000;
 const AFTER_BUILT_MS = 1600;
 const AFTER_SAVE_MS = 1200;
 const AFTER_CLOSE_MS = 700;
+const BEFORE_PLACE_MS = 500;
+const PLACE_MS = 700;
+/** How long the Select button and then the picker's highlight stay on screen. */
+const PICK_HOVER_MS = 1100;
+/** Room between the palette's right edge and the placed card. */
+const PLACE_GAP = 40;
 
 let phase: Phase = "ready";
 
@@ -52,9 +66,31 @@ const BASE_PACE = 1.5;
 let pace = BASE_PACE;
 
 function setSpeed(value: unknown): void {
-  if (typeof value !== "number" || !SPEEDS.includes(value)) return;
+  if (skipping || typeof value !== "number" || !SPEEDS.includes(value)) return;
   pace = BASE_PACE / value;
   setWizardThinkingPace(pace);
+}
+
+/**
+ * Pause (`kavibay:tour-pause`) holds the tour where it is; nothing it waits on
+ * times out meanwhile. Skip (`kavibay:tour-skip`) plays the rest at a pace no
+ * one could follow — the page hides it — so the end is the real end: the
+ * widget built, saved and on the desk, by the same steps as ever.
+ */
+let paused = false;
+let skipping = false;
+const SKIP_PACE = 0.01;
+
+function skip(): void {
+  skipping = true;
+  paused = false;
+  pace = SKIP_PACE;
+  setWizardThinkingPace(SKIP_PACE);
+}
+
+/** Wait out a pause. */
+async function held(): Promise<void> {
+  while (paused) await realSleep(POLL_MS);
 }
 
 /** What a visitor could use to act on the app mid-tour. Scrolling is not here on purpose. */
@@ -64,8 +100,28 @@ const HELD_INPUT = [
 ];
 
 /** A pause in the tour's own pace. `until`'s polling and timeouts stay in real time. */
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms * pace));
+const sleep = async (ms: number) => {
+  await new Promise((resolve) => setTimeout(resolve, ms * pace));
+  await held();
+};
 const realSleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** How long the pointer takes to travel to what it is about to use. */
+const POINTER_MS = 650;
+
+/** Glide the pointer to the middle of `target` (an element or a box in this window). */
+async function pointAt(target: Element | { x: number; y: number; width: number; height: number }): Promise<void> {
+  const box = target instanceof Element ? target.getBoundingClientRect() : target;
+  moveCursor(box.x + box.width / 2, box.y + box.height / 2, POINTER_MS * pace);
+  await sleep(POINTER_MS);
+}
+
+/** Point at it and press: the click itself is the caller's. */
+async function pressOn(target: Element): Promise<void> {
+  await pointAt(target);
+  pressCursor();
+  await sleep(120);
+}
+
 const typingPause = () => sleep(TYPE_MIN_MS + Math.random() * TYPE_JITTER_MS);
 const playing = () => phase === "playing";
 
@@ -79,6 +135,41 @@ const STEPS = [
   "On the desk — try it",
 ];
 
+/**
+ * Where the action is, for the page's camera: the element's box in this
+ * window's pixels, or null for the whole desk. The page decides whether and how
+ * far to zoom; the tour only says where to look.
+ */
+/** Where typing happens: the composer box. */
+const COMPOSER_VIEW = ".wiz-compose";
+/** The widget card in the preview, else the preview while it is being sketched. */
+const PREVIEW_VIEW = [".wiz-preview-body .widget-card", ".wiz-preview-body iframe", ".wiz-preview-body"];
+
+/** The palette and, when open, its results — which hang below it, outside its box. */
+const PALETTE_VIEW = [".palette-anchor", ".palette-results"];
+
+const visibleBox = (selector: string) => {
+  const box = document.querySelector(selector)?.getBoundingClientRect();
+  return box && box.width > 0 && box.height > 0 ? box : null;
+};
+
+/**
+ * Frame `selectors`: the first one on screen (tried in order, not document
+ * order), or, for the palette, both of its parts together.
+ */
+function look(selectors: string | string[] | null): void {
+  const boxes =
+    selectors === PALETTE_VIEW
+      ? PALETTE_VIEW.map(visibleBox).filter((box) => box !== null)
+      : [[selectors ?? []].flat().map(visibleBox).find((box) => box !== null)].filter((box) => box != null);
+  const left = Math.min(...boxes.map((box) => box.left));
+  const top = Math.min(...boxes.map((box) => box.top));
+  const right = Math.max(...boxes.map((box) => box.right));
+  const bottom = Math.max(...boxes.map((box) => box.bottom));
+  const rect = boxes.length > 0 ? { x: left, y: top, w: right - left, h: bottom - top } : null;
+  window.parent.postMessage({ type: "kavibay:tour-focus", rect }, location.origin);
+}
+
 /** Tell the page where the tour is. Once done, it stays that way. */
 function report(next: Phase, step?: number): void {
   if (phase === "done") return;
@@ -87,12 +178,17 @@ function report(next: Phase, step?: number): void {
 }
 
 async function until<T>(find: () => T | null | false, timeoutMs: number): Promise<T | null> {
-  const deadline = performance.now() + timeoutMs;
+  let deadline = performance.now() + timeoutMs;
   while (performance.now() < deadline) {
     if (!playing()) return null;
     const found = find();
     if (found) return found;
     await realSleep(POLL_MS);
+    if (paused) {
+      const start = performance.now();
+      await held();
+      deadline += performance.now() - start;
+    }
   }
   return null;
 }
@@ -105,6 +201,7 @@ const answers = () => document.querySelectorAll(".wiz-turn.assistant").length;
 async function typeIntoPalette(text: string): Promise<boolean> {
   const input = await until(paletteInput, MOUNT_TIMEOUT_MS);
   if (!input) return false;
+  await pressOn(input);
   input.focus();
   for (const character of text) {
     if (!playing()) return false;
@@ -135,21 +232,100 @@ async function typeIntoComposer(editor: HTMLElement, text: string): Promise<bool
   return true;
 }
 
+/** The images a script may name (`WizardDemoScript.attachment`). */
+const ATTACHMENTS: Record<string, string> = { "status-screenshot": STATUS_SCREENSHOT };
+
+/** Paste the image into the composer, the way Ctrl+V with a screenshot does. */
+async function pasteImage(editor: HTMLElement, name: string): Promise<boolean> {
+  const url = ATTACHMENTS[name];
+  if (!url) return false;
+  const blob = await (await fetch(url)).blob();
+  const files = new DataTransfer();
+  files.items.add(new File([blob], `${name}.png`, { type: "image/png" }));
+  editor.focus();
+  editor.dispatchEvent(new ClipboardEvent("paste", { clipboardData: files, bubbles: true, cancelable: true }));
+  return Boolean(await until(() => document.querySelector(".wiz-thumb"), MOUNT_TIMEOUT_MS));
+}
+
+/**
+ * The Wizard's point-and-prompt: its "Select preview elements" button, a click
+ * on the element in the preview, and the button again to stop picking. The
+ * element lands in the composer as a chip, and the next prompt is about it.
+ */
+async function pickInPreview(selector: string): Promise<boolean> {
+  // The whole pane: its action bar, where the Select button is, and the widget.
+  look(".wiz-preview");
+  await sleep(LEAD_IN_MS);
+  const button = await until(
+    () => document.querySelector<HTMLButtonElement>('[aria-label="Select preview elements"]:not(:disabled)'),
+    MOUNT_TIMEOUT_MS,
+  );
+  if (!button) return false;
+  await pressOn(button);
+  button.click();
+  await sleep(PICK_HOVER_MS);
+  const frame = document.querySelector<HTMLIFrameElement>(".wiz-preview-body iframe");
+  if (!frame) return false;
+  // "*": the preview is an opaque origin; the hand inside checks it is us.
+  const hand = (click: boolean) =>
+    frame.contentWindow?.postMessage({ type: "kavibay-web:tour-pick", selector, click }, "*");
+  // The hand hovers and says where the element is; the pointer goes there.
+  const where = new Promise<{ x: number; y: number; w: number; h: number } | null>((resolve) => {
+    const onRect = (event: MessageEvent) => {
+      if (event.source !== frame.contentWindow || event.data?.type !== "kavibay-web:tour-rect") return;
+      window.removeEventListener("message", onRect);
+      resolve(event.data);
+    };
+    window.addEventListener("message", onRect);
+    setTimeout(() => resolve(null), MOUNT_TIMEOUT_MS);
+  });
+  hand(false);
+  const inner = await where;
+  if (inner) {
+    // The frame may be drawn scaled; its box against its own width says by how much.
+    const box = frame.getBoundingClientRect();
+    const scale = frame.clientWidth ? box.width / frame.clientWidth : 1;
+    await pointAt({
+      x: box.x + inner.x * scale,
+      y: box.y + inner.y * scale,
+      width: inner.w * scale,
+      height: inner.h * scale,
+    });
+  }
+  await sleep(PICK_HOVER_MS);
+  pressCursor();
+  hand(true);
+  const chip = await until(() => document.querySelector("[data-preview-id]"), MOUNT_TIMEOUT_MS);
+  if (!chip) return false;
+  await sleep(AFTER_TYPE_MS);
+  if (button.getAttribute("aria-pressed") === "true") {
+    await pressOn(button);
+    button.click();
+  }
+  look(COMPOSER_VIEW);
+  await sleep(AFTER_TYPE_MS);
+  return true;
+}
+
 async function sendPrompt(editor: HTMLElement, parts: DemoPromptPart[]): Promise<boolean> {
+  await pressOn(editor);
   for (const part of parts) {
     if (!isMentionPart(part)) {
       if (!(await typeIntoComposer(editor, part))) return false;
       continue;
     }
-    if (!(await typeIntoComposer(editor, `@${part.mention.toLocaleLowerCase()}`))) return false;
+    const typed = part.query ?? part.mention.toLocaleLowerCase();
+    if (!(await typeIntoComposer(editor, `@${typed}`))) return false;
     const option = await until(() => mentionOption(part.mention), MOUNT_TIMEOUT_MS);
     if (!option) return false;
+    await pressOn(option);
     option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
     await sleep(BEFORE_SEND_MS);
   }
   await sleep(BEFORE_SEND_MS);
   const send = document.querySelector<HTMLElement>('[aria-label="Send"]');
   if (!playing() || !send) return false;
+  await pressOn(send);
   send.click();
   return true;
 }
@@ -159,12 +335,16 @@ async function run(): Promise<void> {
 
   await sleep(BEFORE_FIRST_TYPE_MS);
   report("playing", 1);
+  look(PALETTE_VIEW);
   if (!(await typeIntoPalette("new widget"))) return;
+  // The results have opened under it; keep them in frame.
+  look(PALETTE_VIEW);
   await sleep(AFTER_TYPE_MS);
   paletteInput()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
 
   const editor = await until(composer, MOUNT_TIMEOUT_MS);
   if (!editor) return;
+  look(COMPOSER_VIEW);
   // The query has done its job; its results would show under the card.
   const input = paletteInput();
   if (input) {
@@ -173,13 +353,26 @@ async function run(): Promise<void> {
   }
   // Room for the conversation in a card sized to leave the headline visible.
   document.querySelector<HTMLElement>('[aria-label="Collapse sidebar"]')?.click();
+  look(COMPOSER_VIEW);
   await sleep(LEAD_IN_MS);
   report("playing", 2);
 
+  if (spec.attachment) {
+    if (!(await pasteImage(editor, spec.attachment))) return;
+    await sleep(AFTER_TYPE_MS);
+  }
+
   for (const [index, parts] of spec.prompts.entries()) {
+    if (spec.pick?.before === index && !(await pickInPreview(spec.pick.selector))) return;
     const before = answers();
+    if (index > 0) look(COMPOSER_VIEW);
     if (!(await sendPrompt(editor, parts))) return;
+    // The answer is the widget: watch it being built.
+    look(PREVIEW_VIEW);
     if (!(await until(() => answers() > before, ANSWER_TIMEOUT_MS))) return;
+    // Its card has a size now; frame that rather than the whole pane.
+    await sleep(LEAD_IN_MS);
+    look(PREVIEW_VIEW);
     if (index === 0) report("playing", 3);
     if (index < spec.prompts.length - 1) await sleep(BETWEEN_TURNS_MS);
   }
@@ -200,9 +393,17 @@ async function run(): Promise<void> {
   await sleep(AFTER_SAVE_MS);
   report("playing", 5);
   if (!(await closeWizard())) return;
+  look(PALETTE_VIEW);
   await sleep(AFTER_CLOSE_MS);
-  if (!(await openFromPalette(spec.draftId))) return;
+  const card = await openFromPalette(spec.draftId);
+  if (!card) return;
+  look(null);
+  await sleep(BEFORE_PLACE_MS);
+  await placeBesidePalette(card);
   report("done", STEPS.length);
+  // The pointer was the tour's; from here on the visitor's own is the one that counts.
+  await sleep(AFTER_TYPE_MS);
+  hideCursor();
 }
 
 const enabledButton = (text: string) =>
@@ -218,6 +419,7 @@ async function save(id: string): Promise<boolean> {
   if (!isEnabledPackage(id)) {
     const button = await until(() => enabledButton("Save"), MOUNT_TIMEOUT_MS);
     if (!button) return false;
+    await pressOn(button);
     button.click();
   }
   return Boolean(await until(() => isEnabledPackage(id), MOUNT_TIMEOUT_MS));
@@ -232,8 +434,8 @@ async function closeWizard(): Promise<boolean> {
   return Boolean(await until(() => !composer(), MOUNT_TIMEOUT_MS));
 }
 
-/** Its name into the palette, then Enter on the row that names it. */
-async function openFromPalette(id: string): Promise<boolean> {
+/** Its name into the palette, then Enter on the row that names it. The new card, or null. */
+async function openFromPalette(id: string): Promise<HTMLElement | null> {
   const manifest = JSON.parse(packageFiles(id).find((file) => file.path === "manifest.json")?.contents ?? "{}") as {
     displayName?: string;
     name?: string;
@@ -244,17 +446,19 @@ async function openFromPalette(id: string): Promise<boolean> {
     input.value = "";
     input.dispatchEvent(new Event("input", { bubbles: true }));
   }
-  if (!(await typeIntoPalette(name.toLocaleLowerCase()))) return false;
+  if (!(await typeIntoPalette(name.toLocaleLowerCase()))) return null;
   const row = await until(
     () => document.querySelector(".palette-item")?.textContent?.trim().startsWith(name) === true,
     MOUNT_TIMEOUT_MS,
   );
-  if (!row) return false;
+  if (!row) return null;
+  look(PALETTE_VIEW);
   await sleep(AFTER_TYPE_MS);
-  const cardsBefore = document.querySelectorAll(".widget-card").length;
+  const anchors = () => [...document.querySelectorAll<HTMLElement>(".widget-anchor")];
+  const before = new Set(anchors());
   paletteInput()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-  const opened = await until(() => document.querySelectorAll(".widget-card").length > cardsBefore, MOUNT_TIMEOUT_MS);
-  if (!opened) return false;
+  const opened = await until(() => anchors().find((anchor) => !before.has(anchor)) ?? null, MOUNT_TIMEOUT_MS);
+  if (!opened) return null;
   // The search did its job; leave the desk with the card and a quiet palette.
   await sleep(AFTER_TYPE_MS);
   const search = paletteInput();
@@ -262,7 +466,59 @@ async function openFromPalette(id: string): Promise<boolean> {
     search.value = "";
     search.dispatchEvent(new Event("input", { bubbles: true }));
   }
-  return true;
+  return opened;
+}
+
+/**
+ * Drag the card by its move strip until it sits right of the palette, level
+ * with it. The app opens a new card at the nearest free spot, which here is
+ * above the palette and under the page's headline; a person would move it.
+ * The drag snaps to the desk grid like any other.
+ */
+async function placeBesidePalette(anchor: HTMLElement): Promise<void> {
+  const strip = anchor.querySelector<HTMLElement>(".widget-card-drag");
+  const palette = document.querySelector(".palette")?.getBoundingClientRect();
+  if (!strip || !palette) return;
+  const card = anchor.getBoundingClientRect();
+  const grip = strip.getBoundingClientRect();
+  const from = { x: grip.left + grip.width / 2, y: grip.top + grip.height / 2 };
+  const target = {
+    x: palette.right + PLACE_GAP + card.width / 2,
+    y: palette.top + palette.height / 2,
+  };
+  // Where the grip goes when the card's centre lands on the target.
+  const to = {
+    x: from.x + target.x - (card.left + card.width / 2),
+    y: from.y + target.y - (card.top + card.height / 2),
+  };
+  const pointer = (type: string, x: number, y: number, buttons = 1) =>
+    new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+      button: 0,
+      buttons,
+      clientX: x,
+      clientY: y,
+    });
+
+  await pointAt({ x: from.x, y: from.y, width: 0, height: 0 });
+  pressCursor();
+  strip.dispatchEvent(pointer("pointerdown", from.x, from.y));
+  const frames = Math.max(1, Math.round((PLACE_MS * pace) / 16));
+  for (let frame = 1; frame <= frames; frame++) {
+    const t = frame / frames;
+    const eased = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+    const x = from.x + (to.x - from.x) * eased;
+    const y = from.y + (to.y - from.y) * eased;
+    moveCursor(x, y, 0);
+    anchor.dispatchEvent(pointer("pointermove", x, y));
+    await realSleep(skipping ? 0 : 16);
+    await held();
+  }
+  anchor.dispatchEvent(pointer("pointerup", to.x, to.y, 0));
 }
 
 /** Arms the tour for `demo`; it starts when the page asks. */
@@ -274,6 +530,14 @@ export function installWebTour(demo: DemoCaseId): void {
     if (event.origin !== location.origin || event.source !== window.parent) return;
     const data = event.data as { type?: unknown; speed?: unknown } | null;
     if (data?.type === "kavibay:tour-speed") setSpeed(data.speed);
+    if (data?.type === "kavibay:tour-pause") paused = (data as { paused?: unknown }).paused === true && playing();
+    if (data?.type === "kavibay:tour-skip" && phase !== "done") {
+      skip();
+      if (phase === "ready") {
+        phase = "playing";
+        void run();
+      }
+    }
     if (data?.type !== "kavibay:tour-start") return;
     setSpeed(data.speed);
     if (phase !== "ready") return;

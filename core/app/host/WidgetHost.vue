@@ -1368,8 +1368,9 @@ function onHidePalette() {
 /**
  * Hide default (non-pinned) palette/widgets for this session.
  * Pinned UI stays; window hides only when nothing pinned remains.
+ * Returns whether the window was hidden.
  */
-function closeCockpit(options: { keepPeeked?: boolean } = {}) {
+function closeCockpit(options: { keepPeeked?: boolean } = {}): boolean {
   widgetRemoval.cancel();
   // Only the release of a peek hands its grabs forward; every other close is the
   // user putting the desk away, and that includes what they grabbed.
@@ -1400,9 +1401,10 @@ function closeCockpit(options: { keepPeeked?: boolean } = {}) {
   }
   if (!shouldKeepWindowAfterDismiss(instances, palettePinned.value, peekKept.value)) {
     void getCurrentWindow().hide();
-  } else {
-    scheduleRegionSync();
+    return true;
   }
+  scheduleRegionSync();
+  return false;
 }
 
 /**

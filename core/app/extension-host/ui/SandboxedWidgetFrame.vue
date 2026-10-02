@@ -71,14 +71,17 @@ let port: SandboxHostPort | undefined;
 const mounting = ref(true);
 const setupFailure = shallowRef<ProviderError | undefined>(undefined);
 const queryStates = shallowRef<ReadonlyMap<string, QueryState<unknown>>>(new Map());
+const shown = ref(false);
 
 const bodyInput = computed(() => ({
   mounting: mounting.value,
   setupFailure: setupFailure.value,
   queryStates: [...queryStates.value.values()],
+  shown: shown.value,
 }));
 
 const phase = computed(() => resolveBodyPhase(bodyInput.value));
+watch(phase, (value) => { if (value === "ready") shown.value = true; });
 const error = computed(() => resolveBodyError(bodyInput.value));
 
 function postToGuest(message: unknown) {
@@ -176,6 +179,7 @@ function open() {
   mounting.value = true;
   setupFailure.value = undefined;
   queryStates.value = new Map();
+  shown.value = false;
   props.bridge.register(props.instance);
   port = new SandboxHostPort(
     postToGuest,
