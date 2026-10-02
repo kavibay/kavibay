@@ -36,7 +36,13 @@ function setVisible(next: boolean): void {
 function hotkey(): void {
   const revealed = !visible;
   if (revealed) setVisible(true);
+  // Rust focuses the window it shows. Here the keys were the page's, so the
+  // frame takes the focus, or the palette's search field would not get any typing.
+  window.focus();
   webEmit("palette:hotkey", { revealed, trigger: "ctrlDoubleTap" });
+  // The palette asks for focus before it is on screen again, and a hidden
+  // input cannot take it. Once it has painted, ask again; opening is idempotent.
+  if (revealed) requestAnimationFrame(() => setTimeout(() => webEmit("palette:show"), 0));
 }
 
 /**

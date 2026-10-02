@@ -111,7 +111,7 @@ const DESK_DATA: Record<string, string> = {
   }),
   ...widgetData("demo-notes", {
     markdown:
-      "**Standup**\n\n- Landing demo runs the real app\n- Wizard: water tracker next\n- Ask Sam about the tado key",
+      "**Standup**\n\n- Roadmap review at 11\n- Pair with Sam on onboarding\n- Lisbon: book the hotel",
     width: 280,
     height: 190,
     toolbarVisible: false,
@@ -146,12 +146,12 @@ const PLAYGROUND_CARDS: Card[] = [
  * for the real size, there is nothing to stretch: the palette sits in the
  * middle and the cards keep their sizes around it.
  */
-function playground(): Record<string, string> {
+function playground(extra: Card[] = []): Record<string, string> {
   const viewport = { width: window.innerWidth, height: window.innerHeight };
   const palette = { x: viewport.width / 2, y: viewport.height / 2 };
   return {
     ...SETTLED,
-    "kavibay:layout-v4": JSON.stringify(layoutOf(PLAYGROUND_CARDS, palette, viewport)),
+    "kavibay:layout-v4": JSON.stringify(layoutOf([...PLAYGROUND_CARDS, ...extra], palette, viewport)),
     ...DESK_DATA,
     // Widget config, not ctx.data: the cockpit keeps it (cockpit.ts).
     "kavibay:widget-config:demo-weather": JSON.stringify({ location: "Lisbon" }),
@@ -194,7 +194,24 @@ const WIZARD: Record<string, string> = {
   ...widgetData(WIZARD_CARD.id, { preview: WIZARD_PREVIEW, collapsed: true }, "wizard:layout"),
 };
 
-export const SCENES = { desk: () => DESK, wizard: () => WIZARD, playground } as const;
+/**
+ * The landing's hero video (the site's tools/video/hero.mjs): the playground's
+ * desk, plus a Wizard put away the way the Wizard stage has one — no title, chat
+ * and preview 50:50 — sized to the window, so "New Widget" opens it over the
+ * palette instead of a full-size Wizard with its sidebar.
+ */
+function hero(): Record<string, string> {
+  const width = Math.min(1040, window.innerWidth - 160);
+  const height = Math.min(600, window.innerHeight - 200);
+  const wizard: Card = { id: "demo-wizard", typeId: "widget-wizard", x: 0, y: -10, width, height, hidden: true, hideTitle: true };
+  return {
+    ...playground([wizard]),
+    // Half of what the grid leaves after its gutters (66px at any width).
+    ...widgetData(wizard.id, { preview: Math.round((width - 66) / 2), collapsed: true }, "wizard:layout"),
+  };
+}
+
+export const SCENES = { desk: () => DESK, wizard: () => WIZARD, playground: () => playground(), hero } as const;
 export type Scene = keyof typeof SCENES;
 
 export function isScene(value: string | null): value is Scene {
