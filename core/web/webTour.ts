@@ -184,7 +184,8 @@ async function sendPrompt(editor: HTMLElement, parts: DemoPromptPart[]): Promise
       if (!(await typeIntoComposer(editor, part))) return false;
       continue;
     }
-    if (!(await typeIntoComposer(editor, `@${part.mention.toLocaleLowerCase()}`))) return false;
+    const typed = part.query ?? part.mention.toLocaleLowerCase();
+    if (!(await typeIntoComposer(editor, `@${typed}`))) return false;
     const option = await until(() => mentionOption(part.mention), MOUNT_TIMEOUT_MS);
     if (!option) return false;
     option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));

@@ -6,10 +6,13 @@
  * chip only after the menu commits, and the transcript renderer looks for the
  * display name (`@Linear`), which is a different string from `@linear`. Typing
  * the letters and pressing Send would show the words, not the logos.
+ *
+ * `query` is what to type after the @ when the name is not good to type —
+ * "Weather (Open-Meteo)" is found by "weather"; it defaults to the name.
  */
-export type DemoPromptPart = string | { mention: string };
+export type DemoPromptPart = string | { mention: string; query?: string };
 
-export function isMentionPart(part: DemoPromptPart): part is { mention: string } {
+export function isMentionPart(part: DemoPromptPart): part is { mention: string; query?: string } {
   return typeof part === "object" && part !== null && "mention" in part;
 }
 
