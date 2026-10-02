@@ -51,6 +51,8 @@ const AFTER_SAVE_MS = 1200;
 const AFTER_CLOSE_MS = 700;
 const BEFORE_PLACE_MS = 500;
 const PLACE_MS = 700;
+/** How long the Select button and then the picker's highlight stay on screen. */
+const PICK_HOVER_MS = 1100;
 /** Room between the palette's right edge and the placed card. */
 const PLACE_GAP = 40;
 
@@ -232,17 +234,23 @@ async function pasteImage(editor: HTMLElement, name: string): Promise<boolean> {
  * element lands in the composer as a chip, and the next prompt is about it.
  */
 async function pickInPreview(selector: string): Promise<boolean> {
-  look(PREVIEW_VIEW);
+  // The whole pane: its action bar, where the Select button is, and the widget.
+  look(".wiz-preview");
+  await sleep(LEAD_IN_MS);
   const button = await until(
     () => document.querySelector<HTMLButtonElement>('[aria-label="Select preview elements"]:not(:disabled)'),
     MOUNT_TIMEOUT_MS,
   );
   if (!button) return false;
   button.click();
-  await sleep(LEAD_IN_MS);
+  await sleep(PICK_HOVER_MS);
   const frame = document.querySelector<HTMLIFrameElement>(".wiz-preview-body iframe");
   // "*": the preview is an opaque origin; the hand inside checks it is us.
-  frame?.contentWindow?.postMessage({ type: "kavibay-web:tour-pick", selector }, "*");
+  const hand = (click: boolean) =>
+    frame?.contentWindow?.postMessage({ type: "kavibay-web:tour-pick", selector, click }, "*");
+  hand(false);
+  await sleep(PICK_HOVER_MS);
+  hand(true);
   const chip = await until(() => document.querySelector("[data-preview-id]"), MOUNT_TIMEOUT_MS);
   if (!chip) return false;
   await sleep(AFTER_TYPE_MS);
