@@ -47,6 +47,7 @@ import {
 import { BrandMark, McpClientMark, brandMarkFor } from "@sdk/brand";
 import KavibaySelect from "@sdk/KavibaySelect.vue";
 import WizardModelMenu from "./WizardModelMenu.vue";
+import WizardScopeMenu from "./WizardScopeMenu.vue";
 import WizardMcpHelp from "./WizardMcpHelp.vue";
 import WizardGenerationFrame from "./WizardGenerationFrame.vue";
 import WizardSuggestions from "./WizardSuggestions.vue";
@@ -888,7 +889,6 @@ const firstVersionGeneration = ref(false);
 const draftWritePending = ref(0);
 const draftConflict = ref<DraftConflict | null>(null);
 const previewNonce = ref(0);
-const pointAndPromptEnabled = import.meta.env.DEV;
 const pickingElement = ref(false);
 const selectedElements = ref<PreviewSelection[]>([]);
 let composerCaret: Range | null = null;
@@ -957,7 +957,7 @@ function cancelPreviewPick(event: KeyboardEvent) {
   finishPreviewPick();
 }
 onMounted(() => {
-  if (pointAndPromptEnabled) window.addEventListener("keydown", cancelPreviewPick, true);
+  window.addEventListener("keydown", cancelPreviewPick, true);
 });
 onUnmounted(() => window.removeEventListener("keydown", cancelPreviewPick, true));
 let stopDraftEvents: (() => void) | null = null;
@@ -2718,7 +2718,7 @@ async function send() {
   syncComposerDraft();
   firstVersionGeneration.value = !session.value.hasDraft && !session.value.previewEntry;
   const request = session.value.draft;
-  const elements = pointAndPromptEnabled ? selectedElements.value : [];
+  const elements = selectedElements.value;
   const { text, elementReferences } = pointAndPromptTranscript(request, elements);
   clearPreviewSelection();
   session.value.draft = "";
@@ -3175,7 +3175,7 @@ const previewUnmet = computed(() => {
   return request ? unmetProviders(request, approvedGrantFor(id)?.providers) : [];
 });
 
-const canPickElement = computed(() => pointAndPromptEnabled && !!previewUrl.value
+const canPickElement = computed(() => !!previewUrl.value
   && !busy.value && !sharing.value && !tooNarrow.value && !draftConflict.value
   && !draftEditorDirty.value && !session.value.draftError && !previewUnmet.value.length);
 watch([() => session.value.id, previewUrl, previewNonce, () => session.value.currentVersion],
@@ -5653,27 +5653,13 @@ async function enablePackage(
             </button>
           </div>
           <!-- Only before the widget exists: after that a message is a change. -->
-          <div
+          <WizardScopeMenu
             v-if="!session.packageId"
-            class="wiz-scope"
-            role="radiogroup"
-            aria-label="How much widget to build"
-          >
-            <button
-              v-for="option in SCOPES"
-              :key="option.id"
-              type="button"
-              role="radio"
-              class="wiz-scope-option"
-              :class="{ 'wiz-scope-option--on': scope === option.id }"
-              :aria-checked="scope === option.id"
-              :title="option.hint"
-              :disabled="busy"
-              @click="setScope(option.id)"
-            >
-              {{ option.label }}
-            </button>
-          </div>
+            :options="SCOPES"
+            :model-value="scope"
+            :disabled="busy"
+            @update:model-value="setScope"
+          />
           <span class="wiz-spacer" />
           <!--
             One control, not two. Model and effort are read together and answer
@@ -5743,13 +5729,12 @@ async function enablePackage(
       >
         <span ref="previewDebugTarget" class="wiz-debug-action"></span>
         <button
-          v-if="pointAndPromptEnabled"
           type="button"
           class="wiz-action--pick"
           :disabled="!canPickElement"
           :aria-pressed="pickingElement"
           aria-label="Select preview elements"
-          v-tip="'Select elements to describe a change (development only)'"
+          v-tip="'Select elements to describe a change'"
           @click="pickingElement ? finishPreviewPick() : pickingElement = true"
         >
           <IconBase :size="14"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M9 9l3 10 2-5 5-2Z" /></IconBase>
@@ -6691,34 +6676,6 @@ async function enablePackage(
   margin: 16px 0 0;
   padding: 0;
   list-style: none;
-}
-
-.wiz-scope {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 8px;
-  background: rgba(var(--fg-rgb), 0.05);
-}
-
-.wiz-scope-option {
-  padding: 3px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: rgba(var(--fg-rgb), 0.55);
-  font: inherit;
-  font-size: 11.5px;
-  cursor: pointer;
-}
-
-.wiz-scope-option:hover:not(:disabled) {
-  color: rgba(var(--fg-rgb), 0.9);
-}
-
-.wiz-scope-option--on {
-  background: rgba(var(--fg-rgb), 0.12);
-  color: rgba(var(--fg-rgb), 0.95);
 }
 
 .wiz-mcp-created {

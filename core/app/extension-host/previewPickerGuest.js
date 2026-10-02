@@ -1,4 +1,4 @@
-// Injected before package scripts, only into development Wizard preview documents.
+// Injected before package scripts, only into Wizard preview documents (?wizardPreview=1).
 (() => {
   let token = null;
   let overlay = null;
