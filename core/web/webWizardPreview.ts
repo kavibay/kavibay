@@ -36,8 +36,9 @@ const TOUR_HAND = `(() => {
     if (event.source !== parent || event.data?.type !== "kavibay-web:tour-pick") return;
     const target = document.querySelector(event.data.selector);
     if (!target) return;
+    // Hover first, so the picker's highlight shows; the click follows when asked.
     target.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
-    target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    if (event.data.click) target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
   });
 })();`;
 const DRAFT_HOST_PREFIX = "__draft__";
