@@ -18,6 +18,7 @@ import { validateRuntimeManifest } from "../core/app/runtime/manifestValidate";
 import { DEMO_REPLIES } from "../core/embed/widget/wizardScript";
 import { INBOX_DEMO } from "../core/embed/widget/wizardInboxScript";
 import { LISBON_REPLIES } from "../core/embed/widget/wizardLisbonScript";
+import { STATUS_REPLIES } from "../core/embed/widget/wizardStatusScript";
 import { buildPreviewDocument } from "../core/embed/widget/wizardPreviewDocument";
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -41,7 +42,7 @@ const files = parseGeneratedFiles(DEMO_REPLIES[0]!).files;
  * package has a problem" and asked the model to fix it — which replayed the
  * same answer, forever. A demo cannot fail more publicly than by looping.
  */
-for (const [index, text] of [...DEMO_REPLIES, ...LISBON_REPLIES].entries()) {
+for (const [index, text] of [...DEMO_REPLIES, ...LISBON_REPLIES, ...STATUS_REPLIES].entries()) {
   const manifestFile = parseGeneratedFiles(text).files.find((f) => f.path === "manifest.json");
   assert(manifestFile, `reply ${index + 1} carries a manifest`);
   const manifestRaw = JSON.parse(manifestFile!.contents) as { id?: string };

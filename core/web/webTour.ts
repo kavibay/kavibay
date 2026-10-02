@@ -4,6 +4,7 @@ import { isMentionPart, type DemoPromptPart } from "../embed/widget/wizardDemoSc
 import { currentWizardDemo } from "../embed/widget/wizardDemos";
 import { setWizardThinkingPace } from "../embed/widget/wizardFixture";
 import { isEnabledPackage, packageFiles } from "./webWizard";
+import STATUS_SCREENSHOT from "./assets/status-screenshot.png?url";
 
 /**
  * The Wizard tour, played on the real app by working its UI.
@@ -210,6 +211,21 @@ async function typeIntoComposer(editor: HTMLElement, text: string): Promise<bool
   return true;
 }
 
+/** The images a script may name (`WizardDemoScript.attachment`). */
+const ATTACHMENTS: Record<string, string> = { "status-screenshot": STATUS_SCREENSHOT };
+
+/** Paste the image into the composer, the way Ctrl+V with a screenshot does. */
+async function pasteImage(editor: HTMLElement, name: string): Promise<boolean> {
+  const url = ATTACHMENTS[name];
+  if (!url) return false;
+  const blob = await (await fetch(url)).blob();
+  const files = new DataTransfer();
+  files.items.add(new File([blob], `${name}.png`, { type: "image/png" }));
+  editor.focus();
+  editor.dispatchEvent(new ClipboardEvent("paste", { clipboardData: files, bubbles: true, cancelable: true }));
+  return Boolean(await until(() => document.querySelector(".wiz-thumb"), MOUNT_TIMEOUT_MS));
+}
+
 async function sendPrompt(editor: HTMLElement, parts: DemoPromptPart[]): Promise<boolean> {
   for (const part of parts) {
     if (!isMentionPart(part)) {
@@ -256,6 +272,11 @@ async function run(): Promise<void> {
   look(COMPOSER_VIEW);
   await sleep(LEAD_IN_MS);
   report("playing", 2);
+
+  if (spec.attachment) {
+    if (!(await pasteImage(editor, spec.attachment))) return;
+    await sleep(AFTER_TYPE_MS);
+  }
 
   for (const [index, parts] of spec.prompts.entries()) {
     const before = answers();
