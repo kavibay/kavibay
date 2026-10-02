@@ -5,7 +5,7 @@ much of the project you have to care about — start at the top and stop as soon
 idea fits.
 
 Questions and half-formed ideas belong in
-[Discussions](https://github.com/aswetlow/kavibay/discussions). You do not need an issue
+[Discussions](https://github.com/kavibay/kavibay/discussions). You do not need an issue
 before opening a PR.
 
 ---
@@ -52,7 +52,7 @@ the palette. They're reviewed more carefully, and they're the right choice when 
 sandboxed package genuinely can't do the job.
 
 ```bash
-git clone https://github.com/aswetlow/kavibay
+git clone https://github.com/kavibay/kavibay
 cd kavibay
 pnpm install
 pnpm run tauri dev

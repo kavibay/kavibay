@@ -605,7 +605,7 @@ fn base_package_id(package_id: &str) -> &str {
 ///
 /// The webview also names the account it expects, because its cache is keyed
 /// by it — but the account comes from the binding, not from the wire
-/// (CLAUDE.md invariant 4); the wire only has to agree. Taking the wire's id
+/// (AGENTS.md, extension SDK invariant 4); the wire only has to agree. Taking the wire's id
 /// let a caller that sent no package id spend any saved account, not just
 /// the one its owner is bound to. A mismatch is either an
 /// owner that switched accounts after the host read its connection, where
