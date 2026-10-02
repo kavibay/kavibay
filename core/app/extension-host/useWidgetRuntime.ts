@@ -99,10 +99,12 @@ export function useWidgetRuntime(
   };
 
   /** Shared with the sandboxed path, so the two cannot drift apart. */
+  const shown = ref(false);
   const bodyInput = computed(() => ({
     mounting: mounting.value,
     setupFailure: setupFailure.value,
     queryStates: [...queryStates.value.values()],
+    shown: shown.value,
   }));
 
   /** Owns everything the widget registered, so unmount is one call. */
@@ -132,6 +134,7 @@ export function useWidgetRuntime(
     scope = undefined;
     model.value = undefined;
     queryStates.value = new Map();
+    shown.value = false;
     setupFailure.value = undefined;
   }
 
@@ -197,6 +200,8 @@ export function useWidgetRuntime(
     if (g.state !== "ready") return g.state;
     return resolveBodyPhase(bodyInput.value);
   });
+
+  watch(phase, (value) => { if (value === "ready") shown.value = true; });
 
   const provider = computed(() =>
     gate.value.state === "provider"
