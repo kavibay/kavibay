@@ -17,7 +17,7 @@
 export const SCREEN = { width: 1440, height: 930 } as const;
 
 /** Narrower than the app's default (640): on the page the palette shares the screen with the headline and the stage. */
-const PALETTE_WIDTH = 480;
+const PALETTE_WIDTH = 500;
 
 interface Card {
   id: string;
