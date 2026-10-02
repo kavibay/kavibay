@@ -209,7 +209,6 @@ export const NOT_ON_WEB = new Set<string>([
   "runtime_extensions_export_package",
   "runtime_extensions_import_inspect",
   "runtime_extensions_import_install",
-  "runtime_extensions_http_call",
   "runtime_extensions_credential_users",
   "runtime_extensions_revoke_credential",
   "runtime_extensions_set_daily_budget",

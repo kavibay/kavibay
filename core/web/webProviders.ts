@@ -1,7 +1,7 @@
 /**
  * Connected accounts for the Wizard's demos: Linear and GitHub (the inbox, the
- * quick issue — which can create issues, kept in memory for the visit) and
- * tado° (the room climate).
+ * quick issue — which can create issues, kept in memory for the visit), tado°
+ * (the room climate) and n8n (the service health's restart).
  *
  * On the desktop a provider's `host.http` call goes to Rust, which adds the
  * account's token and asks the real API. Here the same call is answered with a
@@ -24,7 +24,8 @@ type Args = Record<string, unknown>;
 const LINEAR = "kavibay.linear/linear";
 const GITHUB = "kavibay.github/github";
 const TADO = "kavibay.tado/tado";
-const CONNECTED = new Set([LINEAR, GITHUB, TADO]);
+const N8N = "kavibay.n8n/n8n";
+const CONNECTED = new Set([LINEAR, GITHUB, TADO, N8N]);
 
 const WEATHER = "kavibay.weather/weather";
 
@@ -174,6 +175,24 @@ function tadoZoneStates() {
   };
 }
 
+/**
+ * acme.dev, for the service-health widget's own endpoints (its api.json):
+ * checkout times out until the n8n webhook restart-checkout is called, and
+ * answers again a moment after.
+ */
+const CHECKOUT_BOOT_MS = 1200;
+let checkoutRestartedAt = 0;
+
+function healthCheck(endpointId: string) {
+  const result = { ok: true, status: 200, data: { status: "ok" }, code: null, detail: null, retryAfterSecs: null, fromCache: false };
+  if (!["checkout", "api", "web"].includes(endpointId)) {
+    return { ...result, ok: false, status: null, data: null, code: "unknown_endpoint" };
+  }
+  const booting = !checkoutRestartedAt || Date.now() - checkoutRestartedAt < CHECKOUT_BOOT_MS;
+  if (endpointId === "checkout" && booting) return { ...result, ok: false, status: null, data: null, code: "timeout" };
+  return result;
+}
+
 /** The one response each scripted query needs; anything else is refused. */
 function respond(providerId: string, url: string, body: unknown): { status: number; body: unknown } {
   const query = String((body as { query?: unknown } | null)?.query ?? "");
@@ -187,6 +206,11 @@ function respond(providerId: string, url: string, body: unknown): { status: numb
       const variables = (body as { variables?: { input?: { title?: unknown } } } | null)?.variables;
       return { status: 200, body: linearCreateIssue(variables?.input ?? {}) };
     }
+  }
+  // The instance's origin is the host's to fill in, like tado°'s home id.
+  if (providerId === N8N && url.endsWith("/webhook/restart-checkout")) {
+    checkoutRestartedAt = Date.now();
+    return { status: 200, body: { restarted: "checkout" } };
   }
   if (providerId === GITHUB && url.startsWith("https://api.github.com/search/issues")) {
     return { status: 200, body: githubReviewRequests() };
@@ -223,4 +247,5 @@ export const PROVIDER_ANSWERS: Record<string, (args: Args) => unknown> = {
         }
       : null,
   extension_provider_fetch: (args) => respond(String(args.providerId), String(args.url), args.body),
+  runtime_extensions_http_call: (args) => healthCheck(String(args.endpointId)),
 };
