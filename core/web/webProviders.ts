@@ -1,5 +1,6 @@
 /**
- * Two connected accounts, for the Wizard's Linear/GitHub demo.
+ * Connected accounts for the Wizard's demos: Linear and GitHub (the inbox) and
+ * tado° (the room climate).
  *
  * On the desktop a provider's `host.http` call goes to Rust, which adds the
  * account's token and asks the real API. Here the same call is answered with a
@@ -21,7 +22,8 @@ type Args = Record<string, unknown>;
 
 const LINEAR = "kavibay.linear/linear";
 const GITHUB = "kavibay.github/github";
-const CONNECTED = new Set([LINEAR, GITHUB]);
+const TADO = "kavibay.tado/tado";
+const CONNECTED = new Set([LINEAR, GITHUB, TADO]);
 
 const WEATHER = "kavibay.weather/weather";
 
@@ -116,6 +118,29 @@ function weatherForecast() {
   };
 }
 
+/** A flat with three rooms, in tado°'s own shapes: `/zones` and `/zoneStates`. */
+const TADO_ROOMS = [
+  { id: "1", name: "Living room", celsius: 21.4, humidity: 48.2 },
+  { id: "2", name: "Bedroom", celsius: 19.1, humidity: 52.6 },
+  { id: "3", name: "Office", celsius: 22.0, humidity: 44.9 },
+];
+
+function tadoZoneStates() {
+  return {
+    zoneStates: Object.fromEntries(
+      TADO_ROOMS.map((room) => [
+        room.id,
+        {
+          sensorDataPoints: {
+            insideTemperature: { celsius: room.celsius },
+            humidity: { percentage: room.humidity },
+          },
+        },
+      ]),
+    ),
+  };
+}
+
 /** The one response each scripted query needs; anything else is refused. */
 function respond(providerId: string, url: string, body: unknown): { status: number; body: unknown } {
   const query = String((body as { query?: unknown } | null)?.query ?? "");
@@ -127,6 +152,16 @@ function respond(providerId: string, url: string, body: unknown): { status: numb
   }
   if (providerId === WEATHER && url.startsWith("https://geocoding-api.open-meteo.com/v1/search")) {
     return { status: 200, body: weatherGeocode(new URL(url)) };
+  }
+  // The home id is the host's to fill in; whatever stands there, it is this home.
+  if (providerId === TADO && url.includes("my.tado.com") && url.endsWith("/zones")) {
+    return { status: 200, body: TADO_ROOMS.map((room) => ({ id: room.id, name: room.name })) };
+  }
+  if (providerId === TADO && url.includes("my.tado.com") && url.endsWith("/zoneStates")) {
+    return { status: 200, body: tadoZoneStates() };
+  }
+  if (providerId === WEATHER && url.startsWith("https://air-quality-api.open-meteo.com/v1/air-quality")) {
+    return { status: 200, body: { current: { european_aqi: 27 } } };
   }
   if (providerId === WEATHER && url.startsWith("https://api.open-meteo.com/v1/forecast")) {
     return { status: 200, body: weatherForecast() };
