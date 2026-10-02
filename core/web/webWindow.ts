@@ -1,4 +1,4 @@
-import { webEmit } from "./ipc";
+import { webEmit, webEmitWhenHeard } from "./ipc";
 
 /**
  * The overlay window, as far as a page can have one.
@@ -11,7 +11,8 @@ import { webEmit } from "./ipc";
  *
  * The page is told about every change (`kavibay:window`) so it can show a way
  * back to someone who does not know the shortcut. It can also put the window
- * away (`kavibay:hide`), as clicking another app's window would.
+ * away (`kavibay:hide`), as clicking another app's window would, and forward
+ * the hold-to-peek keys when focus is on the page (`kavibay:peek`).
  */
 
 /** Longest gap between the two taps, as on the desktop. */
@@ -32,6 +33,20 @@ function hotkey(): void {
   webEmit("palette:hotkey", { revealed, trigger: "ctrlDoubleTap" });
 }
 
+/**
+ * Hold Ctrl+Space: the widgets while the keys are down (Rust's `peek_cockpit`).
+ * Like Rust this only ever shows; whether letting go hides the window again is
+ * the host's call (`closeCockpit`), which knows about pinned cards.
+ */
+let peeking = false;
+function peek(active: boolean): void {
+  if (active === peeking) return;
+  peeking = active;
+  const revealed = active && !visible;
+  if (revealed) setVisible(true);
+  webEmit("cockpit:peek", { active, revealed });
+}
+
 export const WINDOW_ANSWERS: Record<string, () => unknown> = {
   "plugin:window|hide": () => setVisible(false),
   "plugin:window|show": () => setVisible(true),
@@ -46,8 +61,13 @@ export function installWebHotkey(): void {
   let clean = false;
   window.addEventListener("keydown", (event) => {
     clean = event.key === "Control" && !event.repeat;
+    if (event.code === "Space" && event.ctrlKey) {
+      event.preventDefault();
+      peek(true);
+    }
   });
   window.addEventListener("keyup", (event) => {
+    if (peeking && (event.code === "Space" || event.key === "Control")) peek(false);
     if (event.key !== "Control" || !clean) {
       lastTap = 0;
       return;
@@ -64,6 +84,15 @@ export function installWebHotkey(): void {
     if (event.origin !== location.origin) return;
     const type = (event.data as { type?: string } | null)?.type;
     if (type === "kavibay:hotkey") hotkey();
-    if (type === "kavibay:hide" && visible) setVisible(false);
+    // What Rust reports when a click lands outside the cards: the host ends
+    // its session and hides the window itself (closeCockpit), so a later
+    // hotkey or peek starts from a closed cockpit, not a stale one.
+    // During boot the host is not listening yet: it gets the click once it
+    // is, and the window is put away directly in the meantime.
+    if (type === "kavibay:hide" && visible) {
+      webEmitWhenHeard("cockpit:outside-click", null);
+      setTimeout(() => visible && setVisible(false), 50);
+    }
+    if (type === "kavibay:peek") peek((event.data as { active?: unknown }).active === true);
   });
 }
