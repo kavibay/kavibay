@@ -9,7 +9,7 @@
 //!
 //! Do not read the list as protection. A widget allowed to reach
 //! `api.open-meteo.com` can encode anything it read into a query parameter;
-//! CLAUDE.md says so, and PR review is the control.
+//! AGENTS.md says so, and PR review is the control.
 
 use super::ExtensionRust;
 use crate::extension_providers::CapabilityHosts;

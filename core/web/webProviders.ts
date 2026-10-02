@@ -1,5 +1,7 @@
 /**
- * Two connected accounts, for the Wizard's Linear/GitHub demo.
+ * Connected accounts for the Wizard's demos: Linear and GitHub (the inbox, the
+ * quick issue — which can create issues, kept in memory for the visit), tado°
+ * (the room climate) and n8n (the service health's restart).
  *
  * On the desktop a provider's `host.http` call goes to Rust, which adds the
  * account's token and asks the real API. Here the same call is answered with a
@@ -9,6 +11,10 @@
  * live answer, so what reaches the widget has been through everything real
  * except the network.
  *
+ * Weather (Open-Meteo) needs no account and is answered too, with a calm,
+ * made-up forecast in Open-Meteo's own shape: the desk has a Weather card, and
+ * asking the real API would send every visitor's address to a third party.
+ *
  * Every other provider stays disconnected: the page has no account for it and
  * pretending otherwise would put invented data in widgets nobody scripted.
  */
@@ -17,7 +23,11 @@ type Args = Record<string, unknown>;
 
 const LINEAR = "kavibay.linear/linear";
 const GITHUB = "kavibay.github/github";
-const CONNECTED = new Set([LINEAR, GITHUB]);
+const TADO = "kavibay.tado/tado";
+const N8N = "kavibay.n8n/n8n";
+const CONNECTED = new Set([LINEAR, GITHUB, TADO, N8N]);
+
+const WEATHER = "kavibay.weather/weather";
 
 const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 
@@ -65,14 +75,161 @@ function githubReviewRequests() {
   };
 }
 
+/** "2026-10-01T21:00" — Open-Meteo's local time with `timezone=auto`. */
+function localIso(date: Date, withHour = true): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  return withHour ? `${day}T${pad(date.getHours())}:00` : day;
+}
+
+/** Whatever place is asked for is found, at one fixed spot. */
+function weatherGeocode(url: URL) {
+  const name = url.searchParams.get("name")?.trim() || "Berlin";
+  const label = name.charAt(0).toUpperCase() + name.slice(1);
+  return { results: [{ name: label, latitude: 52.52, longitude: 13.41 }] };
+}
+
+/** Mild autumn: mostly clear, a cloudy afternoon, light rain on day three. */
+function weatherForecast() {
+  const now = new Date();
+  now.setMinutes(0, 0, 0);
+  const hours = Array.from({ length: 24 }, (_, i) => new Date(now.getTime() + i * 3_600_000));
+  const tempAt = (date: Date) =>
+    Math.round((14 + 5 * Math.sin(((date.getHours() - 9) / 24) * 2 * Math.PI)) * 10) / 10;
+  const days = Array.from({ length: 5 }, (_, i) => new Date(now.getTime() + i * 86_400_000));
+  return {
+    current: {
+      time: localIso(now),
+      temperature_2m: tempAt(now),
+      apparent_temperature: tempAt(now) - 1.5,
+      relative_humidity_2m: 64,
+      wind_speed_10m: 11.2,
+      weather_code: 1,
+    },
+    hourly: {
+      time: hours.map((date) => localIso(date)),
+      temperature_2m: hours.map(tempAt),
+      weather_code: hours.map((date) => (date.getHours() >= 13 && date.getHours() <= 16 ? 2 : 1)),
+    },
+    daily: {
+      time: days.map((date) => localIso(date, false)),
+      weather_code: [1, 2, 61, 3, 0],
+      temperature_2m_max: [19, 18, 15, 16, 20],
+      temperature_2m_min: [9, 10, 11, 9, 8],
+    },
+  };
+}
+
+/** One team, and its open issues; issues created on the page join them. */
+const LINEAR_TEAM = { id: "team-eng", name: "Engineering", key: "ENG" };
+let nextIssueNumber = 418;
+const teamIssues = [
+  { identifier: "ENG-417", title: "Wizard: keep the preview scrolled after a rebuild", state: ["Todo", "unstarted"], ago: 40 },
+  { identifier: "ENG-414", title: "Palette: show the hotkey hint on first open", state: ["In Progress", "started"], ago: 95 },
+  { identifier: "ENG-409", title: "Settings: group AI providers by account", state: ["Backlog", "backlog"], ago: 260 },
+].map((issue) => ({
+  id: `demo-${issue.identifier}`,
+  identifier: issue.identifier,
+  title: issue.title,
+  url: `https://linear.app/kavibay/issue/${issue.identifier}`,
+  updatedAt: minutesAgo(issue.ago),
+  state: { name: issue.state[0], type: issue.state[1] },
+  team: { name: LINEAR_TEAM.name, key: LINEAR_TEAM.key },
+}));
+
+function linearCreateIssue(input: { title?: unknown }) {
+  const identifier = `ENG-${nextIssueNumber++}`;
+  const issue = {
+    id: `demo-${identifier}`,
+    identifier,
+    title: String(input.title ?? ""),
+    url: `https://linear.app/kavibay/issue/${identifier}`,
+    updatedAt: new Date().toISOString(),
+    state: { name: "Todo", type: "unstarted" },
+    team: { name: LINEAR_TEAM.name, key: LINEAR_TEAM.key },
+  };
+  teamIssues.unshift(issue);
+  return { data: { issueCreate: { success: true, issue } } };
+}
+
+/** A flat with three rooms, in tado°'s own shapes: `/zones` and `/zoneStates`. */
+const TADO_ROOMS = [
+  { id: "1", name: "Living room", celsius: 21.4, humidity: 48.2 },
+  { id: "2", name: "Bedroom", celsius: 19.1, humidity: 52.6 },
+  { id: "3", name: "Office", celsius: 18.6, humidity: 41.3 },
+];
+
+function tadoZoneStates() {
+  return {
+    zoneStates: Object.fromEntries(
+      TADO_ROOMS.map((room) => [
+        room.id,
+        {
+          sensorDataPoints: {
+            insideTemperature: { celsius: room.celsius },
+            humidity: { percentage: room.humidity },
+          },
+        },
+      ]),
+    ),
+  };
+}
+
+/**
+ * acme.dev, for the service-health widget's own endpoints (its api.json):
+ * checkout times out until the n8n webhook restart-checkout is called, and
+ * answers again a moment after.
+ */
+const CHECKOUT_BOOT_MS = 1200;
+let checkoutRestartedAt = 0;
+
+function healthCheck(endpointId: string) {
+  const result = { ok: true, status: 200, data: { status: "ok" }, code: null, detail: null, retryAfterSecs: null, fromCache: false };
+  if (!["checkout", "api", "web"].includes(endpointId)) {
+    return { ...result, ok: false, status: null, data: null, code: "unknown_endpoint" };
+  }
+  const booting = !checkoutRestartedAt || Date.now() - checkoutRestartedAt < CHECKOUT_BOOT_MS;
+  if (endpointId === "checkout" && booting) return { ...result, ok: false, status: null, data: null, code: "timeout" };
+  return result;
+}
+
 /** The one response each scripted query needs; anything else is refused. */
 function respond(providerId: string, url: string, body: unknown): { status: number; body: unknown } {
   const query = String((body as { query?: unknown } | null)?.query ?? "");
-  if (providerId === LINEAR && url.startsWith("https://api.linear.app/graphql") && query.includes("assignedIssues")) {
-    return { status: 200, body: linearAssignedIssues() };
+  if (providerId === LINEAR && url.startsWith("https://api.linear.app/graphql")) {
+    if (query.includes("assignedIssues")) return { status: 200, body: linearAssignedIssues() };
+    if (query.includes("teams(")) return { status: 200, body: { data: { teams: { nodes: [LINEAR_TEAM] } } } };
+    if (query.includes("team(id:")) {
+      return { status: 200, body: { data: { team: { issues: { nodes: teamIssues } } } } };
+    }
+    if (query.includes("issueCreate")) {
+      const variables = (body as { variables?: { input?: { title?: unknown } } } | null)?.variables;
+      return { status: 200, body: linearCreateIssue(variables?.input ?? {}) };
+    }
+  }
+  // The instance's origin is the host's to fill in, like tado°'s home id.
+  if (providerId === N8N && url.endsWith("/webhook/restart-checkout")) {
+    checkoutRestartedAt = Date.now();
+    return { status: 200, body: { restarted: "checkout" } };
   }
   if (providerId === GITHUB && url.startsWith("https://api.github.com/search/issues")) {
     return { status: 200, body: githubReviewRequests() };
+  }
+  if (providerId === WEATHER && url.startsWith("https://geocoding-api.open-meteo.com/v1/search")) {
+    return { status: 200, body: weatherGeocode(new URL(url)) };
+  }
+  // The home id is the host's to fill in; whatever stands there, it is this home.
+  if (providerId === TADO && url.includes("my.tado.com") && url.endsWith("/zones")) {
+    return { status: 200, body: TADO_ROOMS.map((room) => ({ id: room.id, name: room.name })) };
+  }
+  if (providerId === TADO && url.includes("my.tado.com") && url.endsWith("/zoneStates")) {
+    return { status: 200, body: tadoZoneStates() };
+  }
+  if (providerId === WEATHER && url.startsWith("https://air-quality-api.open-meteo.com/v1/air-quality")) {
+    return { status: 200, body: { current: { european_aqi: 27 } } };
+  }
+  if (providerId === WEATHER && url.startsWith("https://api.open-meteo.com/v1/forecast")) {
+    return { status: 200, body: weatherForecast() };
   }
   return { status: 404, body: { message: "Not part of this demo" } };
 }
@@ -90,4 +247,5 @@ export const PROVIDER_ANSWERS: Record<string, (args: Args) => unknown> = {
         }
       : null,
   extension_provider_fetch: (args) => respond(String(args.providerId), String(args.url), args.body),
+  runtime_extensions_http_call: (args) => healthCheck(String(args.endpointId)),
 };

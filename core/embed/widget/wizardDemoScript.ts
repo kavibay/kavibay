@@ -6,10 +6,13 @@
  * chip only after the menu commits, and the transcript renderer looks for the
  * display name (`@Linear`), which is a different string from `@linear`. Typing
  * the letters and pressing Send would show the words, not the logos.
+ *
+ * `query` is what to type after the @ when the name is not good to type —
+ * "Weather (Open-Meteo)" is found by "weather"; it defaults to the name.
  */
-export type DemoPromptPart = string | { mention: string };
+export type DemoPromptPart = string | { mention: string; query?: string };
 
-export function isMentionPart(part: DemoPromptPart): part is { mention: string } {
+export function isMentionPart(part: DemoPromptPart): part is { mention: string; query?: string } {
   return typeof part === "object" && part !== null && "mention" in part;
 }
 
@@ -24,6 +27,17 @@ export interface WizardDemoScript {
   resultQuery: string;
   /** Milestones the transport names, in order. */
   steps: readonly string[];
+  /**
+   * An image the tour pastes into the composer before the first prompt, by
+   * name; the page that plays it owns the file (core/web/assets/<name>.png).
+   */
+  attachment?: string;
+  /**
+   * Point at an element of the preview before a prompt: the Wizard's own
+   * "Select preview elements" mode, then a click on `selector` in the preview.
+   * The prompt at index `before` is then about that element.
+   */
+  pick?: { before: number; selector: string };
   prompts: DemoPromptPart[][];
   replies: string[];
   /** Unique substring of the finished widget.js, which the tour waits for. */

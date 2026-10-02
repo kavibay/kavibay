@@ -2,6 +2,7 @@
 import DialogCloseButton from "@sdk/ui/DialogCloseButton.vue";
 import {
   computed,
+  inject,
   nextTick,
   onMounted,
   onUnmounted,
@@ -52,8 +53,11 @@ import {
   type SettingsGeometry,
 } from "./settingsGeometry";
 import { useSettingsModal, type SettingsSectionId } from "./useSettingsModal";
+import { useAppearance } from "./useAppearance";
 
 const { open, section: activeSection, hide } = useSettingsModal();
+const { hideOnOutsideClick } = useAppearance();
+const closeCockpit = inject<() => boolean>("kavibayCloseCockpit");
 const searchInputEl = ref<HTMLInputElement | null>(null);
 const modalEl = ref<HTMLElement | null>(null);
 const stickyTargetReady = ref(false);
@@ -127,9 +131,16 @@ function persistGeometry() {
   void nextTick().then(() => syncInteractiveRegions());
 }
 
-/** Close when pointer hits the backdrop (not the panel). */
+/**
+ * Backdrop press = outside click. With "Hide on outside click" on, put Kavibay
+ * away and leave Settings open, so the next Ctrl double tap brings it back where
+ * it was. Settings closes only when the window stays up (pinned UI) or the
+ * preference is off.
+ */
 function onBackdropPointerDown(event: PointerEvent) {
-  if (event.target === event.currentTarget) hide();
+  if (event.target !== event.currentTarget) return;
+  if (hideOnOutsideClick.value && closeCockpit?.()) return;
+  hide();
 }
 
 /** Drag the dialog from the top strip (center-anchored). */

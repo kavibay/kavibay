@@ -24,6 +24,27 @@ import { packageFiles } from "./webWizard";
  */
 
 const PREVIEW_PAGE = `${import.meta.env.BASE_URL}web-preview.html`;
+
+/**
+ * The tour's hand inside a package frame. The frame is sandboxed into an
+ * opaque origin, so the page cannot click in it; asked by its parent, this
+ * clicks an element the way a pointer would. In the Wizard's preview the app's
+ * own picker (previewPickerGuest.js) takes the click from there (webTour.ts);
+ * on the desk it presses a widget's button for the site's hero video.
+ */
+const TOUR_HAND = `(() => {
+  addEventListener("message", (event) => {
+    if (event.source !== parent || event.data?.type !== "kavibay-web:tour-pick") return;
+    const target = document.querySelector(event.data.selector);
+    if (!target) return;
+    // Hover first, so the picker's highlight shows; the click follows when asked.
+    target.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
+    // Where it is, so the tour's pointer can go there; the page cannot measure in here.
+    const box = target.getBoundingClientRect();
+    parent.postMessage({ type: "kavibay-web:tour-rect", x: box.x, y: box.y, w: box.width, h: box.height }, "*");
+    if (event.data.click) target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  });
+})();`;
 const DRAFT_HOST_PREFIX = "__draft__";
 
 interface TauriInternals {
@@ -57,7 +78,8 @@ export function installWizardPreview(): void {
     const html = assemblePackageDocument(files, {
       runtime: RUNTIME_SOURCE,
       contract: CONTRACT_SOURCE,
-      picker: data.picker === true ? PICKER_SOURCE : undefined,
+      picker: data.picker === true ? `${PICKER_SOURCE}
+${TOUR_HAND}` : TOUR_HAND,
     });
     // "*": the frame is sandboxed into an opaque origin, which cannot be named.
     event.source.postMessage({ type: "kavibay-web:preview-document", html }, "*");

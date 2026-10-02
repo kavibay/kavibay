@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report privately via
-[GitHub's private vulnerability reporting](https://github.com/aswetlow/kavibay/security/advisories/new)
+[GitHub's private vulnerability reporting](https://github.com/kavibay/kavibay/security/advisories/new)
 rather than opening a public issue.
 
 Kavibay is a hobby project maintained by one person — expect a first response within

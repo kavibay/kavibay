@@ -73,12 +73,13 @@ fn handle_kavibay_ext_request<R: Runtime>(
     }
 }
 
-// Only the host's Wizard preview URL opts in; release builds never inject it.
+// Only the host's Wizard preview URL opts in: the Wizard's point-and-prompt
+// picker. A package that navigates itself here gets a script that does nothing
+// until the host sends it a pick token, and whose answer the host only takes
+// from the frame it asked.
 fn preview_requested(uri: &Uri) -> bool {
-    cfg!(debug_assertions)
-        && uri
-            .query()
-            .is_some_and(|query| query.split('&').any(|part| part == "wizardPreview=1"))
+    uri.query()
+        .is_some_and(|query| query.split('&').any(|part| part == "wizardPreview=1"))
 }
 
 /// The CSP goes on every response, not only on HTML.
@@ -237,7 +238,7 @@ fn with_frame_defaults(html: Vec<u8>, wizard_preview: bool) -> Vec<u8> {
     out.push_str(&text[..at]);
     out.push_str(CANVAS_RESET);
     out.push_str(FRAME_GESTURES_TAG);
-    if cfg!(debug_assertions) && wizard_preview {
+    if wizard_preview {
         out.push_str("<script src=\"@kavibay/preview.js\"></script>");
     }
     out.push_str(&text[at..]);
@@ -249,7 +250,6 @@ const HOST_SERVED: &[(&str, &str)] = &[
     (RUNTIME_SDK_PATH, RUNTIME_SDK),
     (CONTRACT_GUEST_PATH, CONTRACT_GUEST),
     ("@kavibay/frame.js", FRAME_GESTURES),
-    #[cfg(debug_assertions)]
     (
         "@kavibay/preview.js",
         include_str!("../../../core/app/extension-host/previewPickerGuest.js"),
@@ -526,7 +526,7 @@ mod tests {
     }
 
     #[test]
-    fn picker_is_only_in_development_preview_documents() {
+    fn picker_is_only_in_wizard_preview_documents() {
         let html = b"<!doctype html><html><head><script src=\"app.js\"></script></head></html>";
         let regular = super::file_response(html.to_vec(), "text/html", false);
         assert!(!std::str::from_utf8(regular.body())
@@ -534,14 +534,9 @@ mod tests {
             .contains("@kavibay/preview.js"));
         let preview = super::file_response(html.to_vec(), "text/html", true);
         let body = std::str::from_utf8(preview.body()).unwrap();
-        assert_eq!(body.contains("@kavibay/preview.js"), cfg!(debug_assertions));
-        if cfg!(debug_assertions) {
-            assert!(body.find("@kavibay/preview.js").unwrap() < body.find("app.js").unwrap());
-        }
-        assert_eq!(
-            super::host_served_script("ui/@kavibay/preview.js").is_some(),
-            cfg!(debug_assertions)
-        );
+        assert!(body.contains("@kavibay/preview.js"));
+        assert!(body.find("@kavibay/preview.js").unwrap() < body.find("app.js").unwrap());
+        assert!(super::host_served_script("ui/@kavibay/preview.js").is_some());
         assert!(super::host_served_script("ui/not@kavibay/preview.js").is_none());
         for query in ["", "?wizardPreview=0", "?other=wizardPreview=1"] {
             let uri: Uri = format!("kavibay-ext://localhost/demo/index.html{query}")
@@ -552,7 +547,7 @@ mod tests {
         let uri: Uri = "kavibay-ext://localhost/demo/index.html?revision=a&wizardPreview=1"
             .parse()
             .unwrap();
-        assert_eq!(super::preview_requested(&uri), cfg!(debug_assertions));
+        assert!(super::preview_requested(&uri));
         let script = super::file_response(b"app code".to_vec(), "text/javascript", true);
         assert_eq!(script.body(), b"app code");
     }

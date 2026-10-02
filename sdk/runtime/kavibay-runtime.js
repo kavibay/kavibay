@@ -129,6 +129,27 @@
     return extra;
   }
 
+  /**
+   * The document's height laid out by its content instead of by the frame.
+   *
+   * `scrollHeight` never drops below the viewport, so a widget with room to
+   * spare would report the frame's own height back: the host could grow a card
+   * to fit but never shrink one. Laid out once at `height: auto` and put back in
+   * the same task, before anything paints. 0 when the body has no flow height
+   * (everything absolutely positioned) — the caller falls back to scrolling.
+   */
+  var probe = document.createElement("style");
+  probe.textContent = "html,body{height:auto!important;min-height:0!important}";
+  function flowHeight(root, body) {
+    root.appendChild(probe);
+    var height =
+      body && body.getBoundingClientRect().height
+        ? Math.ceil(root.getBoundingClientRect().height) + hiddenInside()
+        : 0;
+    root.removeChild(probe);
+    return height;
+  }
+
   function measure() {
     queued = false;
     var root = document.documentElement;
@@ -136,6 +157,7 @@
     if (!root) return;
     var w = Math.max(root.scrollWidth, body ? body.scrollWidth : 0);
     var h =
+      flowHeight(root, body) ||
       Math.max(root.scrollHeight, body ? body.scrollHeight : 0) + hiddenInside();
     if (w === lastW && h === lastH) return;
     lastW = w;
@@ -153,16 +175,25 @@
     requestAnimationFrame(measure);
   }
 
-  if (typeof ResizeObserver === "function") {
-    var observer = new ResizeObserver(schedule);
-    // The element whose box changes when content is added, not the viewport —
-    // observing `documentElement` reports the *frame's* size back at us and
-    // makes the measurement a function of the answer.
-    if (document.body) observer.observe(document.body);
-    else document.addEventListener("DOMContentLoaded", function () {
-      if (document.body) observer.observe(document.body);
+  // The element whose box changes when content is added, not the viewport —
+  // observing `documentElement` reports the *frame's* size back at us and
+  // makes the measurement a function of the answer. The probe above is added
+  // to `documentElement`, outside what is watched.
+  function observe() {
+    if (!document.body) return;
+    if (typeof ResizeObserver === "function") {
+      new ResizeObserver(schedule).observe(document.body);
+    }
+    // A list filling in under `html, body { height: 100% }` resizes no box, so
+    // content changes count as well.
+    new MutationObserver(schedule).observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
     });
   }
+  if (document.body) observe();
+  else document.addEventListener("DOMContentLoaded", observe);
   window.addEventListener("load", schedule);
   document.addEventListener("DOMContentLoaded", schedule);
   schedule();
