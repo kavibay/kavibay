@@ -17,7 +17,7 @@
 export const SCREEN = { width: 1440, height: 930 } as const;
 
 /** Narrower than the app's default (640): on the page the palette shares the screen with the headline and the stage. */
-const PALETTE_WIDTH = 520;
+const PALETTE_WIDTH = 480;
 
 interface Card {
   id: string;
@@ -29,6 +29,8 @@ interface Card {
   /** Put away: on no desk, but the app reveals it instead of making another. */
   hidden?: boolean;
   hideTitle?: boolean;
+  /** Content zoom (Ctrl+wheel), as the app stores it on the placement. */
+  scale?: number;
 }
 
 const CARDS: Card[] = [
@@ -38,7 +40,11 @@ const CARDS: Card[] = [
   { id: "demo-calculator", typeId: "calculator", x: 480, y: 90, width: 195, height: 285 },
 ];
 
-function layoutOf(cards: Card[], palette = { x: SCREEN.width / 2, y: SCREEN.height / 2 }) {
+function layoutOf(
+  cards: Card[],
+  palette = { x: SCREEN.width / 2, y: SCREEN.height / 2 },
+  viewport: { width: number; height: number } = SCREEN,
+) {
   return {
     activeDeskId: "1",
     desks: [
@@ -47,13 +53,14 @@ function layoutOf(cards: Card[], palette = { x: SCREEN.width / 2, y: SCREEN.heig
         name: "Desk 1",
         palette,
         paletteWidth: PALETTE_WIDTH,
-        viewport: SCREEN,
+        viewport,
         placements: cards.map((card) => ({
           instanceId: card.id,
           offset: { x: card.x, y: card.y },
           width: card.width,
           height: card.height,
           ...(card.hidden ? { hidden: true } : {}),
+          ...(card.scale ? { contentScale: card.scale } : {}),
         })),
       },
     ],
@@ -127,17 +134,29 @@ const PLAYGROUND_CARDS: Card[] = [
   { id: "demo-todo", typeId: "todo", x: -520, y: -220, width: 285, height: 255 },
   { id: "demo-notes", typeId: "notes", x: -520, y: 110, width: 285, height: 195 },
   { id: "demo-clock", typeId: "clock", x: 0, y: -300, width: 225, height: 140 },
-  { id: "demo-weather", typeId: "weather", x: 520, y: -230, width: 300, height: 270 },
-  { id: "demo-pomodoro", typeId: "pomodoro", x: 520, y: 160, width: 300, height: 440 },
+  { id: "demo-weather", typeId: "weather", x: 520, y: -235, width: 258, height: 230, scale: 1.464 },
+  { id: "demo-pomodoro", typeId: "pomodoro", x: 535, y: 140, width: 228, height: 420, hideTitle: true },
 ];
 
-const PLAYGROUND: Record<string, string> = {
-  ...SETTLED,
-  "kavibay:layout-v4": JSON.stringify(layoutOf(PLAYGROUND_CARDS)),
-  ...DESK_DATA,
-  // Widget config, not ctx.data: the cockpit keeps it (cockpit.ts).
-  "kavibay:widget-config:demo-weather": JSON.stringify({ location: "Lisbon" }),
-};
+/**
+ * Laid out for the window it opens in, not for `SCREEN`: the playground's
+ * frame is any shape at least that big, and the app fits a saved desk to a
+ * different window by stretching widths and heights apart — content that grows
+ * with a card's width (the weather) then no longer fits its height. Authored
+ * for the real size, there is nothing to stretch: the palette sits in the
+ * middle and the cards keep their sizes around it.
+ */
+function playground(): Record<string, string> {
+  const viewport = { width: window.innerWidth, height: window.innerHeight };
+  const palette = { x: viewport.width / 2, y: viewport.height / 2 };
+  return {
+    ...SETTLED,
+    "kavibay:layout-v4": JSON.stringify(layoutOf(PLAYGROUND_CARDS, palette, viewport)),
+    ...DESK_DATA,
+    // Widget config, not ctx.data: the cockpit keeps it (cockpit.ts).
+    "kavibay:widget-config:demo-weather": JSON.stringify({ location: "Lisbon" }),
+  };
+}
 
 /**
  * The Wizard stage: nothing but the palette. The scripted tour (webTour.ts)
@@ -175,7 +194,7 @@ const WIZARD: Record<string, string> = {
   ...widgetData(WIZARD_CARD.id, { preview: WIZARD_PREVIEW, collapsed: true }, "wizard:layout"),
 };
 
-export const SCENES = { desk: DESK, wizard: WIZARD, playground: PLAYGROUND } as const;
+export const SCENES = { desk: () => DESK, wizard: () => WIZARD, playground } as const;
 export type Scene = keyof typeof SCENES;
 
 export function isScene(value: string | null): value is Scene {
@@ -191,5 +210,5 @@ export function useScene(next: Scene): void {
 
 /** The saved state `web_storage_load` hands the app. */
 export function demoState(): Record<string, string> {
-  return SCENES[scene];
+  return SCENES[scene]();
 }
