@@ -29,7 +29,7 @@ mod tests {
         handler::server::ServerHandler,
         model::{
             Implementation, ListToolsResult, PaginatedRequestParams, ServerCapabilities,
-            ServerInfo, Tool, ToolAnnotations,
+            ServerConfig, Tool, ToolAnnotations,
         },
         service::{RequestContext, RoleServer},
         transport::{
@@ -47,8 +47,8 @@ mod tests {
     struct PlaceholderServer;
 
     impl ServerHandler for PlaceholderServer {
-        fn get_info(&self) -> ServerInfo {
-            ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+        fn get_info(&self) -> ServerConfig {
+            ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
                 .with_server_info(Implementation::new(SERVER_NAME, SERVER_VERSION))
                 .with_instructions(INSTRUCTIONS)
         }
