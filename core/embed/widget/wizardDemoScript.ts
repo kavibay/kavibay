@@ -27,6 +27,11 @@ export interface WizardDemoScript {
   resultQuery: string;
   /** Milestones the transport names, in order. */
   steps: readonly string[];
+  /**
+   * An image the tour pastes into the composer before the first prompt, by
+   * name; the page that plays it owns the file (core/web/assets/<name>.png).
+   */
+  attachment?: string;
   prompts: DemoPromptPart[][];
   replies: string[];
   /** Unique substring of the finished widget.js, which the tour waits for. */

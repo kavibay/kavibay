@@ -1,5 +1,6 @@
 /**
- * Connected accounts for the Wizard's demos: Linear and GitHub (the inbox) and
+ * Connected accounts for the Wizard's demos: Linear and GitHub (the inbox, the
+ * quick issue — which can create issues, kept in memory for the visit) and
  * tado° (the room climate).
  *
  * On the desktop a provider's `host.http` call goes to Rust, which adds the
@@ -118,6 +119,38 @@ function weatherForecast() {
   };
 }
 
+/** One team, and its open issues; issues created on the page join them. */
+const LINEAR_TEAM = { id: "team-eng", name: "Engineering", key: "ENG" };
+let nextIssueNumber = 418;
+const teamIssues = [
+  { identifier: "ENG-417", title: "Wizard: keep the preview scrolled after a rebuild", state: ["Todo", "unstarted"], ago: 40 },
+  { identifier: "ENG-414", title: "Palette: show the hotkey hint on first open", state: ["In Progress", "started"], ago: 95 },
+  { identifier: "ENG-409", title: "Settings: group AI providers by account", state: ["Backlog", "backlog"], ago: 260 },
+].map((issue) => ({
+  id: `demo-${issue.identifier}`,
+  identifier: issue.identifier,
+  title: issue.title,
+  url: `https://linear.app/kavibay/issue/${issue.identifier}`,
+  updatedAt: minutesAgo(issue.ago),
+  state: { name: issue.state[0], type: issue.state[1] },
+  team: { name: LINEAR_TEAM.name, key: LINEAR_TEAM.key },
+}));
+
+function linearCreateIssue(input: { title?: unknown }) {
+  const identifier = `ENG-${nextIssueNumber++}`;
+  const issue = {
+    id: `demo-${identifier}`,
+    identifier,
+    title: String(input.title ?? ""),
+    url: `https://linear.app/kavibay/issue/${identifier}`,
+    updatedAt: new Date().toISOString(),
+    state: { name: "Todo", type: "unstarted" },
+    team: { name: LINEAR_TEAM.name, key: LINEAR_TEAM.key },
+  };
+  teamIssues.unshift(issue);
+  return { data: { issueCreate: { success: true, issue } } };
+}
+
 /** A flat with three rooms, in tado°'s own shapes: `/zones` and `/zoneStates`. */
 const TADO_ROOMS = [
   { id: "1", name: "Living room", celsius: 21.4, humidity: 48.2 },
@@ -144,8 +177,16 @@ function tadoZoneStates() {
 /** The one response each scripted query needs; anything else is refused. */
 function respond(providerId: string, url: string, body: unknown): { status: number; body: unknown } {
   const query = String((body as { query?: unknown } | null)?.query ?? "");
-  if (providerId === LINEAR && url.startsWith("https://api.linear.app/graphql") && query.includes("assignedIssues")) {
-    return { status: 200, body: linearAssignedIssues() };
+  if (providerId === LINEAR && url.startsWith("https://api.linear.app/graphql")) {
+    if (query.includes("assignedIssues")) return { status: 200, body: linearAssignedIssues() };
+    if (query.includes("teams(")) return { status: 200, body: { data: { teams: { nodes: [LINEAR_TEAM] } } } };
+    if (query.includes("team(id:")) {
+      return { status: 200, body: { data: { team: { issues: { nodes: teamIssues } } } } };
+    }
+    if (query.includes("issueCreate")) {
+      const variables = (body as { variables?: { input?: { title?: unknown } } } | null)?.variables;
+      return { status: 200, body: linearCreateIssue(variables?.input ?? {}) };
+    }
   }
   if (providerId === GITHUB && url.startsWith("https://api.github.com/search/issues")) {
     return { status: 200, body: githubReviewRequests() };

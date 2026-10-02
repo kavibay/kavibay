@@ -2,6 +2,8 @@ import type { DemoCaseId } from "../demo/demoCase";
 import { demoCase } from "../demo/demoCase";
 import { CLIMATE_DEMO } from "./wizardClimateScript";
 import { INBOX_DEMO } from "./wizardInboxScript";
+import { ISSUE_DEMO } from "./wizardIssueScript";
+import { STATUS_DEMO } from "./wizardStatusScript";
 import { LISBON_DEMO } from "./wizardLisbonScript";
 import { WATER_DEMO } from "./wizardScript";
 import type { WizardDemoScript } from "./wizardDemoScript";
@@ -18,6 +20,8 @@ export const WIZARD_DEMOS: Record<DemoCaseId, WizardDemoScript> = {
   "linear-github-todos": INBOX_DEMO,
   "lisbon-countdown": LISBON_DEMO,
   "tado-room-climate": CLIMATE_DEMO,
+  "linear-quick-issue": ISSUE_DEMO,
+  "screenshot-status": STATUS_DEMO,
 };
 
 export function currentWizardDemo(): WizardDemoScript {
