@@ -91,10 +91,8 @@ const SETTLED = {
   "kavibay:palette-widgets-v1": JSON.stringify([]),
 };
 
-/** The launcher stage: a lived-in desk around the palette. */
-const DESK: Record<string, string> = {
-  ...SETTLED,
-  "kavibay:layout-v4": JSON.stringify(layoutOf(CARDS)),
+/** What the todo and notes cards say, on every desk that has them. */
+const DESK_DATA: Record<string, string> = {
   ...widgetData("demo-todo", {
     items: [
       todo("t1", "Send Northwind invoice", true, 0),
@@ -111,6 +109,34 @@ const DESK: Record<string, string> = {
     height: 190,
     toolbarVisible: false,
   }),
+};
+
+/** The launcher stage: a lived-in desk around the palette. */
+const DESK: Record<string, string> = {
+  ...SETTLED,
+  "kavibay:layout-v4": JSON.stringify(layoutOf(CARDS)),
+  ...DESK_DATA,
+};
+
+/**
+ * /playground: the whole window to try things in, so a few more cards — a
+ * focus timer and the weather (webProviders.ts answers its forecast) — and the
+ * clock above the palette instead of the calculator.
+ */
+const PLAYGROUND_CARDS: Card[] = [
+  { id: "demo-todo", typeId: "todo", x: -520, y: -220, width: 285, height: 255 },
+  { id: "demo-notes", typeId: "notes", x: -520, y: 110, width: 285, height: 195 },
+  { id: "demo-clock", typeId: "clock", x: 0, y: -300, width: 225, height: 140 },
+  { id: "demo-weather", typeId: "weather", x: 520, y: -230, width: 300, height: 270 },
+  { id: "demo-pomodoro", typeId: "pomodoro", x: 520, y: 160, width: 300, height: 440 },
+];
+
+const PLAYGROUND: Record<string, string> = {
+  ...SETTLED,
+  "kavibay:layout-v4": JSON.stringify(layoutOf(PLAYGROUND_CARDS)),
+  ...DESK_DATA,
+  // Widget config, not ctx.data: the cockpit keeps it (cockpit.ts).
+  "kavibay:widget-config:demo-weather": JSON.stringify({ location: "Lisbon" }),
 };
 
 /**
@@ -149,7 +175,7 @@ const WIZARD: Record<string, string> = {
   ...widgetData(WIZARD_CARD.id, { preview: WIZARD_PREVIEW, collapsed: true }, "wizard:layout"),
 };
 
-export const SCENES = { desk: DESK, wizard: WIZARD } as const;
+export const SCENES = { desk: DESK, wizard: WIZARD, playground: PLAYGROUND } as const;
 export type Scene = keyof typeof SCENES;
 
 export function isScene(value: string | null): value is Scene {
