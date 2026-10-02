@@ -21,6 +21,8 @@ import { isEnabledPackage, packageFiles } from "./webWizard";
  * `kavibay:tour-speed` (or a `speed` on the start), any time, mid-tour included:
  * every pause and keystroke here, and the recorded model's thinking time
  * (wizardFixture.ts), runs at `BASE_PACE / speed` of its authored length.
+ * The page can also pause it (`kavibay:tour-pause`) and skip to the end
+ * (`kavibay:tour-skip`).
  *
  * It also tells the page where to look (`kavibay:tour-focus`): the palette,
  * the conversation, the preview. The page's camera zooms there, or does not.
@@ -60,9 +62,31 @@ const BASE_PACE = 1.5;
 let pace = BASE_PACE;
 
 function setSpeed(value: unknown): void {
-  if (typeof value !== "number" || !SPEEDS.includes(value)) return;
+  if (skipping || typeof value !== "number" || !SPEEDS.includes(value)) return;
   pace = BASE_PACE / value;
   setWizardThinkingPace(pace);
+}
+
+/**
+ * Pause (`kavibay:tour-pause`) holds the tour where it is; nothing it waits on
+ * times out meanwhile. Skip (`kavibay:tour-skip`) plays the rest at a pace no
+ * one could follow — the page hides it — so the end is the real end: the
+ * widget built, saved and on the desk, by the same steps as ever.
+ */
+let paused = false;
+let skipping = false;
+const SKIP_PACE = 0.01;
+
+function skip(): void {
+  skipping = true;
+  paused = false;
+  pace = SKIP_PACE;
+  setWizardThinkingPace(SKIP_PACE);
+}
+
+/** Wait out a pause. */
+async function held(): Promise<void> {
+  while (paused) await realSleep(POLL_MS);
 }
 
 /** What a visitor could use to act on the app mid-tour. Scrolling is not here on purpose. */
@@ -72,7 +96,10 @@ const HELD_INPUT = [
 ];
 
 /** A pause in the tour's own pace. `until`'s polling and timeouts stay in real time. */
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms * pace));
+const sleep = async (ms: number) => {
+  await new Promise((resolve) => setTimeout(resolve, ms * pace));
+  await held();
+};
 const realSleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const typingPause = () => sleep(TYPE_MIN_MS + Math.random() * TYPE_JITTER_MS);
 const playing = () => phase === "playing";
@@ -130,12 +157,17 @@ function report(next: Phase, step?: number): void {
 }
 
 async function until<T>(find: () => T | null | false, timeoutMs: number): Promise<T | null> {
-  const deadline = performance.now() + timeoutMs;
+  let deadline = performance.now() + timeoutMs;
   while (performance.now() < deadline) {
     if (!playing()) return null;
     const found = find();
     if (found) return found;
     await realSleep(POLL_MS);
+    if (paused) {
+      const start = performance.now();
+      await held();
+      deadline += performance.now() - start;
+    }
   }
   return null;
 }
@@ -370,7 +402,8 @@ async function placeBesidePalette(anchor: HTMLElement): Promise<void> {
     anchor.dispatchEvent(
       pointer("pointermove", from.x + (to.x - from.x) * eased, from.y + (to.y - from.y) * eased),
     );
-    await realSleep(16);
+    await realSleep(skipping ? 0 : 16);
+    await held();
   }
   anchor.dispatchEvent(pointer("pointerup", to.x, to.y, 0));
 }
@@ -384,6 +417,14 @@ export function installWebTour(demo: DemoCaseId): void {
     if (event.origin !== location.origin || event.source !== window.parent) return;
     const data = event.data as { type?: unknown; speed?: unknown } | null;
     if (data?.type === "kavibay:tour-speed") setSpeed(data.speed);
+    if (data?.type === "kavibay:tour-pause") paused = (data as { paused?: unknown }).paused === true && playing();
+    if (data?.type === "kavibay:tour-skip" && phase !== "done") {
+      skip();
+      if (phase === "ready") {
+        phase = "playing";
+        void run();
+      }
+    }
     if (data?.type !== "kavibay:tour-start") return;
     setSpeed(data.speed);
     if (phase !== "ready") return;
