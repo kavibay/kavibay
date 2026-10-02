@@ -157,7 +157,10 @@ function safePath(url: string): string {
     const parsed = new URL(url);
     return `${parsed.host}${parsed.pathname}`;
   } catch {
-    return "unparseable url";
+    // `{{origin}}/…` is a provider's placeholder for a credential's instance
+    // URL (n8n), filled in Rust, so it never parses here. Its path is still
+    // the useful part of the message.
+    return url.startsWith("{{") ? url.split(/[?#]/)[0] : "unparseable url";
   }
 }
 

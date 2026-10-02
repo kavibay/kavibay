@@ -70,10 +70,11 @@ Needs a connected account. The widget gate shows a connect prompt until then.
 
 | Query | Reads | Arguments | Returns | Refresh |
 |---|---|---|---|---|
-| `executions` | Recent executions of one n8n workflow | `workflowId: string` (from `workflows`) | `list of { id: string, workflowId: string, status: string, mode: string, startedAt: string, stoppedAt: string? }` | 30 s |
+| `executionProgress` | Which step one n8n execution is on: currentNode (null when unknown or finished), lastNode (last finished), totalNodes and every node that has run with its status and timing. executionId comes from executions. n8n writes this during a run only when the workflow setting Save execution progress (or EXECUTIONS_DATA_SAVE_ON_PROGRESS) is on; otherwise nodes stays empty until the run ends, so show the execution status then, not an error. | `executionId: string` (from `executions`) | `{ id: string, status: string, lastNode: string?, currentNode: string?, waitTill: string?, totalNodes: number, nodes: list of { name: string, status: string, startedAt: string, durationMs: number } }` | 5 s |
+| `executions` | Running n8n executions first, then the most recent finished ones. Without workflowId this is the newest across every workflow — one request for a status board instead of one per workflow; group by workflowId. status is running, success, error, canceled, waiting or crashed. | `workflowId?: string` (from `workflows`) | `list of { id: string, workflowId: string, status: string, mode: string, startedAt: string, stoppedAt: string? }` | 5 s |
 | `workflows` | The workflows on your n8n instance | none | `list of { id: string, name: string, active: boolean, updatedAt: string }` | 5 min |
 
-No actions — this provider is read-only.
+Actions: `triggerWebhook` (write).
 
 ## Notion
 
