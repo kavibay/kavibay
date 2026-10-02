@@ -155,7 +155,7 @@ function linearCreateIssue(input: { title?: unknown }) {
 const TADO_ROOMS = [
   { id: "1", name: "Living room", celsius: 21.4, humidity: 48.2 },
   { id: "2", name: "Bedroom", celsius: 19.1, humidity: 52.6 },
-  { id: "3", name: "Office", celsius: 22.0, humidity: 44.9 },
+  { id: "3", name: "Office", celsius: 18.6, humidity: 41.3 },
 ];
 
 function tadoZoneStates() {
