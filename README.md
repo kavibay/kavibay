@@ -50,6 +50,25 @@ another window to manage.
   once, encrypted at rest, and resolved in Rust. A widget only ever learns
   *whether* it is connected.
 
+## What v0.1 is, and isn't
+
+This is the first public release. Expect rough edges, and please report them.
+
+- **Windows 10 and 11 only.** macOS and Linux ports exist in the source, unsupported.
+- **A short list of integrations.** Data: GitHub, Linear, Notion, n8n, Spotify,
+  tado°, Fitbit, Google Calendar. Models: Anthropic, OpenAI, Cloudflare Workers AI.
+  A widget you build reads from these or from a public API that needs no key.
+- **Some accounts need your own developer app.** Spotify, Fitbit and Google
+  Calendar ask for a Client ID from their developer console; one-click sign-in
+  is not there yet. GitHub, Linear, Notion and n8n take a token, tado° signs in
+  with a code.
+- **The Wizard needs your own AI key** and costs a few cents per widget. Results
+  vary with the model; asking for a fix or two is normal.
+- **No widget store yet.** What you build stays on your machine.
+- **Unsigned builds**, so SmartScreen warns once.
+
+Bugs go to [Issues](https://github.com/kavibay/kavibay/issues), ideas to
+[Discussions](https://github.com/kavibay/kavibay/discussions).
 
 ## Install
 
