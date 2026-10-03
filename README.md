@@ -21,7 +21,9 @@
 Tap `Ctrl` twice. A command palette opens in the middle of the screen and brings
 your widgets with it. Tap twice again and everything is gone.
 
-<a href="https://kavibay.com/videos/launcher.mp4"><img src="https://kavibay.com/videos/launcher-poster.jpg" width="80%" alt="The Kavibay command palette over a desktop wallpaper — click to watch the video" /></a>
+
+https://github.com/user-attachments/assets/76f069d2-27be-40e6-baec-37afcbd6d2da
+
 
 **[Try it in your browser](https://kavibay.com/)** ·
 **[Download for Windows](https://github.com/kavibay/kavibay/releases/latest)**
