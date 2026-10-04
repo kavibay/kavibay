@@ -31,6 +31,7 @@ export const TODO_STATE_KEY = "state";
 const DEBOUNCE_MS = 300;
 
 export interface TodoModel {
+  instanceId: string;
   state: Ref<TodoWidgetState>;
   rows: ComputedRef<ReturnType<typeof visibleRows>>;
   itemById: ComputedRef<ReadonlyMap<string, TodoItem>>;
@@ -191,6 +192,7 @@ export const todoWidget = defineWidget<Record<string, never>>({
       };
 
       return {
+        instanceId: ctx.instanceId,
         state,
         rows: computed(() => visibleRows(state.value.items)),
         itemById: computed(() => new Map(state.value.items.map((item) => [item.id, item]))),
