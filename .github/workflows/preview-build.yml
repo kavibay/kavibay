@@ -38,9 +38,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # release.yml restores this cache by the same shared-key.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          shared-key: windows-release
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - run: pnpm install --frozen-lockfile
