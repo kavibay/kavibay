@@ -27,7 +27,7 @@
         {
           "id": "new-widget",
           "title": "New Widget",
-          "subtitle": "Start a new project in the Widget Wizard",
+          "subtitle": "Start a new widget in the Widget Wizard",
           "keywords": ["new", "widget", "wizard", "create", "build", "generate", "project"],
           "needsInstance": false,
           "replacesCatalogRow": true

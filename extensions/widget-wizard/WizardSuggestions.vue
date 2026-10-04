@@ -23,19 +23,23 @@ defineEmits<{ choose: [suggestion: WizardSuggestion] }>();
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
   min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  white-space: nowrap;
 }
 
 .wizard-suggestions-label {
+  flex-shrink: 0;
   margin-right: 2px;
   color: rgba(var(--fg-rgb), 0.4);
   font-size: 10px;
 }
 
 button {
-  max-width: 100%;
+  flex: 0 0 auto;
   padding: 5px 9px;
   border: 1px solid rgba(var(--fg-rgb), 0.12);
   border-radius: 999px;
@@ -45,7 +49,6 @@ button {
   font-size: 11px;
   line-height: 1.4;
   text-align: left;
-  overflow-wrap: anywhere;
   cursor: pointer;
 }
 
