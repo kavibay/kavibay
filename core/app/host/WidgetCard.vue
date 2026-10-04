@@ -950,6 +950,8 @@ watch(
       @focusout="chromeFocused = false"
       @contextmenu="onHeaderContextMenu"
     >
+      <!-- Host controls beside the chrome, shown and hidden with it (the Wizard preview's gear). -->
+      <slot name="chrome-start" />
       <div class="widget-card-chrome-visual">
         <div class="widget-card-surface widget-card-chrome-surface" :style="chromeSurfaceVars" aria-hidden="true" />
         <WidgetDeleteConfirmation v-if="deleteRequest" :request="deleteRequest" />

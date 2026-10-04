@@ -4,6 +4,7 @@ import { JsonBridge, sandboxContext } from "./bridge";
 import { isReady } from "./sandboxTransport";
 import { isExtToHost } from "../runtime/bridgeProtocol";
 import { WidgetPackageLoader } from "./widgetPackageLoad";
+import { wizardPreviewIdentity } from "./wizardPreviewIdentity";
 import { tadoExtension } from "./fixtures/tado";
 import { makeFetcher, makeUi } from "./fixtures/harness";
 
@@ -91,6 +92,10 @@ const install = (over: Record<string, unknown> = {}) => ({
   assert(
     loader.definitionOf("room-summary") === undefined,
     "a package nobody approved must not load — an empty grant is not a substitute for an absent one",
+  );
+  assert(
+    loader.definitionOf(wizardPreviewIdentity("__draft__room-summary").packageId) === undefined,
+    "opening a draft cannot approve an unapproved widget",
   );
   assert(
     (loader.refusalOf("room-summary") ?? "").includes("approved"),
@@ -265,9 +270,14 @@ const install = (over: Record<string, unknown> = {}) => ({
   const host = new Host(registry, fetcher, makeUi({}).ui);
   await host.connect(TADO, { accessToken: "tok" });
 
+  const preview = wizardPreviewIdentity("__draft__room-summary");
+  assert(loader.definitionOf("__draft__room-summary") === undefined,
+    "drafts do not have independent approved definitions");
+  assert(loader.definitionOf(preview.packageId) === "local.room-summary/tile",
+    "reopening the approved widget resolves its definition without saving again");
   const instance = {
-    id: "package-1",
-    definitionId: loader.definitionOf("room-summary")!,
+    id: preview.instanceId,
+    definitionId: loader.definitionOf(preview.packageId)!,
     configuration: {},
     position: { x: 0, y: 0 },
     size: { w: 2, h: 2 },

@@ -111,7 +111,16 @@ export const WIZARD_ANSWERS: Record<string, (args: Args) => unknown> = {
 
   runtime_extensions_draft_list: () => wizardFixture.wizardDrafts(),
   runtime_extensions_draft_read: (args) => wizardFixture.wizardDraftRead(String(args.id)),
-  runtime_extensions_draft_open: (args) => wizardFixture.wizardDraftOpen(String(args.id)),
+  runtime_extensions_draft_open: async (args) => {
+    const id = String(args.id);
+    const existing = demoDraftFiles(id).length > 0;
+    if (!existing) {
+      const files = installed.get(id);
+      if (!files) throw new Error(`package_not_found:${id}`);
+      await wizardFixture.wizardDraftWrite(id, files);
+    }
+    return { snapshot: await wizardFixture.wizardDraftRead(id), existing };
+  },
   runtime_extensions_draft_write: (args) =>
     wizardFixture.wizardDraftWrite(String(args.id), args.files, (args.expectedRevision as string) ?? null),
   runtime_extensions_draft_discard: (args) => wizardFixture.wizardDraftDiscard(String(args.id)),
