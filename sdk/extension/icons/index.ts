@@ -12,7 +12,6 @@
  */
 export { default as IconBase } from "./IconBase.vue";
 export { default as AlarmClockIcon } from "./AlarmClockIcon.vue";
-export { default as AxeIcon } from "./AxeIcon.vue";
 export { default as BlocksIcon } from "./BlocksIcon.vue";
 export { default as BracesIcon } from "./BracesIcon.vue";
 export { default as BrainIcon } from "./BrainIcon.vue";
