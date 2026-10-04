@@ -47,6 +47,9 @@ const props = defineProps<{
   debugTarget?: HTMLElement | null;
   /** A turn is reworking this widget: ring the card wherever it has been moved to. */
   working?: boolean;
+  /** The draft manifest's `ui.padding` / `ui.defaultHideTitle`; the gear above the card edits them. */
+  padding?: boolean;
+  defaultHideTitle?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -62,6 +65,8 @@ const emit = defineEmits<{
    * only receive their shape.
    */
   fault: [fault: { source: WidgetFault["source"]; message: string; where?: string }];
+  /** A card flag was changed here; the wizard writes it into the manifest. */
+  "card-flags": [flags: { padding?: boolean; defaultHideTitle?: boolean }];
 }>();
 
 provideWizardPreviewPicker({
@@ -71,7 +76,10 @@ provideWizardPreviewPicker({
 });
 
 const MIN = { w: 160, h: 120 };
-const isLoaded = computed(() => packageDefinitionId(props.extId) !== undefined);
+// Draft code runs against the installed definition and its existing grant.
+// The draft URL chooses the files; it never creates or widens permissions.
+const identity = computed(() => wizardPreviewIdentity(props.extId));
+const isLoaded = computed(() => packageDefinitionId(identity.value.packageId) !== undefined);
 /**
  * The same gear the desk shows for a contract widget's `configuration`. With
  * it off, a value asked once by the gate (a webhook URL) could only be changed
@@ -79,7 +87,7 @@ const isLoaded = computed(() => packageDefinitionId(props.extId) !== undefined);
  */
 const settingsId = computed(() => {
   if (props.format !== "contract") return undefined;
-  const definitionId = packageDefinitionId(props.extId);
+  const definitionId = packageDefinitionId(identity.value.packageId);
   if (!definitionId) return undefined;
   const fields = extensionHost.registry.widget(definitionId)?.widget.configuration;
   return fields && Object.keys(fields).length > 0 ? definitionId : undefined;
@@ -113,7 +121,29 @@ watch(
   },
 );
 const offset = ref({ x: 0, y: 0 });
-const hideTitle = ref(false);
+const hideTitle = ref(props.defaultHideTitle ?? false);
+watch(
+  () => props.defaultHideTitle,
+  (next) => {
+    hideTitle.value = next ?? false;
+  },
+);
+const gearId = useId();
+const gearEl = ref<HTMLElement | null>(null);
+const gearPopStyle = ref<Record<string, string>>({});
+const gearOpen = ref(false);
+
+/** Placed from the gear's rect when it opens: the card may have been dragged or scaled. */
+function onGearToggle(event: Event) {
+  if ((event as ToggleEvent).newState !== "open" || !gearEl.value) return;
+  const rect = gearEl.value.getBoundingClientRect();
+  gearPopStyle.value = { top: `${rect.bottom + 6}px`, left: `${rect.left}px` };
+}
+
+function setHideTitle(next: boolean) {
+  hideTitle.value = next;
+  emit("card-flags", { defaultHideTitle: next });
+}
 const stageEl = ref<HTMLElement | null>(null);
 const cardEl = ref<HTMLElement | null>(null);
 let resizeStartOffset: { x: number; y: number } | null = null;
@@ -245,7 +275,6 @@ function onContentScale(next: number) {
  * model to render better errors is the wrong fix: it is the party with the
  * least information, and it is also the party being debugged.
  */
-const identity = computed(() => wizardPreviewIdentity(props.extId));
 const instanceId = computed(() => identity.value.instanceId);
 
 watch(
@@ -362,11 +391,39 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
       reporting a size of its own.
     -->
     <div v-if="entryUrl" ref="cardEl" class="stage-card" :class="{ 'stage-card--working': working }" :style="cardStyle" @[CONTENT_OVERFLOW_EVENT]="onContentOverflow">
+        <!--
+          The card's own manifest flags, set by looking at them. The gear sits
+          in the card's chrome slot (below); this is its native popover: top
+          layer past the stage's clipping, light dismiss and Esc for free.
+        -->
+        <template v-if="!sharing">
+          <div :id="gearId" popover class="stage-gear-pop" :style="gearPopStyle" @beforetoggle="onGearToggle" @toggle="gearOpen = ($event as ToggleEvent).newState === 'open'">
+            <label class="stage-gear-row">
+              <span>Padding</span>
+              <input
+                type="checkbox"
+                role="switch"
+                :checked="padding !== false"
+                @change="emit('card-flags', { padding: ($event.target as HTMLInputElement).checked })"
+              />
+            </label>
+            <label class="stage-gear-row">
+              <span>Hide title</span>
+              <input
+                type="checkbox"
+                role="switch"
+                :checked="hideTitle"
+                @change="setHideTitle(($event.target as HTMLInputElement).checked)"
+              />
+            </label>
+          </div>
+        </template>
         <WidgetCard
           :capture-active="captureActive"
           :key="instanceId"
           :title="title"
           :hide-title="hideTitle"
+          :padding="padding !== false"
           :instance-id="instanceId"
           :has-settings="!!settingsId"
           :allow-duplicate="false"
@@ -374,7 +431,7 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
           :width="size.w"
           :height="size.h"
           :content-scale="scale"
-          @update:hide-title="hideTitle = $event"
+          @update:hide-title="setHideTitle"
           @rename="emit('rename', $event ?? title)"
           @move-pointerdown="onMovePointerDown"
           @resize="onResize"
@@ -384,7 +441,7 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
           <ContractPackageWidget
             v-if="format === 'contract' && isLoaded && !(unmet && unmet.length)"
             :key="`${extId}:${nonce}`"
-            :package-id="extId"
+            :package-id="identity.packageId"
             :entry-url="entryUrl"
           />
           <!--
@@ -420,6 +477,22 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
             :entry-url="entryUrl"
             :granted-permissions="grantedPermissions"
           />
+          <template v-if="!sharing" #chrome-start>
+            <button
+              ref="gearEl"
+              type="button"
+              class="stage-gear"
+              :class="{ 'stage-gear--open': gearOpen }"
+              aria-label="Card layout"
+              v-tip="'Card layout'"
+              :popovertarget="gearId"
+            >
+              <IconBase :size="15">
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+                <circle cx="12" cy="12" r="3" />
+              </IconBase>
+            </button>
+          </template>
           <template v-if="settingsId" #settings>
             <CockpitWidgetSettings :definition-id="settingsId" />
           </template>
@@ -549,6 +622,99 @@ const FAULT_LABEL: Record<WidgetFault["source"], string> = {
 .stage-card {
   position: relative;
   flex-shrink: 0;
+}
+
+/* Left of the card's chrome pill, in its slot, so it shows and hides with it. */
+.stage-gear {
+  align-self: center;
+  margin-right: 4px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: rgba(var(--fg-rgb), 0.55);
+  cursor: pointer;
+  transition: color 100ms ease, background-color 100ms ease;
+}
+
+.stage-gear:hover,
+.stage-gear:focus-visible,
+.stage-gear--open {
+  background: rgba(var(--fg-rgb), 0.08);
+  color: rgba(var(--fg-rgb), 0.92);
+}
+
+.stage-gear-pop {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  min-width: 160px;
+  padding: 4px;
+  border: 1px solid rgba(var(--fg-rgb), 0.12);
+  border-radius: 12px;
+  background: rgba(var(--surface-bg-rgb), 0.95);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  color: rgba(var(--fg-rgb), 0.9);
+  font-size: 12px;
+}
+
+.stage-gear-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.stage-gear-row:hover {
+  background: rgba(var(--fg-rgb), 0.08);
+}
+
+/* The wizard's switch (conversation menu), drawn on the native checkbox. */
+.stage-gear-row input {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 26px;
+  height: 16px;
+  margin: 0;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.15);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.stage-gear-row input::after {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(var(--fg-rgb), 0.65);
+  transition: transform 120ms ease;
+}
+
+.stage-gear-row input:checked {
+  background: rgba(var(--fg-rgb), 0.4);
+}
+
+.stage-gear-row input:checked::after {
+  transform: translateX(10px);
+  background: rgb(var(--fg-rgb));
+}
+
+.stage-gear-row input:focus-visible {
+  outline: 1px solid rgba(var(--fg-rgb), 0.45);
+  outline-offset: 2px;
 }
 
 @property --stage-working-angle {
