@@ -36,11 +36,19 @@ const {
         v-tip="'Refresh'"
         @click="onRefresh"
       >
-        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-          <path
-            fill="currentColor"
-            d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 13.65-6.65z"
-          />
+        <svg
+          viewBox="0 0 24 24"
+          width="13"
+          height="13"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+          <path d="M21 3v6h-6" />
         </svg>
       </button>
     </div>
@@ -149,17 +157,14 @@ const {
   height: 100%;
   min-width: 0;
   min-height: 0;
-  padding: 14px;
-  box-sizing: border-box;
   container-type: inline-size;
 }
 
 .stocks-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 4px;
+  margin-bottom: 8px;
 }
 
 .stocks-updated {
@@ -172,13 +177,13 @@ const {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
-  color: rgba(var(--fg-rgb), 0.55);
+  color: rgba(var(--fg-rgb), 0.4);
   cursor: pointer;
 }
 
@@ -310,9 +315,10 @@ const {
 }
 
 .stocks-name {
-  margin: 0 0 8px;
-  font-size: 12px;
-  color: rgba(var(--fg-rgb), 0.55);
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(var(--fg-rgb), 0.85);
 }
 
 .stocks-metrics {
@@ -357,7 +363,7 @@ const {
 
   .stocks-list {
     min-height: 0;
-    padding: 8px 12px 8px 8px;
+    padding: 6px;
     overflow-y: auto;
     border-right: 1px solid rgba(var(--fg-rgb), 0.09);
   }
@@ -366,7 +372,7 @@ const {
     display: flex;
     flex-direction: column;
     height: 100%;
-    padding: 16px;
+    padding: 12px 14px;
     box-sizing: border-box;
     background: rgba(var(--fg-rgb), 0.025);
   }
