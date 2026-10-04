@@ -130,6 +130,31 @@ export function unmetProviders(
   ];
 }
 
+/**
+ * Integrations the request names by word but the person has not ticked.
+ *
+ * The format follows the ticks, so "a widget for my Notion databases" without
+ * one is authored as a runtime package — which has no provider API, and the
+ * model invented one. Asking beats ticking silently: a tick changes the format.
+ * Matches the label without its parenthetical ("Weather (Open-Meteo)" →
+ * "weather") and the id's last segment, as whole words, case-insensitively.
+ */
+export function unselectedNamedProviders<T extends { id: string; label: string }>(
+  text: string,
+  options: readonly T[],
+  selected: readonly string[],
+): T[] {
+  const haystack = text.toLocaleLowerCase();
+  const named = (name: string) => {
+    const word = name.replace(/\(.*?\)/g, "").replace(/[^\p{L}\p{N}]/gu, "").toLocaleLowerCase();
+    return word.length >= 3 && new RegExp(`(^|[^\\p{L}\\p{N}])${word}($|[^\\p{L}\\p{N}])`, "u").test(haystack);
+  };
+  return options.filter(
+    (option) =>
+      !selected.includes(option.id) && (named(option.label) || named(option.id.split("/").pop() ?? "")),
+  );
+}
+
 export function canAutoApprove(request: WizardPermissionRequest): boolean {
   return request.refused.length === 0 && request.choices.length > 0;
 }

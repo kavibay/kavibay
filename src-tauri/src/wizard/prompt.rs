@@ -426,15 +426,27 @@ What goes wrong here, in the order it goes wrong:
   knows — `githubPat`, `linearApi`, `notionApi`, `n8nApi`, `spotifyOAuth2`, `fitbitOAuth2`, `anthropicApi`, `openaiApi`, `cloudflareWorkersAi` — and
   it attaches the secret to your declared request. You never see the token. An
   `Authorization` header in `headers` fails validation; do not reach for one.
+  The credential also attaches every header its service requires on each
+  request — `notionApi` sends `Notion-Version` — so a header you cannot declare
+  is never a reason a service is out of reach.
+- **There is no provider API here.** `kavibay.providers`, `kavibay.provider`,
+  `kavibay.notion` and provider ids such as `kavibay.notion/notion` do not exist
+  in a runtime package; never probe for them. When the person names a connected
+  service, reach it with a declared request as above, and say in one sentence
+  that choosing it under **+ → Integrations** builds a widget that reads the
+  account through the host instead.
 - **The url is fixed.** `{{name}}` fills one whole path segment and nothing else.
   Everything variable is a declared parameter. A url you build by concatenating
   strings is a package that will not load.
 - **Four states, not one.** Not-configured, loading, error and empty each need a
   screen. A widget that renders only the happy path is an empty box on the day
   the token expires.
-- **Say which credential is missing.** On `credential_not_configured` or
-  `credential_not_granted`, name it and point at Settings → Credentials. "Error"
-  tells the person nothing they can act on.
+- **Access is the host's to explain.** On `permission_denied`, `needs_review`,
+  `consent_stale`, `credential_not_configured`, `credential_not_granted` or
+  `credential_needs_reauth` the host already shows a bar over your widget with
+  the one fix that applies — saving, reviewing, or choosing an account. Show
+  your empty or not-configured state and no message of your own; never point
+  at Settings. Every other code is yours to explain.
 
 # The package format
 
@@ -833,6 +845,22 @@ mod tests {
             !system_prompt().contains("@kavibay/contract.js"),
             "the runtime package prompt must not offer the contract runtime"
         );
+    }
+
+    /// Asked for "my Notion databases" with no integration ticked, a runtime
+    /// package probed `kavibay.providers.query(...)` and rendered its own
+    /// "provider not available" panel. The rule has to stay in the prompt.
+    #[test]
+    fn the_runtime_prompt_says_it_has_no_provider_api() {
+        let prompt = system_prompt();
+        assert!(prompt.contains("There is no provider API here"));
+        assert!(prompt.contains("+ → Integrations"));
+        // The host shows access failures; a package that also explains them
+        // guesses, and told people to check an account that was never the fault.
+        assert!(prompt.contains("Access is the host's to explain"));
+        // Without this the model read the header allowlist as "Notion cannot be
+        // reached" and shipped a widget that only explains why it does nothing.
+        assert!(prompt.contains("`notionApi` sends `Notion-Version`"));
     }
 
     /// If the design doc stops reaching the model, generated widgets quietly
