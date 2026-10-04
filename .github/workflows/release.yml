@@ -96,10 +96,14 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # A tag run can read caches from main but not from earlier tags, so a cache
+      # saved here would never be restored. Read the release-profile cache the
+      # preview build on main keeps warm instead (same shared-key), and save nothing.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-          key: release-${{ matrix.os }}
+          shared-key: windows-release
+          save-if: false
 
       - run: pnpm install --frozen-lockfile
 
