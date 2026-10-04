@@ -9,7 +9,7 @@
  */
 
 /** Permissions that may be granted when enabling a ready package. */
-const GRANTABLE_ON_ENABLE = new Set(["storage.instance", "network.declared"]);
+const GRANTABLE_ON_ENABLE = new Set(["storage.instance", "network.declared", "background.pop"]);
 
 import type { PackageOrigin } from "./runtimeTypes";
 
@@ -145,6 +145,8 @@ export function permissionLabel(permission: string): string {
       return "Store its own settings for each widget instance";
     case "network.declared":
       return "Call the endpoints listed below (the host makes the requests)";
+    case "background.pop":
+      return "Keep running while Kavibay is hidden, and bring its card to the front (with a sound if it asks)";
     default:
       return permission;
   }

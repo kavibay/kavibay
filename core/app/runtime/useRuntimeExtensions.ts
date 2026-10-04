@@ -8,6 +8,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { RegisteredExtension } from "@sdk/types";
 import { getExtension } from "../extensions/registry";
 import { withRealPathSeparators } from "./manifestValidate";
+import { BACKGROUND_POP } from "./permissions";
 import { DEFAULT_CONTENT_SCALE, clampContentScale } from "../host/resizeLogic";
 import { useDeveloperPrefs } from "../settings/useDeveloperPrefs";
 import {
@@ -133,7 +134,9 @@ export function scannedToHostRef(
     hugHeight: false,
     // A dropped-in package cannot declare itself opaque; see `ui.opaque`.
     opaque: false,
-    keepAliveWhenHidden: false,
+    // From the grant, not the manifest: running hidden is what the person
+    // consented to, and a package cannot keep itself alive by asking.
+    keepAliveWhenHidden: install?.grantedPermissions?.includes(BACKGROUND_POP) === true,
     permissions: [...row.permissions],
     commands: [...row.commands],
     grantedPermissions: install?.grantedPermissions

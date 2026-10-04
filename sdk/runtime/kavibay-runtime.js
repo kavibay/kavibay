@@ -15,6 +15,8 @@
  *   await kavibay.storage.set({ city: "Berlin" });
  *   const saved = await kavibay.storage.get();
  *
+ *   await kavibay.pop({ sound: true });   // needs background.pop
+ *
  * Everything is host-mediated on purpose: your package never holds a secret,
  * never learns another package's data, and can only reach the endpoints its
  * own `api.json` declares and the user consented to.
@@ -399,6 +401,20 @@
           },
         );
       },
+    },
+
+    /**
+     * Reveals this widget's card without opening the cockpit, with the
+     * host's alarm sound when `{ sound: true }`. Needs `background.pop`, which
+     * also keeps the widget running while Kavibay is hidden. Pops closer than
+     * ten seconds apart are merged into one.
+     */
+    pop: function (options) {
+      return send({ type: "kavibay.ext.pop", sound: !!(options && options.sound) }).then(
+        function (reply) {
+          if (reply.ok === false) throw new Error(reply.error);
+        },
+      );
     },
   };
 

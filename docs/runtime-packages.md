@@ -220,6 +220,36 @@ Percentages, totals, streaks, remaining time, "3 of 8 done" — compute them in
 inputs and derive on every draw. A stored percentage is a percentage that will
 eventually disagree with the numbers next to it.
 
+### Popping up: `kavibay.pop()`, only when the widget must speak first
+
+A widget that has to get attention on its own — a timer running out, a
+reminder at a set time, a countdown to a meeting — declares `background.pop`
+and calls:
+
+```js
+await kavibay.pop({ sound: true });   // or kavibay.pop() for no sound
+```
+
+The host shows this widget's card without opening the cockpit or its palette
+and, with `sound: true`, plays its alarm sound. Existing visible widgets stay
+visible. The popped card stays until dismissed; it is not pinned. The same
+permission keeps the widget running while Kavibay is hidden; without it the
+widget stops when the window closes, and `pop()` rejects with
+`permission denied: background.pop`.
+
+Rules that follow from it:
+
+1. **Declare it only when the widget raises something unasked.** It costs the
+   person a review step when they enable the widget, and a widget that runs
+   hidden for nothing is CPU spent on nothing.
+2. **Keep the due time, not a countdown.** Timers in a hidden window are
+   throttled, so a `setInterval` that subtracts one per tick falls behind. Store
+   the moment it is due (`dueAt = Date.now() + ms`), compare it with
+   `Date.now()` on every tick, and save it with `kavibay.storage` so a reload
+   keeps it.
+3. **Pop once per event.** Pops closer than ten seconds apart are merged into
+   one; a widget that pops from every tick gets one pop, not a stream.
+
 ## What you get
 
 Load the runtime SDK from the host and put your own script after it:
@@ -235,7 +265,7 @@ your own by that name is not loaded, and a hand-written stand-in defines
 nothing — `kavibay` stays undefined and every call throws a `ReferenceError` on
 the first click, with a widget that renders perfectly and does nothing.
 
-It gives you two things:
+It gives you three things:
 
 ```js
 // Per-instance storage (needs the storage.instance permission)
@@ -246,6 +276,9 @@ const saved = await kavibay.storage.get();   // null when nothing is stored
 const res = await kavibay.http("forecast", { latitude: 52.52, longitude: 13.405 });
 if (!res.ok) return showError(res.code);
 render(res.data);
+
+// Bring the widget to the front (needs the background.pop permission)
+await kavibay.pop({ sound: true });
 ```
 
 Storage is namespaced to your package **and** the widget instance, so two copies

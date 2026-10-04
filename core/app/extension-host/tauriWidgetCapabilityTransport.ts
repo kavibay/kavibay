@@ -2,6 +2,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { nextTick } from "vue";
 import type {
   AlarmNotification,
   ColorPickerEvent,
@@ -83,12 +84,14 @@ export const tauriWidgetCapabilityTransport: WidgetCapabilityTransport = {
     if (mode !== "pop" && mode !== "sound_and_pop") return;
 
     try {
+      window.dispatchEvent(
+        new CustomEvent("kavibay:reveal-widget", { detail: { instanceId, onlyWidget: true } }),
+      );
+      // Render the card before showing the transparent native window.
+      await nextTick();
       const win = getCurrentWindow();
       await win.show();
       await win.setFocus();
-      window.dispatchEvent(
-        new CustomEvent("kavibay:reveal-widget", { detail: { instanceId } }),
-      );
     } catch {
       // The alarm still rings when window focus is unavailable.
     }

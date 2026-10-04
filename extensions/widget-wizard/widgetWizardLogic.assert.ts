@@ -1852,6 +1852,15 @@ assert(
     "the network is never granted to a draft, whatever it asks for",
   );
 
+  const withPop = [
+    file("manifest.json", '{"permissions":["background.pop","storage.instance"]}'),
+  ];
+  assertEq(
+    previewPermissionsFor(withPop),
+    ["storage.instance", "background.pop"],
+    "a draft that pops can be heard in the preview",
+  );
+
   assertEq(
     previewPermissionsFor([file("manifest.json", '{"permissions":[]}')]),
     [],

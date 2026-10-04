@@ -5,6 +5,8 @@ import {
   handleBridgeMessage,
   httpFailure,
   isExtToHost,
+  popOutcome,
+  POP_COOLDOWN_MS,
   type BridgeFrameIdentity,
   type ExtToHost,
   type HostToExt,
@@ -188,5 +190,24 @@ assert(
     assert(reply.result.data === null, "failure carries no data");
   }
 }
+
+// --- pop: recognized, answered by the frame, gated by grant and cooldown ---
+assert(isExtToHost({ type: "kavibay.ext.pop", requestId: "r1" }) === true, "pop shape");
+assert(isExtToHost({ type: "kavibay.ext.pop", sound: true }) === false, "pop needs a request id");
+assert(
+  handleBridgeMessage({ type: "kavibay.ext.pop", requestId: "r1" }, frame, createMockStorage()) ===
+    null,
+  "pop is answered by the frame",
+);
+assert(popOutcome(["storage.instance"], null, 0) === "denied", "pop without background.pop");
+assert(popOutcome(["background.pop"], null, 0) === "raise", "first pop raises");
+assert(
+  popOutcome(["background.pop"], 1_000, 1_000 + POP_COOLDOWN_MS - 1) === "swallowed",
+  "pop inside the cooldown is swallowed",
+);
+assert(
+  popOutcome(["background.pop"], 1_000, 1_000 + POP_COOLDOWN_MS) === "raise",
+  "pop after the cooldown raises again",
+);
 
 console.log("bridgeProtocol.assert.ts: ok");
