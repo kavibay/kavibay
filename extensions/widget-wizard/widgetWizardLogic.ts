@@ -141,6 +141,8 @@ function permissionLabel(permission: string): string {
       return "Store its own settings for each widget instance";
     case "network.declared":
       return "Call the endpoints listed below (the host makes the requests)";
+    case "background.pop":
+      return "Keep running while Kavibay is hidden, and bring its card to the front (with a sound if it asks)";
     default:
       return permission;
   }
@@ -2312,6 +2314,10 @@ export function repairTurnFor(problems: string[]): string {
  * works and an installed widget that does not. The draft has its own storage
  * namespace, so this cannot reach the real widget's data.
  *
+ * `background.pop` passes too: in the open preview it can only beep and raise a
+ * window that is already up, and without it nobody could hear the sound before
+ * saving.
+ *
  * Once the package is enabled this is *not* the answer any more — the frame
  * checks `network.declared` against this list before the backend is consulted
  * at all, so a preview left on this subset refuses calls the package is
@@ -2324,7 +2330,7 @@ export function previewPermissionsFor(files: GeneratedFile[]): string[] {
   try {
     const declared = (JSON.parse(manifest.contents) as { permissions?: unknown }).permissions;
     if (!Array.isArray(declared)) return [];
-    return declared.includes("storage.instance") ? ["storage.instance"] : [];
+    return ["storage.instance", "background.pop"].filter((permission) => declared.includes(permission));
   } catch {
     return [];
   }

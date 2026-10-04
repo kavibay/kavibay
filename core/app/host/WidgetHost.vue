@@ -410,7 +410,7 @@ const peeking = ref(false);
  */
 let peekRestorePaletteHidden = false;
 /**
- * Widgets the user reached into during a peek, by instance id.
+ * Widgets kept for this session by a peek interaction or a pop, by instance id.
  *
  * Holding Ctrl+Space is a glance, but clicking a widget mid-glance is not — it
  * says "this one I actually want". So a grabbed widget stays when the key comes
@@ -1542,8 +1542,8 @@ function onMoveToPanel(instanceId: string) {
   requestInlineWidget(instanceId, typeId);
 }
 
-/** Clear persisted Hidden and open the cockpit so a default widget can appear. */
-function onRevealWidget(instanceId: string) {
+/** Reveal a card; background pops keep it up without opening the cockpit. */
+function onRevealWidget(instanceId: string, onlyWidget = false) {
   if (!instances.some((item) => item.instanceId === instanceId)) {
     // A background notification can originate from a widget on another desk.
     const desk = layoutDoc.desks.find((row) => row.placements.some((item) => item.instanceId === instanceId));
@@ -1551,6 +1551,7 @@ function onRevealWidget(instanceId: string) {
   }
   const instance = instances.find((item) => item.instanceId === instanceId);
   if (!instance) return;
+  const wasMounted = isMountedInstance(instance);
   const wasHidden = instance.hidden === true;
   if (wasHidden) {
     delete instance.hidden;
@@ -1567,10 +1568,20 @@ function onRevealWidget(instanceId: string) {
     // Purge other soft-hidden-only copies of this type (Gallery/New orphans).
     disposePurgedHidden(instance.typeId);
   }
-  openCockpit();
-  // Pinned + was Hidden: not covered by cockpit session resume.
-  if (wasHidden && instance.pinned) {
-    runExtensionHook(getExtension(instance.typeId), "onResume", instance.instanceId);
+  if (onlyWidget) {
+    // Reuse the temporary keep from a peek: no saved pin, same dismiss path.
+    peekKept.value.add(instanceId);
+    if (!wasMounted && !keepsAliveWhenHidden(instance)) {
+      runExtensionHook(getExtension(instance.typeId), "onResume", instanceId);
+    }
+    raiseWidget(instanceId);
+    void nextTick(recoverLayoutIntoViewport);
+  } else {
+    openCockpit();
+    // Pinned + was Hidden: not covered by cockpit session resume.
+    if (wasHidden && instance.pinned) {
+      runExtensionHook(getExtension(instance.typeId), "onResume", instance.instanceId);
+    }
   }
   onboarding.notifyWidgetVisible(instance.typeId);
   scheduleRegionSync();
@@ -2106,8 +2117,8 @@ function observeLayoutBounds(): void {
 
 /** Handle extension-driven reveal requests (e.g. alarm fired while hidden). */
 function onRevealWidgetEvent(event: Event) {
-  const detail = (event as CustomEvent<{ instanceId?: string }>).detail;
-  if (detail?.instanceId) onRevealWidget(detail.instanceId);
+  const detail = (event as CustomEvent<{ instanceId?: string; onlyWidget?: boolean }>).detail;
+  if (detail?.instanceId) onRevealWidget(detail.instanceId, detail.onlyWidget === true);
 }
 
 /** Let a first-party widget adjust its own card width without owning host layout. */
@@ -2214,6 +2225,7 @@ onMounted(async () => {
     console.error,
   );
   window.addEventListener("kavibay:reveal-widget", onRevealWidgetEvent);
+  window.addEventListener("kavibay:dismiss-cockpit", onDismissOutside);
   window.addEventListener("kavibay:resize-widget", onResizeWidgetEvent);
   window.addEventListener("kavibay:run-runtime-widget", onRunRuntimeWidget);
   window.addEventListener("keydown", onCtrlTapKey, true);
@@ -2367,6 +2379,7 @@ onUnmounted(() => {
   clearCtrlShortcutHint();
   if (viewportResizeTimer) clearTimeout(viewportResizeTimer);
   window.removeEventListener("kavibay:reveal-widget", onRevealWidgetEvent);
+  window.removeEventListener("kavibay:dismiss-cockpit", onDismissOutside);
   window.removeEventListener("kavibay:resize-widget", onResizeWidgetEvent);
   window.removeEventListener("kavibay:run-runtime-widget", onRunRuntimeWidget);
   window.removeEventListener("keydown", onCtrlTapKey, true);

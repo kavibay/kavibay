@@ -27,10 +27,12 @@ import {
   httpFailure,
   isExtToHost,
   NETWORK_DECLARED_PERM,
+  popOutcome,
   type HostToExt,
   type HttpCallResult,
 } from "./bridgeProtocol";
 import { reportWidgetFault } from "../extension-host/cockpit";
+import { tauriWidgetCapabilityTransport } from "../extension-host/tauriWidgetCapabilityTransport";
 import { reportContentOverflow } from "../host/contentOverflow";
 
 const props = defineProps<{
@@ -47,6 +49,9 @@ const runId = ref(crypto.randomUUID());
 const wizardPreview = useWizardPreviewPicker(iframeRef, runId);
 const frameUrl = computed(() => packageFrameUrl(props.entryUrl, runId.value, wizardPreview));
 watch(() => props.entryUrl, () => { runId.value = crypto.randomUUID(); });
+
+/** When this frame last raised the window; see `POP_COOLDOWN_MS`. */
+let lastPopAt: number | null = null;
 
 /** Post a host→ext reply into the iframe (only if still mounted). */
 function postToExt(msg: HostToExt) {
@@ -97,6 +102,34 @@ function onMessage(event: MessageEvent) {
   const message = event.data;
   if (message.type === "kavibay.ext.http.call") {
     void runHttpCall(message.requestId, message.endpointId, message.args);
+    return;
+  }
+
+  /**
+   * The Alarm widget's path, so a package pops exactly like Alarm does: show,
+   * focus, reveal this frame's card, optional beep. Revealed by
+   * `props.instanceId`, never a payload id, for the same reason as storage.
+   */
+  if (message.type === "kavibay.ext.pop") {
+    const now = Date.now();
+    const outcome = popOutcome(props.grantedPermissions, lastPopAt, now);
+    if (outcome === "denied") {
+      postToExt({
+        type: "kavibay.ext.pop.result",
+        requestId: message.requestId,
+        ok: false,
+        error: "permission denied: background.pop",
+      });
+      return;
+    }
+    if (outcome === "raise") {
+      lastPopAt = now;
+      void tauriWidgetCapabilityTransport.alarmNotify(
+        props.instanceId,
+        message.sound === true ? "sound_and_pop" : "pop",
+      );
+    }
+    postToExt({ type: "kavibay.ext.pop.result", requestId: message.requestId, ok: true });
     return;
   }
 
