@@ -20,7 +20,8 @@
         "grabCursor": false,
         "defaultHideTitle": false,
         "padding": false,
-        "opaque": true
+        "opaque": true,
+        "keepAliveWhenHidden": true
       },
       "actions": [
         {
