@@ -41,7 +41,7 @@ import {
   PanelLeftIcon,
   PlugIcon,
   ServerPlusIcon,
-  SquarePenIcon,
+  SparklesIcon,
   UnplugIcon,
 } from "@sdk/icons";
 import { BrandMark, McpClientMark, brandMarkFor } from "@sdk/brand";
@@ -52,6 +52,7 @@ import WizardMcpHelp from "./WizardMcpHelp.vue";
 import WizardGenerationFrame from "./WizardGenerationFrame.vue";
 import WizardSuggestions from "./WizardSuggestions.vue";
 import WizardConversationMenu from "./WizardConversationMenu.vue";
+import WizardSidebarMenu from "./WizardSidebarMenu.vue";
 import { appendWizardSuggestion, currentWizardSuggestions, type WizardSuggestion } from "./wizardSuggestions";
 import WizardPreviewStage, { type PreviewFault } from "./WizardPreviewStage.vue";
 import { takeNewProjectRequest, type WidgetWizardModel } from "./widgets/widgetWizard";
@@ -112,6 +113,7 @@ import {
   lintGeneratedFiles,
   manifestScale,
   manifestIconSvg,
+  manifestCardFlags,
   manifestSize,
   packageIdFor,
   declaredPackageId,
@@ -124,6 +126,7 @@ import {
   withPackageId,
   queueDraftConflict,
   turnForPackage,
+  withCardFlags,
   withDefaultScale,
   withDefaultSize,
   askedNothingNew,
@@ -181,6 +184,7 @@ import {
   wizardPlatforms,
   wizardHasAnyKey,
   type MentionSegment,
+  type CardUiFlags,
 } from "./widgetWizardLogic";
 
 interface DraftSummary {
@@ -252,6 +256,7 @@ const {
   save,
   saveDraftSoon,
   remove,
+  removeWidget,
 } = props.model.conversations;
 /**
  * Column widths, in pixels.
@@ -752,27 +757,49 @@ function commitOrder(next: string[]): void {
   void shared?.set(PROJECT_ORDER_KEY, next).catch(() => undefined);
 }
 
+/** Ends a reorder that is still running; the card can unmount mid-drag. */
+let stopReorder: (() => void) | null = null;
+onUnmounted(() => stopReorder?.());
+
 /**
- * Reorder by dragging the handle, on pointer events.
+ * Reorder by dragging the row itself, on pointer events.
  *
  * Not HTML5 drag-and-drop. The webview this runs in gives OS-level drag to the
- * host window, and an in-page `dragstart` is not reliably delivered — a handle
+ * host window, and an in-page `dragstart` is not reliably delivered — a drag
  * that works everywhere except inside the app it was written for is worse than
- * no handle at all. Pointer events are ordinary input and cannot be intercepted
+ * none at all. Pointer events are ordinary input and cannot be intercepted
  * that way.
  *
- * The list reorders under the pointer rather than at the end: a drop that only
- * shows its result once the button is released is a guess until it is too late
- * to correct.
+ * A press only becomes a drag after a few pixels of travel, so a click still
+ * opens the row. The list reorders under the pointer rather than at the end: a
+ * drop that only shows its result once the button is released is a guess until
+ * it is too late to correct. A snapshot of the row follows the pointer, the
+ * same ghost the to-do widget draws.
  */
 function startReorder(key: string, event: PointerEvent): void {
-  if (event.button !== 0) return;
-  event.preventDefault();
-  const handle = event.currentTarget as HTMLElement;
-  handle.setPointerCapture(event.pointerId);
-  dragging.value = key;
+  if (event.button !== 0 || !event.isPrimary || stopReorder) return;
+  // The row's own buttons (+, ×) stay buttons.
+  if ((event.target as Element).closest(".wiz-side-actions")) return;
+  const line = event.currentTarget as HTMLElement;
+  const item = line.closest<HTMLElement>("[data-project-key]");
+  if (!item) return;
+  const { pointerId, clientX: startX, clientY: startY } = event;
+  let ghost: { element: HTMLElement; offsetX: number; offsetY: number; scale: number } | null =
+    null;
 
+  const place = (x: number, y: number) => {
+    if (!ghost) return;
+    ghost.element.style.transform = `translate(${x - ghost.offsetX}px, ${y - ghost.offsetY}px) scale(${ghost.scale})`;
+  };
   const move = (moved: PointerEvent) => {
+    if (moved.pointerId !== pointerId) return;
+    if (!ghost) {
+      if (Math.hypot(moved.clientX - startX, moved.clientY - startY) < 4) return;
+      ghost = reorderGhost(item, startX, startY);
+      line.setPointerCapture(pointerId);
+      dragging.value = key;
+    }
+    place(moved.clientX, moved.clientY);
     // Hit-testing rather than arithmetic on row heights: rows are two different
     // heights and change height as they fold, so the only honest answer to
     // "which row is under the pointer" is to ask.
@@ -783,20 +810,78 @@ function startReorder(key: string, event: PointerEvent): void {
     if (!target || target === key) return;
     commitOrder(dropProject(projectOrder.value, key, target));
   };
-  const end = () => {
+  const stop = () => {
+    const dragged = ghost !== null;
+    ghost?.element.remove();
+    ghost = null;
+    stopReorder = null;
     dragging.value = null;
-    handle.releasePointerCapture(event.pointerId);
-    handle.removeEventListener("pointermove", move);
-    handle.removeEventListener("pointerup", end);
-    handle.removeEventListener("pointercancel", end);
+    if (line.hasPointerCapture(pointerId)) line.releasePointerCapture(pointerId);
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
+    window.removeEventListener("blur", stop);
+    if (!dragged) return;
+    // The release lands on the row that was dragged, and is not a click on it.
+    // The click, if one comes, is dispatched before any timer runs.
+    const swallow = (click: Event) => {
+      click.stopPropagation();
+      click.preventDefault();
+    };
+    window.addEventListener("click", swallow, { capture: true, once: true });
+    setTimeout(() => window.removeEventListener("click", swallow, { capture: true }));
   };
-  handle.addEventListener("pointermove", move);
-  handle.addEventListener("pointerup", end);
-  handle.addEventListener("pointercancel", end);
+  const end = (ended: PointerEvent) => {
+    if (ended.pointerId === pointerId) stop();
+  };
+  stopReorder = stop;
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
+  window.addEventListener("blur", stop);
 }
 
-/** Projects whose conversations are showing. */
-const expandedRows = ref<string[]>([]);
+/**
+ * A snapshot of the row, fixed to the viewport and moved by transform.
+ *
+ * The conversations under an open project stay behind: the ghost is the row
+ * being moved, not everything folded into it. `scale` carries the card's zoom,
+ * and the theme tokens are copied because the snapshot leaves the subtree that
+ * defines them.
+ */
+function reorderGhost(item: HTMLElement, x: number, y: number) {
+  const bounds = item.getBoundingClientRect();
+  const style = getComputedStyle(item);
+  const element = item.cloneNode(true) as HTMLElement;
+  element.removeAttribute("data-project-key");
+  element.querySelector(".wiz-side-history")?.remove();
+  element.classList.add("wiz-drag-ghost");
+  element.setAttribute("aria-hidden", "true");
+  element.inert = true;
+  Object.assign(element.style, {
+    position: "fixed",
+    left: "0",
+    top: "0",
+    width: `${item.offsetWidth}px`,
+    boxSizing: "border-box",
+    transformOrigin: "top left",
+    font: style.font,
+    color: style.color,
+  });
+  for (const token of ["--fg-rgb", "--surface-bg-rgb"]) {
+    element.style.setProperty(token, style.getPropertyValue(token));
+  }
+  // Keep scoped styles available when the card lives in an embed's shadow root.
+  const tree = item.getRootNode();
+  (tree instanceof ShadowRoot ? tree : document.body).appendChild(element);
+  const ghost = {
+    element,
+    offsetX: x - bounds.left,
+    offsetY: y - bounds.top,
+    scale: bounds.width / item.offsetWidth,
+  };
+  return ghost;
+}
 
 /**
  * A clock the row labels can read.
@@ -838,46 +923,77 @@ function conversationAgeFor(id: string): string {
   return describeAge(conversationHeaderFor(id)?.updatedAt ?? null, nowTick.value);
 }
 
-function toggleRowHistory(row: ProjectRow): void {
-  expandedRows.value = expandedRows.value.includes(row.key)
-    ? expandedRows.value.filter((key) => key !== row.key)
-    : [...expandedRows.value, row.key];
+/** The selected widget always shows every conversation, including after restore. */
+const isExpanded = isActiveRow;
+
+const pendingDelete = ref<string | null>(null);
+const sidebarMenu = ref<{
+  row: ProjectRow; conversation?: string; x: number; y: number; trigger: HTMLElement;
+} | null>(null);
+
+function openSidebarMenu(row: ProjectRow, event: MouseEvent, conversation?: string) {
+  const trigger = event.currentTarget as HTMLElement;
+  const bounds = trigger.getBoundingClientRect();
+  pendingDelete.value = null;
+  sidebarMenu.value = { row, conversation, trigger,
+    x: event.clientX || bounds.left, y: event.clientY || bounds.bottom };
+}
+function closeSidebarMenu(restoreFocus = false) {
+  if (restoreFocus) sidebarMenu.value?.trigger.querySelector<HTMLButtonElement>("button")?.focus();
+  sidebarMenu.value = null;
+}
+function runSidebarWidget() {
+  const row = sidebarMenu.value?.row;
+  closeSidebarMenu();
+  if (busy.value || !row?.saved || !row.packageId) return;
+  window.dispatchEvent(new CustomEvent("kavibay:run-runtime-widget", { detail: { typeId: row.packageId } }));
+}
+function createSidebarConversation() {
+  const row = sidebarMenu.value?.row;
+  closeSidebarMenu();
+  if (row && !busy.value) void newConversationIn(row);
+}
+async function deleteSidebarItem() {
+  const target = sidebarMenu.value;
+  closeSidebarMenu();
+  if (!target || busy.value) return;
+  if (target.conversation) {
+    try { await deleteConversation(target.conversation); }
+    catch (error) { note(describeDraftError(String(error))); }
+  } else await deleteRow(target.row, true);
 }
 
-const isExpanded = (row: ProjectRow) => expandedRows.value.includes(row.key);
-
-/**
- * What × does on this row, stated before it is pressed.
- *
- * One control with three meanings, because the row has three things it could
- * be: a widget on the desk, a draft that was never kept, or a conversation
- * about neither. Three separate buttons would put two disabled ones on every
- * row; a button that does not say which of the three it is doing is worse than
- * either.
- */
 function rowDeleteTip(row: ProjectRow): string {
-  if (row.saved) return "Delete this widget and what it was granted";
-  if (row.draft) return "Discard this draft";
-  return "Delete this conversation";
+  return row.packageId
+    ? "Delete this widget, its draft and all conversations"
+    : "Delete this conversation";
 }
 
-async function deleteRow(row: ProjectRow): Promise<void> {
-  // A conversation is a transcript and nothing else — deleting one takes away
-  // no widget and no work on disk, so it does not need arming. The other two do.
-  if (!row.saved && !row.draft) {
-    await deleteConversation(row.conversationIds[0] ?? "");
-    return;
-  }
-  if (pendingDelete.value !== row.key) {
+async function deleteRow(row: ProjectRow, confirmed = false): Promise<void> {
+  if (busy.value) return;
+  if (!confirmed && pendingDelete.value !== row.key) {
     pendingDelete.value = row.key;
     return;
   }
   pendingDelete.value = null;
-  if (row.saved) {
-    await deleteWidget(row.packageId);
-    return;
+  const wasActive = isActiveRow(row);
+  busy.value = true;
+  try {
+    await previewSettingsWrite;
+    await removeWidget(row);
+    if (wasActive) {
+      session.value.model = defaultWizardModel(models.value);
+      draftConflict.value = null;
+      savedApiText.value = null;
+      middleTab.value = "chat";
+      clearPreviewSelection();
+    }
+  } catch (error) {
+    note(describeDraftError(String(error)));
+  } finally {
+    await Promise.all([loadMyWidgets(), refreshDrafts()]);
+    busy.value = false;
   }
-  await discardDraftById(row.packageId);
 }
 const busy = ref(false);
 /** Seconds since `busy` went true — the "Working… 2m10s" counter. */
@@ -1450,8 +1566,6 @@ onUnmounted(() => {
  * you did next.
  */
 const generation = ref(0);
-/** Widget awaiting a second click to confirm deletion. */
-const pendingDelete = ref<string | null>(null);
 
 /** Open state of the attach menu. */
 const attachMenuOpen = ref(false);
@@ -2289,6 +2403,24 @@ function onPreviewResized(size: { w: number; h: number }, scale?: number) {
   void previewSettingsWrite.catch((error) => note(describeDraftError(String(error))));
 }
 
+/** `ui.padding` / `ui.defaultHideTitle` of the draft, as the preview's gear shows them. */
+const previewCardFlags = computed(() => manifestCardFlags(session.value.draftFiles ?? []));
+
+/** The gear changed a flag: written into the draft's manifest, like a resize. */
+function onPreviewCardFlags(flags: CardUiFlags) {
+  const targetSession = session.value;
+  const id = targetSession.packageId;
+  const files = targetSession.draftFiles;
+  if (!files || !id) return;
+  const next = withCardFlags(files, flags);
+  if (next === files) return;
+  targetSession.draftFiles = next;
+
+  const write = () => writeDraftFiles(id, next).then(() => save(targetSession));
+  previewSettingsWrite = previewSettingsWrite.then(write, write);
+  void previewSettingsWrite.catch((error) => note(describeDraftError(String(error))));
+}
+
 /**
  * The project that was open last time, when only the project survived the
  * restart (see `takePendingPackage`). Reopened once the lists say it still
@@ -2403,19 +2535,8 @@ async function loadMyWidgets() {
  * package has nothing to open but itself.
  */
 async function openRow(row: ProjectRow): Promise<void> {
-  /**
-   * The project that is already open has nothing left to open, so the click was
-   * about the list: fold it, or unfold it.
-   *
-   * Re-opening it instead would cost a round trip to the draft service and add
-   * another "Editing…" line to a transcript nobody asked to change — which is
-   * how a fold control ends up needing to be a separate button.
-   */
-  if (isActiveRow(row)) {
-    toggleRowHistory(row);
-    return;
-  }
-  expandRow(row.key);
+  // Clicking the selected widget keeps its history open without reloading it.
+  if (isActiveRow(row)) return;
   if (row.packageId) {
     await openWidget(row.packageId, row.conversationIds[0] ?? null);
     return;
@@ -2435,73 +2556,7 @@ async function openRow(row: ProjectRow): Promise<void> {
  */
 function newConversationIn(row: ProjectRow): void {
   if (!row.packageId) return;
-  expandRow(row.key);
   void openWidget(row.packageId, null);
-}
-
-function expandRow(key: string): void {
-  if (!expandedRows.value.includes(key)) expandedRows.value = [...expandedRows.value, key];
-}
-
-/**
- * Delete one of your own widgets. Armed by `deleteRow`, never called bare.
- *
- * There is no undo — the files are gone and the grants with them — so the first
- * click only arms it. A modal for this would be heavier than the action; a
- * button that changes to "Sure?" says the same thing and can be walked away
- * from.
- */
-async function deleteWidget(id: string) {
-  if (!id) return;
-  busy.value = true;
-  try {
-    await wizard.runtimeDeletePackage(id);
-    // The draft is deliberately left alone. Deleting a widget is one decision;
-    // throwing away changes nobody has read is another, and doing the second
-    // silently because somebody asked for the first is how unsaved work
-    // disappears. The row stays in the list, now as a draft.
-    const draftRemains = drafts.value.some((draft) => draft.id === id);
-    note(
-      draftRemains
-        ? `Deleted "${id}". Its unsaved draft is still here — discard it separately.`
-        : `Deleted "${id}".`,
-    );
-    if (session.value.packageId === id && !draftRemains) {
-      session.value.hasDraft = false;
-      session.value.draftRevision = undefined;
-      session.value.draftError = undefined;
-      session.value.previewEntry = null;
-      session.value.draftFiles = null;
-    }
-    await Promise.all([loadMyWidgets(), refreshDrafts()]);
-  } catch (error) {
-    note(describeDraftError(String(error)));
-  } finally {
-    busy.value = false;
-  }
-}
-
-/** Throw away a draft that is not the one on screen. */
-async function discardDraftById(id: string): Promise<void> {
-  if (!id || busy.value) return;
-  busy.value = true;
-  try {
-    await wizard.draftDiscard(id);
-    note(`Discarded the draft for "${id}".`);
-    if (session.value.packageId === id) {
-      session.value.hasDraft = false;
-      session.value.draftRevision = undefined;
-      session.value.draftError = undefined;
-      session.value.previewEntry = null;
-      session.value.draftFiles = null;
-      draftConflict.value = null;
-    }
-    await Promise.all([save(session.value), refreshDrafts()]);
-  } catch (error) {
-    note(describeDraftError(String(error)));
-  } finally {
-    busy.value = false;
-  }
 }
 
 function note(text: string, tone?: "success") {
@@ -2670,7 +2725,6 @@ async function openConversation(id: string) {
 
 async function deleteConversation(id: string) {
   await remove(id);
-  if (id === session.value.id) start();
 }
 
 // --- naming ----------------------------------------------------------------
@@ -3568,6 +3622,7 @@ function usageTooltip(bubble: WizardBubble): string {
 const sessionUsage = computed(() => session.value.usage ?? NO_USAGE);
 const sessionCost = computed(() => session.value.cost);
 const transcriptCopyState = ref<"idle" | "copying" | "copied" | "error">("idle");
+const copyTarget = ref<"transcript" | "mcp">("transcript");
 let transcriptCopyTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** Feedback belongs to the conversation that was copied. */
@@ -3578,14 +3633,16 @@ function resetTranscriptCopy() {
 watch(() => session.value.id, resetTranscriptCopy);
 onUnmounted(() => clearTimeout(transcriptCopyTimer));
 
-/** Copy the current transcript and acknowledge only a successful clipboard write. */
-async function copyTranscript() {
+/** Copy the transcript or MCP handoff and acknowledge only a successful write. */
+async function copyConversation(target: "transcript" | "mcp") {
   if (transcriptCopyState.value === "copying") return;
   resetTranscriptCopy();
   const conversation = session.value;
+  copyTarget.value = target;
   transcriptCopyState.value = "copying";
   try {
-    await props.model.copyTranscript();
+    if (target === "mcp") await props.model.copyMcpPrompt();
+    else await props.model.copyTranscript();
     if (session.value !== conversation) return;
     transcriptCopyState.value = "copied";
     transcriptCopyTimer = setTimeout(resetTranscriptCopy, 1500);
@@ -4389,11 +4446,12 @@ async function enablePackage(
   >
     <!-- Left: what you have already made or asked -->
     <aside v-show="!tooNarrow" class="wiz-side wiz-c1">
-      <div class="wiz-side-top">
-        <button type="button" class="wiz-new" :disabled="busy" @click="newConversation">
-          <SquarePenIcon :size="14" />
-          <span>New project</span>
-        </button>
+      <!-- The wizard's palette icon: SparklesIcon colours itself inside [data-icon-tile]. -->
+      <div class="wiz-brand">
+        <span class="wiz-brand-icon" data-icon-tile aria-hidden="true">
+          <SparklesIcon :size="14" />
+        </span>
+        <span>Wizard</span>
         <button
           type="button"
           class="wiz-side-toggle"
@@ -4404,8 +4462,20 @@ async function enablePackage(
           <PanelLeftIcon :size="15" />
         </button>
       </div>
+      <div class="wiz-side-top">
+        <button type="button" class="wiz-new" :disabled="busy" @click="newConversation">
+          <IconBase :size="14"><path d="M12 5v14M5 12h14" /></IconBase>
+          <span>New widget</span>
+        </button>
+      </div>
 
-      <p class="wiz-side-heading">Projects</p>
+      <WizardMcpHelp
+        v-if="!sidebarHidden && !tooNarrow"
+        class="wiz-side-mcp"
+        @open-settings="wizard.openSettings('mcp')"
+      />
+
+      <p class="wiz-side-heading">Widgets</p>
 
       <div class="wiz-side-sections">
         <!--
@@ -4427,6 +4497,7 @@ async function enablePackage(
               class="wiz-side-item wiz-side-item--stacked"
               :class="{ 'wiz-side-item--dragging': dragging === row.key }"
               @mouseleave="pendingDelete === row.key && (pendingDelete = null)"
+              @contextmenu.stop.prevent="openSidebarMenu(row, $event)"
             >
               <!--
                 The highlight sits on the line, not on the project block: on the
@@ -4442,21 +4513,15 @@ async function enablePackage(
                   'wiz-side-line--bare': !row.packageId,
                   'wiz-side-line--armed': pendingDelete === row.key,
                 }"
+                @pointerdown="startReorder(row.key, $event)"
               >
-                <!--
-                  One control for the project.
-
-                  Clicking it opens the project and unfolds it; clicking the one
-                  that is already open just folds it back. A separate twisty was
-                  a second thing to aim at for a question the row can answer on
-                  its own, and it put a column of arrows down the left edge where
-                  the names should start.
-                -->
+                <!-- Selecting a widget opens it and shows all its conversations. -->
                 <button
                   type="button"
                   class="wiz-side-row"
                   :disabled="busy"
                   :aria-expanded="isExpanded(row)"
+                  aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
                   @click="openRow(row)"
                   @keydown.up.alt.prevent="reorder(row.key, -1)"
                   @keydown.down.alt.prevent="reorder(row.key, 1)"
@@ -4520,34 +4585,6 @@ async function enablePackage(
                       />
                       <span v-else class="wiz-side-presence-dot" aria-hidden="true"></span>
                     </span>
-                    <!--
-                      Two projects can carry one display name and are still two
-                      folders, so the one case that needs it names its folder.
-                      Only that case: everywhere else it repeats the name.
-                    -->
-                    <em v-if="row.ambiguous" class="wiz-side-id">{{ row.packageId }}</em>
-                    <!--
-                      After the name, not before it. On the left it is a column
-                      of arrows the eye has to cross to reach the first letter of
-                      every row; after the name it is where the name ends, which
-                      is where somebody looking for "is there more in here" looks.
-                    -->
-                    <span
-                      class="wiz-side-caret"
-                      :class="{ 'wiz-side-caret--open': isExpanded(row) }"
-                      aria-hidden="true"
-                    >
-                      <svg viewBox="0 0 12 12" width="9" height="9">
-                        <path
-                          d="M4.5 2.5 L8 6 L4.5 9.5"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="1.7"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        />
-                      </svg>
-                    </span>
                     <span
                       v-if="busy && isActiveRow(row) && !showsActiveConversation(row)"
                       class="wiz-side-spinner"
@@ -4573,33 +4610,17 @@ async function enablePackage(
                     v-if="row.packageId"
                     type="button"
                     class="wiz-side-add"
-                    v-tip="'New conversation in this project'"
+                    v-tip="'New conversation about this widget'"
                     aria-label="New conversation"
                     :disabled="busy"
                     @click.stop="newConversationIn(row)"
                   >+</button>
-                  <!--
-                    Pointer events, not HTML5 drag-and-drop.
-
-                    The webview this runs in hands OS-level drag to the host
-                    window, and in-page `dragstart` is not reliably delivered — a
-                    handle that works everywhere except in the app it is for is
-                    worse than no handle. Alt+arrows on the row do the same thing
-                    without a pointer at all.
-                  -->
-                  <span
-                    class="wiz-side-grip"
-                    v-tip="'Drag to reorder — or Alt+↑ / Alt+↓ on the row'"
-                    aria-hidden="true"
-                    @pointerdown="startReorder(row.key, $event)"
-                  >⠿</span>
                   <button
                     type="button"
                     class="wiz-side-del"
                     :class="{ 'wiz-side-del--armed': pendingDelete === row.key }"
-                    v-tip="
-                      pendingDelete === row.key ? 'Click again — there is no undo' : rowDeleteTip(row)
-                    "
+                    :aria-label="pendingDelete === row.key ? 'Confirm deletion' : rowDeleteTip(row)"
+                    v-tip="pendingDelete === row.key ? 'Click again to confirm deletion' : rowDeleteTip(row)"
                     :disabled="busy"
                     @click="deleteRow(row)"
                   >
@@ -4614,6 +4635,7 @@ async function enablePackage(
                   :key="conversation"
                   class="wiz-side-item"
                   :class="{ 'wiz-side-sel': conversation === session.id }"
+                  @contextmenu.stop.prevent="openSidebarMenu(row, $event, conversation)"
                 >
                   <!--
                     What was asked, not what the widget is called. Every
@@ -4658,10 +4680,6 @@ async function enablePackage(
           </div>
         </div>
       </div>
-      <WizardMcpHelp
-        v-if="!sidebarHidden && !tooNarrow"
-        @open-settings="wizard.openSettings('mcp')"
-      />
     </aside>
 
     <!-- Middle: name, chat, model -->
@@ -5489,10 +5507,13 @@ async function enablePackage(
           :usage="sessionUsage"
           :cost="costLabel(sessionCost)"
           :copy-state="transcriptCopyState"
+          :copy-target="copyTarget"
+          :can-continue-mcp="!!session.packageId"
           :can-export="session.bubbles.length > 0"
           :show-suggestions="showSuggestions"
           @update:show-suggestions="showSuggestions = $event; saveLayout()"
-          @export="copyTranscript"
+          @export="copyConversation('transcript')"
+          @continue-mcp="copyConversation('mcp')"
         />
       </div>
 
@@ -5808,7 +5829,7 @@ async function enablePackage(
           Save
         </button>
       </div>
-      <p v-if="pickingElement" class="wiz-pick-hint" role="status">Click elements to add them to your message. Esc to finish.</p>
+      <p v-if="pickingElement" class="wiz-pick-hint" role="status">Click elements to add them to your message <kbd>Esc</kbd> to finish</p>
       <div class="wiz-preview-body" :class="{ 'wiz-arrive': justBuilt }">
         <div v-if="showFirstVersionGeneration" class="wiz-empty">
           <WizardGenerationFrame />
@@ -5834,7 +5855,10 @@ async function enablePackage(
           @cancel-pick="finishPreviewPick"
           @close-share="sharing = false"
           @export="exportWidget"
+          :padding="previewCardFlags.padding"
+          :default-hide-title="previewCardFlags.defaultHideTitle"
           @resized="onPreviewResized"
+          @card-flags="onPreviewCardFlags"
           @rename="session.widgetName = $event"
           @fault="onPreviewFault"
         />
@@ -5843,11 +5867,59 @@ async function enablePackage(
         </div>
       </div>
     </section>
+    <WizardSidebarMenu
+      v-if="sidebarMenu"
+      :key="`${sidebarMenu.row.key}:${sidebarMenu.conversation ?? ''}`"
+      :x="sidebarMenu.x"
+      :y="sidebarMenu.y"
+      :can-run="sidebarMenu.row.saved && !!sidebarMenu.row.packageId"
+      :can-create="!!sidebarMenu.row.packageId && !sidebarMenu.conversation"
+      :busy="busy"
+      @run="runSidebarWidget"
+      @create="createSidebarConversation"
+      @delete="deleteSidebarItem"
+      @close="closeSidebarMenu"
+    />
   </div>
 </template>
 
 <style scoped>
-.wiz-pick-hint { margin: 36px 4px 0; font-size: 11px; opacity: 0.65; }
+/*
+  A floating chip under the toolbar rather than a line of muted text on the
+  grid, where it read as part of the canvas. Out of flow, so the stage does not
+  jump when picking starts.
+*/
+.wiz-pick-hint {
+  position: absolute;
+  top: calc(var(--widget-title-inset, 0px) + 50px);
+  left: 50%;
+  z-index: 1;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+  box-sizing: border-box;
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid rgba(var(--fg-rgb), 0.14);
+  border-radius: 999px;
+  background: rgba(var(--surface-bg-rgb), 0.92);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(12px);
+  font-size: 12px;
+  color: rgba(var(--fg-rgb), 0.92);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.wiz-pick-hint kbd {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(var(--fg-rgb), 0.12);
+  font: inherit;
+  font-size: 11px;
+}
 .wiz-actions button[aria-pressed="true"],
 .wiz-actions :deep(button[aria-expanded="true"]) { background: rgba(var(--fg-rgb), 0.12); opacity: 1; }
 .wiz-debug-action { display: contents; }
@@ -5874,6 +5946,10 @@ async function enablePackage(
   color: rgba(var(--fg-rgb), 0.9);
 }
 
+.wiz:not(.wiz--sidebar-collapsed):not(.wiz--narrow) {
+  padding-left: 10px;
+}
+
 /*
  * Every child names its own column.
  *
@@ -5887,6 +5963,15 @@ async function enablePackage(
  *
  * Pinning the tracks makes hiding a panel mean only "this panel is not shown".
  */
+/* Row too: the grid layer (`.wiz::before`) sits in row 1 under columns 3–4,
+   and an item with only a column set is auto-placed into the next free row. */
+.wiz-c1,
+.wiz-c2,
+.wiz-c3,
+.wiz-c4,
+.wiz-c5 {
+  grid-row: 1;
+}
 .wiz-c1 {
   grid-column: 1;
 }
@@ -5919,6 +6004,32 @@ async function enablePackage(
 }
 .wiz-c5 {
   grid-column: 5;
+}
+
+/*
+  The preview's grid starting in the chat column: only its last 15% fades
+  in, reaching full strength where the preview begins. A grid item over the chat and
+  the divider, stretched over the 10px gap before the preview; its pattern
+  anchored right so the lines carry on into the preview's own, 1px down
+  because the preview body sits 1px inside the card. First in paint order, so
+  the chat column (position: relative) draws over it.
+*/
+.wiz::before {
+  content: "";
+  grid-column: 3 / 5;
+  grid-row: 1;
+  margin-right: -10px;
+  background-image:
+    linear-gradient(rgba(var(--fg-rgb), 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--fg-rgb), 0.05) 1px, transparent 1px);
+  background-size: 20px 20px;
+  background-position: right 0 top 1px;
+  mask-image: linear-gradient(90deg, transparent 90%, #000);
+  pointer-events: none;
+}
+
+.wiz--narrow::before {
+  content: none;
 }
 
 .wiz--narrow {
@@ -5995,17 +6106,7 @@ async function enablePackage(
   margin-top: 1px;
 }
 
-/*
-  One highlight per row, on one element, in two clearly different weights.
-
-  Hover and selection used to be drawn on different elements — selection on the
-  whole row, hover on the button inside it — so they were two greys of almost
-  the same value in two different shapes, and the row you were pointing at
-  looked like the row that was open. Both now paint the same box, and the
-  selected one is the app's own selected-row treatment: a lift with a rim and a
-  sheen, which is a different *kind* of thing from a flat tint rather than a
-  slightly stronger one.
-*/
+/* Hover and selection fill the same row; selection uses a stronger flat tint. */
 .wiz-side-line,
 .wiz-side-history > .wiz-side-item {
   position: relative;
@@ -6018,13 +6119,9 @@ async function enablePackage(
   background: var(--fill, rgba(var(--fg-rgb), 0.06));
 }
 
-.wiz-side-sel,
-.wiz-side-sel:hover {
-  background-color: var(--row-selected-bg, rgba(var(--fg-rgb), 0.1));
-  background-image: var(--row-selected-sheen, none);
-  box-shadow:
-    var(--row-selected-rim, inset 0 0 0 1px rgba(255, 255, 255, 0.05)),
-    var(--row-selected-shadow, 0 1px 3px rgba(0, 0, 0, 0.3));
+.wiz-side-line.wiz-side-sel,
+.wiz-side-history > .wiz-side-item.wiz-side-sel {
+  background: rgba(var(--fg-rgb), 0.1);
 }
 
 .wiz-side-row {
@@ -6045,21 +6142,6 @@ async function enablePackage(
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/*
-  Shrinks three times faster than the name. Both are on one line now, and when
-  they do not fit the name is the half worth reading — proportional shrinking
-  cut a word off each instead.
-*/
-.wiz-side-id {
-  flex: 0 3 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 10px;
-  font-style: normal;
-  opacity: 0.4;
 }
 
 /*
@@ -6090,28 +6172,33 @@ async function enablePackage(
   font-weight: 500;
 }
 
+/* Whole-pixel row heights keep the small status circles aligned consistently. */
+.wiz-side-line > .wiz-side-row {
+  line-height: 16px;
+}
+
 /*
   A saved package stays green until it has pending work. Amber means the widget
   is still runnable from the palette but a newer draft is waiting to be saved;
   a hollow ring is a draft that has never been published.
 */
-/* Centred in a 14px column, the width of the New project icon above it, so
+/* Centred in a 14px column, the width of the New widget icon above it, so
    the names start where that label starts. */
 .wiz-side-dot {
   flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
-  margin: 0 3px 0 4px;
+  width: 8px;
+  height: 8px;
+  margin: 0 3px;
   border-radius: 50%;
+  corner-shape: round;
 }
 
 .wiz-side-dot--live {
-  background: rgb(90, 205, 130);
+  background: rgba(123, 176, 143, 0.8);
 }
 
 .wiz-side-dot--changed {
-  background: rgb(218, 164, 89);
-  box-shadow: 0 0 0 1px rgba(218, 164, 89, 0.22);
+  background: rgba(196, 164, 113, 0.8);
 }
 
 /*
@@ -6121,7 +6208,7 @@ async function enablePackage(
 */
 .wiz-side-dot--draft {
   background: none;
-  box-shadow: inset 0 0 0 1.5px rgba(var(--fg-rgb), 0.85);
+  box-shadow: inset 0 0 0 1.25px rgba(var(--fg-rgb), 0.5);
 }
 
 .wiz-side-presence {
@@ -6151,48 +6238,17 @@ async function enablePackage(
   vertical-align: baseline;
 }
 
-/*
-  Name and caret on one line, the caret directly after the name.
-
-  On the left it was a column of arrows the eye has to cross to reach the first
-  letter of every row. After the name it sits where the name ends, which is
-  where somebody asking "is there more in here" is already looking.
-*/
 .wiz-side-head {
   display: flex;
-  /* Centred, not baseline: a caret has no baseline worth aligning to, and on
-     one it sat below the text and read as having slipped. */
+  /* Centred, not baseline: the dot and the marks after the name have no
+     baseline worth aligning to. */
   align-items: center;
   gap: 6px;
   /* The constraint the name needs to be able to shorten itself. Without a width
      here the row shrink-wraps its content, overflows the button and is cut by
-     its `overflow: hidden` — the title lost its last letters *and* its ellipsis,
-     and the caret ended up sitting on top of them. */
+     its `overflow: hidden` — the title lost its last letters *and* its ellipsis. */
   width: 100%;
   min-width: 0;
-}
-
-/*
-  Drawn rather than typed. The arrowhead characters differ per font in size and
-  in how far they sit off the baseline, so the one glyph that looked right here
-  is the one that will look wrong on the next machine.
-*/
-.wiz-side-caret {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  opacity: 0.35;
-  transition:
-    transform 120ms ease,
-    opacity 120ms ease;
-}
-
-.wiz-side-caret--open {
-  transform: rotate(90deg);
-}
-
-.wiz-side-row:hover .wiz-side-caret {
-  opacity: 0.75;
 }
 
 /*
@@ -6205,19 +6261,19 @@ async function enablePackage(
   buttons that are showing: 20px each, plus the inset.
 */
 .wiz-side-line {
-  --wiz-side-actions: 64px;
-}
-
-.wiz-side-line--bare {
   --wiz-side-actions: 44px;
 }
 
+.wiz-side-line--bare {
+  --wiz-side-actions: 24px;
+}
+
 .wiz-side-line--armed {
-  --wiz-side-actions: 84px;
+  --wiz-side-actions: 64px;
 }
 
 .wiz-side-line--bare.wiz-side-line--armed {
-  --wiz-side-actions: 64px;
+  --wiz-side-actions: 44px;
 }
 
 .wiz-side-history > .wiz-side-item {
@@ -6246,7 +6302,6 @@ async function enablePackage(
 .wiz-side-line:hover > .wiz-side-actions,
 .wiz-side-line:has(:focus-visible) > .wiz-side-actions,
 .wiz-side-line--armed > .wiz-side-actions,
-.wiz-side-item--dragging > .wiz-side-line > .wiz-side-actions,
 .wiz-side-history > .wiz-side-item:hover > .wiz-side-actions,
 .wiz-side-history > .wiz-side-item:has(:focus-visible) > .wiz-side-actions {
   opacity: 1;
@@ -6255,7 +6310,6 @@ async function enablePackage(
 .wiz-side-line:hover > .wiz-side-row,
 .wiz-side-line:has(:focus-visible) > .wiz-side-row,
 .wiz-side-line--armed > .wiz-side-row,
-.wiz-side-item--dragging > .wiz-side-line > .wiz-side-row,
 .wiz-side-history > .wiz-side-item:hover > .wiz-side-row,
 .wiz-side-history > .wiz-side-item:has(:focus-visible) > .wiz-side-row {
   -webkit-mask-image: linear-gradient(
@@ -6271,7 +6325,6 @@ async function enablePackage(
 }
 
 .wiz-side-add,
-.wiz-side-grip,
 .wiz-side-del {
   display: grid;
   place-items: center;
@@ -6311,21 +6364,23 @@ async function enablePackage(
   outline-offset: -1px;
 }
 
-.wiz-side-grip {
-  font-size: 11px;
-  opacity: 0.4;
-  cursor: grab;
-  /* The pointer must not be able to select text out from under a drag. */
-  touch-action: none;
-  user-select: none;
-}
-
-.wiz-side-item--dragging .wiz-side-grip {
-  cursor: grabbing;
-}
-
 .wiz-side-item--dragging {
-  opacity: 0.5;
+  opacity: 0.45;
+}
+
+.wiz-side-item--dragging,
+.wiz-side-item--dragging * {
+  cursor: grabbing !important;
+}
+
+/* The same snapshot the to-do widget drags. */
+.wiz-drag-ghost {
+  z-index: 2147483647;
+  pointer-events: none;
+  opacity: 0.9;
+  border-radius: 8px;
+  background: rgb(var(--surface-bg-rgb));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
 }
 
 /*
@@ -6351,7 +6406,7 @@ async function enablePackage(
   gap: 8px;
   padding: 5px 8px;
   font-size: 12px;
-  line-height: 1.35;
+  line-height: 16px;
   opacity: 0.72;
 }
 
@@ -6404,14 +6459,12 @@ async function enablePackage(
   outline-offset: -1px;
 }
 
-/* Armed is a state, not a hover: it stays visible until it is used or times out. */
 .wiz-side-del--armed,
 .wiz-side-del--armed:hover:not(:disabled) {
   width: 40px;
   font-size: 10px;
-  border-radius: 999px;
-  background: rgba(255, 120, 120, 0.2);
-  color: rgba(255, 157, 157, 0.95);
+  background: rgba(255, 120, 120, 0.15);
+  color: rgba(255, 157, 157, 0.9);
   opacity: 1;
 }
 
@@ -6424,6 +6477,33 @@ async function enablePackage(
   align-items: center;
   gap: 2px;
   flex: 0 0 auto;
+}
+
+/* 4px in, so the 22px tile centres on the same 15px line as the New widget
+   icon (8px + 14px) and the status dots below. 28px tall like `.wiz-head`
+   (the tab switch: 24px + 2px padding), so both rows share one centre line. */
+.wiz-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wiz-brand-icon {
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border-radius: 7px;
+  color: var(--icon-tile-fg);
+  background: var(--icon-tile-bg);
+}
+
+.wiz-brand > .wiz-side-toggle {
+  margin-left: auto;
 }
 
 .wiz-new {
@@ -6456,6 +6536,34 @@ async function enablePackage(
 .wiz-new:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* Use MCP under New widget, as a row of the same kind: same inset, size and
+   icon line, so the two read as the sidebar's actions. */
+/* Pulled up into the column's 8px gap: the two actions sit as a pair. */
+.wiz-side-mcp {
+  margin-top: -6px;
+}
+
+.wiz-side-mcp :deep(.mcp-help-trigger) {
+  width: 100%;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  color: inherit;
+  font-size: inherit;
+  font-weight: 500;
+  transition: background-color 100ms ease;
+}
+
+.wiz-side-mcp :deep(.mcp-help-trigger:hover) {
+  background: var(--fill, rgba(var(--fg-rgb), 0.08));
+  color: inherit;
+}
+
+.wiz-side-mcp :deep(.mcp-help-trigger > .lmi) {
+  flex: 0 0 auto;
+  opacity: 0.75;
 }
 
 .wiz-new > .lmi {
@@ -6497,7 +6605,7 @@ async function enablePackage(
 
 .wiz-side-heading {
   flex: 0 0 auto;
-  margin: 6px 0 0;
+  margin: 16px 0 0;
   padding: 0 8px;
   font-size: 11px;
   font-weight: 500;
@@ -6509,6 +6617,10 @@ async function enablePackage(
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
+  /* Matches `.wiz-brand` in the sidebar, so their icons sit on one line. */
+  height: 28px;
+  /* Air before the conversation; outside the box, so the line above holds. */
+  margin-bottom: 10px;
   /* The tab labels fold to their icons when the name needs the room. */
   container-type: inline-size;
 }

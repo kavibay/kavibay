@@ -2461,6 +2461,38 @@ export function withDefaultScale(files: GeneratedFile[], scale: number): Generat
   );
 }
 
+/** The card flags the preview's gear edits: `ui.padding` and `ui.defaultHideTitle`. */
+export interface CardUiFlags {
+  padding?: boolean;
+  defaultHideTitle?: boolean;
+}
+
+/** Those flags as the manifest declares them; an absent or non-boolean one is left out. */
+export function manifestCardFlags(files: GeneratedFile[]): CardUiFlags {
+  const ui = readJsonFile(files, "manifest.json")?.ui;
+  if (!ui || typeof ui !== "object") return {};
+  const { padding, defaultHideTitle } = ui as Record<string, unknown>;
+  return {
+    ...(typeof padding === "boolean" ? { padding } : {}),
+    ...(typeof defaultHideTitle === "boolean" ? { defaultHideTitle } : {}),
+  };
+}
+
+/** The package with the given card flags written into `ui`; unchanged files when nothing differs. */
+export function withCardFlags(files: GeneratedFile[], flags: CardUiFlags): GeneratedFile[] {
+  const parsed = readJsonFile(files, "manifest.json");
+  if (!parsed) return files;
+  const ui = (parsed.ui && typeof parsed.ui === "object" ? parsed.ui : {}) as Record<string, unknown>;
+  const changed = Object.entries(flags).filter(([key, value]) => ui[key] !== value);
+  if (changed.length === 0) return files;
+  const patched = { ...parsed, ui: { ...ui, ...Object.fromEntries(changed) } };
+  return files.map((file) =>
+    file.path === "manifest.json"
+      ? { ...file, contents: JSON.stringify(patched, null, 2) + "\n" }
+      : file,
+  );
+}
+
 function readJsonFile(files: GeneratedFile[], path: string): Record<string, unknown> | null {
   const file = files.find((entry) => entry.path === path);
   if (!file) return null;
@@ -3408,7 +3440,7 @@ export function conversationTitle(session: WizardSession): string {
     const line = firstAsk.text.trim().split("\n")[0];
     return line.length > 60 ? `${line.slice(0, 57)}…` : line;
   }
-  return "New project";
+  return "New widget";
 }
 
 /**
@@ -3970,4 +4002,13 @@ export function fileTreeRows(paths: readonly string[]): FileTreeRow[] {
   };
   walk(root, "", 0);
   return rows;
+}
+
+/** A handoff identifies the package, rather than relying on its display name. */
+export function wizardMcpContinuationPrompt(packageId: string): string {
+  return `Use Kavibay MCP to update widget ${JSON.stringify(packageId)}.
+Read the Kavibay authoring guide and the widget's latest draft first. If no draft exists, read the saved widget and check it out into a draft.
+Continue from the existing files, preserve unrelated behavior, and pass the latest revision as expectedRevision when editing. Validate the draft after your changes, then ask me to review and Save it in Kavibay's Widget Wizard.
+
+Changes I want: `;
 }

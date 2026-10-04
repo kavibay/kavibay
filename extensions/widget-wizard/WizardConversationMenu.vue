@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, useId, watch } from "vue";
-import { ClipboardCopyIcon, IconBase } from "@sdk/icons";
+import { ClipboardCopyIcon, IconBase, PlugIcon } from "@sdk/icons";
 import { formatTokens, type WizardUsage } from "./widgetWizardLogic";
 
 const props = defineProps<{
   usage: WizardUsage;
   cost: string;
   copyState: "idle" | "copying" | "copied" | "error";
+  copyTarget: "transcript" | "mcp";
   canExport: boolean;
+  canContinueMcp: boolean;
   showSuggestions: boolean;
 }>();
 const emit = defineEmits<{
   export: [];
+  continueMcp: [];
   "update:showSuggestions": [show: boolean];
 }>();
 const panelId = useId();
@@ -179,6 +182,11 @@ onBeforeUnmount(() => {
         <span>Show suggestions</span>
         <span class="conversation-menu__switch" :class="{ 'conversation-menu__switch--on': showSuggestions }" aria-hidden="true" />
       </button>
+      <button type="button" class="conversation-menu__export"
+        :disabled="!canContinueMcp || copyState === 'copying'" @click="emit('continueMcp')">
+        <PlugIcon :size="15" />
+        <span>Continue via MCP<span class="conversation-menu__hint">Copy prompt to clipboard</span></span>
+      </button>
       <button
         type="button"
         class="conversation-menu__export"
@@ -189,7 +197,7 @@ onBeforeUnmount(() => {
         <span>Export transcript<span class="conversation-menu__hint">Copy to clipboard</span></span>
       </button>
       <p v-if="copyState === 'copied' || copyState === 'error'" class="conversation-menu__feedback" role="status">
-        {{ copyState === 'copied' ? 'Copied to clipboard' : 'Could not copy. Try again.' }}
+        {{ copyState === 'copied' ? (copyTarget === 'mcp' ? 'MCP prompt copied' : 'Copied to clipboard') : 'Could not copy. Try again.' }}
       </p>
     </div>
   </Teleport>

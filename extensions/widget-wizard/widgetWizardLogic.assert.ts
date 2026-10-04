@@ -2,6 +2,7 @@
  * Run: npx tsx extensions/widget-wizard/widgetWizardLogic.assert.ts
  */
 import {
+  wizardMcpContinuationPrompt,
   attachmentProblem,
   autoApprovedGrant,
   buildWizardPermissionRequest,
@@ -90,6 +91,8 @@ import {
   updateLiveVersion,
   manifestSize,
   manifestIconSvg,
+  manifestCardFlags,
+  withCardFlags,
   parseGeneratedFiles,
   previewPermissionsFor,
   renderFilesForPrompt,
@@ -113,6 +116,13 @@ import {
   wizardPlatforms,
   wizardHasAnyKey,
 } from "./widgetWizardLogic";
+
+const mcpPrompt = wizardMcpContinuationPrompt("notion-datenbank-2");
+if (!mcpPrompt.startsWith('Use Kavibay MCP to update widget "notion-datenbank-2".')
+  || !mcpPrompt.includes("latest draft first") || !mcpPrompt.includes("expectedRevision")
+  || !mcpPrompt.includes("review and Save") || !mcpPrompt.endsWith("Changes I want: ")) {
+  throw new Error("MCP handoff must target the exact widget, continue its draft and leave Save to the user");
+}
 import type { WizardBubble } from "./widgetWizardLogic";
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -865,7 +875,7 @@ assert(
   const long = emptyWizardSession("c3");
   long.bubbles.push({ role: "user", text: "x".repeat(200) });
   assert(conversationTitle(long).length <= 60, "titles stay short");
-  assertEq(conversationTitle(emptyWizardSession("c4")), "New project", "empty falls back");
+  assertEq(conversationTitle(emptyWizardSession("c4")), "New widget", "empty falls back");
 
   // The name the person typed decides the id; before that, their first request
   // is the best guess available. Both go through the same slug rule.
@@ -3045,6 +3055,17 @@ assert(!turnForPackage("make it grey", "habits", { scope: "rich" }).includes("Sc
   assertEq(ids("a weather card"), ["kavibay.weather/weather"], "label without its parenthetical");
   assertEq(ids("notional budget, tadoo"), [], "whole words only");
   assertEq(ids("Open-Meteo forecast"), [], "the parenthetical alone does not match");
+}
+
+{
+  const manifest = (body: string) => [{ path: "manifest.json", contents: body }];
+  assertEq(manifestCardFlags(manifest('{"ui":{"padding":false,"defaultHideTitle":true}}')), { padding: false, defaultHideTitle: true }, "both flags read");
+  assertEq(manifestCardFlags(manifest('{"ui":{"padding":"no"}}')), {}, "a non-boolean flag is absent");
+  assertEq(manifestCardFlags(manifest("{ broken")), {}, "broken manifest");
+  const start = manifest('{"id":"x","ui":{"defaultSize":{"w":1,"h":2}}}');
+  const next = withCardFlags(start, { padding: false });
+  assertEq(JSON.parse(next[0].contents).ui, { defaultSize: { w: 1, h: 2 }, padding: false }, "written beside the other ui keys");
+  assert(withCardFlags(next, { padding: false }) === next, "same value: files returned untouched");
 }
 
 console.log("widgetWizardLogic.assert.ts: ok");
