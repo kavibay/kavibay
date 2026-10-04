@@ -416,6 +416,10 @@ You do not have to be careful about any of this — the host is:
 | `network_error`, `timeout`, `too_large` | the request did not complete |
 | `credential_not_granted` / `credential_not_configured` / `credential_needs_reauth` | the credential is missing, unset, or needs reconnecting |
 
+For `permission_denied`, `needs_review`, `consent_stale` and the three
+`credential_*` codes the host shows a bar over your widget with the fix — save,
+review, or choose an account. Show your empty state and no message of your own.
+
 ## Using someone's credentials without holding them
 
 Set `credential` on an endpoint to a credential type id (for example
