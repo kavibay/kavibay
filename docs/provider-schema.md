@@ -119,9 +119,9 @@ Needs a connected account. The widget gate shows a connect prompt until then.
 | Query | Reads | Arguments | Returns | Refresh |
 |---|---|---|---|---|
 | `zones` | The names of your heating zones | none | `list of { id: string, name: string }` | 360 min |
-| `zoneStates` | Current temperature and humidity in every room | none | `list of { id: string, temperature: number?, humidity: number? }` | 16 min |
+| `zoneStates` | Current temperature, humidity and target temperature in every room | none | `list of { id: string, temperature: number?, humidity: number?, target: number? }` | 16 min |
 
-No actions — this provider is read-only.
+Actions: `setTemperature` (write).
 
 ## Weather (Open-Meteo)
 

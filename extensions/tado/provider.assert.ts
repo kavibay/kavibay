@@ -53,13 +53,14 @@ assert(
 const states = (await zoneStates.fetch({}, hostWith({
   zoneStates: {
     "1": {
+      setting: { power: "ON", temperature: { celsius: 20 } },
       sensorDataPoints: {
         insideTemperature: { celsius: 21.5 },
         humidity: { percentage: 44 },
       },
     },
     // A room that is offline: tado° simply omits the sensor block.
-    "2": { sensorDataPoints: {} },
+    "2": { setting: { power: "OFF", temperature: null }, sensorDataPoints: {} },
   },
 }))) as TadoRoomState[];
 
@@ -70,6 +71,8 @@ assert(
   states[1].temperature === null && states[1].humidity === null,
   "an offline room yields null rather than a missing field — the widget renders a dash",
 );
+assert(states[0].target === 20, "a heating zone reports its setpoint");
+assert(states[1].target === null, "a zone with heating off has no setpoint");
 assert(
   (await zoneStates.fetch({}, hostWith({}))).length === 0,
   "a response without zoneStates is empty, not a throw",
@@ -85,5 +88,34 @@ assert(
   resultSchemaProblems(zoneStates.result!, states).length === 0,
   "zoneStates matches the result it declares, offline room included",
 );
+
+// --- setTemperature --------------------------------------------------------
+
+const setTemperature = tadoProvider.actions.setTemperature;
+const puts: Array<{ url: string; body: unknown }> = [];
+const writer = {
+  http: { put: async (url: string, body: unknown) => void puts.push({ url, body }) },
+} as unknown as ProviderHostContext;
+
+await setTemperature.execute({ zoneId: "3", celsius: 21.5 }, writer);
+assert(puts.length === 1, "one write per call");
+assert(
+  puts[0].url === "https://my.tado.com/api/v2/homes/{{homeId}}/zones/3/overlay",
+  "the overlay of the named zone, with homeId left for the host to fill",
+);
+assert(
+  JSON.stringify(puts[0].body) === JSON.stringify({
+    setting: { type: "HEATING", power: "ON", temperature: { celsius: 21.5 } },
+    termination: { typeSkillBasedApp: "NEXT_TIME_BLOCK" },
+  }),
+  "the overlay heats to the value until the next scheduled change",
+);
+
+const refused = async (args: { zoneId: string; celsius: number }) =>
+  setTemperature.execute(args, writer).then(() => false, () => true);
+assert(await refused({ zoneId: "../me", celsius: 21 }), "a zone id that is not a number never reaches the path");
+assert(await refused({ zoneId: "3", celsius: 30 }), "a value above tado°'s range is refused");
+assert(await refused({ zoneId: "3", celsius: Number.NaN }), "so is a value that is not a number");
+assert(puts.length === 1, "refused calls send nothing");
 
 console.log("provider.assert.ts: ok");
