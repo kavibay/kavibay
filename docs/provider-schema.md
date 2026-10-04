@@ -84,11 +84,11 @@ Needs a connected account. The widget gate shows a connect prompt until then.
 
 | Query | Reads | Arguments | Returns | Refresh |
 |---|---|---|---|---|
-| `databasePages` | The pages in one Notion database | `databaseId: string` (from `databases`) | `list of { id: string, title: string, url: string, lastEdited: string }` | 1 min |
+| `databasePages` | The pages in one Notion database; `properties` lists every column — find one by `name` | `databaseId: string` (from `databases`) | `list of { id: string, title: string, url: string, lastEdited: string, status: string?, properties: list of { name: string, type: string, value: string? } }` | 1 min |
 | `databases` | Databases shared with your Notion integration | none | `list of { id: string, title: string, url: string, lastEdited: string }` | 5 min |
-| `pages` | Pages shared with your Notion integration, most recently edited first | none | `list of { id: string, title: string, url: string, lastEdited: string }` | 1 min |
+| `pages` | Pages shared with your Notion integration, most recently edited first | none | `list of { id: string, title: string, url: string, lastEdited: string, status: string?, properties: list of { name: string, type: string, value: string? } }` | 1 min |
 
-No actions — this provider is read-only.
+Actions: `setProperty` (write).
 
 ## Spotify
 

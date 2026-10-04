@@ -57,6 +57,7 @@ function hostFor(
         host.lastBody = body;
         return response as T;
       },
+      patch: async () => undefined as never,
     },
   };
   return host;
@@ -175,6 +176,7 @@ function pagingHost(pages: unknown[]): ProviderHostContext & { urls: string[] } 
       },
       post: async <T>(): Promise<T> => undefined as T,
       put: async <T>(): Promise<T> => undefined as T,
+      patch: async <T>(): Promise<T> => undefined as T,
     },
   };
 }
