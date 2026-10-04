@@ -1577,7 +1577,8 @@ function onRevealWidget(instanceId: string, onlyWidget = false) {
     raiseWidget(instanceId);
     void nextTick(recoverLayoutIntoViewport);
   } else {
-    openCockpit();
+    // Revealing a card in an open session must not reopen/refocus the palette.
+    if (!cockpitOpen.value) void openCockpit();
     // Pinned + was Hidden: not covered by cockpit session resume.
     if (wasHidden && instance.pinned) {
       runExtensionHook(getExtension(instance.typeId), "onResume", instance.instanceId);
