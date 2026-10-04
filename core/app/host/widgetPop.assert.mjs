@@ -4,6 +4,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { computed, reactive, ref } from "vue";
 import { hasKeptInstance, shouldKeepWindowAfterDismiss, survivesDismiss } from "./layoutLogic.ts";
+import { widgetFocusRequestMatches, WIDGET_FOCUS_EVENT } from "../../../sdk/extension/widgetFocusRequest.ts";
 
 // Run the actual SFC handlers with native effects stubbed; no copied pop logic.
 function source(path) {
@@ -140,4 +141,32 @@ for (const [mode, expected] of [
   await notify("timer", mode);
   assert.deepEqual(trace, expected);
 }
+// A sibling Todo must not take the caret when the host focuses the Wizard.
+const todoFocus = {
+  widgetFocusRequestMatches,
+  widgetSurface: "desk",
+  props: { model: {
+    instanceId: "todo-a",
+    state: { value: { items: [{ id: "row-a", text: "Task" }] } },
+    rows: { value: [{ id: "row-a" }] },
+  } },
+  focusRow: (id) => trace.push(`todo-focus:${id}`),
+};
+handlers(script("../../../extensions/todo/widgets/TodoView.vue"), ["onFocusRequest"], todoFocus);
+const requestFocus = (instanceId, surface = "desk") => todoFocus.onFocusRequest({
+  type: WIDGET_FOCUS_EVENT, detail: { instanceId, surface },
+});
+trace.length = 0;
+requestFocus("wizard");
+requestFocus("todo-b");
+requestFocus("todo-a", "inline");
+assert.deepEqual(trace, [], "Todo ignores focus for other widgets and surfaces");
+requestFocus("todo-a");
+assert.deepEqual(trace, ["todo-focus:row-a"], "Todo still focuses its own desk instance");
+todoFocus.widgetSurface = "inline";
+trace.length = 0;
+requestFocus("todo-a");
+assert.deepEqual(trace, [], "the inline copy ignores desk focus");
+requestFocus("todo-a", "inline");
+assert.deepEqual(trace, ["todo-focus:row-a"], "the inline copy accepts its own focus");
 console.log("widgetPop.assert.mjs: all assertions passed");

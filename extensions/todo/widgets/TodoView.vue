@@ -201,8 +201,7 @@ function onDragKeydown(event: KeyboardEvent) {
 }
 
 function onFocusRequest(event: Event) {
-  const detail = (event as CustomEvent<{ instanceId?: string; surface?: WidgetSurface }>).detail;
-  if (!detail || !widgetFocusRequestMatches(event, detail.instanceId ?? "", widgetSurface)) return;
+  if (!widgetFocusRequestMatches(event, props.model.instanceId, widgetSurface)) return;
   const empty = props.model.state.value.items.find((item) => !item.text.trim());
   focusRow(empty?.id ?? props.model.rows.value[0]?.id ?? props.model.state.value.items[0]!.id);
 }
