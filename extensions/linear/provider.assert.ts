@@ -24,6 +24,7 @@ function hostFor(
       get: async () => undefined as never,
       post: async <T>(_url: string, _body?: unknown): Promise<T> => response as T,
       put: async () => undefined as never,
+      patch: async () => undefined as never,
     },
   };
 }
@@ -96,6 +97,7 @@ const capturingHost: ProviderHostContext = {
       return teamEnvelope as T;
     },
     put: async () => undefined as never,
+    patch: async () => undefined as never,
   },
 };
 await fetchTeamIssues({ teamId: " team-1 " }, capturingHost);
@@ -128,6 +130,7 @@ assert(
         return envelope as T;
       },
       put: async () => undefined as never,
+      patch: async () => undefined as never,
     },
   });
 
@@ -203,6 +206,7 @@ const createHost: ProviderHostContext = {
       return createdEnvelope as T;
     },
     put: async () => undefined as never,
+    patch: async () => undefined as never,
   },
 };
 
@@ -328,6 +332,7 @@ function hostQueue(responses: unknown[]): {
           return response as T;
         },
         put: async () => undefined as never,
+        patch: async () => undefined as never,
       },
     },
   };

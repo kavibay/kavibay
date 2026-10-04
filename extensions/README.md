@@ -102,7 +102,7 @@ What each one returns is in [../docs/provider-schema.md](../docs/provider-schema
 |--------|------|--------------|:----:|-------|
 | AI Usage | `ai-usage` | Codex and Claude Code subscription usage. | L | Local Codex data; opt-in Claude live usage with local status-line fallback |
 | Launcher Buttons | `launcher-buttons` | Launch pinned apps with keyboard shortcuts. | L | Contract `ctx.launcher` capability; app list in `ctx.data` |
-| System Info | `system-info` | CPU, memory and battery from the host. | L | Host polls `widget_system_info` every 5 s |
+| System Info | `system-info` | CPU, memory and battery from the host; disks, network and top processes when drawn tall. | L | Host polls `widget_system_info` every 5 s |
 
 ### Media
 

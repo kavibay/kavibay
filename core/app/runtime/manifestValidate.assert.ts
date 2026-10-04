@@ -34,6 +34,7 @@ function baseManifest(overrides: Record<string, unknown> = {}) {
 assert(isKnownRuntimePermission("storage.instance"), "storage.instance known");
 assert(isKnownRuntimePermission("network.client"), "network.client known");
 assert(isKnownRuntimePermission("backend.sidecar"), "backend.sidecar known");
+assert(isKnownRuntimePermission("background.pop"), "background.pop known");
 assert(!isKnownRuntimePermission("shell.exec"), "unknown permission not known");
 
 // --- package ids ---

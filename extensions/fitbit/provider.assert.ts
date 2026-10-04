@@ -28,6 +28,7 @@ function hostFor(
       },
       post: async () => undefined as never,
       put: async () => undefined as never,
+      patch: async () => undefined as never,
     },
   };
   return host;

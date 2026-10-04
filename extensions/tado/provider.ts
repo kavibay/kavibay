@@ -28,11 +28,23 @@ export interface TadoRoomState {
   id: string;
   temperature: number | null;
   humidity: number | null;
+  /** The setpoint the zone heats to right now; null while heating is off. */
+  target: number | null;
 }
+
+export interface TadoSetTemperatureArgs {
+  zoneId: string;
+  celsius: number;
+}
+
+/** tado°'s heating range; the API refuses anything outside it. */
+export const TARGET_MIN = 5;
+export const TARGET_MAX = 25;
 
 /** `{ zoneStates: { "1": { sensorDataPoints: … } } }`, keyed per account. */
 interface ZoneStatesRaw {
   zoneStates?: Record<string, {
+    setting?: { power?: string; temperature?: { celsius?: number } | null };
     sensorDataPoints?: {
       insideTemperature?: { celsius?: number };
       humidity?: { percentage?: number };
@@ -107,7 +119,7 @@ export const tadoProvider = defineProvider({
       staleTime: ZONES_TTL_MS,
     }),
     zoneStates: {
-      description: "Current temperature and humidity in every room",
+      description: "Current temperature, humidity and target temperature in every room",
       args: {},
       result: {
         type: "list",
@@ -117,6 +129,7 @@ export const tadoProvider = defineProvider({
             id: { type: "string" },
             temperature: { type: "number", nullable: true },
             humidity: { type: "number", nullable: true },
+            target: { type: "number", nullable: true },
           },
         },
       },
@@ -137,9 +150,36 @@ export const tadoProvider = defineProvider({
           id,
           temperature: numberOrNull(state?.sensorDataPoints?.insideTemperature?.celsius),
           humidity: numberOrNull(state?.sensorDataPoints?.humidity?.percentage),
+          target: state?.setting?.power === "ON"
+            ? numberOrNull(state.setting.temperature?.celsius)
+            : null,
         }));
       },
     },
   },
-  actions: {},
+  actions: {
+    setTemperature: {
+      effect: "write",
+      description:
+        "Set a zone's target temperature (5–25 °C) until the next scheduled change, as the tado° app does by default.",
+      args: {
+        zoneId: { type: "string", label: "Room", required: true, source: { query: "zones" } },
+        celsius: { type: "number", label: "Temperature", required: true },
+      },
+      execute: async (args: TadoSetTemperatureArgs, host): Promise<void> => {
+        const zoneId = String(args.zoneId ?? "");
+        // The zone id lands in the URL path; tado° ids are plain integers.
+        if (!/^\d+$/.test(zoneId)) throw { kind: "provider-error", message: "zoneId must be numeric" };
+        const celsius = Number(args.celsius);
+        if (!Number.isFinite(celsius) || celsius < TARGET_MIN || celsius > TARGET_MAX) {
+          throw { kind: "provider-error", message: `celsius must be ${TARGET_MIN}–${TARGET_MAX}` };
+        }
+        await host.http.put(`${HOME}/zones/${zoneId}/overlay`, {
+          setting: { type: "HEATING", power: "ON", temperature: { celsius } },
+          termination: { typeSkillBasedApp: "NEXT_TIME_BLOCK" },
+        });
+      },
+      invalidates: () => [{ query: "zoneStates" }],
+    },
+  },
 });

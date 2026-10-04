@@ -104,6 +104,7 @@ Runtime-specific:
 | `storage.instance` | Host-mediated per-instance KV for this ext only | Listed on enable |
 | `backend.sidecar` | Run packaged native backend | Hard modal |
 | `network.client` | Document that the package may use the network (OS-level for sidecar) | Hard when sidecar present |
+| `background.pop` | Keep running while the cockpit is hidden; `kavibay.pop()` raises the window and reveals the card (Alarm's path, 10 s cooldown per frame) | Review on enable |
 
 Fail closed: unknown permission string → reject load.
 

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import CommandPalette from "./palette/CommandPalette.vue";
 import WidgetHost from "./host/WidgetHost.vue";
 import ExtensionAboutModal from "./extensions/ExtensionAboutModal.vue";
@@ -22,11 +21,11 @@ useRegionSync();
 const { open: settingsOpen, show: showSettings, showSection } = useSettingsModal();
 let unlistenSettingsShow: UnlistenFn | undefined;
 
-/** Hide window on Esc unless Settings or a widget is holding the gesture. */
+/** Dismiss the host session on Esc unless Settings or a widget holds it. */
 function onKeydown(event: KeyboardEvent) {
   if (event.key !== "Escape") return;
   if (settingsOpen.value || hostDismissHeld.value) return;
-  void getCurrentWindow().hide();
+  window.dispatchEvent(new Event("kavibay:dismiss-cockpit"));
 }
 
 onMounted(async () => {

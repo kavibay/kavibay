@@ -78,7 +78,7 @@ const http: HttpCapability = {
  */
 const subscriptions: Array<{ name: string; args: unknown }> = [];
 const providerHost = {
-  http: { ...http, put: async <T>() => undefined as T },
+  http: { ...http, put: async <T>() => undefined as T, patch: async <T>() => undefined as T },
   credentials: { isConnected: async () => true },
 };
 const providerApi = {

@@ -6,6 +6,11 @@ export interface SystemInfoConfig {
   showMemory: boolean;
   showBattery: boolean;
   showUptime: boolean;
+  /** The four below appear only in the large view (see `EXTENDED_MIN_HEIGHT`). */
+  showHistory: boolean;
+  showNetwork: boolean;
+  showDisks: boolean;
+  showProcesses: boolean;
 }
 
 /** Default visible fields for System Info instances. */
@@ -15,7 +20,14 @@ export const DEFAULT_SYSTEM_INFO_CONFIG: SystemInfoConfig = {
   showMemory: true,
   showBattery: true,
   showUptime: true,
+  showHistory: true,
+  showNetwork: true,
+  showDisks: true,
+  showProcesses: true,
 };
+
+/** Widget height in px from which the large view's sections appear. */
+export const EXTENDED_MIN_HEIGHT = 420;
 
 /** Normalize the schema-driven configuration handed to widget setup. */
 export function normalizeSystemInfoConfig(raw: unknown): SystemInfoConfig {
@@ -26,6 +38,10 @@ export function normalizeSystemInfoConfig(raw: unknown): SystemInfoConfig {
     showMemory: settings.showMemory !== false,
     showBattery: settings.showBattery !== false,
     showUptime: settings.showUptime !== false,
+    showHistory: settings.showHistory !== false,
+    showNetwork: settings.showNetwork !== false,
+    showDisks: settings.showDisks !== false,
+    showProcesses: settings.showProcesses !== false,
   };
 }
 
@@ -69,4 +85,79 @@ export function visibleHeroKeys(
   if (settings.showMemory) keys.push("memory");
   if (settings.showBattery && batteryPresent) keys.push("battery");
   return keys;
+}
+
+const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"];
+
+/** Format a byte count in binary units, one decimal below 10 ("1.2 GB", "412 GB"). */
+export function formatBytes(bytes: number): string {
+  let value = Number.isFinite(bytes) ? Math.max(0, bytes) : 0;
+  let unit = 0;
+  while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  const digits = value < 10 && unit > 0 ? 1 : 0;
+  return `${value.toFixed(digits)} ${BYTE_UNITS[unit]}`;
+}
+
+/** Format a process group's CPU share like Task Manager: one decimal below 10 %. */
+export function formatCpuShare(percent: number): string {
+  return `${percent < 10 ? percent.toFixed(1) : Math.round(percent)}%`;
+}
+
+/**
+ * SVG polyline points for 0–100 values in a `0 0 (slots - 1) 100` viewBox,
+ * newest at the right edge so a short history grows in from the right.
+ */
+export function sparklinePoints(values: readonly number[], slots: number): string {
+  const offset = slots - values.length;
+  return values.map((value, i) => `${offset + i},${100 - roundPercent(value)}`).join(" ");
+}
+
+export interface InterfaceTotals {
+  name: string;
+  received_bytes: number;
+  transmitted_bytes: number;
+}
+
+export interface NetworkSample {
+  interfaces: InterfaceTotals[];
+  /** `Date.now()` when the sample arrived. */
+  at: number;
+}
+
+/** Bytes per second. */
+export interface NetworkRate {
+  down: number;
+  up: number;
+}
+
+/**
+ * Throughput between two samples of lifetime counters: per direction, the
+ * busiest adapter. Not the sum — Windows lists one card more than once (a
+ * VirtualBox filter shows Wi-Fi again with identical counters) and WSL traffic
+ * crosses vEthernet and then Wi-Fi, so a sum counts the same bytes twice.
+ * The ceiling: two cards busy at once read as the busier one.
+ *
+ * An adapter missing from the earlier sample just connected and is skipped:
+ * its counter holds its whole lifetime, not this interval. A counter that went
+ * backwards (adapter reset) reads as no traffic rather than a negative rate.
+ */
+export function networkRate(
+  prev: NetworkSample | undefined,
+  next: NetworkSample,
+): NetworkRate | null {
+  if (!prev) return null;
+  const secs = (next.at - prev.at) / 1000;
+  if (!(secs > 0)) return null;
+  let down = 0;
+  let up = 0;
+  for (const iface of next.interfaces) {
+    const before = prev.interfaces.find((p) => p.name === iface.name);
+    if (!before) continue;
+    down = Math.max(down, iface.received_bytes - before.received_bytes);
+    up = Math.max(up, iface.transmitted_bytes - before.transmitted_bytes);
+  }
+  return { down: down / secs, up: up / secs };
 }

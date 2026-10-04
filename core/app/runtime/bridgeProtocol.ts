@@ -58,7 +58,13 @@ export type ExtToHost =
    * number used to size a card, and a package lying about it can make its own
    * card the wrong size, which it could already do through `ui.defaultSize`.
    */
-  | { type: "kavibay.ext.content-size"; width: number; height: number };
+  | { type: "kavibay.ext.content-size"; width: number; height: number }
+  /**
+   * Reveal only this frame's card, like a ringing Alarm, without opening the cockpit.
+   * Needs `background.pop`; the card it reveals is the frame's own, never one
+   * named in the payload.
+   */
+  | { type: "kavibay.ext.pop"; requestId: string; sound?: boolean };
 
 /** Stable failure codes a package can branch on (design §7). */
 export type HttpErrorCode =
@@ -96,7 +102,9 @@ export interface HttpCallResult {
 export type HostToExt =
   | { type: "kavibay.ext.storage.result"; requestId: string; ok: true; value: unknown }
   | { type: "kavibay.ext.storage.result"; requestId: string; ok: false; error: string }
-  | { type: "kavibay.ext.http.result"; requestId: string; result: HttpCallResult };
+  | { type: "kavibay.ext.http.result"; requestId: string; result: HttpCallResult }
+  | { type: "kavibay.ext.pop.result"; requestId: string; ok: true }
+  | { type: "kavibay.ext.pop.result"; requestId: string; ok: false; error: string };
 
 /** Host-bound frame identity; payload extId/instanceId must never override these. */
 export interface BridgeFrameIdentity {
@@ -109,6 +117,14 @@ export interface BridgeFrameIdentity {
 
 const STORAGE_PERM = "storage.instance";
 export const NETWORK_DECLARED_PERM = "network.declared";
+const BACKGROUND_POP_PERM = "background.pop";
+
+/**
+ * Minimum gap between two pops of one frame. Generated code that calls
+ * `pop()` from a tick would otherwise take focus every second and leave the
+ * person fighting the window to switch the widget off.
+ */
+export const POP_COOLDOWN_MS = 10_000;
 
 /** Narrow unknown postMessage data to ExtToHost. */
 export function isExtToHost(data: unknown): data is ExtToHost {
@@ -127,6 +143,8 @@ export function isExtToHost(data: unknown): data is ExtToHost {
       return typeof o.requestId === "string" && "value" in o;
     case "kavibay.ext.http.call":
       return typeof o.requestId === "string" && typeof o.endpointId === "string";
+    case "kavibay.ext.pop":
+      return typeof o.requestId === "string";
     // Only the message is required. A guest that reported a fault without one
     // has nothing to show, and `source` is normalised rather than demanded —
     // dropping a real crash because its label was unexpected would lose the
@@ -146,6 +164,20 @@ export function faultSourceOf(value: unknown): "error" | "rejection" | "console"
 /** True when frame was granted storage.instance. */
 function hasStoragePermission(identity: BridgeFrameIdentity): boolean {
   return identity.grantedPermissions.includes(STORAGE_PERM);
+}
+
+/**
+ * What one pop request does: refused without the grant, swallowed inside the
+ * cooldown (the window is already up, so it still counts as done), else raise.
+ */
+export function popOutcome(
+  grantedPermissions: readonly string[],
+  lastPopAt: number | null,
+  now: number,
+): "denied" | "swallowed" | "raise" {
+  if (!grantedPermissions.includes(BACKGROUND_POP_PERM)) return "denied";
+  if (lastPopAt !== null && now - lastPopAt < POP_COOLDOWN_MS) return "swallowed";
+  return "raise";
 }
 
 /** Build a storage error reply. */
@@ -188,6 +220,11 @@ export function handleBridgeMessage(
 
     case "kavibay.ext.http.call":
       // Answered asynchronously by the frame; see `RuntimeExtensionFrame.vue`.
+      return null;
+
+    case "kavibay.ext.pop":
+      // The frame owns the window call and the per-frame cooldown; see
+      // `popOutcome` and `RuntimeExtensionFrame.vue`.
       return null;
 
     case "kavibay.ext.fault":

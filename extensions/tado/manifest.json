@@ -3,7 +3,7 @@
   "name": "tado",
   "version": "1.0.0",
   "displayName": "Tado",
-  "description": "Read-only smart thermostat tiles for tado° heating zones.",
+  "description": "Smart thermostat tiles for tado° heating zones: read the room, set the target.",
   "engines": { "kavibay": "^0.1" },
   "widgets": {
     "tile": {

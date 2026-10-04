@@ -60,6 +60,10 @@ assert(
   "network permission needs review",
 );
 assert(
+  needsReviewBeforeEnable({ permissions: ["background.pop"], apiEndpoints: [] }) === true,
+  "running hidden and taking focus needs review",
+);
+assert(
   needsReviewBeforeEnable({ permissions: [], apiEndpoints: [{}] }) === true,
   "a declared endpoint needs review even without the permission listed",
 );
@@ -172,12 +176,13 @@ assert(
     grantablePermissionsFromManifest([
       "storage.instance",
       "network.declared",
+      "background.pop",
       "network.client",
       "backend.sidecar",
       "shell.exec",
     ]),
-  ) === JSON.stringify(["storage.instance", "network.declared"]),
-  "grant only storage.instance + network.declared",
+  ) === JSON.stringify(["storage.instance", "network.declared", "background.pop"]),
+  "grant only storage.instance + network.declared + background.pop",
 );
 
 // --- re-consent when the declaration changed under a granted package ---

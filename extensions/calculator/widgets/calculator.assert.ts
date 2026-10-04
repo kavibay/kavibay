@@ -1,5 +1,5 @@
 import { effectScope, nextTick } from "vue";
-import type { WidgetContext } from "@sdk/contract/sdk";
+import type { ClipboardCapability, WidgetContext } from "@sdk/contract/sdk";
 import calculatorExtension from "../extension";
 import {
   CALCULATOR_STATE_KEY,
@@ -7,6 +7,9 @@ import {
   appendHistoryEntry,
   calculatorWidget,
   evaluate,
+  displayAnswer,
+  formatAnswer,
+  roundAnswer,
   normalizeCalculatorState,
   normalizeHistory,
   normalizeHistoryEntry,
@@ -28,9 +31,53 @@ assert(calculatorExtension.name === "calculator", "the port keeps the calculator
 const precedence = evaluate("2+3*4");
 const unary = evaluate("-(2+3)");
 assert(precedence.ok && precedence.value === 14, "operator precedence is kept");
+for (const input of ["2+3x4", "2+3X4", "2+3×4"]) {
+  const times = evaluate(input);
+  assert(times.ok && times.value === 14, `${input} multiplies`);
+}
+assert(resolveExpression([{ id: "a", expression: "6", result: "6" }], "x2") === "6x2", "x continues from the previous result");
 assert(unary.ok && unary.value === -5, "unary minus is kept");
 assert(!evaluate("1/0").ok, "division by zero fails closed");
 assert(normalizeHistoryEntry(null) === null, "invalid history rows are dropped");
+const decimalComma = evaluate("3,5*2");
+assert(decimalComma.ok && decimalComma.value === 7, "a comma is a decimal point");
+
+function answer(input: string): string | null {
+  const result = evaluate(input);
+  return result.ok ? roundAnswer(formatAnswer(result)) : null;
+}
+for (const [input, expected] of [
+  ["5 km in mi", "3.10685596119 mi"],
+  ["25km to m", "25000 m"],
+  ["5 in in cm", "12.7 cm"],
+  ["(2+3)*1,5 kg in g", "7500 g"],
+  ["20 °C in F", "68 °F"],
+  ["-40 celsius in fahrenheit", "-40 °F"],
+  ["0 K in C", "-273.15 °C"],
+  ["1,5 GB in MB", "1500 MB"],
+  ["100 Mbit in MB", "12.5 MB"],
+  ["2 GiB in MiB", "2048 MiB"],
+  ["100 km/h in mph", "62.1371192237 mph"],
+  ["90 min in h", "1.5 h"],
+  ["1 ha in qm", "10000 m²"],
+  ["2 Stunden in min", "120 min"],
+] as const) {
+  assert(answer(input) === expected, `${input} converts to ${expected}, got ${answer(input)}`);
+}
+for (const input of ["5 km in kg", "5 km", "5 foo in mi", "km in mi", "chrome"]) {
+  assert(!evaluate(input).ok, `${input} is not a result`);
+}
+const ns = String.fromCharCode(0x202f);
+assert(displayAnswer("1234567.891") === `1${ns}234${ns}567.891`, "integer digits are grouped");
+assert(displayAnswer("-1234 mi") === `-1${ns}234 mi`, "a sign and a unit survive grouping");
+assert(displayAnswer("123") === "123" && displayAnswer("1e+21") === "1e+21", "short and exponent results stay as they are");
+assert(displayAnswer("0.30000000000000004") === "0.3", "display rounds away float noise");
+const exponent = evaluate("1e-7*2");
+assert(exponent.ok && exponent.value === 2e-7, "exponent results read back in");
+const converted = [{ id: "a", expression: "5 km in mi", result: "3.1 mi" }];
+assert(resolveExpression(converted, "*2") === "3.1*2", "an operator continues from a converted number");
+assert(resolveExpression(converted, "in km") === "3.1 mi in km", "in converts a converted result again");
+assert(resolveExpression([{ id: "a", expression: "5", result: "5" }], "in km") === "in km", "in needs a unit to continue from");
 
 const many = Array.from({ length: MAX_CALC_HISTORY + 5 }, (_, index) => ({
   id: `id-${index}`,
@@ -93,10 +140,17 @@ const data = memoryData({
   history: [{ id: "saved", expression: "1+1", result: "2" }],
   expression: "6*7",
 });
+const copiedTexts: string[] = [];
+const clipboard = {
+  async writeText(text: string) {
+    copiedTexts.push(text);
+  },
+} as Partial<ClipboardCapability> as ClipboardCapability;
 const context = {
   instanceId: "calculator-assert",
   config: {},
   data,
+  clipboard,
 } satisfies WidgetContext<Record<string, never>>;
 
 const scope = effectScope();
@@ -138,6 +192,40 @@ assert(
     model.history.value[2]?.result === "115" &&
     model.history.value.length === 3,
   "new history continues from the selected calculation",
+);
+
+model.setExpression("draft");
+model.recall(-1);
+assert(model.expression.value === "+5", "up recalls the newest expression");
+model.recall(-1);
+model.recall(-1);
+model.recall(-1);
+assert(model.expression.value === "1+1", "up stops at the oldest expression");
+model.recall(1);
+assert(model.expression.value === "100+10", "down steps back towards the newest");
+model.recall(1);
+model.recall(1);
+assert(model.expression.value === "draft", "down past the newest restores the draft");
+
+model.setExpression("1/3");
+assert(model.commit(), "a fraction commits");
+model.setExpression("*3");
+assert(model.live.value === "1", "continuing does not compound the rounding");
+model.setExpression("");
+model.selectHistory(1);
+model.setExpression("5 km in mi");
+assert(model.commit(), "a conversion commits");
+model.setExpression("in km");
+assert(model.live.value === "5 km", "converting back lands on the start value");
+
+model.setExpression("1,5 GB in MB");
+assert(model.live.value === "1500 MB", "the live result carries the unit");
+await model.copy();
+model.setExpression("");
+await model.copy();
+assert(
+  copiedTexts[0] === "1500 MB" && copiedTexts[1] === "3.10685596119 mi" && model.copied.value,
+  "copy takes the live result, or the selected one when nothing is typed",
 );
 
 model.clearAll();
