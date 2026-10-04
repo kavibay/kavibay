@@ -60,7 +60,7 @@ export const tauriWidgetCapabilityTransport: WidgetCapabilityTransport = {
   aiUsageEnableClaudeCapture: () => invoke("widget_ai_usage_enable_claude"),
   notificationShow: (request: NotificationRequest) =>
     invoke("widget_notification_show", { title: request.title, body: request.body }),
-  systemInfoSnapshot: () => invoke("widget_system_info"),
+  systemInfoSnapshot: (include) => invoke("widget_system_info", { include }),
   nowPlayingSnapshot: () => invoke("widget_now_playing"),
   nowPlayingControl: (action: NowPlayingControl) => {
     // The macOS consent dialog floats above the cockpit, so its buttons are

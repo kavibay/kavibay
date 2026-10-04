@@ -122,7 +122,14 @@ export interface ProviderHttpCapability extends HttpCapability {
  * schema in the shared contract.
  */
 export interface SystemInfoCapability {
-  snapshot<T = unknown>(): Promise<T>;
+  snapshot<T = unknown>(include?: SystemInfoInclude): Promise<T>;
+}
+
+/** Costlier snapshot sections, requested only while a widget shows them. */
+export interface SystemInfoInclude {
+  disks?: boolean;
+  processes?: boolean;
+  network?: boolean;
 }
 
 /**
