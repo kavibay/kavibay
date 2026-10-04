@@ -175,7 +175,7 @@ import type {
 } from "@sdk/types";
 import { scheduleRegionSync, setClickThroughPaused } from "../system/clickThrough";
 import { isCardHeaderHit, useCardChromePosition } from "../host/useCardChromePosition";
-import { evaluate, formatResult } from "../../../extensions/calculator/widgets/calculator";
+import { displayAnswer, evaluate, formatAnswer } from "../../../extensions/calculator/widgets/calculator";
 import { useAppearance } from "../settings/useAppearance";
 import { useExtensionsPrefs } from "../settings/useExtensionsPrefs";
 import { useSettingsModal } from "../settings/useSettingsModal";
@@ -1388,7 +1388,7 @@ watch([query, selectedIndex], () => {
 const calcDisplay = computed(() => {
   const result = evaluate(query.value);
   if (!result.ok) return null;
-  return formatResult(result.value);
+  return displayAnswer(formatAnswer(result));
 });
 
 /**

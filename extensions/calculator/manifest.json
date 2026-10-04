@@ -3,13 +3,13 @@
   "name": "calculator",
   "version": "1.0.0",
   "displayName": "Calculator",
-  "description": "Quick arithmetic calculator.",
+  "description": "Arithmetic and unit conversions.",
   "author": "kavibay",
   "engines": { "kavibay": "^0.1" },
   "widgets": {
     "calculator": {
       "replaces": "calculator",
-      "keywords": ["calculator", "calc", "math", "rechner"],
+      "keywords": ["calculator", "calc", "math", "rechner", "convert", "units", "umrechnen"],
       "categories": ["tools"],
       "ui": {
         "defaultOffset": { "x": 480, "y": 380 },
