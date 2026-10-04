@@ -1029,6 +1029,9 @@ mod tests {
     fn the_prompt_embeds_the_design_guidance() {
         let prompt = system_prompt();
         assert!(!DESIGN_DOC.is_empty());
+        // A Notion board shipped HTML5 drag-and-drop: every handler was
+        // correct and none of them ever fired in the app's webview.
+        assert!(DESIGN_DOC.contains("never HTML5 drag-and-drop"));
         assert!(prompt.contains("House style"));
         assert!(
             prompt.contains("rgba(232, 232, 234, 0.92)"),
