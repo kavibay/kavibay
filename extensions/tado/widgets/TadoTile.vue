@@ -2,8 +2,8 @@
 import { computed, type ComputedRef } from "vue";
 
 /**
- * The tado° tile, matching the shipping widget: humidity above, temperature
- * large in the middle, zone name below.
+ * The tado° tile: target and humidity above, temperature large in the middle,
+ * zone name below between the − / + that move the target.
  *
  * Absent by design, compared with the old component: the connect panel, the
  * room picker and the "update failed" line. All three are gate or error states
@@ -15,8 +15,15 @@ const props = defineProps<{
     temperature: ComputedRef<number | null>;
     humidity: ComputedRef<number | null>;
     zoneName: ComputedRef<string>;
+    target: ComputedRef<number | null>;
+    adjust(direction: number): void;
   };
 }>();
+
+const target = computed(() => {
+  const value = props.model.target.value;
+  return value == null ? "Off" : `${value.toFixed(1)}°`;
+});
 
 /**
  * Split so the fraction can be rendered smaller, as the old tile did — the
@@ -39,6 +46,7 @@ const humidity = computed(() => {
 <template>
   <div class="tile">
     <div class="top">
+      <div class="target" title="Target temperature">{{ target }}</div>
       <div class="humidity" aria-hidden="true">
         <svg width="10" height="12" viewBox="0 0 24 24" fill="currentColor">
           <path d="M12 2C12 2 5 10.5 5 15a7 7 0 0 0 14 0c0-4.5-7-13-7-13z" />
@@ -56,7 +64,9 @@ const humidity = computed(() => {
     </div>
 
     <div class="bottom">
+      <button type="button" class="step" aria-label="Lower target temperature" @click="model.adjust(-1)">−</button>
       <p class="zone">{{ model.zoneName.value }}</p>
+      <button type="button" class="step" aria-label="Raise target temperature" @click="model.adjust(1)">+</button>
     </div>
   </div>
 </template>
@@ -74,7 +84,15 @@ const humidity = computed(() => {
 
 .top {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.target {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: rgba(var(--fg-rgb), 0.75);
 }
 
 .humidity {
@@ -119,10 +137,33 @@ const humidity = computed(() => {
 }
 
 .bottom {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.step {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(var(--fg-rgb), 0.08);
+  color: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.step:hover {
+  background: rgba(var(--fg-rgb), 0.16);
 }
 
 .zone {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
   margin: 0;
   font-size: 11px;
   overflow: hidden;

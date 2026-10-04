@@ -1,13 +1,17 @@
-import { computed, ref } from "vue";
+import { computed, onScopeDispose, ref } from "vue";
 import { defineWidget, type WidgetContext } from "@sdk/contract/sdk";
-import { PROVIDER_ID, type TadoRoom, type TadoRoomState } from "../provider";
+import {
+  PROVIDER_ID,
+  TARGET_MAX,
+  TARGET_MIN,
+  type TadoRoom,
+  type TadoRoomState,
+} from "../provider";
 
 /**
  * WHAT THE OLD WIDGET DID, AND THEREFORE WHAT THIS DOES: read-only tiles. One
  * heating zone per widget, showing humidity and inside temperature, with the
- * zone name underneath. It sets nothing — the old manifest says "read-only" and
- * declares no write command, so the provider has no actions at all rather than
- * unused ones.
+ * zone name underneath, plus − / + to move the zone's target temperature.
  *
  * THE STATE QUERY TAKES NO ARGUMENTS, and that is the API's doing. tado° has no
  * per-zone state endpoint; `/zoneStates` returns every zone in one response. So
@@ -27,15 +31,24 @@ export interface TadoTileModel {
   temperature: { value: number | null };
   humidity: { value: number | null };
   zoneName: { value: string };
+  target: { value: number | null };
+  adjust(delta: number): void;
 }
+
+/**
+ * Clicks are collected and sent once the person stops clicking: tado° allows
+ * ~100 calls a day, and five taps from 20° to 22.5° should cost one, not five.
+ */
+const SEND_DELAY_MS = 1200;
+const STEP = 0.5;
 
 export const tadoTile = defineWidget<{ zone: string }>({
   name: "tile",
   displayName: "Tado",
-  description: "Temperature and humidity for one heating zone.",
+  description: "Temperature and humidity for one heating zone, with its target temperature.",
   defaultSize: { w: 1, h: 1 },
   mode: "both",
-  requires: { providers: [PROVIDER_ID] },
+  requires: { providers: [PROVIDER_ID], actions: { [PROVIDER_ID]: ["setTemperature"] } },
   configuration: {
     // The option list comes from the `zones` query at invocation, which is why
     // the gate asks for it only after the account is connected.
@@ -51,6 +64,11 @@ export const tadoTile = defineWidget<{ zone: string }>({
       const zoneId = String(ctx.config.zone ?? "");
       const states = ref<TadoRoomState[]>([]);
       const rooms = ref<TadoRoom[]>([]);
+      /** The setpoint being dialled in, shown before tado° confirms it. */
+      const pending = ref<number | null>(null);
+      let sendTimer: ReturnType<typeof setTimeout> | undefined;
+      // Registered before the first await: an async setup loses Vue's scope there.
+      onScopeDispose(() => clearTimeout(sendTimer));
 
       // Queried before subscribing, because `subscribe` resolves once the
       // listener is registered — its first payload has not arrived yet, and the
@@ -85,7 +103,35 @@ export const tadoTile = defineWidget<{ zone: string }>({
 
       const mine = computed(() => states.value.find((state) => state.id === zoneId));
 
+      const target = computed(() => pending.value ?? mine.value?.target ?? null);
+
+      const send = async () => {
+        const celsius = pending.value;
+        if (celsius == null) return;
+        try {
+          // Invalidates zoneStates, so the confirmed value arrives through the
+          // subscription above.
+          await ctx.providers![PROVIDER_ID]!.action("setTemperature", { zoneId, celsius });
+        } finally {
+          // Only clear if no newer click arrived while this one was in flight.
+          if (pending.value === celsius) pending.value = null;
+        }
+      };
+
+      const adjust = (delta: number) => {
+        // Heating off has no setpoint; the first + starts from the room's warmth.
+        const base = target.value ?? Math.round((mine.value?.temperature ?? 20) / STEP) * STEP;
+        pending.value = Math.min(TARGET_MAX, Math.max(TARGET_MIN, base + delta));
+        clearTimeout(sendTimer);
+        // A failed write drops `pending`, so the tile falls back to the real setpoint.
+        sendTimer = setTimeout(() => {
+          send().catch((cause) => console.warn("[tado] setTemperature failed", cause));
+        }, SEND_DELAY_MS);
+      };
+
       return {
+        target,
+        adjust: (direction: number) => adjust(Math.sign(direction) * STEP),
         temperature: computed(() => mine.value?.temperature ?? null),
         humidity: computed(() => mine.value?.humidity ?? null),
         zoneName: computed(
