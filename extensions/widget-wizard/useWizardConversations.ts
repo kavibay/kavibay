@@ -7,6 +7,7 @@ import {
   parseWizardSession,
   trimWizardSession,
   type ConversationHeader,
+  type ProjectRow,
   type WizardSession,
 } from "./widgetWizardLogic";
 
@@ -15,6 +16,15 @@ interface StoredConversation {
   title: string;
   updatedAt: number;
   payload: unknown;
+}
+
+/** Opening notes and refreshed widget files are not conversation activity. */
+function conversationContent(session: WizardSession): string {
+  return JSON.stringify([
+    session.draft,
+    session.attachments,
+    session.bubbles.filter((bubble) => bubble.role !== "system"),
+  ]);
 }
 
 const ACTIVE_CONVERSATION_KEY = "activeConversationId";
@@ -45,6 +55,9 @@ function newConversationId(): string {
 export function useWizardConversations(wizard: WizardCapability, data: WidgetDataStore) {
   const headers: Ref<ConversationHeader[]> = ref([]);
   const active: Ref<WizardSession> = ref(emptyWizardSession(newConversationId()));
+  const savedContent = new Map<string, { content: string; updatedAt: number }>();
+  const deletedIds = new Set<string>();
+  let writeQueue = Promise.resolve();
   let draftTimer: ReturnType<typeof setTimeout> | undefined;
   /** Set by `hydrate` when the conversation is gone but its project is not. */
   let pendingPackageId: string | null = null;
@@ -86,6 +99,7 @@ export function useWizardConversations(wizard: WizardCapability, data: WidgetDat
   }
 
   function start(): WizardSession {
+    clearTimeout(draftTimer);
     active.value = emptyWizardSession(newConversationId());
     void rememberActive(active.value.id);
     return active.value;
@@ -101,23 +115,38 @@ export function useWizardConversations(wizard: WizardCapability, data: WidgetDat
       const stored = await wizard.conversationLoad<StoredConversation | null>(id);
       if (!stored) return null;
       const session = parseWizardSession(JSON.stringify(stored.payload));
+      savedContent.set(stored.id, {
+        content: conversationContent(session),
+        updatedAt: stored.updatedAt,
+      });
       return { ...session, id: stored.id };
     } catch {
       return null;
     }
   }
 
-  async function save(session: WizardSession): Promise<void> {
+  function save(session: WizardSession): Promise<void> {
+    const writing = writeQueue.then(() => persist(session));
+    writeQueue = writing.catch(() => undefined);
+    return writing;
+  }
+
+  async function persist(session: WizardSession): Promise<void> {
+    if (deletedIds.has(session.id)) return;
     await rememberActive(session.id);
-    if (!session.id || !conversationIsWorthKeeping(session)) return;
+    if (deletedIds.has(session.id) || !session.id || !conversationIsWorthKeeping(session)) return;
     const trimmed = trimWizardSession(session);
+    const content = conversationContent(trimmed);
+    const previous = savedContent.get(trimmed.id);
+    const updatedAt = previous?.content === content ? previous.updatedAt : Date.now();
     try {
       await wizard.conversationSave({
         id: trimmed.id,
         title: conversationTitle(trimmed),
-        updatedAt: Date.now(),
+        updatedAt,
         payload: trimmed,
       });
+      savedContent.set(trimmed.id, { content, updatedAt });
       await refresh();
     } catch {
       // In-memory work remains available when durable storage is unavailable.
@@ -125,11 +154,38 @@ export function useWizardConversations(wizard: WizardCapability, data: WidgetDat
   }
 
   async function remove(id: string): Promise<void> {
+    if (!id) return;
+    // Finish an in-flight write before deleting; later autosaves must stay deleted.
+    deletedIds.add(id);
     try {
+      await writeQueue;
       await wizard.conversationDelete(id);
+      savedContent.delete(id);
+      if (active.value.id === id) start();
+    } catch (error) {
+      deletedIds.delete(id);
+      throw error;
     } finally {
       await refresh();
     }
+  }
+
+  /** Remove every source that could rebuild this widget's sidebar row. */
+  async function removeWidget(
+    row: Pick<ProjectRow, "packageId" | "saved" | "draft" | "conversationIds">,
+  ): Promise<void> {
+    await writeQueue;
+    const stored = await wizard.conversationsList<ConversationHeader[]>();
+    const ids = new Set(row.conversationIds);
+    if (row.packageId) {
+      for (const header of stored) {
+        if (header.packageId === row.packageId) ids.add(header.id);
+      }
+      if (active.value.packageId === row.packageId) ids.add(active.value.id);
+      if (row.saved) await wizard.runtimeDeletePackage(row.packageId);
+      if (row.draft) await wizard.draftDiscard(row.packageId);
+    }
+    for (const id of ids) await remove(id);
   }
 
   onScopeDispose(() => {
@@ -148,5 +204,6 @@ export function useWizardConversations(wizard: WizardCapability, data: WidgetDat
     save,
     saveDraftSoon,
     remove,
+    removeWidget,
   };
 }
