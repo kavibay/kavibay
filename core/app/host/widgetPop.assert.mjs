@@ -101,6 +101,8 @@ assert.deepEqual(visible(), [], "a stale id reveals nothing");
 context.onRevealWidgetEvent({ detail: { instanceId: "away-timer" } });
 assert.equal(cockpitOpen.value, true, "ordinary reveal keeps its cockpit behavior");
 trace.length = 0;
+context.onRevealWidgetEvent({ detail: { instanceId: "away-timer" } });
+assert(!trace.includes("cockpit"), "revealing in an open session does not reopen search or steal widget focus");
 pop("away-timer");
 assert.equal(cockpitOpen.value, true, "popping while open preserves the current cockpit");
 assert(!trace.includes("cockpit"), "a pop does not reopen or refocus search");
