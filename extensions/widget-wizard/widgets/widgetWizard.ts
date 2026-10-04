@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 import { defineWidget, type WizardCapability, type WidgetContext } from "@sdk/contract/sdk";
 import { useWizardConversations } from "../useWizardConversations";
-import { formatWizardTranscript } from "../widgetWizardLogic";
+import { formatWizardTranscript, wizardMcpContinuationPrompt } from "../widgetWizardLogic";
 
 export interface WidgetWizardModel {
   wizard: WizardCapability;
   conversations: ReturnType<typeof useWizardConversations>;
   copyTranscript(): Promise<void>;
+  copyMcpPrompt(): Promise<void>;
   /**
    * The instance's own store, for chrome the person arranges.
    *
@@ -96,6 +97,12 @@ export const widgetWizardWidget = defineWidget<Record<string, never>>({
           if (!ctx.clipboard) throw new Error("Clipboard capability unavailable");
           const text = formatWizardTranscript(conversations.active.value.bubbles);
           if (text) await ctx.clipboard.writeText(text);
+        },
+        async copyMcpPrompt() {
+          if (!ctx.clipboard) throw new Error("Clipboard capability unavailable");
+          const id = conversations.active.value.packageId;
+          if (!id) throw new Error("No widget selected");
+          await ctx.clipboard.writeText(wizardMcpContinuationPrompt(id));
         },
         data: ctx.data,
         shared: ctx.sharedData,
