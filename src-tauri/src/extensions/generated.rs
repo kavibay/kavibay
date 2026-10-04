@@ -52,7 +52,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         host_rule: HostRule::Exact(&["api.notion.com"]),
         credential_type: Some("notionApi"),
         image_hosts: &[],
-        link_hosts: &["www.notion.so", "notion.so"],
+        link_hosts: &["app.notion.com", "www.notion.so", "notion.so"],
     },
     ProviderDef {
         id: "kavibay.spotify/spotify",

@@ -257,10 +257,11 @@ fn substitute_metadata(
 }
 
 /// Methods a provider fetch may use. PUT is here because Spotify play/pause
-/// is PUT; DELETE and PATCH stay refused until a provider needs them.
+/// is PUT, PATCH because Notion updates a page only by PATCH; DELETE stays
+/// refused until a provider needs it.
 fn provider_http_method(method: &str) -> Result<(), String> {
     match method.to_ascii_uppercase().as_str() {
-        "GET" | "POST" | "PUT" => Ok(()),
+        "GET" | "POST" | "PUT" | "PATCH" => Ok(()),
         _ => Err("method_not_allowed".to_string()),
     }
 }
@@ -311,6 +312,7 @@ async fn send_raw(
         "GET" => client.get(parsed.clone()),
         "POST" => client.post(parsed.clone()),
         "PUT" => client.put(parsed.clone()),
+        "PATCH" => client.patch(parsed.clone()),
         _ => return Err("method_not_allowed".to_string()),
     };
     // `Value::Null` is not a body. The webview sends `body: null` for a GET,
@@ -731,6 +733,10 @@ mod tests {
         assert!(provider_http_method("put").is_ok());
         assert!(provider_http_method("GET").is_ok());
         assert!(provider_http_method("POST").is_ok());
+        assert!(
+            provider_http_method("PATCH").is_ok(),
+            "Notion updates pages by PATCH"
+        );
         assert_eq!(
             provider_http_method("DELETE").unwrap_err(),
             "method_not_allowed"

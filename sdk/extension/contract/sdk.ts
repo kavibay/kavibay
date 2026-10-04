@@ -106,12 +106,14 @@ export interface HttpCapability {
 }
 
 /**
- * Provider fetches may PUT. Widget capabilities may not — that declaration is
- * still GET/POST, and the capability broker never grows a method a widget
- * did not list. Spotify play/pause is PUT, which is why this type exists.
+ * Provider fetches may PUT and PATCH. Widget capabilities may not — that
+ * declaration is still GET/POST, and the capability broker never grows a method
+ * a widget did not list. Spotify play/pause is PUT, which is why this type
+ * exists; Notion updates a page only by PATCH.
  */
 export interface ProviderHttpCapability extends HttpCapability {
   put<T = unknown>(url: string, body?: unknown): Promise<T>;
+  patch<T = unknown>(url: string, body?: unknown): Promise<T>;
 }
 
 /**

@@ -29,6 +29,7 @@ const host: ProviderHostContext = {
       return {} as T;
     },
     put: async () => undefined as never,
+    patch: async () => undefined as never,
   },
   credentials: { isConnected: async () => true },
 };
