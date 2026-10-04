@@ -7327,7 +7327,8 @@ async function enablePackage(
   gap: 8px;
   padding: 10px;
   border: 1px solid rgba(var(--fg-rgb), 0.14);
-  border-radius: 16px;
+  border-radius: 24px;
+  corner-shape: squircle;
   background: rgba(var(--fg-rgb), 0.045);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
