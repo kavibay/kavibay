@@ -32,6 +32,9 @@ const props = defineProps<{
   debugTarget?: HTMLElement | null;
   /** A turn is reworking the widget; the host marks the card. */
   working?: boolean;
+  /** `ui.padding` / `ui.defaultHideTitle` from the draft's manifest; the host's gear edits them. */
+  padding?: boolean;
+  defaultHideTitle?: boolean;
 }>();
 
 /** Mirrors what the host's preview chrome emits; see WidgetWizardPreviewHost. */
@@ -49,6 +52,7 @@ const emit = defineEmits<{
   export: [];
   selected: [element: WizardPreviewElement];
   "cancel-pick": [];
+  "card-flags": [flags: { padding?: boolean; defaultHideTitle?: boolean }];
 }>();
 
 function onResized(size: { w: number; h: number }, scale?: number) {
@@ -70,6 +74,7 @@ const previewHost = inject<Component>("kavibay:widget-wizard-preview");
     @export="emit('export')"
     @selected="emit('selected', $event)"
     @cancel-pick="emit('cancel-pick')"
+    @card-flags="emit('card-flags', $event)"
   />
   <div v-else class="missing-host">
     Widget preview is unavailable.
