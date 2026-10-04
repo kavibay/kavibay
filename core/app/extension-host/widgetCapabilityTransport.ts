@@ -8,6 +8,7 @@ import type {
   LlmStreamEvent,
   NotificationRequest,
   NowPlayingControl,
+  SystemInfoInclude,
   DraftChanged,
   DraftPresence,
   WidgetExportReport,
@@ -27,7 +28,7 @@ export interface WidgetCapabilityTransport {
   aiUsageSnapshot(): Promise<unknown>;
   aiUsageEnableClaudeCapture(): Promise<unknown>;
   notificationShow(request: NotificationRequest): Promise<void>;
-  systemInfoSnapshot(): Promise<unknown>;
+  systemInfoSnapshot(include?: SystemInfoInclude): Promise<unknown>;
   nowPlayingSnapshot(): Promise<unknown>;
   nowPlayingControl(action: NowPlayingControl): Promise<void>;
   alarmNotify(instanceId: WidgetInstanceId, mode: AlarmNotification): Promise<void>;

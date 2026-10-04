@@ -36,6 +36,7 @@ const KNOWN_PERMISSIONS: &[&str] = &[
     "storage.instance",
     "network.client",
     "network.declared",
+    "background.pop",
     "backend.sidecar",
 ];
 

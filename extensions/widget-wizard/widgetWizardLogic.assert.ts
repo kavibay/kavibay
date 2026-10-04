@@ -8,6 +8,7 @@ import {
   askedNothingNew as wizardAskedNothingNew,
   canAutoApprove,
   unmetProviders,
+  unselectedNamedProviders,
   applyDraftPresence,
   base64FromDataUrl,
   consentPreviewFor,
@@ -1852,6 +1853,15 @@ assert(
     "the network is never granted to a draft, whatever it asks for",
   );
 
+  const withPop = [
+    file("manifest.json", '{"permissions":["background.pop","storage.instance"]}'),
+  ];
+  assertEq(
+    previewPermissionsFor(withPop),
+    ["storage.instance", "background.pop"],
+    "a draft that pops can be heard in the preview",
+  );
+
   assertEq(
     previewPermissionsFor([file("manifest.json", '{"permissions":[]}')]),
     [],
@@ -3019,6 +3029,22 @@ assert(!turnForPackage("make it grey", "habits", { scope: "rich" }).includes("Sc
     [],
     "an id the script creates",
   );
+}
+
+{
+  const options = [
+    { id: "kavibay.notion/notion", label: "Notion" },
+    { id: "kavibay.tado/tado", label: "tado°" },
+    { id: "kavibay.weather/weather", label: "Weather (Open-Meteo)" },
+  ];
+  const ids = (text: string, selected: string[] = []) =>
+    unselectedNamedProviders(text, options, selected).map((o) => o.id);
+  assertEq(ids("Zeig meine Notion-Datenbanken"), ["kavibay.notion/notion"], "a label inside a compound word");
+  assertEq(ids("Zeig meine Notion-Datenbanken", ["kavibay.notion/notion"]), [], "already ticked");
+  assertEq(ids("Raumtemperatur aus TADO und das Wetter"), ["kavibay.tado/tado"], "label without its degree sign");
+  assertEq(ids("a weather card"), ["kavibay.weather/weather"], "label without its parenthetical");
+  assertEq(ids("notional budget, tadoo"), [], "whole words only");
+  assertEq(ids("Open-Meteo forecast"), [], "the parenthetical alone does not match");
 }
 
 console.log("widgetWizardLogic.assert.ts: ok");

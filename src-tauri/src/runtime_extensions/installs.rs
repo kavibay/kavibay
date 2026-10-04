@@ -29,8 +29,10 @@ use super::limits::{clamp_daily_budget, DEFAULT_DAILY_BUDGET};
 ///
 /// `backend.sidecar` is catalogued but never grantable (no sidecars yet), and
 /// `network.client` (raw fetch) stays reserved and unimplemented — see the
-/// design, section 3.
-const GRANTABLE: &[&str] = &["storage.instance", "network.declared"];
+/// design, section 3. `background.pop` keeps a widget running while the
+/// cockpit is hidden and lets it raise the window; the frontend enforces it,
+/// because showing the window is a frontend call either way.
+const GRANTABLE: &[&str] = &["storage.instance", "network.declared", "background.pop"];
 
 /// What a contract package was allowed to read, and which actions it may call.
 ///
@@ -1103,6 +1105,7 @@ mod tests {
     fn only_catalogued_permissions_are_grantable() {
         assert!(is_grantable("storage.instance"));
         assert!(is_grantable("network.declared"));
+        assert!(is_grantable("background.pop"));
         // Reserved and unimplemented — a manifest asking for it gets nothing.
         assert!(!is_grantable("network.client"));
         assert!(!is_grantable("backend.sidecar"));

@@ -18,12 +18,13 @@ export interface NotesModel {
   state: Ref<NotesWidgetState>;
   setMarkdown(markdown: string): void;
   setToolbarVisible(visible: boolean): void;
+  openUrl(url: string): Promise<void>;
   flush(): Promise<void>;
 }
 
 // Palette computations must also notice the first mount and replacement on remount.
 const liveStates = shallowReactive(new Map<string, Ref<NotesWidgetState>>());
-const menuActions = new Map<string, { toggleToolbar(): void }>();
+const menuActions = new Map<string, { toggleToolbar(): void; copyMarkdown(): Promise<void> }>();
 
 /** Search text is supplied by the extension, so the host stays type-agnostic. */
 export function notesSearchText(instanceId: string): string {
@@ -59,6 +60,7 @@ export const notesWidget = defineWidget<Record<string, never>>({
   defaultSize: { w: 3, h: 2 },
   minSize: { w: 2, h: 2 },
   mode: "both",
+  capabilities: { clipboard: true, openExternal: true },
   duplicateData: true,
   palette: { searchText: notesSearchText },
   actions: { "new-note": runNewNoteAction },
@@ -105,6 +107,7 @@ export const notesWidget = defineWidget<Record<string, never>>({
 
       menuActions.set(ctx.instanceId, {
         toggleToolbar: () => setToolbarVisible(!state.value.toolbarVisible),
+        copyMarkdown: () => ctx.clipboard!.writeText(state.value.markdown),
       });
 
       onScopeDispose(() => {
@@ -118,7 +121,13 @@ export const notesWidget = defineWidget<Record<string, never>>({
       state.value = normalizeState(await ctx.data.get<NotesWidgetState>(NOTES_STATE_KEY));
       hydrated = true;
 
-      return { state, setMarkdown, setToolbarVisible, flush: persistNow };
+      return {
+        state,
+        setMarkdown,
+        setToolbarVisible,
+        openUrl: (url) => ctx.openExternal!.open(url),
+        flush: persistNow,
+      };
     },
   },
 });

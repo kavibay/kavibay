@@ -17,7 +17,8 @@
       "ui": {
         "defaultOffset": { "x": 480, "y": 560 },
         "defaultSize": { "w": 280, "h": 200 },
-        "grabCursor": false
+        "grabCursor": false,
+        "appearance": { "editable": true }
       },
       "actions": [
         {

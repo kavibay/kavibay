@@ -26,7 +26,7 @@ export interface ProviderTransport {
   fetch(
     providerId: ProviderId,
     url: string,
-    method: "GET" | "POST" | "PUT",
+    method: "GET" | "POST" | "PUT" | "PATCH",
     body?: unknown,
     connection?: ProviderConnection | null,
   ): Promise<{ status: number; body: unknown }>;

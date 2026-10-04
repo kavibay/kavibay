@@ -130,6 +130,7 @@ import {
   autoApprovedGrant,
   canAutoApprove,
   unmetProviders,
+  unselectedNamedProviders,
   buildWizardPermissionRequest,
   consentLinesFor,
   needsReviewBeforeEnable,
@@ -1014,6 +1015,11 @@ const filteredIntegrationOptions = computed(() => {
   return providerOptions.value.filter((option) => option.label.toLocaleLowerCase().includes(query));
 });
 type IntegrationOption = (typeof providerOptions.value)[number];
+
+/** Integrations the draft names but does not read from yet; see `unselectedNamedProviders`. */
+const namedProviders = computed(() =>
+  unselectedNamedProviders(session.value.draft, providerOptions.value, selectedProviders.value),
+);
 
 function closeIntegrationMenu(): void {
   integrationMenuOpen.value = false;
@@ -5456,6 +5462,19 @@ async function enablePackage(
         </p>
       </div>
 
+      <div v-if="middleTab === 'chat' && namedProviders.length" class="wiz-named-providers">
+        <button
+          v-for="option in namedProviders"
+          :key="option.id"
+          type="button"
+          :disabled="busy"
+          @click="toggleProvider(option.id, true)"
+        >
+          <BrandMark :provider="option.id" :size="14" />
+          <span>Read from {{ option.label }}</span>
+        </button>
+        <span class="wiz-named-providers-hint">Otherwise the widget cannot use your account.</span>
+      </div>
       <div v-if="middleTab === 'chat'" class="wiz-compose-tools">
         <WizardSuggestions
           v-if="showSuggestions"
@@ -7163,6 +7182,30 @@ async function enablePackage(
   min-width: 0;
 }
 .wiz-compose-suggestions { flex: 1; }
+
+.wiz-named-providers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.wiz-named-providers button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid rgba(var(--fg-rgb), 0.18);
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.05);
+  color: rgba(var(--fg-rgb), 0.85);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.wiz-named-providers button:hover { background: rgba(var(--fg-rgb), 0.1); }
+.wiz-named-providers button:focus-visible { outline: 1px solid rgba(var(--fg-rgb), 0.55); outline-offset: 2px; }
+.wiz-named-providers-hint { color: rgba(var(--fg-rgb), 0.45); font-size: 10px; }
 
 .wiz-compose {
   position: relative;

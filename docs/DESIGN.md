@@ -99,6 +99,12 @@ view one click away: history, details and settings live there.
 - Transitions no longer than 120ms, and only on colour or opacity. A widget that
   animates its layout is distracting on a desktop that is always visible.
 - No focus outlines removed without a replacement — keyboard users exist.
+- **Drag with pointer events, never HTML5 drag-and-drop.** The app's window
+  takes OS-level drags for itself, so `draggable`, `dragstart` and `drop` never
+  fire inside a widget. Start on `pointerdown` with `setPointerCapture`, follow
+  `pointermove`, finish on `pointerup`, and find the target with
+  `document.elementFromPoint`. Move the item under the pointer while dragging,
+  so the drop is not a guess.
 
 ## Dropdowns
 

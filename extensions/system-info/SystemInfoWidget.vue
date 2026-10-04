@@ -1,17 +1,32 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import {
   batteryAccent,
+  EXTENDED_MIN_HEIGHT,
+  formatBytes,
+  formatCpuShare,
   formatMemoryGb,
   formatUptime,
   memoryUsagePercent,
   roundPercent,
+  sparklinePoints,
   visibleHeroKeys,
 } from "./systemInfoLogic";
-import type { SystemInfoModel } from "./widgets/systemInfo";
+import { HISTORY_SLOTS, type SystemInfoModel } from "./widgets/systemInfo";
 
 const props = defineProps<{ model: SystemInfoModel }>();
-const { settings, data, loading, error } = props.model;
+const { settings, data, loading, error, history, network, extended } = props.model;
+
+/** The large view follows the widget's height: drag it taller to see more. */
+const root = ref<HTMLElement | null>(null);
+let resizeObserver: ResizeObserver | undefined;
+onMounted(() => {
+  resizeObserver = new ResizeObserver(([entry]) => {
+    props.model.setExtended(entry.contentRect.height >= EXTENDED_MIN_HEIGHT);
+  });
+  if (root.value) resizeObserver.observe(root.value);
+});
+onUnmounted(() => resizeObserver?.disconnect());
 
 /** Hero tile keys currently enabled, omitting battery when the host has none. */
 const heroKeys = computed(() => {
@@ -57,10 +72,33 @@ const memoryDetailLabel = computed(() => {
 
 /** Total uptime formatted as "Xh Ym" for the uptime detail row. */
 const uptimeLabel = computed(() => formatUptime(data.value?.uptime_secs ?? 0));
+
+const sparkViewBox = `0 0 ${HISTORY_SLOTS - 1} 100`;
+const showSparklines = computed(
+  () => extended.value && settings.showHistory && history.value.length > 1,
+);
+const cpuSpark = computed(() =>
+  sparklinePoints(history.value.map((sample) => sample.cpu), HISTORY_SLOTS),
+);
+const memorySpark = computed(() =>
+  sparklinePoints(history.value.map((sample) => sample.memory), HISTORY_SLOTS),
+);
+
+/** Disks with their used share, for the bar and the label. */
+const disks = computed(() =>
+  (data.value?.disks ?? []).map((disk) => {
+    const used = disk.total_bytes - disk.available_bytes;
+    return {
+      mount: disk.mount,
+      percent: roundPercent((used / disk.total_bytes) * 100),
+      label: `${formatBytes(used)} / ${formatBytes(disk.total_bytes)}`,
+    };
+  }),
+);
 </script>
 
 <template>
-  <div class="system-info">
+  <div ref="root" class="system-info" :class="{ 'system-info--extended': extended }">
     <p v-if="loading && !data" class="system-info-status">Loading…</p>
     <p v-else-if="error && !data" class="system-info-status system-info-status--error">
       {{ error }}
@@ -71,10 +109,28 @@ const uptimeLabel = computed(() => formatUptime(data.value?.uptime_secs ?? 0));
           <template v-if="key === 'cpu'">
             <span class="hero-value hero-value--cpu">{{ cpuPercent }}%</span>
             <span class="hero-label">CPU</span>
+            <svg
+              v-if="showSparklines"
+              class="sparkline sparkline--cpu"
+              :viewBox="sparkViewBox"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <polyline :points="cpuSpark" />
+            </svg>
           </template>
           <template v-else-if="key === 'memory'">
             <span class="hero-value hero-value--memory">{{ memPercent }}%</span>
             <span class="hero-label">RAM</span>
+            <svg
+              v-if="showSparklines"
+              class="sparkline sparkline--memory"
+              :viewBox="sparkViewBox"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <polyline :points="memorySpark" />
+            </svg>
           </template>
           <template v-else-if="key === 'battery'">
             <span class="hero-value" :style="{ color: batteryColor }">
@@ -110,6 +166,47 @@ const uptimeLabel = computed(() => formatUptime(data.value?.uptime_secs ?? 0));
           <dd>{{ uptimeLabel }}</dd>
         </template>
       </dl>
+
+      <template v-if="extended">
+        <section v-if="settings.showNetwork" class="extra">
+          <h3 class="extra-title">Network</h3>
+          <p v-if="network" class="network-rates">
+            <span>↓ {{ formatBytes(network.down) }}/s</span>
+            <span>↑ {{ formatBytes(network.up) }}/s</span>
+          </p>
+          <p v-else class="extra-empty">Measuring…</p>
+        </section>
+
+        <section v-if="settings.showDisks && disks.length > 0" class="extra">
+          <h3 class="extra-title">Disks</h3>
+          <div v-for="disk in disks" :key="disk.mount" class="disk-row">
+            <span class="disk-mount">{{ disk.mount }}</span>
+            <span
+              class="disk-bar"
+              role="meter"
+              :aria-label="`${disk.mount} used`"
+              :aria-valuenow="disk.percent"
+              aria-valuemin="0"
+              aria-valuemax="100"
+            >
+              <span class="disk-fill" :style="{ width: `${disk.percent}%` }"></span>
+            </span>
+            <span class="disk-label">{{ disk.label }}</span>
+          </div>
+        </section>
+
+        <section v-if="settings.showProcesses" class="extra">
+          <h3 class="extra-title">Top processes</h3>
+          <p v-if="!data.processes?.length" class="extra-empty">Measuring…</p>
+          <div v-for="proc in data.processes ?? []" :key="proc.name" class="process-row">
+            <span class="process-name">
+              {{ proc.name }}<span v-if="proc.count > 1" class="process-count"> ×{{ proc.count }}</span>
+            </span>
+            <span class="process-cpu">{{ formatCpuShare(proc.cpu_percent) }}</span>
+            <span class="process-memory">{{ formatBytes(proc.memory_bytes) }}</span>
+          </div>
+        </section>
+      </template>
     </template>
   </div>
 </template>
@@ -128,6 +225,10 @@ const uptimeLabel = computed(() => formatUptime(data.value?.uptime_secs ?? 0));
   container-type: inline-size;
 }
 
+.system-info--extended {
+  overflow-y: auto;
+}
+
 .system-info-status {
   margin: 0;
   font-size: 13px;
@@ -144,6 +245,7 @@ const uptimeLabel = computed(() => formatUptime(data.value?.uptime_secs ?? 0));
 }
 
 .hero-tile {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -178,6 +280,29 @@ const uptimeLabel = computed(() => formatUptime(data.value?.uptime_secs ?? 0));
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: rgba(var(--fg-rgb), 0.5);
+}
+
+.sparkline {
+  width: 100%;
+  height: 28px;
+  margin-top: 4px;
+  overflow: visible;
+}
+
+.sparkline polyline {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.sparkline--cpu {
+  color: #6ee7b7;
+}
+
+.sparkline--memory {
+  color: #93c5fd;
 }
 
 /* Mini battery glyph: outer body via border, nub via ::after, charge fill via ::before. */
@@ -234,6 +359,89 @@ const uptimeLabel = computed(() => formatUptime(data.value?.uptime_secs ?? 0));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.extra {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(var(--fg-rgb), 0.08);
+  font-size: 13px;
+}
+
+.extra-title {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(var(--fg-rgb), 0.5);
+}
+
+.extra-empty {
+  margin: 0;
+  color: rgba(var(--fg-rgb), 0.5);
+}
+
+.network-rates {
+  display: flex;
+  gap: 18px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.disk-row {
+  display: grid;
+  grid-template-columns: 2.5em minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.disk-mount {
+  color: rgba(var(--fg-rgb), 0.5);
+}
+
+.disk-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(var(--fg-rgb), 0.1);
+  overflow: hidden;
+}
+
+.disk-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: #c4b5fd;
+}
+
+.process-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4.5em 5em;
+  gap: 10px;
+}
+
+.process-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.process-count {
+  color: rgba(var(--fg-rgb), 0.45);
+}
+
+.disk-label,
+.process-cpu,
+.process-memory {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.process-cpu,
+.process-memory {
+  text-align: right;
 }
 
 @container (min-width: 500px) {

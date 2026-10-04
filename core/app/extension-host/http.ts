@@ -41,19 +41,17 @@ export class HttpBroker {
     const transport = this.transport;
     if (!transport) {
       const local = this.forPolicy({ hosts, methods: ["GET", "POST"] });
-      return {
-        ...local,
-        put: async <T>(url: string, body?: unknown) => {
-          checkHost(url, { hosts, methods: ["GET", "POST"] });
-          return (await this.fetcher(url, {
-            method: "PUT",
-            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-          })) as T;
-        },
+      const write = (method: "PUT" | "PATCH") => async <T>(url: string, body?: unknown) => {
+        checkHost(url, { hosts, methods: ["GET", "POST"] });
+        return (await this.fetcher(url, {
+          method,
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        })) as T;
       };
+      return { ...local, put: write("PUT"), patch: write("PATCH") };
     }
 
-    const send = async <T>(url: string, method: "GET" | "POST" | "PUT", body?: unknown): Promise<T> => {
+    const send = async <T>(url: string, method: "GET" | "POST" | "PUT" | "PATCH", body?: unknown): Promise<T> => {
       const { status, body: payload } = await transport.fetch(providerId, url, method, body, connection);
       if (status >= 400) throw statusError(status, payload, url);
       return payload as T;
@@ -70,6 +68,7 @@ export class HttpBroker {
         send<T>(withQuery(url, params), "GET"),
       post: <T>(url: string, body?: unknown) => send<T>(url, "POST", body),
       put: <T>(url: string, body?: unknown) => send<T>(url, "PUT", body),
+      patch: <T>(url: string, body?: unknown) => send<T>(url, "PATCH", body),
     };
   }
 

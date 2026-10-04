@@ -84,11 +84,11 @@ Needs a connected account. The widget gate shows a connect prompt until then.
 
 | Query | Reads | Arguments | Returns | Refresh |
 |---|---|---|---|---|
-| `databasePages` | The pages in one Notion database | `databaseId: string` (from `databases`) | `list of { id: string, title: string, url: string, lastEdited: string }` | 1 min |
+| `databasePages` | The pages in one Notion database; `properties` lists every column — find one by `name` | `databaseId: string` (from `databases`) | `list of { id: string, title: string, url: string, lastEdited: string, status: string?, properties: list of { name: string, type: string, value: string? } }` | 1 min |
 | `databases` | Databases shared with your Notion integration | none | `list of { id: string, title: string, url: string, lastEdited: string }` | 5 min |
-| `pages` | Pages shared with your Notion integration, most recently edited first | none | `list of { id: string, title: string, url: string, lastEdited: string }` | 1 min |
+| `pages` | Pages shared with your Notion integration, most recently edited first | none | `list of { id: string, title: string, url: string, lastEdited: string, status: string?, properties: list of { name: string, type: string, value: string? } }` | 1 min |
 
-No actions — this provider is read-only.
+Actions: `setProperty` (write).
 
 ## Spotify
 
@@ -119,9 +119,9 @@ Needs a connected account. The widget gate shows a connect prompt until then.
 | Query | Reads | Arguments | Returns | Refresh |
 |---|---|---|---|---|
 | `zones` | The names of your heating zones | none | `list of { id: string, name: string }` | 360 min |
-| `zoneStates` | Current temperature and humidity in every room | none | `list of { id: string, temperature: number?, humidity: number? }` | 16 min |
+| `zoneStates` | Current temperature, humidity and target temperature in every room | none | `list of { id: string, temperature: number?, humidity: number?, target: number? }` | 16 min |
 
-No actions — this provider is read-only.
+Actions: `setTemperature` (write).
 
 ## Weather (Open-Meteo)
 

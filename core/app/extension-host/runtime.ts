@@ -5,6 +5,7 @@ import type {
   ColorPickerEvent, WizardCapability, WizardCompletionRequest, SettingsOpenSection,
   ExtensionId,
   ProviderActions,
+  SystemInfoInclude,
   TrustTier,
 } from "@sdk/contract/sdk";
 import { ExtensionRegistry } from "./registry";
@@ -479,7 +480,8 @@ export class Host {
     }
     if (w.capabilities?.systemInfo && this.widgetTransport) {
       ctx.systemInfo = {
-        snapshot: <T>() => this.widgetTransport!.systemInfoSnapshot() as Promise<T>,
+        snapshot: <T>(include?: SystemInfoInclude) =>
+          this.widgetTransport!.systemInfoSnapshot(include) as Promise<T>,
       };
     }
     if (w.capabilities?.nowPlaying && this.widgetTransport) {

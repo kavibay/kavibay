@@ -272,7 +272,7 @@ onUnmounted(() => {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   /* Fill the host-sized card body — a fixed px width overflows padding and
    * gets clipped by WidgetCard's overflow:hidden (skin-tone strip included). */
   box-sizing: border-box;
@@ -303,7 +303,7 @@ onUnmounted(() => {
 .emoji-cats {
   display: flex;
   flex-wrap: wrap;
-  gap: 3px;
+  gap: 6px;
 }
 
 .emoji-cat {
@@ -347,10 +347,10 @@ onUnmounted(() => {
 .emoji-grid {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
-  gap: 2px;
+  gap: 6px;
   max-height: 220px;
   overflow-y: auto;
-  padding-right: 2px;
+  padding: 2px 8px 2px 2px;
 }
 
 .emoji-grid--recent {

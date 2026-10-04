@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { inject, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { WIDGET_FOCUS_EVENT, widgetFocusRequestMatches, type WidgetSurface } from "@sdk";
-import type { CalculatorModel } from "./calculator";
+import { displayAnswer, type CalculatorModel } from "./calculator";
 
 const props = defineProps<{ model: CalculatorModel }>();
 
@@ -11,6 +11,7 @@ const boundInstanceId: string = instanceId;
 const widgetSurface = inject<WidgetSurface>("widgetSurface", "desk");
 const historyEl = ref<HTMLElement | null>(null);
 const inputEl = ref<HTMLInputElement | null>(null);
+const liveText = computed(() => displayAnswer(props.model.live.value ?? ""));
 
 async function scrollHistoryToEnd() {
   await nextTick();
@@ -25,6 +26,20 @@ async function commit() {
 
 function setExpression(event: Event) {
   props.model.setExpression((event.target as HTMLInputElement).value);
+}
+
+function onInputKeydown(event: KeyboardEvent) {
+  if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+    event.preventDefault();
+    props.model.recall(event.key === "ArrowUp" ? -1 : 1);
+    return;
+  }
+  // Ctrl+C copies the result unless the user selected text in the field.
+  const input = event.target as HTMLInputElement;
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && input.selectionStart === input.selectionEnd) {
+    event.preventDefault();
+    void props.model.copy();
+  }
 }
 
 function selectHistory(index: number) {
@@ -85,7 +100,7 @@ void scrollHistoryToEnd();
           <button
             type="button"
             class="calc-entry-result"
-            :aria-label="`Use result ${entry.result}`"
+            :aria-label="`Use result ${displayAnswer(entry.result)}`"
             @click="selectHistory(index)"
           >
             <svg
@@ -104,13 +119,22 @@ void scrollHistoryToEnd();
               <path d="M12 5v14" />
               <path d="m19 12-7 7-7-7" />
             </svg>
-            <span>{{ entry.result }}</span>
+            <span>{{ displayAnswer(entry.result) }}</span>
           </button>
         </div>
       </div>
     </div>
 
-    <p v-if="model.live.value !== null" class="calc-live">{{ model.live.value }}</p>
+    <button
+      v-if="model.copied.value || model.live.value !== null"
+      type="button"
+      class="calc-live"
+      v-tip="'Copy result'"
+      :aria-label="model.copied.value ? 'Copied' : `Copy ${liveText}`"
+      @click="model.copy"
+    >
+      {{ model.copied.value ? "Copied" : liveText }}
+    </button>
     <input
       ref="inputEl"
       :value="model.expression.value"
@@ -119,10 +143,11 @@ void scrollHistoryToEnd();
       inputmode="decimal"
       autocomplete="off"
       spellcheck="false"
-      placeholder="12*7+3"
+      placeholder="12*7 or 5 km in mi"
       aria-label="Expression"
       @input="setExpression"
       @keydown.enter.prevent="commit"
+      @keydown="onInputKeydown"
     />
   </div>
 </template>
@@ -157,12 +182,26 @@ void scrollHistoryToEnd();
 .calc-input::placeholder { color: rgba(var(--fg-rgb), 0.35); }
 
 .calc-live {
+  appearance: none;
   flex: 0 0 auto;
   margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   color: rgba(var(--fg-rgb), 0.45);
   text-align: right;
+  cursor: pointer;
+}
+
+.calc-live:hover { color: rgba(var(--fg-rgb), 0.75); }
+
+.calc-live:focus-visible {
+  outline: 1px solid rgba(var(--fg-rgb), 0.4);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
 .calc-results {
@@ -260,6 +299,13 @@ void scrollHistoryToEnd();
   cursor: pointer;
   text-align: right;
   overflow-wrap: anywhere;
+}
+
+/* Break before the unit ("3.10685596119 / mi") rather than inside the number;
+   only a number too long for the line on its own still breaks anywhere. */
+.calc-entry-result span {
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
 .calc-entry-result:focus-visible {

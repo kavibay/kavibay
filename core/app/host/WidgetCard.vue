@@ -473,6 +473,16 @@ function onCardContextMenu(event: MouseEvent) {
   openMenu({ clientX: event.clientX, clientY: event.clientY });
 }
 
+/**
+ * The chrome pill shares the card's glass (opacity, blur) but not its colour:
+ * a tinted note would otherwise tint the controls too, and they should read
+ * the same on every card.
+ */
+const chromeSurfaceVars = computed(() => {
+  const { "--surface-bg-rgb": _bg, ...rest } = props.surfaceVars ?? {};
+  return rest;
+});
+
 /** Inline position when the menu was opened via right-click. */
 const menuPositionStyle = computed(() => {
   const at = menuAnchor.value;
@@ -941,7 +951,7 @@ watch(
       @contextmenu="onHeaderContextMenu"
     >
       <div class="widget-card-chrome-visual">
-        <div class="widget-card-surface widget-card-chrome-surface" :style="surfaceVars" aria-hidden="true" />
+        <div class="widget-card-surface widget-card-chrome-surface" :style="chromeSurfaceVars" aria-hidden="true" />
         <WidgetDeleteConfirmation v-if="deleteRequest" :request="deleteRequest" />
         <template v-else>
           <button

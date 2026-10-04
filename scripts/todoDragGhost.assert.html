@@ -1,0 +1,96 @@
+<!doctype html>
+<!-- Run with Vite: /app/scripts/todoDragGhost.assert.html -->
+<html lang="en">
+<meta charset="utf-8">
+<title>Todo drag ghost check</title>
+<style>
+  html { --fg-rgb: 255, 255, 255; --surface-bg-rgb: 28, 28, 32; font: 14px Arial, sans-serif; background: #151518; color: white; }
+  #app { margin: 24px; padding: 16px; width: 300px; zoom: 1.25; background: #1c1c20; border-radius: 12px; }
+  button { margin: 8px; }
+</style>
+<button id="preview">Show ghost</button><button id="check">Run drag checks</button>
+<p id="result">Ready</p><div id="app"></div>
+<script type="module">
+  import { createApp, effectScope, h, nextTick } from "vue";
+  import TodoView from "../extensions/todo/widgets/TodoView.vue";
+  import { emptyState, createItem } from "../extensions/todo/todoLogic.ts";
+  import { todoWidget } from "../extensions/todo/widgets/todo.ts";
+
+  const initial = emptyState();
+  initial.items = ["Pack sunscreen", "Water the plants", "Book flights"].map((text, order) => ({ ...createItem(null, order), text }));
+  initial.items[0].done = true;
+  const scope = effectScope();
+  const model = await scope.run(() => todoWidget.component.setup({
+    instanceId: "drag-check", config: {},
+    data: { get: async () => initial, set: async () => {}, delete: async () => {} },
+  }));
+  const app = createApp({ render: () => h(TodoView, { model }) });
+  app.mount("#app");
+  await nextTick();
+
+  const assert = (condition, message) => { if (!condition) throw new Error(message); };
+  const near = (a, b) => Math.abs(a - b) < 1;
+  const rows = () => [...document.querySelectorAll("#app [data-todo-row]")];
+  const ghost = () => document.querySelector(".todo-drag-ghost");
+  let origin;
+  const pointer = (type, point) => new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 42, isPrimary: true, button: 0, clientX: point.x, clientY: point.y });
+  function start() {
+    const row = rows()[0];
+    const handle = row.querySelector(".todo-grip");
+    // Synthetic pointers have no OS capture; the component's actual event flow still runs.
+    handle.setPointerCapture = () => {};
+    const bounds = handle.getBoundingClientRect();
+    origin = { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 };
+    handle.dispatchEvent(pointer("pointerdown", origin));
+    return row;
+  }
+  document.querySelector("#preview").onclick = () => {
+    window.dispatchEvent(pointer("pointercancel", origin ?? { x: 0, y: 0 }));
+    start();
+    window.dispatchEvent(pointer("pointermove", { x: origin.x + 25, y: origin.y + 50 }));
+  };
+  document.querySelector("#check").onclick = async () => {
+    const result = document.querySelector("#result");
+    try {
+      window.dispatchEvent(pointer("pointercancel", origin ?? { x: 0, y: 0 }));
+      const row = start();
+      const before = row.getBoundingClientRect();
+      const checkLeft = row.querySelector(".todo-check").getBoundingClientRect().left;
+      assert(ghost()?.inert && ghost().getAttribute("aria-hidden") === "true", "ghost must not become an interactive duplicate");
+      assert(ghost().querySelector("input").value === "Pack sunscreen", "ghost preserves edited text");
+      assert(ghost().querySelector(".checked"), "ghost preserves completion state");
+      assert(near(ghost().getBoundingClientRect().width, before.width), "ghost preserves widget zoom");
+      assert(getComputedStyle(ghost()).pointerEvents === "none", "ghost must not intercept the drop target");
+      window.dispatchEvent(pointer("pointermove", { x: origin.x + 40, y: origin.y + 12 }));
+      assert(near(ghost().getBoundingClientRect().left, before.left + 40), "ghost follows the pointer's horizontal movement");
+      assert(near(ghost().getBoundingClientRect().top, before.top + 12), "ghost preserves the vertical grab point");
+      assert(near(row.querySelector(".todo-check").getBoundingClientRect().left, checkLeft), "dragging must not shift the checkbox");
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      assert(!ghost() && model.state.value.items[0].text === "Pack sunscreen", "Escape cleans up without moving");
+      start();
+      window.dispatchEvent(pointer("pointercancel", origin));
+      assert(!ghost(), "pointer cancellation cleans up");
+      start().querySelector(".todo-grip").dispatchEvent(pointer("lostpointercapture", origin));
+      assert(!ghost(), "lost pointer capture cleans up");
+      start();
+      window.dispatchEvent(new Event("blur"));
+      assert(!ghost(), "window blur cleans up");
+      const movedId = start().dataset.todoRow;
+      const target = rows()[2].getBoundingClientRect();
+      const drop = { x: target.left + 40, y: target.bottom - 1 };
+      window.dispatchEvent(pointer("pointermove", drop));
+      window.dispatchEvent(pointer("pointerup", drop));
+      await nextTick();
+      assert(!ghost() && model.rows.value[2].id === movedId, "drop reorders the actual model and removes the ghost");
+      start();
+      app.unmount();
+      scope.stop();
+      assert(!ghost(), "unmount cleans up an active drag");
+      result.textContent = "PASS: ghost, zoom, pointer tracking, fixed layout, drop, cancellation and unmount";
+    } catch (error) {
+      result.textContent = `FAIL: ${error.message}`;
+      throw error;
+    }
+  };
+</script>
+</html>
