@@ -155,6 +155,10 @@ jobs:
           TAG="${{ inputs.tag || github.ref_name }}"
           mkdir assets && cd assets
           gh release download "$TAG" --pattern '*' --clobber
+          # Same installer under a versionless name, so the website can link
+          # releases/latest/download/kavibay_x64-setup.exe and never goes stale.
+          cp kavibay_*_x64-setup.exe kavibay_x64-setup.exe
+          gh release upload "$TAG" kavibay_x64-setup.exe --clobber
           sha256sum * > ../SHA256SUMS.txt
           cd ..
           cat SHA256SUMS.txt
