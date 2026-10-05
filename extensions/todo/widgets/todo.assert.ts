@@ -39,6 +39,7 @@ cells.set(TODO_STATE_KEY, seeded);
 
 const scope = effectScope();
 const model = await scope.run(() => todoWidget.component.setup(context)) as TodoModel;
+assert(model.instanceId === context.instanceId, "focus is addressed to this model's own instance");
 assert(model.rows.value.length === seeded.items.length, "contract setup restores all persisted rows");
 const first = model.rows.value[0]!;
 model.setDoneToggle(first.id);

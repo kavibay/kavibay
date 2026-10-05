@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, inject } from "vue";
 import type { ConfigField, ProviderId, WidgetInstance } from "@sdk/contract/sdk";
 import type { Host } from "../runtime";
 import type { JsonBridge } from "../bridge";
@@ -47,6 +47,7 @@ const emit = defineEmits<{
 // The sandboxed frame does its own mounting, in its own document. This runtime
 // still resolves the gate; it just does not call setup.
 const runtime = useWidgetRuntime(props.host, props.instance, { mount: !props.sandbox });
+const widgetViewMounted = inject<(instanceId: string) => void>("kavibayWidgetViewMounted");
 
 const definition = computed(() => props.host.registry.widget(props.instance.definitionId));
 const schema = computed(() => definition.value?.widget.configuration ?? {});
@@ -126,6 +127,7 @@ function save(values: Record<string, unknown>) {
     :is="view"
     v-else-if="view && runtime.model.value"
     :model="runtime.model.value"
+    @vue:mounted="widgetViewMounted?.(instance.id)"
   />
 
   <!--

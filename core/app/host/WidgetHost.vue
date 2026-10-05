@@ -575,6 +575,7 @@ let ctrlShortcutHintHeld = false;
  * no longer cover the palette the user is typing in.
  */
 const paletteFront = ref(true);
+let widgetFocusRequest: { instanceId: string; openPackageId?: string } | null = null;
 let highlightClearTimer: ReturnType<typeof setTimeout> | undefined;
 let focusPopClearTimer: ReturnType<typeof setTimeout> | undefined;
 let focusPopFrame: number | undefined;
@@ -1577,7 +1578,8 @@ function onRevealWidget(instanceId: string, onlyWidget = false) {
     raiseWidget(instanceId);
     void nextTick(recoverLayoutIntoViewport);
   } else {
-    openCockpit();
+    // Revealing a card in an open session must not reopen/refocus the palette.
+    if (!cockpitOpen.value) void openCockpit();
     // Pinned + was Hidden: not covered by cockpit session resume.
     if (wasHidden && instance.pinned) {
       runExtensionHook(getExtension(instance.typeId), "onResume", instance.instanceId);
@@ -2017,26 +2019,24 @@ async function onFocusWidget(instanceId: string, openPackageId?: string) {
   frontInstanceId.value = instanceId;
   // Focus moved into the card (Tab / Enter on a search hit) — palette steps back.
   paletteFront.value = false;
+  widgetFocusRequest = { instanceId, ...(openPackageId ? { openPackageId } : {}) };
   onHighlightWidget(instanceId);
   onFocusPop(instanceId);
 
-  const dispatchFocus = () => {
-    window.dispatchEvent(
-      new CustomEvent(WIDGET_FOCUS_EVENT, {
-        detail: {
-          instanceId,
-          surface: "desk" satisfies WidgetSurface,
-          ...(openPackageId ? { openPackageId } : {}),
-        },
-      }),
-    );
-  };
-
   await nextTick();
   if (wasHidden) await nextTick();
-  dispatchFocus();
-  // TipTap may still be mounting after a reveal — retry once.
-  window.setTimeout(dispatchFocus, 60);
+  dispatchWidgetFocus(instanceId);
+  // Non-contract views may still be mounting. Never replay an obsolete request.
+  window.setTimeout(() => dispatchWidgetFocus(instanceId), 60);
+}
+
+/** Replay at view mount: async setup and lazy loading can outlast the retry. */
+function dispatchWidgetFocus(instanceId: string) {
+  if (widgetFocusRequest?.instanceId !== instanceId ||
+      focusedInstanceId.value !== instanceId || paletteFront.value) return;
+  window.dispatchEvent(new CustomEvent(WIDGET_FOCUS_EVENT, {
+    detail: { ...widgetFocusRequest, surface: "desk" satisfies WidgetSurface },
+  }));
 }
 
 /**
@@ -2178,7 +2178,8 @@ async function onRunRuntimeWidget(event: Event) {
     .detail;
   const typeId = detail?.typeId;
   if (typeof typeId !== "string" || !typeId) return;
-  await rescanRuntimeExtensions();
+  // Bundled widgets are already registered; opening them must not wait for disk scans.
+  if (!getExtension(typeId)) await rescanRuntimeExtensions();
   /**
    * A card of this type that is already on screen is the answer.
    *
@@ -3158,6 +3159,7 @@ provide("kavibayRevealWidget", onRevealWidget);
 provide("kavibayHighlightWidget", onHighlightWidget);
 provide("kavibayPreviewWidget", onPreviewWidget);
 provide("kavibayFocusWidget", onFocusWidget);
+provide("kavibayWidgetViewMounted", dispatchWidgetFocus);
 provide("kavibayClearWidgetFocus", onClearWidgetFocus);
 provide("kavibayCloseCockpit", closeCockpit);
 provide("kavibayHidePalette", onHidePalette);

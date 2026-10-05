@@ -4,6 +4,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { computed, reactive, ref } from "vue";
 import { hasKeptInstance, shouldKeepWindowAfterDismiss, survivesDismiss } from "./layoutLogic.ts";
+import { widgetFocusRequestMatches, WIDGET_FOCUS_EVENT } from "../../../sdk/extension/widgetFocusRequest.ts";
 
 // Run the actual SFC handlers with native effects stubbed; no copied pop logic.
 function source(path) {
@@ -101,6 +102,8 @@ assert.deepEqual(visible(), [], "a stale id reveals nothing");
 context.onRevealWidgetEvent({ detail: { instanceId: "away-timer" } });
 assert.equal(cockpitOpen.value, true, "ordinary reveal keeps its cockpit behavior");
 trace.length = 0;
+context.onRevealWidgetEvent({ detail: { instanceId: "away-timer" } });
+assert(!trace.includes("cockpit"), "revealing in an open session does not reopen search or steal widget focus");
 pop("away-timer");
 assert.equal(cockpitOpen.value, true, "popping while open preserves the current cockpit");
 assert(!trace.includes("cockpit"), "a pop does not reopen or refocus search");
@@ -138,4 +141,83 @@ for (const [mode, expected] of [
   await notify("timer", mode);
   assert.deepEqual(trace, expected);
 }
+// A sibling Todo must not take the caret when the host focuses the Wizard.
+const todoFocus = {
+  widgetFocusRequestMatches,
+  widgetSurface: "desk",
+  props: { model: {
+    instanceId: "todo-a",
+    state: { value: { items: [{ id: "row-a", text: "Task" }] } },
+    rows: { value: [{ id: "row-a" }] },
+  } },
+  focusRow: (id) => trace.push(`todo-focus:${id}`),
+};
+handlers(script("../../../extensions/todo/widgets/TodoView.vue"), ["onFocusRequest"], todoFocus);
+const requestFocus = (instanceId, surface = "desk") => todoFocus.onFocusRequest({
+  type: WIDGET_FOCUS_EVENT, detail: { instanceId, surface },
+});
+trace.length = 0;
+requestFocus("wizard");
+requestFocus("todo-b");
+requestFocus("todo-a", "inline");
+assert.deepEqual(trace, [], "Todo ignores focus for other widgets and surfaces");
+requestFocus("todo-a");
+assert.deepEqual(trace, ["todo-focus:row-a"], "Todo still focuses its own desk instance");
+todoFocus.widgetSurface = "inline";
+trace.length = 0;
+requestFocus("todo-a");
+assert.deepEqual(trace, [], "the inline copy ignores desk focus");
+requestFocus("todo-a", "inline");
+assert.deepEqual(trace, ["todo-focus:row-a"], "the inline copy accepts its own focus");
 console.log("widgetPop.assert.mjs: all assertions passed");
+
+// Slow contract setup must receive focus when its view finally mounts.
+const retries = [];
+const focusEvents = [];
+const focusContext = {
+  instances: [{ instanceId: "wizard", typeId: "wizard" }, { instanceId: "other", typeId: "other" }],
+  focusedInstanceId: ref(null), frontInstanceId: ref(null), previewInstanceId: ref(null),
+  paletteFront: ref(true), widgetFocusRequest: null,
+  nextTick: async () => {},
+  onRevealWidget() {}, ensureInstanceOnScreen: () => false, persist() {},
+  onHighlightWidget() {}, onFocusPop() {},
+  WIDGET_FOCUS_EVENT,
+  CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
+  window: {
+    dispatchEvent: (event) => focusEvents.push(event.detail),
+    setTimeout: (fn) => retries.push(fn),
+  },
+};
+handlers(script("./WidgetHost.vue"), ["onFocusWidget", "dispatchWidgetFocus"], focusContext);
+await focusContext.onFocusWidget("wizard", "edited-package");
+retries.shift()(); // The initial 60 ms retry already passed before setup completed.
+focusEvents.length = 0;
+focusContext.dispatchWidgetFocus("wizard"); // WidgetGate's actual view-mounted notification.
+assert.equal(focusEvents.length, 1, "late-mounted views receive their pending focus");
+assert.equal(focusEvents[0].instanceId, "wizard");
+assert.equal(focusEvents[0].openPackageId, "edited-package", "late delivery preserves the editing target");
+assert(source("../extension-host/ui/WidgetGate.vue").includes('@vue:mounted="widgetViewMounted?.(instance.id)"'),
+  "the contract view mount delivers pending host focus");
+await focusContext.onFocusWidget("other");
+focusEvents.length = 0;
+focusContext.dispatchWidgetFocus("wizard");
+assert.equal(focusEvents.length, 0, "an old mounting view cannot steal focus from a newer target");
+focusContext.paletteFront.value = true;
+retries.shift()();
+assert.equal(focusEvents.length, 0, "the timed retry cannot steal focus back from search");
+
+let scans = 0;
+const openContext = {
+  instances: [{ instanceId: "wizard", typeId: "widget-wizard" }],
+  getExtension: (id) => id === "widget-wizard" ? {} : undefined,
+  rescanRuntimeExtensions: async () => { scans++; },
+  onAddType: () => "new-runtime",
+  onFocusWidget: async (id) => trace.push(`open-focus:${id}`),
+};
+handlers(script("./WidgetHost.vue"), ["onRunRuntimeWidget"], openContext);
+await openContext.onRunRuntimeWidget({ detail: { typeId: "widget-wizard" } });
+assert.equal(scans, 0, "opening a bundled Wizard does not wait for unrelated runtime scans");
+assert.equal(trace.at(-1), "open-focus:wizard");
+await openContext.onRunRuntimeWidget({ detail: { typeId: "saved-package" } });
+assert.equal(scans, 1, "new runtime packages are still discovered before opening");
+console.log("widget focus handoff assertions passed");
