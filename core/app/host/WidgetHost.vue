@@ -1421,7 +1421,10 @@ function onPaletteHotkey(revealedByRust = false) {
   // "the palette is away, bring it back" and put a search field behind the one
   // thing the user is being asked to read. Rust may still have revealed the
   // window on the way in; leaving it visible with the card on it is correct.
-  if (isSetupVisible(setupState.value)) return;
+  if (isSetupVisible(setupState.value)) {
+    setupGestureCount.value++;
+    return;
+  }
   // A toggle during a peek keeps what the peek put on screen: the session
   // stops being a peek, so releasing the peek key no longer takes it away.
   if (peeking.value) {
