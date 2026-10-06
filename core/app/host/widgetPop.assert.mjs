@@ -5,6 +5,8 @@ import ts from "typescript";
 import { computed, reactive, ref } from "vue";
 import { hasKeptInstance, shouldKeepWindowAfterDismiss, survivesDismiss } from "./layoutLogic.ts";
 import { widgetFocusRequestMatches, WIDGET_FOCUS_EVENT } from "../../../sdk/extension/widgetFocusRequest.ts";
+import { classifyCtrlKey, emptyCtrlTapState, observeCtrlTap } from "./ctrlDoubleTap.ts";
+import { isSetupVisible } from "../onboarding/setupLogic.ts";
 
 // Run the actual SFC handlers with native effects stubbed; no copied pop logic.
 function source(path) {
@@ -221,3 +223,35 @@ assert.equal(trace.at(-1), "open-focus:wizard");
 await openContext.onRunRuntimeWidget({ detail: { typeId: "saved-package" } });
 assert.equal(scans, 1, "new runtime packages are still discovered before opening");
 console.log("widget focus handoff assertions passed");
+
+// On first launch the setup card owns focus, so the double tap arrives via DOM.
+const setupContext = {
+  classifyCtrlKey, emptyCtrlTapState, observeCtrlTap, isSetupVisible,
+  ctrlTap: emptyCtrlTapState(), lastRustHotkeyAt: 0,
+  Date: { now: () => 10_000 },
+  setupState: ref({ status: "pending" }), setupGestureCount: ref(0),
+  commandUi: { request: ref(null) }, peeking: ref(false),
+  paletteHidden: ref(true), cockpitOpen: ref(true),
+  openCockpit: () => trace.push("open"), closeCockpit: () => trace.push("close"),
+  emit: () => trace.push("palette-show"),
+};
+handlers(script("./WidgetHost.vue"), ["onCtrlTapKey", "onPaletteHotkey"], setupContext);
+function doubleCtrl(at) {
+  for (const [type, delta] of [["keydown", 0], ["keyup", 60], ["keydown", 180], ["keyup", 240]]) {
+    setupContext.onCtrlTapKey({ type, key: "Control", timeStamp: at + delta });
+  }
+}
+trace.length = 0;
+doubleCtrl(0);
+assert.equal(setupContext.setupGestureCount.value, 1, "focused setup passes the DOM double tap to the tour");
+assert.deepEqual(trace, [], "setup does not toggle the cockpit or open search behind the card");
+setupContext.lastRustHotkeyAt = 9_900;
+doubleCtrl(1000);
+assert.equal(setupContext.setupGestureCount.value, 1, "a native gesture cannot also answer setup through DOM");
+setupContext.lastRustHotkeyAt = 0;
+setupContext.setupState.value = { status: "done" };
+setupContext.paletteHidden.value = false;
+doubleCtrl(2000);
+assert.deepEqual(trace, ["close"], "after setup the double tap still closes the cockpit");
+assert.equal(setupContext.setupGestureCount.value, 1, "completed setup receives no further tour-start requests");
+console.log("setup gesture handoff assertions passed");
