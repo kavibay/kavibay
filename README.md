@@ -147,6 +147,43 @@ GitHub, Spotify, Tado. Those are entered once in **Settings → Integrations →
 Linear, Notion, n8n and Fitbit connect there too. They have no widget of their
 own; a widget you build with the Wizard reads from them.
 
+## AI features
+
+Kavibay ships no model and no subscription. Use one of two routes: your own API
+key, or an AI client you already run, connected over MCP.
+
+### Bring your own key
+
+Add an **Anthropic**, **OpenAI** or **Cloudflare Workers AI** key under
+**Settings → AI** (the same encrypted store as every other credential). Then
+choose which models to switch on. You pay the provider directly, per use.
+The key unlocks:
+
+| Feature | What it does |
+|---|---|
+| **Widget Wizard** | Describe a widget, get a sandboxed one built (Anthropic or OpenAI) |
+| **Quick actions** — `Ctrl+Shift+Q` | Translate, fix grammar or rewrite selected text in any app |
+| **Single Purpose AI** | A widget for one prompt you run often, with streaming output |
+
+The key stays in Rust. A widget that uses a model asks the host to make the call
+and never sees the key.
+
+### MCP: use the client you already have
+
+Already use Claude Code, Codex or another MCP client? It can build widgets for
+you instead of the Wizard, on that client's own plan, with no API key in
+Kavibay. Kavibay runs a local MCP server on `127.0.0.1:43127`. It is on by
+default, and you can change it under **Settings → Integrations → MCP Server**.
+
+```bash
+claude mcp add --transport http kavibay http://127.0.0.1:43127/mcp
+```
+
+The client writes and validates drafts. You review the preview in the Widget
+Wizard and press **Save**. MCP cannot save, enable or delete a widget, grant
+permissions, or read credentials. Other clients and the tool list:
+[docs/mcp-server.md](docs/mcp-server.md).
+
 ## Build your own
 
 Every widget is an extension, and there is no registry file to edit — the host
@@ -177,8 +214,8 @@ installed. → [docs/widget-wizard.md](docs/widget-wizard.md)
 
 **MCP server** — Kavibay can expose its authoring workspace over MCP on
 `127.0.0.1`, so Claude Code or any other local MCP client can write drafts
-directly. Off by default; the Wizard stays the human decision point for saving
-and permissions. → [docs/mcp-server.md](docs/mcp-server.md)
+directly. On by default and local only; the Wizard stays the human decision
+point for saving and permissions. → [AI features](#ai-features)
 
 ## Keys
 

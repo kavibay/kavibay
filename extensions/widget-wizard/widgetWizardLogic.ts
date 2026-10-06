@@ -3829,14 +3829,6 @@ export function sortWizardModels(models: WizardModelOption[]): WizardModelOption
 }
 
 /**
- * Which model to select.
- *
- * A model the person already chose is kept as long as it works; otherwise the
- * best one with a key. Only when nothing is configured does an unusable model
- * get selected — and then it is the first, so the "no key" hint names the model
- * they would most likely want.
- */
-/**
  * Which model a fresh conversation starts on.
  *
  * A choice already made is kept — switching away to compare a price and back
@@ -3846,20 +3838,22 @@ export function sortWizardModels(models: WizardModelOption[]): WizardModelOption
  * configured model" put whichever entry happened to be listed first in charge
  * of what a generation costs, and the order of that file is maintained for
  * other reasons entirely. `authoringDefault` is the catalog saying which of a
- * provider's models the Wizard should open on.
+ * provider's models the Wizard should open on. OpenAI wins when no provider
+ * has been chosen; a fresh session keeps the previous session's provider.
  */
 export function defaultWizardModel(
   models: WizardModelOption[],
   current?: string,
+  provider?: string,
 ): string {
-  if (current && models.some((model) => model.id === current && model.configured)) {
-    return current;
-  }
-  const preferred = models.find((model) => model.configured && model.authoringDefault);
-  if (preferred) return preferred.id;
-  const usable = models.find((model) => model.configured);
-  if (usable) return usable.id;
-  return models[0]?.id ?? "";
+  const selected = models.find((model) => model.id === current);
+  if (selected?.configured) return selected.id;
+  const usable = models.filter((model) => model.configured);
+  const available = usable.length ? usable : models;
+  const preferredProvider = selected?.provider ?? provider ?? "openai";
+  const preferred = available.find((model) => model.provider === preferredProvider && model.authoringDefault)
+    ?? available.find((model) => model.authoringDefault);
+  return preferred?.id ?? available[0]?.id ?? "";
 }
 
 /**

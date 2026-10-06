@@ -140,6 +140,27 @@ function onEditorContextMenu(event: MouseEvent) {
   selectionMenu.value = { x: event.clientX, y: event.clientY };
 }
 
+/** The selection as Markdown on the clipboard; plain Ctrl+C stays ProseMirror's default. */
+function copySelectionAsMarkdown() {
+  const ed = editor.value;
+  if (!ed?.markdown) return;
+  const { selection } = ed.state;
+  const { $from, $to } = selection;
+  const slice = selection.content();
+  // The slice starts below the selection's shared parent: items without their
+  // list, or bare text inside one paragraph. Re-wrap lists; text needs no Markdown.
+  const parent = $from.node($from.sharedDepth($to.pos));
+  const content = slice.content.toJSON() ?? [];
+  const text = parent.isTextblock
+    ? slice.content.textBetween(0, slice.content.size, "\n")
+    : ed.markdown.serialize({
+        type: "doc",
+        content: parent.type.name === "doc" ? content : [{ type: parent.type.name, attrs: parent.attrs, content }],
+      }).trim();
+  // A failed write is not worth an error UI; the selection can be copied again.
+  props.model.copyText(text).catch(() => undefined);
+}
+
 function fromMenu(action: () => void) {
   action();
   selectionMenu.value = null;
@@ -258,6 +279,7 @@ onBeforeUnmount(() => {
         @contextmenu.prevent
       >
         <button v-for="b in formatButtons" :key="b.tip" type="button" class="notes-btn" :class="{ active: b.active() }" v-tip="b.tip" @click="fromMenu(b.run)"><span :class="b.cls">{{ b.label }}</span></button>
+        <button type="button" class="notes-btn" @click="fromMenu(copySelectionAsMarkdown)">Copy as Markdown</button>
       </div>
     </Teleport>
   </div>

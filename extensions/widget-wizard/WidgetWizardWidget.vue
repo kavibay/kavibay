@@ -982,7 +982,6 @@ async function deleteRow(row: ProjectRow, confirmed = false): Promise<void> {
     await previewSettingsWrite;
     await removeWidget(row);
     if (wasActive) {
-      session.value.model = defaultWizardModel(models.value);
       draftConflict.value = null;
       savedApiText.value = null;
       middleTab.value = "chat";
@@ -996,7 +995,7 @@ async function deleteRow(row: ProjectRow, confirmed = false): Promise<void> {
   }
 }
 const busy = ref(false);
-/** Seconds since `busy` went true — the "Working… 2m10s" counter. */
+/** Seconds since `busy` went true, including tenths. */
 const busySeconds = ref(0);
 let busyTimer: ReturnType<typeof setInterval> | undefined;
 watch(busy, (isBusy) => {
@@ -1004,12 +1003,12 @@ watch(busy, (isBusy) => {
   busySeconds.value = 0;
   if (!isBusy) return;
   const startedAt = Date.now();
-  busyTimer = setInterval(() => (busySeconds.value = Math.floor((Date.now() - startedAt) / 1000)), 1000);
+  busyTimer = setInterval(() => (busySeconds.value = Math.floor((Date.now() - startedAt) / 100) / 10), 100);
 });
 onUnmounted(() => clearInterval(busyTimer));
 const busyElapsed = computed(() => {
   const s = busySeconds.value;
-  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
+  return s < 60 ? `${s.toFixed(1)}s` : `${Math.floor(s / 60)}m ${(s % 60).toFixed(1)}s`;
 });
 const sharing = ref(false);
 const shareFeedback = ref("");
@@ -2245,6 +2244,14 @@ const activeModel = computed(() =>
   models.value.find((model) => model.id === session.value.model),
 );
 
+// Every session reset needs a model, including opening a widget without a chat.
+watch([models, () => session.value.model], ([options, current], [previousOptions, previous]) => {
+  if (!options.length) return;
+  const provider = previousOptions?.find((model) => model.id === previous)?.provider;
+  const selected = defaultWizardModel(options, current, provider);
+  if (selected !== current) session.value.model = selected;
+}, { immediate: true });
+
 /**
  * The platforms this build can author on, and whether any of them is connected.
  *
@@ -2499,7 +2506,6 @@ async function loadModels() {
     // Sorted so the list never opens with something that cannot run, and the
     // selection lands on a model that has a key.
     models.value = sortWizardModels(await wizard.models<WizardModelOption[]>());
-    session.value.model = defaultWizardModel(models.value, session.value.model);
   } catch (error) {
     note(`Could not read the model list: ${String(error)}`);
   }
@@ -2630,7 +2636,6 @@ async function newConversation() {
   start();
   draftConflict.value = null;
   savedApiText.value = null;
-  session.value.model = defaultWizardModel(models.value);
   middleTab.value = "chat";
   // A new project is a question waiting to be typed, so the caret goes where
   // the typing starts rather than leaving somebody to find the box first.
@@ -2710,7 +2715,6 @@ async function openConversation(id: string) {
   await save(session.value);
   const loaded = await load(id);
   if (loaded) {
-    loaded.model = defaultWizardModel(models.value, loaded.model);
     session.value = loaded;
     draftConflict.value = null;
     savedApiText.value = loaded.packageId
@@ -3920,7 +3924,6 @@ async function openWidget(id: string, conversationId: string | null = null) {
      */
     const resumed = conversationId ? await load(conversationId) : null;
     if (resumed) {
-      resumed.model = defaultWizardModel(models.value, resumed.model);
       session.value = resumed;
     } else {
       start();
@@ -5471,10 +5474,15 @@ async function enablePackage(
           </div>
         </div>
         <p v-if="busy" class="wiz-hint wiz-working" role="status" aria-live="polite">
-          <span class="wiz-working-icon" data-icon-motion="on">
-            <BrainIcon :size="16" animated />
+          <span class="wiz-working-icon" aria-hidden="true">
+            <!-- A chevron wave travels across the three rows. -->
+            <span
+              v-for="i in 9"
+              :key="i"
+              :style="{ animationDelay: `${((i - 1) % 3 + Math.abs(Math.floor((i - 1) / 3) - 1)) * 90}ms` }"
+            />
           </span>
-          <span>Working…</span>
+          <span class="wiz-working-label">Working</span>
           <!-- aria-hidden: the live region would otherwise announce every tick. -->
           <span class="wiz-working-elapsed" aria-hidden="true">{{ busyElapsed }}</span>
         </p>
@@ -6996,18 +7004,63 @@ async function enablePackage(
 .wiz-working {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 10px;
+  opacity: 1;
 }
 
 .wiz-working-icon {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: repeat(3, 4px);
+  gap: 1.5px;
   flex: 0 0 auto;
 }
 
-/* Fixed-width digits so the line does not jitter every second. */
+.wiz-working-icon > span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgb(var(--fg-rgb));
+  opacity: 0.15;
+  animation: wiz-working-pixel 650ms ease-in-out infinite;
+}
+
+.wiz-working-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: transparent;
+  background: linear-gradient(90deg, rgba(var(--fg-rgb), 0.55) 35%, rgb(var(--fg-rgb)) 50%, rgba(var(--fg-rgb), 0.55) 65%);
+  background-size: 200% 100%;
+  background-clip: text;
+  animation: wiz-working-shimmer 1.4s linear infinite;
+}
+
+/* Fixed-width digits so the line does not jitter every tick. */
 .wiz-working-elapsed {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
-  opacity: 0.7;
+  color: rgba(var(--fg-rgb), 0.45);
+}
+
+@keyframes wiz-working-pixel {
+  0%, 100% { opacity: 0.15; }
+  35% { opacity: 1; }
+}
+
+@keyframes wiz-working-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wiz-working-icon > span,
+  .wiz-working-label {
+    animation: none;
+  }
+  .wiz-working-label {
+    background: none;
+    color: rgba(var(--fg-rgb), 0.55);
+  }
 }
 
 /*

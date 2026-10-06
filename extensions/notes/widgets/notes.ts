@@ -19,6 +19,7 @@ export interface NotesModel {
   setMarkdown(markdown: string): void;
   setToolbarVisible(visible: boolean): void;
   openUrl(url: string): Promise<void>;
+  copyText(text: string): Promise<void>;
   flush(): Promise<void>;
 }
 
@@ -126,6 +127,7 @@ export const notesWidget = defineWidget<Record<string, never>>({
         setMarkdown,
         setToolbarVisible,
         openUrl: (url) => ctx.openExternal!.open(url),
+        copyText: (text) => ctx.clipboard!.writeText(text),
         flush: persistNow,
       };
     },
