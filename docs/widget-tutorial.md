@@ -21,7 +21,7 @@ flowchart TB
 ```
 
 After creating the files: restart `pnpm run tauri dev`, then add the widget from
-the command palette (`Ctrl+Space`). The Vite glob only reruns on start, so a new
+the command palette (double-tap `Ctrl`). The Vite glob only reruns on start, so a new
 folder needs a restart — editing an existing one hot-reloads.
 
 The folder name **must** equal `manifest.id`. There is no registry file to edit.

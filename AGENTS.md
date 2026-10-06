@@ -89,7 +89,7 @@ CI (`.github/workflows/ci.yml`) runs `verify` on Ubuntu and the Rust half on Win
 
 ## Architecture in 8 lines
 
-- One transparent, always-on-top fullscreen window; `Ctrl+Space` toggle and gap
+- One transparent, always-on-top fullscreen window; `Ctrl` double-tap toggle (hold `Ctrl+Space` to peek) and gap
   click-through (cursor polling + `set_ignore_cursor_events`) live in Rust
   (`src-tauri/src/lib.rs`).
 - Two extension tiers:

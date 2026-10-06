@@ -1729,6 +1729,28 @@ assert(
     "with nothing configured, the first is named so the hint is about it",
   );
   assertEq(defaultWizardModel([]), "", "no models at all");
+
+  const luna = { ...model("gpt-6-luna", true), provider: "openai", authoringDefault: true };
+  const opus = { ...model("claude-opus-5-5", true), authoringDefault: true };
+  const choices = [model("fable", true), opus, luna];
+  assertEq(defaultWizardModel(choices), luna.id,
+    "a fresh Wizard prefers Luna even when Anthropic appears first");
+  assertEq(defaultWizardModel(choices, "", "anthropic"), opus.id,
+    "a session reset keeps the selected provider and uses its default");
+  assertEq(defaultWizardModel(choices, "", "openai"), luna.id,
+    "an OpenAI session reset uses Luna");
+  assertEq(defaultWizardModel(choices, "fable"), "fable",
+    "an explicit usable model wins over both provider defaults");
+  assertEq(defaultWizardModel([opus, { ...luna, configured: false }]), opus.id,
+    "only Anthropic connected defaults to Opus 5.5");
+  assertEq(defaultWizardModel([model("fable", false), { ...opus, configured: false }, luna], "", "anthropic"), luna.id,
+    "a provider that lost its key falls back to the connected provider");
+  assertEq(defaultWizardModel([{ ...opus, configured: false }, { ...luna, configured: false }]), luna.id,
+    "no connected provider still names the OpenAI default");
+  assertEq(defaultWizardModel([{ ...opus, configured: false }, { ...luna, configured: false }], "", "anthropic"), opus.id,
+    "an unconfigured selected provider still names its own default");
+  assertEq(defaultWizardModel([model("fable", false), opus, luna], "fable"), opus.id,
+    "an unavailable selection retains its provider's default when usable");
 }
 
 // --- attachments -----------------------------------------------------------
