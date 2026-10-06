@@ -39,6 +39,42 @@
     {
       "provider": "anthropic",
       "vendor": "anthropic",
+      "model": "Claude Opus 5.5",
+      "apiId": "claude-opus-5-5",
+      "note": "Default Anthropic model for the Wizard",
+      "description": "For long-running agentic coding and knowledge work.",
+      "context": {
+        "windowTokens": 1000000,
+        "maxOutputTokens": 128000
+      },
+      "pricing": {
+        "currency": "USD",
+        "unitTokens": 1000000,
+        "input": 4,
+        "cachedInput": 0.2,
+        "output": 20
+      },
+      "capabilities": [
+        "text",
+        "vision",
+        "reasoning",
+        "streaming",
+        "functionCalling"
+      ],
+      "authoring": true,
+      "authoringDefault": true,
+      "sourceUrl": "https://platform.claude.com/docs/en/models/opus-5-5/overview",
+      "effortLevels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
+    },
+    {
+      "provider": "anthropic",
+      "vendor": "anthropic",
       "model": "Claude Opus 5",
       "apiId": "claude-opus-5",
       "note": "Best at building complex widgets",

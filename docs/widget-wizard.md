@@ -340,7 +340,7 @@ is being edited; only the Wizard's **Save** action replaces it.
 
 ## Starting one from the palette
 
-**New Widget** (Ctrl+Space → "new widget") opens the Wizard on a fresh project.
+**New Widget** (double-tap Ctrl → "new widget") opens the Wizard on a fresh project.
 The host resolves the card before the handler runs — a visible Wizard wins, a
 hidden one is revealed, otherwise one is created — so the action itself only has
 to decide which project is showing, and the answer is a new one. The caret lands
