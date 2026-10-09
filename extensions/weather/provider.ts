@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { defineProvider, type ResultSchema } from "@sdk/contract/sdk";
+import { defineProvider, type ProviderHostContext, type ResultSchema } from "@sdk/contract/sdk";
 import { describeWeatherCode, fetchWeather, type WeatherInfo } from "./weatherLogic";
 
 /**
@@ -84,6 +84,78 @@ export function aqiLevel(aqi: number | null): string {
   if (aqi <= 80) return "Poor";
   if (aqi <= 100) return "Very poor";
   return "Extremely poor";
+}
+
+/** Today's sun for a place, in the place's own local time ("2026-10-09T07:41"). */
+export interface SunTimes {
+  place: string;
+  sunrise: string | null;
+  sunset: string | null;
+  /** Minutes between sunrise and sunset. */
+  daylightMinutes: number | null;
+  moonrise: string | null;
+  moonset: string | null;
+  /** 0 and 1 are new moon, 0.25 first quarter, 0.5 full moon, 0.75 last quarter. */
+  moonPhase: number | null;
+}
+
+/** One hour of outdoor air at a place, in the place's local time. */
+export interface AirHour {
+  time: string;
+  /** European AQI (EEA), as `airQuality` reports it. */
+  aqi: number | null;
+  /** Fine particles, µg/m³. */
+  pm25: number | null;
+}
+
+interface AirHoursArgs {
+  location: string;
+  /** Local times "yyyy-MM-ddTHH:mm"; a sleep log's startTime / endTime fit as they are. */
+  start: string;
+  end: string;
+}
+
+/** Outdoor temperature (°C) and surface pressure (hPa) for one hour, in the place's local time. */
+export interface TemperatureHour {
+  time: string;
+  temperature: number | null;
+  pressure: number | null;
+}
+
+const LOCAL_HOUR = /^(\d{4}-\d{2}-\d{2}T\d{2}):\d{2}/;
+
+/** Longest window the hourly queries serve: a night, with room either side. */
+const HOURS_MAX_MS = 48 * 60 * 60 * 1000;
+
+/**
+ * `start`/`end` as Open-Meteo's `start_hour`/`end_hour`: whole hours, the end
+ * one included, so a night ending 07:06 keeps 07:00. Refuses anything that is
+ * not a local time, runs backwards, or spans more than 48 hours.
+ */
+function hourWindow(args: { start?: string; end?: string }): { start_hour: string; end_hour: string } {
+  const from = LOCAL_HOUR.exec(args.start ?? "");
+  const to = LOCAL_HOUR.exec(args.end ?? "");
+  if (!from || !to) throw new Error("start and end must be yyyy-MM-ddTHH:mm");
+  const span = Date.parse(`${to[1]}:00:00`) - Date.parse(`${from[1]}:00:00`);
+  if (!(span >= 0) || span > HOURS_MAX_MS) throw new Error("end must follow start by at most 48 hours");
+  return { start_hour: `${from[1]}:00`, end_hour: `${to[1]}:00` };
+}
+
+/** The first geocoder hit with coordinates, or null for a place nobody could find. */
+async function locate(
+  host: ProviderHostContext,
+  name: string,
+): Promise<{ latitude: number; longitude: number } | null> {
+  const geo = await host.http.get<{ results?: GeoResult[] }>(GEOCODE, {
+    name,
+    count: 1,
+    language: "en",
+    format: "json",
+  });
+  const place = geo?.results?.[0];
+  return place?.latitude === undefined || place.longitude === undefined
+    ? null
+    : { latitude: place.latitude, longitude: place.longitude };
 }
 
 const numberOrNull = (value: unknown): number | null =>
@@ -287,6 +359,187 @@ export const weatherProvider = defineProvider({
         });
         const aqi = numberOrNull(json?.current?.european_aqi);
         return { place: placeLabel(place), aqi, level: aqiLevel(aqi) };
+      },
+    },
+    sun: {
+      description:
+        "Today's sunrise, sunset, moonrise and moonset for a place, in that place's local time, plus the daylight length and the moon phase (0 and 1 new moon, 0.5 full moon)",
+      args: {
+        location: {
+          type: "string",
+          label: "Place",
+          required: true,
+          source: { query: "places" },
+        },
+      },
+      result: {
+        type: "object",
+        fields: {
+          place: { type: "string" },
+          sunrise: { type: "string", nullable: true },
+          sunset: { type: "string", nullable: true },
+          daylightMinutes: { type: "number", nullable: true },
+          moonrise: { type: "string", nullable: true },
+          moonset: { type: "string", nullable: true },
+          moonPhase: { type: "number", nullable: true },
+        },
+      },
+      key: (args: { location: string }) => [args.location],
+      // The sun moves a minute a day; an hour keeps the date current past midnight.
+      staleTime: 60 * 60 * 1000,
+      // A place nobody could find is a reading without a value, as in `current`.
+      fetch: async (args: { location: string }, host): Promise<SunTimes> => {
+        const empty: SunTimes = {
+          place: args.location,
+          sunrise: null,
+          sunset: null,
+          daylightMinutes: null,
+          moonrise: null,
+          moonset: null,
+          moonPhase: null,
+        };
+        const geo = await host.http.get<{ results?: GeoResult[] }>(GEOCODE, {
+          name: args.location,
+          count: 1,
+          language: "en",
+          format: "json",
+        });
+        const place = geo?.results?.[0];
+        if (place?.latitude === undefined || place.longitude === undefined) return empty;
+        const json = await host.http.get<{
+          daily?: {
+            sunrise?: unknown[];
+            sunset?: unknown[];
+            daylight_duration?: unknown[];
+            moonrise?: unknown[];
+            moonset?: unknown[];
+            moon_phase?: unknown[];
+          };
+        }>(FORECAST, {
+          latitude: place.latitude,
+          longitude: place.longitude,
+          daily: "sunrise,sunset,daylight_duration,moonrise,moonset,moon_phase",
+          timezone: "auto",
+          forecast_days: 1,
+        });
+        const first = (list: unknown[] | undefined): string | null =>
+          typeof list?.[0] === "string" ? (list[0] as string) : null;
+        const seconds = numberOrNull(json?.daily?.daylight_duration?.[0]);
+        return {
+          place: placeLabel(place),
+          sunrise: first(json?.daily?.sunrise),
+          sunset: first(json?.daily?.sunset),
+          daylightMinutes: seconds === null ? null : Math.round(seconds / 60),
+          // A day without a moonrise (it happens) comes back empty, not as an error.
+          moonrise: first(json?.daily?.moonrise),
+          moonset: first(json?.daily?.moonset),
+          moonPhase: numberOrNull(json?.daily?.moon_phase?.[0]),
+        };
+      },
+    },
+    airQualityHours: {
+      description:
+        "Hourly European AQI and PM2.5 for a place between two local times (at most 48 hours; past or present, Europe back to 2013). A sleep's startTime and endTime fit as they are",
+      args: {
+        location: {
+          type: "string",
+          label: "Place",
+          required: true,
+          source: { query: "places" },
+        },
+        start: { type: "string", label: "From (yyyy-MM-ddTHH:mm, local)", required: true },
+        end: { type: "string", label: "To (yyyy-MM-ddTHH:mm, local)", required: true },
+      },
+      result: {
+        type: "list",
+        of: {
+          type: "object",
+          fields: {
+            time: { type: "string" },
+            aqi: { type: "number", nullable: true },
+            pm25: { type: "number", nullable: true },
+          },
+        },
+      },
+      key: (args: AirHoursArgs) => [args.location, args.start, args.end],
+      // Past hours do not change; the newest one fills in within the hour.
+      staleTime: 60 * 60 * 1000,
+      fetch: async (args: AirHoursArgs, host): Promise<AirHour[]> => {
+        const window = hourWindow(args);
+        const place = await locate(host, args.location);
+        // An unknown place is no readings, as in `current`.
+        if (!place) return [];
+        const json = await host.http.get<{
+          hourly?: { time?: unknown[]; european_aqi?: unknown[]; pm2_5?: unknown[] };
+        }>(AIR_QUALITY, {
+          latitude: place.latitude,
+          longitude: place.longitude,
+          hourly: "european_aqi,pm2_5",
+          timezone: "auto",
+          ...window,
+        });
+        const hourly = json?.hourly;
+        if (!Array.isArray(hourly?.time)) return [];
+        return hourly.time
+          .map((time, i) => ({
+            time: typeof time === "string" ? time : "",
+            aqi: numberOrNull(hourly.european_aqi?.[i]),
+            pm25: numberOrNull(hourly.pm2_5?.[i]),
+          }))
+          .filter((hour) => hour.time !== "" && (hour.aqi !== null || hour.pm25 !== null));
+      },
+    },
+    temperatureHours: {
+      description:
+        "Hourly outdoor temperature (°C) and surface air pressure (hPa) for a place between two local times (at most 48 hours, within the last 92 days). A sleep's startTime and endTime fit as they are",
+      args: {
+        location: {
+          type: "string",
+          label: "Place",
+          required: true,
+          source: { query: "places" },
+        },
+        start: { type: "string", label: "From (yyyy-MM-ddTHH:mm, local)", required: true },
+        end: { type: "string", label: "To (yyyy-MM-ddTHH:mm, local)", required: true },
+      },
+      result: {
+        type: "list",
+        of: {
+          type: "object",
+          fields: {
+            time: { type: "string" },
+            temperature: { type: "number", nullable: true },
+            pressure: { type: "number", nullable: true },
+          },
+        },
+      },
+      key: (args: AirHoursArgs) => [args.location, args.start, args.end],
+      staleTime: 60 * 60 * 1000,
+      fetch: async (args: AirHoursArgs, host): Promise<TemperatureHour[]> => {
+        const window = hourWindow(args);
+        const place = await locate(host, args.location);
+        if (!place) return [];
+        // The forecast endpoint keeps the last 92 days, which covers every
+        // night a widget can pick; older hours would need the archive host.
+        // Pressure rides along in the same request; it costs nothing extra.
+        const json = await host.http.get<{
+          hourly?: { time?: unknown[]; temperature_2m?: unknown[]; surface_pressure?: unknown[] };
+        }>(FORECAST, {
+          latitude: place.latitude,
+          longitude: place.longitude,
+          hourly: "temperature_2m,surface_pressure",
+          timezone: "auto",
+          ...window,
+        });
+        const hourly = json?.hourly;
+        if (!Array.isArray(hourly?.time)) return [];
+        return hourly.time.flatMap((time, i) => {
+          const temperature = numberOrNull(hourly.temperature_2m?.[i]);
+          const pressure = numberOrNull(hourly.surface_pressure?.[i]);
+          return typeof time === "string" && (temperature !== null || pressure !== null)
+            ? [{ time, temperature, pressure }]
+            : [];
+        });
       },
     },
     forecast: {
