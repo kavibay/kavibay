@@ -1,6 +1,6 @@
 [package]
 name = "kavibay"
-version = "0.1.3"
+version = "0.1.4"
 description = "Raycast-like launcher prototype"
 authors = ["you"]
 edition = "2021"
