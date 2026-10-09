@@ -29,9 +29,13 @@ Needs a connected account. The widget gate shows a connect prompt until then.
 
 | Query | Reads | Arguments | Returns | Refresh |
 |---|---|---|---|---|
-| `activityToday` | Today's steps, calories, distance and active minutes on Fitbit | none | `{ steps: number, caloriesOut: number, distance: number, floors: number, fairlyActiveMinutes: number, lightlyActiveMinutes: number, sedentaryMinutes: number, veryActiveMinutes: number, stepsGoal: number? }` | 15 min |
+| `activityToday` | Today's steps, calories, distance and active minutes on Fitbit, or another day's with `date` | `date?: string` | `{ steps: number, caloriesOut: number, distance: number, floors: number, fairlyActiveMinutes: number, lightlyActiveMinutes: number, sedentaryMinutes: number, veryActiveMinutes: number, stepsGoal: number? }` | 15 min |
+| `nightSeries` | SpO2 (per minute) and HRV (per 5 minutes) through last night on Fitbit, or the night ending on `date` | `date?: string` | `{ spo2: list of { time: string, value: number }, hrv: list of { time: string, value: number }, needsReconnect: boolean }` | 60 min |
+| `nightVitals` | Overnight vitals on Fitbit for last night (or the night ending on `date`): HRV, breathing rate (overall and per deep/light/REM stage), resting heart rate and SpO2 | `date?: string` | `{ hrv: number?, deepHrv: number?, breathingRate: number?, breathingDeep: number?, breathingLight: number?, breathingRem: number?, restingHeartRate: number?, spo2Avg: number?, spo2Min: number?, spo2Max: number?, needsReconnect: boolean }` | 60 min |
 | `profile` | Your Fitbit profile name, member since date and average steps | none | `{ displayName: string, memberSince: string, avatarUrl: string, averageDailySteps: number }` | 60 min |
-| `sleepToday` | Last night's sleep on Fitbit | none | `{ minutesAsleep: number, timeInBed: number, efficiency: number?, records: number }` | 30 min |
+| `sleepHeartRate` | Per-minute heart rate on Fitbit between a sleep's start and end time (pass startTime and endTime from sleepToday) | `start: string`, `end: string` | `list of { time: string, bpm: number }` | 60 min |
+| `sleepToday` | Last night's sleep on Fitbit (or the night ending on `date`): total, time in bed, efficiency, fell-asleep and woke-up time, deep/light/REM/wake minutes, and the stage timeline through the night | `date?: string` | `{ minutesAsleep: number, timeInBed: number, efficiency: number?, startTime: string?, endTime: string?, records: number, deepMinutes: number?, lightMinutes: number?, remMinutes: number?, wakeMinutes: number?, timeline: list of { start: string, level: string, minutes: number } }` | 30 min |
+| `sleepWeek` | Your last 7 nights on Fitbit, oldest first: duration, time in bed, efficiency, bed and wake time, stage minutes | none | `list of { date: string, minutesAsleep: number, timeInBed: number, efficiency: number?, startTime: string?, endTime: string?, deepMinutes: number?, lightMinutes: number?, remMinutes: number?, wakeMinutes: number? }` | 60 min |
 
 No actions — this provider is read-only.
 
@@ -118,6 +122,7 @@ Needs a connected account. The widget gate shows a connect prompt until then.
 
 | Query | Reads | Arguments | Returns | Refresh |
 |---|---|---|---|---|
+| `roomHistory` | Temperature and humidity in one room between two local times (a reading every 15 minutes, at most 48 hours), plus when it heated (level 1–3) and when a window was open. A sleep's startTime and endTime fit as they are | `zoneId: string` (from `zones`), `start: string`, `end: string` | `{ readings: list of { time: string, temperature: number?, humidity: number? }, heating: list of { from: string, to: string, level: number }, windowOpen: list of { from: string, to: string } }` | 60 min |
 | `zones` | The names of your heating zones | none | `list of { id: string, name: string }` | 360 min |
 | `zoneStates` | Current temperature, humidity and target temperature in every room | none | `list of { id: string, temperature: number?, humidity: number?, target: number? }` | 16 min |
 
@@ -132,8 +137,11 @@ Needs no credential.
 | Query | Reads | Arguments | Returns | Refresh |
 |---|---|---|---|---|
 | `airQuality` | The current European air quality index (AQI) for a place | `location: string` (from `places`) | `{ place: string, aqi: number?, level: string }` | 10 min |
+| `airQualityHours` | Hourly European AQI and PM2.5 for a place between two local times (at most 48 hours; past or present, Europe back to 2013). A sleep's startTime and endTime fit as they are | `location: string` (from `places`), `start: string`, `end: string` | `list of { time: string, aqi: number?, pm25: number? }` | 60 min |
 | `current` | The current outdoor temperature and conditions for a place | `location: string` (from `places`) | `{ place: string, temperature: number?, apparentTemperature: number?, humidity: number?, windSpeed: number?, condition: string }` | 10 min |
 | `forecast` | Current conditions plus the next hours and days for a place, as the Weather widget shows them | `location: string` (from `places`) | `{ location: string, temperature_c: number, condition: string, icon: string, apparent_c: number, humidity_pct: number, wind_kmh: number, hourly: list of { time: string, temperature_c: number, icon: string, condition: string }, daily: list of { date: string, temperature_min_c: number, temperature_max_c: number, icon: string, condition: string } }` | 3 min |
 | `places` | Places matching a name, so a widget can offer a list to pick from | `name: string` | `list of { id: string, name: string }` | 1440 min |
+| `sun` | Today's sunrise, sunset, moonrise and moonset for a place, in that place's local time, plus the daylight length and the moon phase (0 and 1 new moon, 0.5 full moon) | `location: string` (from `places`) | `{ place: string, sunrise: string?, sunset: string?, daylightMinutes: number?, moonrise: string?, moonset: string?, moonPhase: number? }` | 60 min |
+| `temperatureHours` | Hourly outdoor temperature (°C) and surface air pressure (hPa) for a place between two local times (at most 48 hours, within the last 92 days). A sleep's startTime and endTime fit as they are | `location: string` (from `places`), `start: string`, `end: string` | `list of { time: string, temperature: number?, pressure: number? }` | 60 min |
 
 No actions — this provider is read-only.
