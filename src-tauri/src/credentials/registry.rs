@@ -220,7 +220,7 @@ const FITBIT: CredentialTypeDef = CredentialTypeDef {
             required: true,
             placeholder: None,
             help: Some(
-                "dev.fitbit.com/apps. Redirect URI exactly http://127.0.0.1:17443/ (trailing slash).",
+                "Register a Personal app at dev.fitbit.com/apps with Redirect URL exactly http://127.0.0.1:17443/ — 127.0.0.1, not localhost, with the trailing slash. Anything else and Fitbit answers \"Invalid redirect_uri parameter value\".",
             ),
         },
         FieldDef {
@@ -235,7 +235,10 @@ const FITBIT: CredentialTypeDef = CredentialTypeDef {
     auth: AuthKind::OAuth2AuthCode(AuthCodeDef {
         auth_url: "https://www.fitbit.com/oauth2/authorize",
         token_url: "https://api.fitbit.com/oauth2/token",
-        scopes: "activity sleep profile",
+        // heartrate, respiratory_rate and oxygen_saturation are the night vitals
+        // (resting HR + HRV, breathing rate, SpO2). A connection made before
+        // they were added lacks them until it is connected again.
+        scopes: "activity sleep profile heartrate respiratory_rate oxygen_saturation",
         client: ClientSource::Fields {
             id_key: "clientId",
             secret_key: Some("clientSecret"),
@@ -726,6 +729,12 @@ mod tests {
                     auth.scopes.contains("activity") && auth.scopes.contains("sleep"),
                     "activity and sleep are declared scopes, not later add-ons"
                 );
+                for vital in ["heartrate", "respiratory_rate", "oxygen_saturation"] {
+                    assert!(
+                        auth.scopes.split(' ').any(|scope| scope == vital),
+                        "nightVitals needs the {vital} scope"
+                    );
+                }
             }
             AuthKind::Static | AuthKind::OAuth2DeviceCode(_) => {
                 panic!("Fitbit must use the authorization-code flow")
