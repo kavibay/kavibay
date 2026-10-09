@@ -13,7 +13,7 @@
  */
 import type { ProviderHostContext } from "@sdk/contract/sdk";
 import { resultSchemaProblems } from "@sdk/contract/resultSchema";
-import { tadoProvider, type TadoRoom, type TadoRoomState } from "./provider";
+import { tadoProvider, type TadoRoom, type TadoRoomHistory, type TadoRoomState } from "./provider";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -117,5 +117,100 @@ assert(await refused({ zoneId: "../me", celsius: 21 }), "a zone id that is not a
 assert(await refused({ zoneId: "3", celsius: 30 }), "a value above tado°'s range is refused");
 assert(await refused({ zoneId: "3", celsius: Number.NaN }), "so is a value that is not a number");
 assert(puts.length === 1, "refused calls send nothing");
+
+// --- roomHistory -----------------------------------------------------------
+
+const roomHistory = tadoProvider.queries.roomHistory;
+// tado° answers in UTC; built from local times so the test holds in any time zone.
+const utc = (day: number, hour: number, minute: number) => new Date(2026, 9, day, hour, minute).toISOString();
+const reportUrls: Array<{ url: string; params: unknown }> = [];
+const reporter = {
+  http: {
+    get: async (url: string, params?: { date?: string }) => {
+      reportUrls.push({ url, params });
+      return params?.date === "2026-10-08"
+        ? {
+            measuredData: {
+              insideTemperature: {
+                dataPoints: [
+                  { timestamp: utc(8, 22, 0), value: { celsius: 21.9 } },
+                  { timestamp: utc(8, 23, 45), value: { celsius: 21.2 } },
+                ],
+              },
+              humidity: { dataPoints: [{ timestamp: utc(8, 23, 45), value: 0.512 }] },
+            },
+            callForHeat: {
+              dataIntervals: [
+                { from: utc(8, 21, 0), to: utc(8, 23, 0), value: "HIGH" },
+                { from: utc(8, 23, 0), to: utc(9, 0, 30), value: "LOW" },
+              ],
+            },
+            stripes: {
+              dataIntervals: [
+                { from: utc(8, 23, 50), to: utc(9, 0, 5), value: { stripeType: "OPEN_WINDOW" } },
+                { from: utc(8, 0, 0), to: utc(8, 23, 50), value: { stripeType: "HOME" } },
+              ],
+            },
+          }
+        : {
+            measuredData: {
+              insideTemperature: { dataPoints: [{ timestamp: utc(9, 6, 0), value: { celsius: 19.4 } }] },
+              humidity: { dataPoints: [{ timestamp: utc(9, 6, 0), value: 0.55 }] },
+            },
+          };
+    },
+  },
+} as unknown as ProviderHostContext;
+
+const history = (await roomHistory.fetch(
+  { zoneId: "1", start: "2026-10-08T23:41:30.000", end: "2026-10-09T07:06:00.000" },
+  reporter,
+)) as TadoRoomHistory;
+const night = history.readings;
+assert(
+  reportUrls.length === 2 &&
+    reportUrls.every((r) => r.url === "https://my.tado.com/api/v2/homes/{{homeId}}/zones/1/dayReport"),
+  "a night across midnight is one dayReport per date, homeId left for the host",
+);
+assert(night.length === 2, "readings outside the night are dropped (22:00 is before bedtime)");
+assert(
+  night[0].time === "2026-10-08T23:45:00" && night[0].temperature === 21.2 && night[0].humidity === 51.2,
+  "UTC becomes local time, temperature and humidity join on the minute, humidity is a percentage",
+);
+assert(night[1].temperature === 19.4 && night[1].humidity === 55, "the second date's readings follow");
+assert(
+  history.heating.length === 1 &&
+    history.heating[0].level === 1 &&
+    history.heating[0].from === "2026-10-08T23:41:00" &&
+    history.heating[0].to === "2026-10-09T00:30:00",
+  "heating before bedtime is dropped, the rest is clipped to the night, and LOW is level 1",
+);
+assert(
+  history.windowOpen.length === 1 &&
+    history.windowOpen[0].from === "2026-10-08T23:50:00" &&
+    history.windowOpen[0].to === "2026-10-09T00:05:00",
+  "only OPEN_WINDOW stripes become open-window spans",
+);
+assert(
+  resultSchemaProblems(roomHistory.result!, history).length === 0,
+  "roomHistory matches the result it declares",
+);
+
+const historyRefused = async (args: { zoneId: string; start: string; end: string }) =>
+  roomHistory.fetch(args, reporter).then(() => false, () => true);
+const callsBefore = reportUrls.length;
+assert(
+  await historyRefused({ zoneId: "../me", start: "2026-10-08T23:00", end: "2026-10-09T07:00" }),
+  "a zone id that is not a number never reaches the path",
+);
+assert(
+  await historyRefused({ zoneId: "1", start: "2026-10-09T07:00", end: "2026-10-08T23:00" }),
+  "a window that runs backwards is refused",
+);
+assert(
+  await historyRefused({ zoneId: "1", start: "2026-10-01T23:00", end: "2026-10-09T07:00" }),
+  "a window longer than 48 hours is refused rather than spending a week of calls",
+);
+assert(reportUrls.length === callsBefore, "refused windows cost no calls");
 
 console.log("provider.assert.ts: ok");

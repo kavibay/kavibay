@@ -2404,6 +2404,13 @@ function onPreviewResized(size: { w: number; h: number }, scale?: number) {
     next = withDefaultScale(next, targetSession.previewScale);
   }
   targetSession.draftFiles = next;
+  // No draft on disk (just saved): writing one here would leave a draft this
+  // session does not know it holds, and every later write refuses it as
+  // somebody else's. Save re-applies the size when it writes the draft.
+  if (!targetSession.hasDraft) {
+    void save(targetSession);
+    return;
+  }
 
   const write = () => writeDraftFiles(id, next).then(() => save(targetSession));
   previewSettingsWrite = previewSettingsWrite.then(write, write);
@@ -2422,6 +2429,11 @@ function onPreviewCardFlags(flags: CardUiFlags) {
   const next = withCardFlags(files, flags);
   if (next === files) return;
   targetSession.draftFiles = next;
+  // Same reason as a resize: no draft on disk means Save writes these files.
+  if (!targetSession.hasDraft) {
+    void save(targetSession);
+    return;
+  }
 
   const write = () => writeDraftFiles(id, next).then(() => save(targetSession));
   previewSettingsWrite = previewSettingsWrite.then(write, write);
@@ -4144,6 +4156,9 @@ async function promoteDraft(id: string): Promise<boolean> {
     session.value.editing && session.value.editing !== id ? session.value.editing : null;
   await wizard.draftPromote<string>(id, replaces);
   if (replaces) note(`"${replaces}" is now "${id}".`);
+  // The draft folder is gone now, not only once the caller finishes: a resize
+  // the reloaded preview reports in between must not write a new one.
+  session.value.hasDraft = false;
   session.value.draftRevision = undefined;
   session.value.draftError = undefined;
   return true;
@@ -5550,7 +5565,7 @@ async function enablePackage(
           role="textbox"
           aria-multiline="true"
           data-placeholder="Describe the widget, drop a screenshot, or ask for a change…"
-          :contenteditable="busy ? 'false' : 'true'"
+          contenteditable="true"
           @input="onComposerInput"
           @keydown="onComposerKeydown"
           @keyup="updateIntegrationMenu"
