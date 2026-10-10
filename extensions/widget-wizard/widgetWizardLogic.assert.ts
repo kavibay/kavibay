@@ -1427,6 +1427,12 @@ assertEq(
 );
 assertEq(draftClientFromName("codex-mcp-client"), "codex", "Codex MCP client is branded");
 assertEq(
+  draftClientFromName("local-agent-mode-kavibay (via mcp-remote 0.14.3)"),
+  "claude",
+  "the Claude desktop app through mcp-remote is branded",
+);
+assertEq(draftClientFromName("my-agent (via mcp-remote 0.14.3)"), null, "an unknown name behind the bridge is not");
+assertEq(
   draftAuthorWithClientName("mcp", "codex-mcp-client"),
   "codex",
   "old MCP bubbles can recover the Codex mark from their stored name",

@@ -506,7 +506,17 @@ export function draftAuthorOf(
 
 /** Recognize persisted handshake names when an older event stored no kind. */
 export function draftClientFromName(name?: string | null): DraftClient {
-  const normalized = name?.trim().toLowerCase().replace(/[\s_]+/g, "-");
+  // Mirrors `McpClientKind::from_name` in drafts.rs: `mcp-remote` appends
+  // itself to the name it forwards, and the Claude desktop app's Code tab
+  // names itself `local-agent-mode-<server>`.
+  const normalized = name
+    ?.trim()
+    .replace(/\s*\(via mcp-remote[^)]*\)\s*$/, "")
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-");
+  if (normalized === "local-agent-mode" || normalized?.startsWith("local-agent-mode-")) {
+    return "claude";
+  }
   if (
     normalized === "codex" ||
     normalized === "codex-cli" ||
