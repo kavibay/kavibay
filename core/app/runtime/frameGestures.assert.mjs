@@ -29,4 +29,13 @@ assert.equal(sent[1].factor, 2 / 1.5);
 dispatch(guest, "gestureend");
 dispatch(guest, "wheel", { metaKey: true, deltaY: 10, deltaMode: 1 });
 assert.equal(sent.length, 3);
+
+sent.length = 0;
+guest.addEventListener("pointerdown", (event) => event.stopImmediatePropagation());
+for (const button of [0, 1, 2]) {
+  assert.equal(dispatch(guest, "pointerdown", { button }).defaultPrevented, false,
+    "keeping a widget never swallows its own pointer interaction");
+  assert.equal(JSON.stringify(sent.pop()), JSON.stringify({ type: "kavibay.ext.pointerdown" }),
+    "every mouse button is forwarded before the widget can stop propagation");
+}
 console.log("frameGestures.assert.mjs: ok");

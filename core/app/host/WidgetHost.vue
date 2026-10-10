@@ -1271,6 +1271,18 @@ function raiseWidget(instanceId: string) {
   if (previewInstanceId.value !== instanceId) previewInstanceId.value = null;
 }
 
+/** Iframe content clicks use the same keep/raise path as the card's chrome. */
+function onFramePointerDown(event: MessageEvent) {
+  if (event.data?.type !== "kavibay.ext.pointerdown" || !event.source) return;
+  for (const frame of document.querySelectorAll<HTMLIFrameElement>(".widget-anchor iframe")) {
+    if (frame.contentWindow !== event.source) continue;
+    // The containing card supplies identity; a package cannot name another widget.
+    const instanceId = frame.closest<HTMLElement>("[data-widget-instance]")?.dataset.widgetInstance;
+    if (instanceId) raiseWidget(instanceId);
+    return;
+  }
+}
+
 /**
  * Keyboard focus landed inside a card: that card is the focused widget, however
  * focus got there.
@@ -2276,6 +2288,7 @@ onMounted(async () => {
     removeWindowedCards();
   });
   window.addEventListener("kavibay:reveal-widget", onRevealWidgetEvent);
+  window.addEventListener("message", onFramePointerDown);
   window.addEventListener("kavibay:dismiss-cockpit", onDismissOutside);
   window.addEventListener("kavibay:resize-widget", onResizeWidgetEvent);
   window.addEventListener("kavibay:run-runtime-widget", onRunRuntimeWidget);
@@ -2441,6 +2454,7 @@ onUnmounted(() => {
   clearCtrlShortcutHint();
   if (viewportResizeTimer) clearTimeout(viewportResizeTimer);
   window.removeEventListener("kavibay:reveal-widget", onRevealWidgetEvent);
+  window.removeEventListener("message", onFramePointerDown);
   window.removeEventListener("kavibay:dismiss-cockpit", onDismissOutside);
   window.removeEventListener("kavibay:resize-widget", onResizeWidgetEvent);
   window.removeEventListener("kavibay:run-runtime-widget", onRunRuntimeWidget);
