@@ -387,12 +387,14 @@ impl ServerHandler for McpAuthoringServer {
     }
 }
 
-#[cfg(not(test))]
+// Pure, so it stays in the test build: a test pins this list to the tools
+// whose schema requires a draft `id` (`edit_draft` was once left off it).
 fn tracks_draft_presence(name: &str) -> bool {
     matches!(
         name,
         "read_draft"
             | "write_draft"
+            | "edit_draft"
             | "validate_draft"
             | "read_custom_widget"
             | "checkout_custom_widget"
@@ -873,6 +875,21 @@ mod tests {
             .map(|tool| tool.name.into_owned())
             .collect();
         assert_eq!(names, TOOL_NAMES);
+    }
+
+    #[test]
+    fn every_draft_scoped_tool_publishes_presence() {
+        for tool in tool_definitions() {
+            let requires_id = tool.input_schema["required"]
+                .as_array()
+                .is_some_and(|required| required.contains(&json!("id")));
+            assert_eq!(
+                tracks_draft_presence(&tool.name),
+                requires_id,
+                "{} takes a draft id iff it publishes presence",
+                tool.name
+            );
+        }
     }
 
     #[test]
