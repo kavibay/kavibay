@@ -273,6 +273,11 @@ refactor perf test build ci chore`, scope usually the extension id — e.g.
 `feat(wizard): open the Widget Wizard in its own window`. Use the same form for
 commit messages. Never a plain title like "Widget Wizard in its own window".
 
+No AI attribution: no `Co-Authored-By:` trailer naming an assistant in a
+commit, no "Generated with …" footer in a PR body. GitHub lists every
+co-author as a repository contributor. `.claude/settings.json` turns the
+trailer off for Claude Code; other agents follow this line.
+
 ## Definition of done (any change)
 
 `pnpm run verify` green · `pnpm run verify:rust` green when Rust was touched · manual UI
