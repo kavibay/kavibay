@@ -333,9 +333,9 @@ editing the same draft accused a client that had never run. The
 `expectedRevision` workflow.
 
 Saved custom widgets can be edited through MCP as well, by the same route the
-Wizard takes. The client reads a palette widget with `read_custom_widget`,
-checks out its current revision with `checkout_custom_widget`, and then works on
-the resulting draft. The palette keeps serving the saved version while the draft
+Wizard takes. The client checks a palette widget out with
+`checkout_custom_widget`, which returns the files it has not seen yet, and then
+works on the resulting draft. The palette keeps serving the saved version while the draft
 is being edited; only the Wizard's **Save** action replaces it.
 
 ## Starting one from the palette

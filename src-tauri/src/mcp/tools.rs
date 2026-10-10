@@ -78,7 +78,7 @@ struct IdInput {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CheckoutCustomWidgetInput {
     id: String,
-    expected_revision: String,
+    expected_revision: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -96,6 +96,17 @@ struct McpDraftEdit {
     new_string: String,
     #[serde(default)]
     replace_all: bool,
+}
+
+impl From<McpDraftEdit> for drafts::DraftEdit {
+    fn from(edit: McpDraftEdit) -> Self {
+        Self {
+            path: edit.path,
+            old_string: edit.old_string,
+            new_string: edit.new_string,
+            replace_all: edit.replace_all,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -124,15 +135,8 @@ struct AuthoringGuideOutput {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct WidgetProviderOutput {
-    id: String,
-    schema: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 struct WidgetProvidersOutput {
-    providers: Vec<WidgetProviderOutput>,
+    providers: Vec<prompt::ProviderSummary>,
 }
 
 #[derive(Debug, Serialize)]
@@ -163,20 +167,6 @@ struct CustomWidgetSnapshotOutput {
     id: String,
     files: Vec<drafts::DraftFile>,
     revision: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CustomWidgetCheckoutOutput {
-    id: String,
-    files: Vec<drafts::DraftFile>,
-    revision: String,
-    source_revision: String,
-    error: Option<String>,
-    last_writer: Option<drafts::DraftWriteOrigin>,
-    last_client: Option<drafts::McpClientKind>,
-    last_client_name: Option<String>,
-    updated_at: Option<i64>,
 }
 
 /// One server handler per MCP session. The app handle is the only capability
@@ -431,16 +421,9 @@ fn dispatch_tool(
 ) -> Result<CallToolResult, ErrorData> {
     match name {
         "get_authoring_guide" => parse_input(arguments).and_then(get_authoring_guide),
-        "list_widget_providers" => parse_input(arguments).map(|_: EmptyInput| {
-            let providers = prompt::provider_ids()
-                .into_iter()
-                .filter_map(|id| {
-                    prompt::provider_block(Some(&id))
-                        .map(|schema| WidgetProviderOutput { id, schema })
-                })
-                .collect();
-            success(WidgetProvidersOutput { providers })
-        }),
+        "list_widget_providers" => {
+            parse_input(arguments).map(|_: EmptyInput| success(widget_providers()))
+        }
         "list_drafts" => parse_input(arguments).and_then(|_: EmptyInput| {
             service_call(drafts::list_drafts(app).map(|drafts| DraftsOutput { drafts }))
         }),
@@ -465,25 +448,20 @@ fn dispatch_tool(
                 client_name,
             ))
         }),
-        "edit_draft" => parse_input(arguments).and_then(|input: EditDraftInput| {
-            service_call(drafts::read_draft(app, &input.id).and_then(|current| {
-                // Checked here as well as by the write: the edits were written
-                // against one revision, and applying them to another could
-                // match an `oldString` that now means something else.
-                if current.revision != input.expected_revision {
-                    return Err(format!("draft_conflict:{}", current.revision));
-                }
-                let files = apply_edits(current.files, &input.edits)?;
-                drafts::write_draft_with_client(
-                    app,
-                    &input.id,
-                    &files,
-                    Some(&current.revision),
-                    drafts::DraftWriteOrigin::Mcp,
-                    client,
-                    client_name,
-                )
-            }))
+        "edit_draft" => parse_input(arguments).map(|input: EditDraftInput| {
+            // The revision check is per file and lives with the write, in
+            // `drafts::edit_draft_with_client`: an oldString must not be
+            // applied to a file that changed under it.
+            let edits: Vec<drafts::DraftEdit> = input.edits.into_iter().map(Into::into).collect();
+            edit_reply(drafts::edit_draft_with_client(
+                app,
+                &input.id,
+                &input.expected_revision,
+                &edits,
+                drafts::DraftWriteOrigin::Mcp,
+                client,
+                client_name,
+            ))
         }),
         "validate_draft" => parse_input(arguments)
             .and_then(|input: IdInput| service_call(drafts::validate_draft(app, &input.id))),
@@ -518,27 +496,14 @@ fn dispatch_tool(
         }),
         "checkout_custom_widget" => {
             parse_input(arguments).and_then(|input: CheckoutCustomWidgetInput| {
-                service_call(
-                    drafts::checkout_custom_widget_with_client(
-                        app,
-                        &input.id,
-                        &input.expected_revision,
-                        drafts::DraftWriteOrigin::Mcp,
-                        client,
-                        client_name,
-                    )
-                    .map(|snapshot| CustomWidgetCheckoutOutput {
-                        id: snapshot.id,
-                        files: snapshot.files,
-                        source_revision: snapshot.revision.clone(),
-                        revision: snapshot.revision,
-                        error: snapshot.error,
-                        last_writer: snapshot.last_writer,
-                        last_client: snapshot.last_client,
-                        last_client_name: snapshot.last_client_name,
-                        updated_at: snapshot.updated_at,
-                    }),
-                )
+                service_call(drafts::checkout_custom_widget_since(
+                    app,
+                    &input.id,
+                    create_sentinel_as_none(input.expected_revision.as_deref()),
+                    drafts::DraftWriteOrigin::Mcp,
+                    client,
+                    client_name,
+                ))
             })
         }
         _ => Err(ErrorData::new(
@@ -591,6 +556,31 @@ fn get_authoring_guide(input: GetAuthoringGuideInput) -> Result<CallToolResult, 
     }))
 }
 
+/// Names only; `get_authoring_guide` with `providerIds` holds the schemas.
+fn widget_providers() -> WidgetProvidersOutput {
+    WidgetProvidersOutput {
+        providers: prompt::provider_summaries(),
+    }
+}
+
+fn edit_reply(result: Result<drafts::DraftDelta, drafts::EditError>) -> CallToolResult {
+    match result {
+        Ok(delta) => success(delta),
+        Err(drafts::EditError::Conflict {
+            current_revision,
+            changed_files,
+        }) => tool_error(
+            "draft_conflict",
+            "A file these edits touch changed since expectedRevision. changedFiles holds every file that differs from it, as it is now: redo the edits against currentRevision without reading the draft again.",
+            Some(json!({
+                "currentRevision": current_revision,
+                "changedFiles": changed_files,
+            })),
+        ),
+        Err(drafts::EditError::Failed(error)) => tool_service_error(error),
+    }
+}
+
 fn success<T: Serialize>(value: T) -> CallToolResult {
     CallToolResult::structured(serde_json::to_value(value).unwrap_or_else(|_| json!({})))
 }
@@ -620,7 +610,10 @@ fn tool_service_error(error: String) -> CallToolResult {
         });
     let message = match code {
         "draft_conflict" => "The draft changed; read the latest revision before writing again.",
-        "draft_not_found" | "package_not_found" => "The requested package or draft does not exist.",
+        "draft_not_found" => {
+            "No draft has this id. Saving a draft in the Wizard removes it: checkout_custom_widget with the last revision you hold continues from the saved widget."
+        }
+        "package_not_found" => "The requested package or draft does not exist.",
         "invalid_package_id" => {
             "Use a simple package id containing only letters, digits, '-' or '_'."
         }
@@ -631,15 +624,20 @@ fn tool_service_error(error: String) -> CallToolResult {
         "draft_exists" => {
             "Another draft already uses that name. Rename it or pick a different one."
         }
-        "custom_conflict" => "The saved widget changed; read it again before checking it out.",
-        "edit_file_not_found" => "No file at that path in the draft; edit_draft changes existing files only.",
+        "custom_conflict" => "The saved widget changed while it was being checked out; check it out again.",
+        "edit_file_not_found" => {
+            "No file at that path in the draft. To create one, pass an empty oldString and the contents as newString."
+        }
+        "edit_file_exists" => {
+            "An empty oldString creates a file, and that path already exists. Copy the text to replace instead."
+        }
         "edit_not_found" => {
             "oldString does not occur in that file. Read the draft and copy the exact text, whitespace included."
         }
         "edit_ambiguous" => {
             "oldString occurs more than once. Include more surrounding text, or set replaceAll."
         }
-        "edit_empty" => "Each edit needs a non-empty oldString, and at least one edit is required.",
+        "edit_empty" => "At least one edit is required.",
         "missing_manifest" | "no_files" => {
             "A complete draft must include manifest.json and at least one file."
         }
@@ -649,7 +647,7 @@ fn tool_service_error(error: String) -> CallToolResult {
         "draft_conflict" => detail.map(|current| json!({ "currentRevision": current })),
         "custom_conflict" => detail.map(|current| json!({ "currentWidgetRevision": current })),
         "draft_exists" => detail.map(|current| json!({ "currentDraftRevision": current })),
-        "edit_file_not_found" | "edit_not_found" | "edit_ambiguous" | "edit_empty" => {
+        "edit_file_not_found" | "edit_file_exists" | "edit_not_found" | "edit_ambiguous" => {
             detail.map(|path| json!({ "path": path }))
         }
         _ => None,
@@ -664,45 +662,6 @@ fn placeholder_tool() -> Tool {
         Arc::new(Map::new()),
     )
     .with_annotations(ToolAnnotations::new().read_only(true))
-}
-
-/// Apply exact-text replacements to a draft's files, all or nothing.
-///
-/// `write_draft` takes the whole file set, so a one-line change meant a model
-/// re-emitting every file — hundreds of lines of output, which is where the
-/// time went. This is the same edit primitive coding agents already use: the
-/// text to find must occur exactly once (or `replaceAll`), so an edit can never
-/// land somewhere the model did not look.
-fn apply_edits(
-    mut files: Vec<drafts::DraftFile>,
-    edits: &[McpDraftEdit],
-) -> Result<Vec<drafts::DraftFile>, String> {
-    if edits.is_empty() {
-        return Err("edit_empty:no edits".into());
-    }
-    for edit in edits {
-        if edit.old_string.is_empty() {
-            return Err(format!("edit_empty:{}", edit.path));
-        }
-        let file = files
-            .iter_mut()
-            .find(|file| file.path == edit.path)
-            .ok_or_else(|| format!("edit_file_not_found:{}", edit.path))?;
-        let count = file.contents.matches(edit.old_string.as_str()).count();
-        if count == 0 {
-            return Err(format!("edit_not_found:{}", edit.path));
-        }
-        if count > 1 && !edit.replace_all {
-            return Err(format!("edit_ambiguous:{}", edit.path));
-        }
-        file.contents = if edit.replace_all {
-            file.contents.replace(&edit.old_string, &edit.new_string)
-        } else {
-            file.contents
-                .replacen(&edit.old_string, &edit.new_string, 1)
-        };
-    }
-    Ok(files)
 }
 
 /// "Create this draft", however a client managed to say it.
@@ -749,7 +708,7 @@ fn tool_definitions() -> Vec<Tool> {
     vec![
         tool(
             "get_authoring_guide",
-            "Read the authoring guide Kavibay's own Widget Wizard gives its model: the package format, the house style and, for contract packages, the schema of each named provider. A package written from it passes the same validation as one the Wizard writes. Read it once per format before writing or editing a draft. A runtime package runs sandboxed and reaches the network only through endpoints it declares in api.json; a contract package reads the person's connected accounts through providers.",
+            "Read the authoring guide Kavibay's own Widget Wizard gives its model: the package format, the house style and, for contract packages, the schema of each provider named in providerIds — the one place a provider's arguments and returned fields are listed. A package written from it passes the same validation as one the Wizard writes. Read it once per format before writing or editing a draft. A runtime package runs sandboxed and reaches the network only through endpoints it declares in api.json; a contract package reads the person's connected accounts through providers.",
             object_schema(
                 json!({
                     "format": {
@@ -760,7 +719,7 @@ fn tool_definitions() -> Vec<Tool> {
                     "providerIds": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "Contract format only: provider ids from list_widget_providers whose schemas are appended. Any id with the runtime format returns providers_require_contract_format; an unknown id returns unknown_provider."
+                        "description": "Contract format only: provider ids from list_widget_providers whose full schemas (arguments and returned fields of every query and action) are appended. Any id with the runtime format returns providers_require_contract_format; an unknown id returns unknown_provider."
                     }
                 }),
                 &["format"],
@@ -769,7 +728,7 @@ fn tool_definitions() -> Vec<Tool> {
         ),
         tool(
             "list_widget_providers",
-            "List every provider a contract package can name in requires.providers, each with its schema: query and action names, their arguments and the fields they return. Write each provider as an entry { id, queries, actions }: every action the widget calls must be in actions or the host refuses it, and every query it reads belongs in queries, which is what the person is shown when approving it. It says nothing about which accounts the person has connected; the host asks for those when the widget is enabled.",
+            "List every provider a contract package can name in requires.providers: id, displayName, a one-line description and the names of its queries and actions. Their arguments and returned fields are not listed here; get_authoring_guide with format contract and providerIds appends them for the providers you pick. Write each provider as an entry { id, queries, actions }: every action the widget calls must be in actions or the host refuses it, and every query it reads belongs in queries, which is what the person is shown when approving it. It says nothing about which accounts the person has connected; the host asks for those when the widget is enabled.",
             no_args.clone(),
             true,
         ),
@@ -781,7 +740,7 @@ fn tool_definitions() -> Vec<Tool> {
         ),
         tool(
             "read_draft",
-            "Read every text file of one draft and its current revision. Pass that revision as expectedRevision on the next write_draft. A draft_not_found error means no draft has this id.",
+            "Read every text file of one draft and its current revision. Pass that revision as expectedRevision on the next write_draft or edit_draft. One read per draft is usually enough: edit_draft and checkout_custom_widget hand back every file that changed under you. A draft_not_found error means no draft has this id; saving a draft in the Wizard removes it, and checkout_custom_widget continues from the saved widget.",
             object_schema(
                 json!({ "id": { "type": "string", "description": "Draft id as list_drafts reports it." } }),
                 &["id"],
@@ -829,13 +788,13 @@ fn tool_definitions() -> Vec<Tool> {
         ),
         tool(
             "edit_draft",
-            "Change an existing draft by exact text replacement instead of rewriting it: use this for every change that touches part of a file, and write_draft only to create a draft or rewrite most of it. Each oldString must occur exactly once in its file (set replaceAll to change every occurrence); copy it from read_draft, whitespace included. All edits apply or none do, then the draft is validated. The reply is the draft summary write_draft returns.",
+            "Change an existing draft by exact text replacement instead of rewriting it: use this for every change that touches part of a file or adds a file, and write_draft only to create a draft or rewrite most of it. Each oldString must occur exactly once in its file (set replaceAll to change every occurrence); copy it from what you read, whitespace included. An empty oldString creates a file at a path that does not exist yet, with newString as its contents. All edits apply or none do, then the draft is validated. The revision check is per file: only a change since expectedRevision to a file these edits touch fails, with draft_conflict, currentRevision and changedFiles. Files changed elsewhere, such as the manifest.json a resize in the Wizard rewrites, do not block the edit. Either way changedFiles holds every file that differs from expectedRevision with its current contents (null when removed): update your copy from it instead of reading the draft again. The reply is the draft summary write_draft returns plus changedFiles.",
             object_schema(
                 json!({
                     "id": { "type": "string", "description": "Draft id as list_drafts reports it." },
                     "expectedRevision": {
                         "type": "string",
-                        "description": "The revision read_draft or the last write returned. A stale revision fails with draft_conflict and the current one."
+                        "description": "The revision your copy of the draft is from: what read_draft, checkout_custom_widget or your last write returned."
                     },
                     "edits": {
                         "type": "array",
@@ -843,9 +802,9 @@ fn tool_definitions() -> Vec<Tool> {
                         "items": {
                             "type": "object",
                             "properties": {
-                                "path": { "type": "string", "description": "Package-relative path of an existing file." },
-                                "oldString": { "type": "string", "description": "Exact text to find, unique in the file unless replaceAll is set." },
-                                "newString": { "type": "string", "description": "Replacement text; empty deletes oldString." },
+                                "path": { "type": "string", "description": "Package-relative path of the file to change, or of a new file to create, with forward slashes." },
+                                "oldString": { "type": "string", "description": "Exact text to find, unique in the file unless replaceAll is set. Empty creates the file, which must not exist yet." },
+                                "newString": { "type": "string", "description": "Replacement text, or the new file's contents; empty deletes oldString." },
                                 "replaceAll": { "type": "boolean", "description": "Replace every occurrence. Defaults to false." }
                             },
                             "required": ["path", "oldString", "newString"],
@@ -874,7 +833,7 @@ fn tool_definitions() -> Vec<Tool> {
         ),
         tool(
             "read_custom_widget",
-            "Read a saved custom widget's text files and its content revision, which checkout_custom_widget needs. Reading creates no draft; to change the widget, check it out.",
+            "Read a saved custom widget's text files and its content revision. Reading creates no draft; to change the widget, check it out instead, which returns the files as well.",
             object_schema(
                 json!({ "id": { "type": "string", "description": "Widget id as list_custom_widgets reports it." } }),
                 &["id"],
@@ -883,16 +842,19 @@ fn tool_definitions() -> Vec<Tool> {
         ),
         tool(
             "checkout_custom_widget",
-            "Copy a saved custom widget into a new draft for editing; requires the current source revision and never replaces an existing draft. custom_conflict means the widget changed since you read it; draft_exists means a draft already holds it, so read that draft and continue it instead of retrying.",
+            "Copy a saved custom widget into a new draft for editing; never replaces an existing draft. The reply is the draft summary plus changedFiles: every file that differs from expectedRevision, with its contents, so afterwards you know the draft exactly and can edit_draft against its revision. draft_exists means a draft already holds the widget: read that draft and continue it instead of retrying.",
             object_schema(
                 json!({
                     "id": { "type": "string", "description": "Widget id as list_custom_widgets reports it." },
+                    // Optional because the reply carries whatever the caller
+                    // has not seen: leaving it out costs one copy of every
+                    // file, never an edit against text nobody read.
                     "expectedRevision": {
                         "type": "string",
-                        "description": "The revision read_custom_widget returned."
+                        "description": "The last revision you hold of this widget: from read_custom_widget, or of its draft before the person saved it. Leave it out if you have read neither; changedFiles then holds every file."
                     }
                 }),
-                &["id", "expectedRevision"],
+                &["id"],
             ),
             false,
         ),
@@ -1000,88 +962,123 @@ mod tests {
             .find(|tool| tool.name == "checkout_custom_widget")
             .unwrap();
         assert_eq!(checkout.input_schema["additionalProperties"], false);
+        // A caller that has read nothing checks out without a revision; the
+        // reply then carries every file, so it never edits text it has not seen.
+        assert_eq!(checkout.input_schema["required"], json!(["id"]));
         assert_eq!(
-            checkout.input_schema["required"],
-            json!(["id", "expectedRevision"])
+            parse_input::<CheckoutCustomWidgetInput>(Some(Map::from_iter([(
+                "id".into(),
+                json!("x")
+            )])))
+            .unwrap()
+            .expected_revision,
+            None
         );
         assert_eq!(checkout.annotations.unwrap().read_only_hint, Some(false));
+
+        let edit = tool_definitions()
+            .into_iter()
+            .find(|tool| tool.name == "edit_draft")
+            .unwrap();
+        assert_eq!(
+            edit.input_schema["required"],
+            json!(["id", "expectedRevision", "edits"])
+        );
     }
 
-    fn file(path: &str, contents: &str) -> drafts::DraftFile {
-        drafts::DraftFile {
-            path: path.into(),
-            contents: contents.into(),
+    /// The listing names providers; the schemas live in the authoring guide.
+    ///
+    /// Every query and action named here must be one the guide's block for the
+    /// same provider documents, or a client would pick from a list that the
+    /// schema it then fetches does not match.
+    #[test]
+    fn providers_are_listed_by_name_and_their_schemas_left_to_the_guide() {
+        let listed = widget_providers();
+        let ids: Vec<_> = listed
+            .providers
+            .iter()
+            .map(|provider| provider.id.clone())
+            .collect();
+        assert_eq!(ids, prompt::provider_ids());
+        for provider in &listed.providers {
+            assert!(!provider.display_name.is_empty(), "{}", provider.id);
+            assert!(!provider.description.is_empty(), "{}", provider.id);
+            assert!(!provider.queries.is_empty(), "{}", provider.id);
+            let block = prompt::provider_block(Some(&provider.id)).unwrap();
+            for name in provider.queries.iter().chain(&provider.actions) {
+                assert!(
+                    block.contains(&format!("`{name}`")),
+                    "{}: {name}",
+                    provider.id
+                );
+            }
         }
-    }
-
-    fn edit(path: &str, old: &str, new: &str, replace_all: bool) -> McpDraftEdit {
-        McpDraftEdit {
-            path: path.into(),
-            old_string: old.into(),
-            new_string: new.into(),
-            replace_all,
-        }
+        let reply = serde_json::to_string(&listed).unwrap();
+        assert!(
+            !reply.contains("returns:"),
+            "no result schemas in the listing"
+        );
+        assert!(
+            reply.len() * 4 < prompt::provider_schema_document().len(),
+            "the listing is {} bytes",
+            reply.len()
+        );
     }
 
     #[test]
-    fn edits_replace_exact_text_in_order_and_leave_other_files_alone() {
-        let files = vec![
-            file(
-                "ui/app.js",
-                "a = 1;
-b = 2;",
-            ),
-            file("manifest.json", "{}"),
+    fn an_edit_reply_carries_the_files_that_changed_under_the_caller() {
+        let changed = vec![
+            drafts::ChangedFile {
+                path: "manifest.json".into(),
+                contents: Some("{}".into()),
+            },
+            drafts::ChangedFile {
+                path: "old.txt".into(),
+                contents: None,
+            },
         ];
-        let out = apply_edits(
-            files,
-            &[
-                edit("ui/app.js", "a = 1;", "a = 3;", false),
-                edit("ui/app.js", "a = 3;", "a = 4;", false),
-            ],
-        )
-        .unwrap();
+        let conflict = edit_reply(Err(drafts::EditError::Conflict {
+            current_revision: "abc123".into(),
+            changed_files: changed.clone(),
+        }));
+        assert_eq!(conflict.is_error, Some(true));
+        let body = conflict.structured_content.unwrap();
+        assert_eq!(body["code"], "draft_conflict");
+        assert_eq!(body["currentRevision"], "abc123");
         assert_eq!(
-            out[0].contents,
-            "a = 4;
-b = 2;"
+            body["changedFiles"],
+            json!([
+                { "path": "manifest.json", "contents": "{}" },
+                { "path": "old.txt", "contents": null }
+            ])
         );
-        assert_eq!(out[1].contents, "{}");
-    }
 
-    #[test]
-    fn edits_refuse_anything_they_cannot_place_exactly() {
-        let files = || {
-            vec![file(
-                "ui/index.html",
-                ".good {}
-.good {}",
-            )]
+        let summary = drafts::DraftSummary {
+            id: "counter".into(),
+            files: vec!["manifest.json".into()],
+            revision: "def456".into(),
+            error: None,
+            renamed_from: None,
+            last_writer: Some(drafts::DraftWriteOrigin::Mcp),
+            last_client: None,
+            last_client_name: None,
+            updated_at: Some(1),
         };
-        let error = |edits: &[McpDraftEdit]| apply_edits(files(), edits).unwrap_err();
-        assert_eq!(
-            error(&[edit("ui/index.html", ".good {}", "", false)]),
-            "edit_ambiguous:ui/index.html"
-        );
-        assert_eq!(
-            error(&[edit("ui/index.html", ".bad {}", "", false)]),
-            "edit_not_found:ui/index.html"
-        );
-        assert_eq!(
-            error(&[edit("ui/app.js", "x", "y", false)]),
-            "edit_file_not_found:ui/app.js"
-        );
-        assert_eq!(
-            error(&[edit("ui/index.html", "", "y", false)]),
-            "edit_empty:ui/index.html"
-        );
-        assert!(error(&[]).starts_with("edit_empty"));
-        let all = apply_edits(files(), &[edit("ui/index.html", ".good {}", "", true)]).unwrap();
-        assert_eq!(
-            all[0].contents,
-            "
-"
-        );
+        let ok = edit_reply(Ok(drafts::DraftDelta {
+            summary,
+            changed_files: changed,
+        }));
+        let body = ok.structured_content.unwrap();
+        assert_eq!(body["id"], "counter", "the summary is flattened in");
+        assert_eq!(body["revision"], "def456");
+        assert_eq!(body["changedFiles"][0]["path"], "manifest.json");
+
+        let failed = edit_reply(Err(drafts::EditError::Failed(
+            "edit_file_exists:api.json".into(),
+        )));
+        let body = failed.structured_content.unwrap();
+        assert_eq!(body["code"], "edit_file_exists");
+        assert_eq!(body["path"], "api.json");
     }
 
     #[test]

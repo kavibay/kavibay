@@ -71,16 +71,18 @@ starts and stops one listener bound to `127.0.0.1:<port>/mcp`. There is no
 sidecar executable, STDIO child process, background service or second runtime.
 
 The server is an adapter, not a second implementation of package authoring.
-Its nine reviewed tools call the same revisioned service used by the Widget
+Its ten reviewed tools call the same revisioned service used by the Widget
 Wizard, so path validation, text/file limits, staging, validation and
 `draft_conflict` semantics are shared. A successful write publishes a complete
 draft tree and emits `runtime-draft:changed`; an open Wizard applies a clean
 external revision or presents an explicit Reload/Keep conflict.
 
-For a widget already in the palette, `checkout_custom_widget` verifies the
-saved widget's content revision and copies it into `.drafts/<id>`. This gives
-MCP the same edit surface without allowing it to replace a live widget; the
-Wizard remains the only promotion path.
+For a widget already in the palette, `checkout_custom_widget` copies it into
+`.drafts/<id>` and returns the files that differ from the revision the client
+last read, which a per-file revision history beside each draft makes possible.
+`edit_draft` uses the same history to refuse only edits to files that changed
+under the client. This gives MCP the same edit surface without allowing it to
+replace a live widget; the Wizard remains the only promotion path.
 
 Each MCP request can carry the protocol handshake's advisory `clientInfo.name`.
 Known Codex/Claude names are stored beside the draft (outside its content

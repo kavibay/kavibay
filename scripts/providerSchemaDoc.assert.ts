@@ -18,8 +18,8 @@
 import { readFileSync, existsSync } from "node:fs";
 import { relative } from "node:path";
 import {
-  collectProviders, render, renderBlocks, renderPromptBlock, renderRustTable,
-  repoRoot, DOC_PATH, BLOCKS_PATH, RUST_TABLE_PATH,
+  collectProviders, render, renderBlocks, renderIndex, renderPromptBlock, renderRustTable,
+  repoRoot, DOC_PATH, BLOCKS_PATH, INDEX_PATH, RUST_TABLE_PATH,
 } from "./providerSchemaDoc";
 
 const providers = await collectProviders();
@@ -34,6 +34,11 @@ const outputs: { path: string; expected: string; stale: string }[] = [
     path: BLOCKS_PATH,
     expected: renderBlocks(providers),
     stale: "the Wizard would describe providers to the model as they used to be",
+  },
+  {
+    path: INDEX_PATH,
+    expected: renderIndex(providers),
+    stale: "an MCP client would list providers, queries or actions that are not the shipping ones",
   },
   {
     path: RUST_TABLE_PATH,

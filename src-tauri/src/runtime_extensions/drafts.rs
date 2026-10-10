@@ -3,9 +3,10 @@
 //!
 //! Draft writes are whole-package transactions. A caller supplies the revision
 //! it last read, the service writes a sibling staging directory, and only then
-//! publishes that complete tree into `.drafts/<id>`.
+//! publishes that complete tree into `.drafts/<id>`. An edit is checked per
+//! file against that revision and then written the same way.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -21,6 +22,16 @@ const DRAFTS_DIR: &str = ".drafts";
 pub(crate) const MAX_FILES: usize = 32;
 pub(crate) const MAX_FILE_BYTES: usize = 512 * 1024;
 pub(crate) const MAX_TOTAL_BYTES: usize = 2 * 1024 * 1024;
+
+/// How many revisions of one draft its history remembers.
+///
+/// Enough to span what a person does in the Wizard between two calls of an
+/// MCP client — every resize is a write — and small enough that rewriting the
+/// note on each write costs nothing: at most 32 paths and hashes per entry.
+const REVISION_HISTORY: usize = 32;
+
+/// How many times an edit re-reads a draft that other writes keep changing.
+const EDIT_ATTEMPTS: usize = 3;
 
 static NEXT_TRANSIENT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -76,6 +87,55 @@ pub struct DraftSnapshot {
     pub last_client: Option<McpClientKind>,
     pub last_client_name: Option<String>,
     pub updated_at: Option<i64>,
+}
+
+/// A file as it is now, sent to a caller whose copy of it is out of date.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangedFile {
+    pub path: String,
+    /// `None` when the file was removed.
+    pub contents: Option<String>,
+}
+
+/// A draft summary plus every file that differs from what the caller last
+/// read, with its contents.
+///
+/// The files are part of the answer, not a hint to read them later: the
+/// reply's revision vouches for the whole draft, and handing it to a caller
+/// that has not seen one of those files would let its next edit land on text
+/// it never read.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftDelta {
+    #[serde(flatten)]
+    pub summary: DraftSummary,
+    pub changed_files: Vec<ChangedFile>,
+}
+
+/// One exact-text replacement in one file, or the creation of a file when
+/// `old_string` is empty.
+#[derive(Debug, Clone)]
+pub struct DraftEdit {
+    pub path: String,
+    pub old_string: String,
+    pub new_string: String,
+    pub replace_all: bool,
+}
+
+/// Why an edit wrote nothing.
+#[derive(Debug, PartialEq, Eq)]
+pub enum EditError {
+    /// A file the edits touch changed since the revision they were written
+    /// against. `changed_files` holds every file that differs from that
+    /// revision — all of them when it is too old to compare — so the caller
+    /// can redo the edit against `current_revision` without reading again.
+    Conflict {
+        current_revision: String,
+        changed_files: Vec<ChangedFile>,
+    },
+    /// Anything else, as the usual `code:detail` string.
+    Failed(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -271,6 +331,124 @@ fn forget_origin(root: &Path, id: &str) {
     let _ = fs::remove_file(origin_path(root, id));
 }
 
+/// Each file's own content hash, by package-relative path.
+type FileHashes = BTreeMap<String, String>;
+
+/// One revision a draft has had, and what each of its files was then.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RevisionEntry {
+    revision: String,
+    files: FileHashes,
+}
+
+/// Where the revision history of one draft lives.
+///
+/// A revision is one hash over the whole package. That is the right check for
+/// a write that replaces every file and too coarse for an edit that touches
+/// one: the Wizard rewrites `manifest.json` whenever the person resizes the
+/// preview, and an edit to `ui/app.js` written against the revision before
+/// that was refused although nothing it read had changed. The history maps
+/// each recent revision to its per-file hashes, so the host can say exactly
+/// which files changed between the revision a caller read and the one on disk.
+///
+/// A dot-prefixed sibling for the same reasons as the origin note: never a
+/// draft of its own, and never part of the revision it describes. Unlike the
+/// note it outlives a Save, because the last revision a client wrote is how it
+/// asks "what changed since" when it checks the saved widget out again. An
+/// entry is a fact about content — this revision is these bytes — so keeping
+/// or carrying one across a rename can never make it wrong.
+fn revisions_path(root: &Path, id: &str) -> PathBuf {
+    root.join(format!(".{id}.revisions"))
+}
+
+fn file_hashes(files: &[(String, Vec<u8>)]) -> FileHashes {
+    files
+        .iter()
+        .map(|(path, bytes)| (path.clone(), hex_encode(Sha256::digest(bytes).as_slice())))
+        .collect()
+}
+
+fn read_revisions(root: &Path, id: &str) -> Vec<RevisionEntry> {
+    fs::read_to_string(revisions_path(root, id))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+/// Remember the revision now in `dir` as one of `id`'s, best effort.
+///
+/// Read back from the published folder rather than taken from the file set
+/// that was sent, so the entry hashes the bytes `summarize` hashes. A history
+/// that cannot be written fails nothing: a revision it does not hold is
+/// answered as "every file changed", which costs the caller one full read.
+fn record_revision(root: &Path, id: &str, dir: &Path, renamed_from: Option<&str>) {
+    let Ok(raw) = read_raw_files(dir) else {
+        return;
+    };
+    let mut entries = vec![RevisionEntry {
+        revision: content_revision(&raw),
+        files: file_hashes(&raw),
+    }];
+    if let Some(previous) = renamed_from {
+        entries.extend(read_revisions(root, previous));
+        forget_revisions(root, previous);
+    }
+    entries.extend(read_revisions(root, id));
+    let mut seen = BTreeSet::new();
+    entries.retain(|entry| seen.insert(entry.revision.clone()));
+    entries.truncate(REVISION_HISTORY);
+    if let Ok(text) = serde_json::to_string(&entries) {
+        let _ = fs::write(revisions_path(root, id), text);
+    }
+}
+
+fn forget_revisions(root: &Path, id: &str) {
+    let _ = fs::remove_file(revisions_path(root, id));
+}
+
+/// The paths whose contents differ between revision `known` and the files
+/// `now`, which have revision `now_revision`: added, removed or changed.
+///
+/// `None` when the history does not hold `known` — too old, or never handed
+/// out by this service — and nothing can be said file by file.
+fn changed_since(
+    root: &Path,
+    id: &str,
+    known: &str,
+    now_revision: &str,
+    now: &FileHashes,
+) -> Option<BTreeSet<String>> {
+    if known == now_revision {
+        return Some(BTreeSet::new());
+    }
+    let before = read_revisions(root, id)
+        .into_iter()
+        .find(|entry| entry.revision == known)?
+        .files;
+    Some(
+        before
+            .keys()
+            .chain(now.keys())
+            .filter(|path| before.get(*path) != now.get(*path))
+            .cloned()
+            .collect(),
+    )
+}
+
+fn changed_files(files: &[DraftFile], paths: &BTreeSet<String>) -> Vec<ChangedFile> {
+    paths
+        .iter()
+        .map(|path| ChangedFile {
+            path: path.clone(),
+            contents: files
+                .iter()
+                .find(|file| &file.path == path)
+                .map(|file| file.contents.clone()),
+        })
+        .collect()
+}
+
 pub(crate) fn validate_relative_path(path: &str) -> Result<(), String> {
     if path.is_empty() {
         return Err("path_empty".into());
@@ -398,7 +576,11 @@ fn revision_for_dir(dir: &Path) -> Result<String, String> {
 }
 
 fn read_text_files(dir: &Path) -> Result<Vec<DraftFile>, String> {
-    let raw = read_raw_files(dir)?;
+    text_files(read_raw_files(dir)?)
+}
+
+/// The full-text view of one package's bytes, held to the caps of a write.
+fn text_files(raw: PackageBytes) -> Result<Vec<DraftFile>, String> {
     if raw.len() > MAX_FILES {
         return Err("package_too_large".into());
     }
@@ -638,6 +820,9 @@ fn write_draft_tree_with_client(
     // one place reports it, so a reply can never disagree with what a later
     // `list_drafts` says about the same write.
     record_origin(root, target_id, origin, client, client_name);
+    // Every write, whoever made it: a Wizard resize is exactly the revision an
+    // MCP edit later has to be compared across.
+    record_revision(root, target_id, &target, renaming.then_some(id));
     let mut summary = summarize(target_id, &target)?;
     if renaming {
         summary.renamed_from = Some(id.to_string());
@@ -718,6 +903,174 @@ pub(crate) fn write_draft_with_client<R: Runtime>(
         summary.renamed_from.clone(),
     );
     Ok(summary)
+}
+
+/// Apply exact-text replacements to a draft's files, all or nothing.
+///
+/// `write_draft` takes the whole file set, so a one-line change meant a model
+/// re-emitting every file — hundreds of lines of output, which is where the
+/// time went. This is the same edit primitive coding agents already use: the
+/// text to find must occur exactly once (or `replace_all`), so an edit can never
+/// land somewhere the model did not look.
+///
+/// An empty `old_string` creates the file instead, so adding one file — an
+/// `api.json`, say — no longer means re-sending every other one. It never
+/// replaces a file: there is nothing for an empty string to have been read
+/// from.
+fn apply_edits(mut files: Vec<DraftFile>, edits: &[DraftEdit]) -> Result<Vec<DraftFile>, String> {
+    if edits.is_empty() {
+        return Err("edit_empty:no edits".into());
+    }
+    for edit in edits {
+        if edit.old_string.is_empty() {
+            // A second spelling of an existing path — `./ui/app.js`,
+            // `ui\app.js`, or `UI/App.js` on Windows — is the same file on
+            // disk, and creating it would overwrite that file past both the
+            // exists check and the per-file revision check.
+            if !is_canonical_path(&edit.path) {
+                return Err(format!("unsafe_path:{}", edit.path));
+            }
+            let folded = edit.path.to_lowercase();
+            if files.iter().any(|file| file.path.to_lowercase() == folded) {
+                return Err(format!("edit_file_exists:{}", edit.path));
+            }
+            files.push(DraftFile {
+                path: edit.path.clone(),
+                contents: edit.new_string.clone(),
+            });
+            continue;
+        }
+        let file = files
+            .iter_mut()
+            .find(|file| file.path == edit.path)
+            .ok_or_else(|| format!("edit_file_not_found:{}", edit.path))?;
+        let count = file.contents.matches(edit.old_string.as_str()).count();
+        if count == 0 {
+            return Err(format!("edit_not_found:{}", edit.path));
+        }
+        if count > 1 && !edit.replace_all {
+            return Err(format!("edit_ambiguous:{}", edit.path));
+        }
+        file.contents = if edit.replace_all {
+            file.contents.replace(&edit.old_string, &edit.new_string)
+        } else {
+            file.contents
+                .replacen(&edit.old_string, &edit.new_string, 1)
+        };
+    }
+    Ok(files)
+}
+
+/// A path spelled the one way `list_files` reports it.
+fn is_canonical_path(path: &str) -> bool {
+    validate_relative_path(path).is_ok()
+        && !path.contains('\\')
+        && !path.split('/').any(|segment| segment == ".")
+}
+
+/// Edit a draft against the revision the caller read, file by file.
+fn edit_draft_tree_with_client(
+    root: &Path,
+    id: &str,
+    expected_revision: &str,
+    edits: &[DraftEdit],
+    origin: DraftWriteOrigin,
+    client: Option<McpClientKind>,
+    client_name: Option<&str>,
+) -> Result<DraftDelta, EditError> {
+    if !is_valid_package_id(id) {
+        return Err(EditError::Failed("invalid_package_id".into()));
+    }
+    let dir = root.join(id);
+    let touched: BTreeSet<String> = edits.iter().map(|edit| edit.path.clone()).collect();
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        if !dir.is_dir() {
+            return Err(EditError::Failed("draft_not_found".into()));
+        }
+        let raw = read_raw_files(&dir).map_err(EditError::Failed)?;
+        let revision = content_revision(&raw);
+        let hashes = file_hashes(&raw);
+        let files = text_files(raw).map_err(EditError::Failed)?;
+
+        // Checked here as well as by the write: the edits were written against
+        // one revision, and applying them to another could match an
+        // `oldString` that now means something else. That danger is per file —
+        // an oldString must not be applied to a file that changed under it —
+        // so only a change to a file the edits touch refuses them. One the
+        // person made elsewhere, such as the manifest a resize rewrites, is
+        // handed back with the reply instead. A revision the history does not
+        // hold cannot be compared at all and refuses everything.
+        let changed = changed_since(root, id, expected_revision, &revision, &hashes);
+        let changed = match changed {
+            Some(changed) if changed.is_disjoint(&touched) => changed,
+            changed => {
+                let changed = changed.unwrap_or_else(|| hashes.keys().cloned().collect());
+                return Err(EditError::Conflict {
+                    current_revision: revision,
+                    changed_files: changed_files(&files, &changed),
+                });
+            }
+        };
+        let changed = changed_files(&files, &changed);
+        let edited = apply_edits(files, edits).map_err(EditError::Failed)?;
+        match write_draft_tree_with_client(
+            root,
+            id,
+            &edited,
+            Some(&revision),
+            origin,
+            client,
+            client_name,
+        ) {
+            Ok(summary) => {
+                return Ok(DraftDelta {
+                    summary,
+                    changed_files: changed,
+                })
+            }
+            // Another write landed between the read above and this one. The
+            // check is against the caller's revision, not the one that just
+            // went stale, so repeating it on the newer bytes is the same
+            // decision rather than a weaker one.
+            Err(error) if error.starts_with("draft_conflict:") && attempt < EDIT_ATTEMPTS => {}
+            Err(error) => return Err(EditError::Failed(error)),
+        }
+    }
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn edit_draft_with_client<R: Runtime>(
+    app: &AppHandle<R>,
+    id: &str,
+    expected_revision: &str,
+    edits: &[DraftEdit],
+    origin: DraftWriteOrigin,
+    client: Option<McpClientKind>,
+    client_name: Option<&str>,
+) -> Result<DraftDelta, EditError> {
+    let root = drafts_root(app).map_err(EditError::Failed)?;
+    let delta = edit_draft_tree_with_client(
+        &root,
+        id,
+        expected_revision,
+        edits,
+        origin,
+        client,
+        client_name,
+    )?;
+    emit_changed(
+        app,
+        &delta.summary.id,
+        Some(delta.summary.revision.clone()),
+        DraftChangeKind::Written,
+        origin,
+        client,
+        client_name.map(str::to_string),
+        delta.summary.renamed_from.clone(),
+    );
+    Ok(delta)
 }
 
 pub(crate) fn read_draft<R: Runtime>(
@@ -899,6 +1252,87 @@ pub(crate) fn checkout_custom_widget_with_client<R: Runtime>(
     snapshot(&summary.id, &draft_dir)
 }
 
+/// Check a saved custom widget out for a caller that last read revision
+/// `known` of it — of the saved widget, or of its draft before the Save — or
+/// nothing at all.
+///
+/// Whatever is saved now is copied, and the reply carries every file that
+/// differs from `known`; with no `known`, or one the history does not hold,
+/// that is every file. So the caller ends up knowing the draft exactly, which
+/// the strict check gave by refusing and costing it two full reads: one of the
+/// widget to learn its revision, and the copy of every file in the checkout.
+/// After a Save that only rewrote the manifest, this is the manifest alone.
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn checkout_custom_widget_since<R: Runtime>(
+    app: &AppHandle<R>,
+    id: &str,
+    known: Option<&str>,
+    origin: DraftWriteOrigin,
+    client: Option<McpClientKind>,
+    client_name: Option<&str>,
+) -> Result<DraftDelta, String> {
+    let custom_root = root_path(app, PackageOrigin::Custom)?;
+    let delta = checkout_custom_tree_since(&custom_root, id, known, origin, client, client_name)?;
+    emit_changed(
+        app,
+        &delta.summary.id,
+        Some(delta.summary.revision.clone()),
+        DraftChangeKind::Written,
+        origin,
+        client,
+        client_name.map(str::to_string),
+        delta.summary.renamed_from.clone(),
+    );
+    Ok(delta)
+}
+
+fn checkout_custom_tree_since(
+    custom_root: &Path,
+    id: &str,
+    known: Option<&str>,
+    origin: DraftWriteOrigin,
+    client: Option<McpClientKind>,
+    client_name: Option<&str>,
+) -> Result<DraftDelta, String> {
+    if !is_valid_package_id(id) {
+        return Err("invalid_package_id".into());
+    }
+    let source = safe_join(custom_root, id).map_err(|error| format!("unsafe_path:{error}"))?;
+    if !source.is_dir() {
+        return Err("package_not_found".into());
+    }
+    let source_revision = revision_for_dir(&source)?;
+    let mut summary = checkout_custom_tree_with_client(
+        custom_root,
+        id,
+        &source_revision,
+        origin,
+        client,
+        client_name,
+    )?;
+
+    let draft_root =
+        safe_join(custom_root, DRAFTS_DIR).map_err(|error| format!("unsafe_path:{error}"))?;
+    let dir =
+        safe_join(&draft_root, &summary.id).map_err(|error| format!("unsafe_path:{error}"))?;
+    let raw = read_raw_files(&dir)?;
+    let hashes = file_hashes(&raw);
+    // One read answers both what the draft is and what changed in it, so the
+    // revision the caller is handed is the one the files it is sent belong to.
+    summary.revision = content_revision(&raw);
+    summary.files = hashes.keys().cloned().collect();
+    let files = text_files(raw)?;
+    let changed = known
+        .and_then(|known| {
+            changed_since(&draft_root, &summary.id, known, &summary.revision, &hashes)
+        })
+        .unwrap_or_else(|| hashes.keys().cloned().collect());
+    Ok(DraftDelta {
+        summary,
+        changed_files: changed_files(&files, &changed),
+    })
+}
+
 /// What opening a saved widget for editing found.
 ///
 /// The two cases are one operation on purpose. A Wizard that checked for a
@@ -1022,6 +1456,7 @@ pub(crate) fn promote_draft(
         fs::remove_dir_all(&doomed).map_err(|error| error.to_string())?;
     }
     fs::rename(&dir, &target).map_err(|error| error.to_string())?;
+    // The revision history stays: see `revisions_path`.
     if let Some(root) = dir.parent() {
         forget_origin(root, id);
     }
@@ -1086,6 +1521,7 @@ pub(crate) fn discard_draft<R: Runtime>(
     fs::remove_dir_all(&dir).map_err(|error| error.to_string())?;
     if let Some(root) = dir.parent() {
         forget_origin(root, id);
+        forget_revisions(root, id);
     }
     emit_changed(
         app,
@@ -1181,7 +1617,9 @@ pub fn runtime_extensions_delete_package(app: AppHandle, id: String) -> Result<(
         Some(existing) => fs::remove_dir_all(&existing).map_err(|error| error.to_string())?,
         None => return Err("package_not_found".into()),
     }
-    let _ = fs::remove_dir_all(drafts_root(&app)?.join(&id));
+    let drafts = drafts_root(&app)?;
+    let _ = fs::remove_dir_all(drafts.join(&id));
+    forget_revisions(&drafts, &id);
     super::installs::forget(&app, &id)
 }
 
@@ -1739,6 +2177,335 @@ mod tests {
             "and the code names the field, not the folder"
         );
         let _ = fs::remove_dir_all(root);
+    }
+
+    fn edit(path: &str, old: &str, new: &str, replace_all: bool) -> DraftEdit {
+        DraftEdit {
+            path: path.into(),
+            old_string: old.into(),
+            new_string: new.into(),
+            replace_all,
+        }
+    }
+
+    #[test]
+    fn edits_replace_exact_text_in_order_and_leave_other_files_alone() {
+        let files = vec![
+            file("ui/app.js", "a = 1;\nb = 2;"),
+            file("manifest.json", "{}"),
+        ];
+        let out = apply_edits(
+            files,
+            &[
+                edit("ui/app.js", "a = 1;", "a = 3;", false),
+                edit("ui/app.js", "a = 3;", "a = 4;", false),
+            ],
+        )
+        .unwrap();
+        assert_eq!(out[0].contents, "a = 4;\nb = 2;");
+        assert_eq!(out[1].contents, "{}");
+    }
+
+    #[test]
+    fn edits_refuse_anything_they_cannot_place_exactly() {
+        let files = || vec![file("ui/index.html", ".good {}\n.good {}")];
+        let error = |edits: &[DraftEdit]| apply_edits(files(), edits).unwrap_err();
+        assert_eq!(
+            error(&[edit("ui/index.html", ".good {}", "", false)]),
+            "edit_ambiguous:ui/index.html"
+        );
+        assert_eq!(
+            error(&[edit("ui/index.html", ".bad {}", "", false)]),
+            "edit_not_found:ui/index.html"
+        );
+        assert_eq!(
+            error(&[edit("ui/app.js", "x", "y", false)]),
+            "edit_file_not_found:ui/app.js"
+        );
+        assert!(error(&[]).starts_with("edit_empty"));
+        let all = apply_edits(files(), &[edit("ui/index.html", ".good {}", "", true)]).unwrap();
+        assert_eq!(all[0].contents, "\n");
+    }
+
+    /// Adding one file is one edit, not a rewrite of the package.
+    #[test]
+    fn an_empty_old_string_creates_a_file_and_never_replaces_one() {
+        let files = || vec![file("manifest.json", "{}"), file("ui/app.js", "a = 1;")];
+        let out = apply_edits(
+            files(),
+            &[
+                edit("api.json", "", "{\"endpoints\":[]}", false),
+                edit("api.json", "[]", "[1]", false),
+            ],
+        )
+        .unwrap();
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[2].path, "api.json");
+        assert_eq!(out[2].contents, "{\"endpoints\":[1]}", "later edits see it");
+
+        let error = |path: &str| apply_edits(files(), &[edit(path, "", "x", false)]).unwrap_err();
+        assert_eq!(error("ui/app.js"), "edit_file_exists:ui/app.js");
+        // Other spellings of a file that exists would be written over it.
+        assert_eq!(error("UI/App.js"), "edit_file_exists:UI/App.js");
+        assert_eq!(error("./ui/app.js"), "unsafe_path:./ui/app.js");
+        assert_eq!(error("ui\\app.js"), "unsafe_path:ui\\app.js");
+        assert_eq!(error("../escape.js"), "unsafe_path:../escape.js");
+    }
+
+    /// Two writes: an MCP client's, then a Wizard resize that only rewrites
+    /// the manifest. Returns the client's revision.
+    fn draft_resized_after_the_client_wrote(root: &Path) -> String {
+        let client = write_draft_tree(
+            root,
+            "counter",
+            &[
+                file("manifest.json", r#"{"id":"counter","ui":{"w":1}}"#),
+                file("ui/app.js", "let count = 0;"),
+            ],
+            None,
+            DraftWriteOrigin::Mcp,
+        )
+        .unwrap();
+        write_draft_tree(
+            root,
+            "counter",
+            &[
+                file("manifest.json", r#"{"id":"counter","ui":{"w":2}}"#),
+                file("ui/app.js", "let count = 0;"),
+            ],
+            Some(&client.revision),
+            DraftWriteOrigin::Wizard,
+        )
+        .unwrap();
+        client.revision
+    }
+
+    fn edit_tree(
+        root: &Path,
+        expected: &str,
+        edits: &[DraftEdit],
+    ) -> Result<DraftDelta, EditError> {
+        edit_draft_tree_with_client(
+            root,
+            "counter",
+            expected,
+            edits,
+            DraftWriteOrigin::Mcp,
+            None,
+            None,
+        )
+    }
+
+    #[test]
+    fn an_edit_lands_when_only_a_file_it_does_not_touch_changed() {
+        let root = temp_root("edit_untouched");
+        let read = draft_resized_after_the_client_wrote(&root);
+
+        let delta = edit_tree(
+            &root,
+            &read,
+            &[edit("ui/app.js", "count = 0", "count = 1", false)],
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(root.join("counter/ui/app.js")).unwrap(),
+            "let count = 1;"
+        );
+        assert_eq!(
+            delta.changed_files,
+            vec![ChangedFile {
+                path: "manifest.json".into(),
+                contents: Some(r#"{"id":"counter","ui":{"w":2}}"#.into()),
+            }],
+            "the resize is handed back rather than silently vouched for"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("counter/manifest.json")).unwrap(),
+            r#"{"id":"counter","ui":{"w":2}}"#,
+            "and kept"
+        );
+        assert_eq!(
+            delta.summary.revision,
+            revision_for_dir(&root.join("counter")).unwrap()
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// The reason the check exists: an oldString must not be applied to a file
+    /// that changed under it.
+    #[test]
+    fn an_edit_to_a_file_that_changed_under_it_is_refused_with_that_file() {
+        let root = temp_root("edit_touched");
+        let read = draft_resized_after_the_client_wrote(&root);
+        let current = revision_for_dir(&root.join("counter")).unwrap();
+
+        let error = edit_tree(
+            &root,
+            &read,
+            &[edit("manifest.json", r#""w":1"#, r#""w":3"#, false)],
+        )
+        .unwrap_err();
+        assert_eq!(
+            error,
+            EditError::Conflict {
+                current_revision: current.clone(),
+                changed_files: vec![ChangedFile {
+                    path: "manifest.json".into(),
+                    contents: Some(r#"{"id":"counter","ui":{"w":2}}"#.into()),
+                }],
+            }
+        );
+        assert_eq!(revision_for_dir(&root.join("counter")).unwrap(), current);
+
+        // Creating a file somebody else created since is the same conflict.
+        let with_api = write_draft_tree(
+            &root,
+            "counter",
+            &[
+                file("manifest.json", r#"{"id":"counter","ui":{"w":2}}"#),
+                file("ui/app.js", "let count = 0;"),
+                file("api.json", "{}"),
+            ],
+            Some(&current),
+            DraftWriteOrigin::Wizard,
+        )
+        .unwrap();
+        let error = edit_tree(&root, &current, &[edit("api.json", "", "[]", false)]).unwrap_err();
+        assert!(
+            matches!(error, EditError::Conflict { ref current_revision, .. } if current_revision == &with_api.revision)
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_revision_the_history_does_not_hold_hands_back_every_file() {
+        let root = temp_root("edit_unknown");
+        draft_resized_after_the_client_wrote(&root);
+        let error = edit_tree(
+            &root,
+            "0000",
+            &[edit("ui/app.js", "count = 0", "count = 1", false)],
+        )
+        .unwrap_err();
+        let EditError::Conflict { changed_files, .. } = error else {
+            panic!("an unknown revision cannot be compared file by file");
+        };
+        let paths: Vec<_> = changed_files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect();
+        assert_eq!(paths, ["manifest.json", "ui/app.js"]);
+        assert!(changed_files.iter().all(|file| file.contents.is_some()));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn an_edit_adds_a_file_without_the_others_being_sent() {
+        let root = temp_root("edit_create");
+        let read = draft_resized_after_the_client_wrote(&root);
+        let delta = edit_tree(&root, &read, &[edit("api.json", "", "{}", false)]).unwrap();
+        assert_eq!(
+            delta.summary.files,
+            ["api.json", "manifest.json", "ui/app.js"]
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("counter/api.json")).unwrap(),
+            "{}"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("counter/ui/app.js")).unwrap(),
+            "let count = 0;"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_revision_history_is_bounded_outside_the_draft_and_follows_a_rename() {
+        let root = temp_root("history");
+        let mut last = None;
+        for n in 0..(REVISION_HISTORY + 5) {
+            let summary = write_draft_tree(
+                &root,
+                "counter",
+                &[file(
+                    "manifest.json",
+                    &format!(r#"{{"id":"counter","n":{n}}}"#),
+                )],
+                last.as_deref(),
+                DraftWriteOrigin::Wizard,
+            )
+            .unwrap();
+            last = Some(summary.revision);
+        }
+        let entries = read_revisions(&root, "counter");
+        assert_eq!(entries.len(), REVISION_HISTORY);
+        assert_eq!(Some(&entries[0].revision), last.as_ref(), "newest first");
+        assert_eq!(
+            last.as_deref(),
+            Some(revision_for_dir(&root.join("counter")).unwrap().as_str()),
+            "the history is not part of the revision"
+        );
+        assert_eq!(list_drafts_ids(&root), ["counter"]);
+
+        let renamed = write_draft_tree(
+            &root,
+            "counter",
+            &[file("manifest.json", r#"{"id":"tally"}"#)],
+            last.as_deref(),
+            DraftWriteOrigin::Wizard,
+        )
+        .unwrap();
+        assert_eq!(renamed.id, "tally");
+        assert!(!revisions_path(&root, "counter").exists());
+        let carried = read_revisions(&root, "tally");
+        assert_eq!(carried[0].revision, renamed.revision);
+        assert_eq!(Some(&carried[1].revision), last.as_ref());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// A Save rewrites the manifest and removes the draft. Checking the widget
+    /// out again with the revision the client last wrote costs the manifest,
+    /// not the package twice over.
+    #[test]
+    fn a_checkout_hands_back_only_what_changed_since_the_callers_revision() {
+        let custom = temp_root("checkout_since");
+        let drafts = custom.join(DRAFTS_DIR);
+        fs::create_dir_all(&drafts).unwrap();
+        let read = draft_resized_after_the_client_wrote(&drafts);
+        // What `promote_draft` does on Save, minus the install record.
+        fs::rename(drafts.join("counter"), custom.join("counter")).unwrap();
+        forget_origin(&drafts, "counter");
+        let saved = revision_for_dir(&custom.join("counter")).unwrap();
+
+        let checkout = |known: Option<&str>| {
+            checkout_custom_tree_since(&custom, "counter", known, DraftWriteOrigin::Mcp, None, None)
+        };
+        let delta = checkout(Some(&read)).unwrap();
+        assert_eq!(delta.summary.revision, saved);
+        let paths: Vec<_> = delta
+            .changed_files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect();
+        assert_eq!(paths, ["manifest.json"]);
+        assert_eq!(
+            checkout(Some(&saved)).unwrap_err(),
+            format!("draft_exists:{saved}"),
+            "an existing draft is never replaced"
+        );
+
+        fs::remove_dir_all(drafts.join("counter")).unwrap();
+        assert!(checkout(Some(&saved)).unwrap().changed_files.is_empty());
+        fs::remove_dir_all(drafts.join("counter")).unwrap();
+        let everything = checkout(None).unwrap().changed_files;
+        assert_eq!(
+            everything.len(),
+            2,
+            "a caller that read nothing gets every file"
+        );
+        fs::remove_dir_all(drafts.join("counter")).unwrap();
+        assert_eq!(checkout(Some("0000")).unwrap().changed_files, everything);
+        let _ = fs::remove_dir_all(custom);
     }
 
     #[test]

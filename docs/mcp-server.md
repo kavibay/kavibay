@@ -71,7 +71,7 @@ custom **Streamable HTTP** server and use the same URL.
 
 After connecting, initialize the server and call `tools/list`. The server name
 is `kavibay-authoring`; the initialization instructions describe the complete
-file-set and revision workflow in their first sentence.
+file-set and revision workflow in their first sentences.
 
 ## Resources and tools
 
@@ -88,15 +88,15 @@ The reviewed tool allowlist contains exactly these ten tools:
 | Tool | Purpose |
 |---|---|
 | `get_authoring_guide` | Return the exact runtime or contract guide; optional provider ids are checked against the maintained catalog. |
-| `list_widget_providers` | List provider ids and read-only schemas available to contract packages. |
+| `list_widget_providers` | List the providers available to contract packages: id, display name, a one-line description and query/action names. Schemas come from `get_authoring_guide`. |
 | `list_drafts` | List custom authoring drafts as `{ id, files, revision, error, lastWriter, lastClient, lastClientName, updatedAt }` summaries. |
 | `read_draft` | Read the complete text file set, revision and current validation error for one draft. |
 | `write_draft` | Create or replace a complete draft file set with optimistic revision checking. |
-| `edit_draft` | Change an existing draft by exact text replacement, all edits or none, with the same revision check. |
+| `edit_draft` | Change or add files of an existing draft by exact text replacement, all edits or none, with a per-file revision check. |
 | `validate_draft` | Run the same validator used before promotion and return its stable error code. |
 | `list_custom_widgets` | List metadata for custom-root widgets only; installed packages are hidden. |
 | `read_custom_widget` | Read a custom widget's text source and content revision. |
-| `checkout_custom_widget` | Copy a saved custom widget into a new draft for revision-safe editing. |
+| `checkout_custom_widget` | Copy a saved custom widget into a new draft, returning only the files the caller has not seen. |
 
 There are deliberately no model calls, conversations, endpoint calls,
 credentials, grants, promote/save, enable, delete or discard tools.
@@ -142,12 +142,39 @@ output is most of the wait. `edit_draft` takes only the change:
 ```
 
 Each `oldString` must occur exactly once in its file, unless `replaceAll` is
-set. Edits apply in order, all or none: one that cannot be placed fails the
-call with `edit_not_found`, `edit_ambiguous`, `edit_file_not_found` or
-`edit_empty` and the offending `path`, and nothing is written. A stale
-`expectedRevision` fails with `draft_conflict` as it does for `write_draft`.
-`edit_draft` changes existing files only; creating or removing a file is a
-`write_draft`.
+set. An empty `oldString` creates a file at a path that does not exist yet,
+with `newString` as its contents, so adding an `api.json` is one edit rather
+than a `write_draft` of every file. Edits apply in order, all or none: one that
+cannot be placed fails the call with `edit_not_found`, `edit_ambiguous`,
+`edit_file_not_found`, `edit_file_exists` or `edit_empty` and the offending
+`path`, and nothing is written. Removing a file is still a `write_draft`.
+
+The revision check is per file. The host keeps a short history of each draft's
+revisions with a hash per file, beside the draft and outside its revision, so
+it can tell which files changed between the `expectedRevision` an edit was
+written against and the draft on disk:
+
+- A change to a file the edits touch fails the call with `draft_conflict`,
+  because an `oldString` must not be applied to a file that changed under it.
+- A change to any other file does not. The Wizard rewrites `manifest.json`
+  whenever the person resizes the preview, and that is no reason to refuse an
+  edit to `ui/app.js`.
+
+Either way the reply carries `changedFiles`: every file that differs from
+`expectedRevision`, with its current contents (`null` for a removed file). On a
+conflict that is the material to redo the edits against `currentRevision`; on
+success it keeps the client's copy exact, so the reply's revision never vouches
+for a file the client has not seen. A revision the history no longer holds is
+answered with every file. In both cases the client updates its copy instead of
+calling `read_draft` again:
+
+```json
+{
+  "code": "draft_conflict",
+  "currentRevision": "…",
+  "changedFiles": [{ "path": "manifest.json", "contents": "{…}" }]
+}
+```
 
 ### Who wrote it last
 
@@ -184,8 +211,8 @@ is written as sent and `validate_draft` reports `invalid_package_id`.
 Renaming a draft does not touch the installed widget of the old name. Only the
 Wizard's Save promotes a draft, and only it knows the two are the same widget.
 
-On a stale write the server returns a machine-readable `draft_conflict` error
-with `currentRevision`; no bytes are changed. Read the new snapshot, preserve
+On a stale `write_draft` the server returns a machine-readable `draft_conflict`
+error with `currentRevision`; no bytes are changed. Read the new snapshot, preserve
 or deliberately replace its complete file set, and write again against that
 revision. Every successful write is published as one complete staged tree, then
 validated and announced to the open Wizard.
@@ -198,22 +225,30 @@ HTTP request body is bounded separately and requests are concurrency-limited.
 
 `list_custom_widgets` and `read_custom_widget` operate on widgets that have
 already been saved to the custom root and are callable from the palette. To
-edit one, read its current `revision` and call `checkout_custom_widget`:
+edit one, call `checkout_custom_widget` with the last revision you hold of it:
 
 ```json
 {
   "id": "water-tracker",
-  "expectedRevision": "<revision returned by read_custom_widget>"
+  "expectedRevision": "<revision you last read or wrote>"
 }
 ```
 
+That revision may come from `read_custom_widget`, or be the last revision of
+the widget's draft before the person saved it — Save removes the draft, and the
+revision history outlives it for exactly this case. Leave `expectedRevision` out
+if you have read neither.
+
 The operation copies the complete saved source into `.drafts/<id>` and returns
-the new draft snapshot, including its `lastWriter`/`lastClient`/`lastClientName` byline. It
-refuses a changed source with `custom_conflict` and
-never replaces an existing draft (`draft_exists`) — on that error, call
-`read_draft` and continue from the draft that is already there rather than
-retrying the checkout. Then follow the normal `write_draft` → `validate_draft`
-workflow. The saved palette widget remains unchanged until a person opens the
+the new draft's summary, including its `lastWriter`/`lastClient`/`lastClientName`
+byline, plus `changedFiles`: every file that differs from `expectedRevision`,
+with its contents, or every file when there is none to compare. After a Save
+that only rewrote `ui.defaultSize`, that is `manifest.json` alone. The client
+then knows the draft exactly and continues with `edit_draft` against the
+returned `revision`. A checkout never replaces an existing draft
+(`draft_exists`) — on that error, call `read_draft` and continue from the draft
+that is already there rather than retrying the checkout. Then follow the normal
+`edit_draft` → `validate_draft` workflow. The saved palette widget remains unchanged until a person opens the
 draft in the Wizard and presses **Save**.
 
 This is the same operation the Wizard performs when a person opens a saved
@@ -269,9 +304,15 @@ are persisted by Kavibay, but the server still only runs while Kavibay is open.
 Check the status after startup; a bind error is retained so it can be retried
 from Settings.
 
-**A write returns `draft_conflict`.** Do not retry the old request. Read the
-latest draft, preserve or deliberately replace its complete file set, and pass
-the returned `currentRevision` as `expectedRevision`.
+**A write returns `draft_conflict`.** Do not retry the old request. After
+`edit_draft`, apply `changedFiles` to your copy and redo the edits against the
+returned `currentRevision`. After `write_draft`, read the latest draft, preserve
+or deliberately replace its complete file set, and pass `currentRevision` as
+`expectedRevision`.
+
+**An edit returns `draft_not_found` after the person saved.** Saving promotes
+the draft and removes it. Call `checkout_custom_widget` with the last revision
+you hold; the reply carries whatever the Save changed.
 
 **A draft is missing from the Wizard.** Call `list_drafts` to confirm that it
 exists under the custom authoring root. The Wizard refreshes its sidebar when

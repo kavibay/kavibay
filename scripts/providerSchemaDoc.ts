@@ -11,7 +11,7 @@
  * Write:  npx tsx scripts/providerSchemaDoc.ts
  * Check:  npx tsx scripts/providerSchemaDoc.assert.ts
  */
-import { readdirSync, existsSync } from "node:fs";
+import { readdirSync, existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ArgSpec, ProviderDefinition, ResultSchema } from "@sdk/contract/sdk";
@@ -30,6 +30,16 @@ export const DOC_PATH = join(repoRoot, "docs", "provider-schema.md");
  * come from the choosing side.
  */
 export const BLOCKS_PATH = join(repoRoot, "src-tauri", "src", "wizard", "provider-blocks.json");
+/**
+ * The catalog the MCP tool `list_widget_providers` answers with: names, never
+ * schemas.
+ *
+ * A client lists providers to pick one. The complete blocks it used to receive
+ * for that were most of 24 KB of arguments and fields, which it then fetched a
+ * second time from `get_authoring_guide` — that tool appends the blocks of the
+ * providers it is asked for, so the schema has exactly one place to come from.
+ */
+export const INDEX_PATH = join(repoRoot, "src-tauri", "src", "wizard", "provider-index.json");
 /**
  * The compiled allowlist, generated from the same definitions.
  *
@@ -221,6 +231,31 @@ export function renderPromptBlock(schema: ProviderSchema): string {
       : []),
   );
   return lines.join("\n");
+}
+
+/**
+ * `[{ id, displayName, description, queries, actions }]`, sorted by id.
+ *
+ * The description is the shipping extension's own manifest line. A provider
+ * definition carries none, and writing a second statement of what an
+ * extension is would be the drift this generator exists to prevent.
+ */
+export function renderIndex(providers: { folder: string; schema: ProviderSchema }[]): string {
+  const rows = providers
+    .map(({ folder, schema }) => {
+      const manifest = JSON.parse(
+        readFileSync(join(repoRoot, "extensions", folder, "manifest.json"), "utf8"),
+      ) as { description?: string };
+      return {
+        id: schema.id,
+        displayName: schema.displayName,
+        description: manifest.description ?? "",
+        queries: schema.queries.map((query) => query.name),
+        actions: schema.actions.map((action) => action.name),
+      };
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
+  return JSON.stringify(rows, null, 2) + "\n";
 }
 
 /** `{ providerId: block }` — what Rust embeds and picks from by id. */
