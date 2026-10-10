@@ -1,0 +1,130 @@
+[
+  {
+    "id": "kavibay.calendar/calendar",
+    "displayName": "Google Calendar",
+    "description": "Google Calendar month view for multiple calendars with day list and quick add.",
+    "queries": [
+      "calendars",
+      "events"
+    ],
+    "actions": [
+      "createEvent"
+    ]
+  },
+  {
+    "id": "kavibay.fitbit/fitbit",
+    "displayName": "Fitbit",
+    "description": "Fitbit profile, activity and sleep for widgets that connect a Fitbit account.",
+    "queries": [
+      "activityToday",
+      "nightSeries",
+      "nightVitals",
+      "profile",
+      "sleepHeartRate",
+      "sleepToday",
+      "sleepWeek"
+    ],
+    "actions": []
+  },
+  {
+    "id": "kavibay.github/github",
+    "displayName": "GitHub",
+    "description": "GitHub widgets for workflow runs and repository activity.",
+    "queries": [
+      "repoStatus",
+      "reviewRequests"
+    ],
+    "actions": []
+  },
+  {
+    "id": "kavibay.linear/linear",
+    "displayName": "Linear",
+    "description": "Linear issues and teams for widgets that connect a Linear account.",
+    "queries": [
+      "assignedIssues",
+      "teamIssues",
+      "teams"
+    ],
+    "actions": [
+      "createIssue",
+      "updateIssue"
+    ]
+  },
+  {
+    "id": "kavibay.n8n/n8n",
+    "displayName": "n8n",
+    "description": "n8n workflows and executions for widgets that connect an n8n instance.",
+    "queries": [
+      "executionProgress",
+      "executions",
+      "workflows"
+    ],
+    "actions": [
+      "triggerWebhook"
+    ]
+  },
+  {
+    "id": "kavibay.notion/notion",
+    "displayName": "Notion",
+    "description": "Notion pages and databases for widgets that connect a Notion integration.",
+    "queries": [
+      "databasePages",
+      "databases",
+      "pages"
+    ],
+    "actions": [
+      "setProperty"
+    ]
+  },
+  {
+    "id": "kavibay.spotify/spotify",
+    "displayName": "Spotify",
+    "description": "Spotify now-playing, library, top lists and playlists for widgets that connect a Spotify account.",
+    "queries": [
+      "currentlyPlaying",
+      "devices",
+      "me",
+      "playlists",
+      "playlistTracks",
+      "recentlyPlayed",
+      "savedTracks",
+      "topArtists",
+      "topTracks"
+    ],
+    "actions": [
+      "next",
+      "pause",
+      "play",
+      "playTrack",
+      "previous"
+    ]
+  },
+  {
+    "id": "kavibay.tado/tado",
+    "displayName": "tado°",
+    "description": "Smart thermostat tiles for tado° heating zones: read the room, set the target.",
+    "queries": [
+      "roomHistory",
+      "zones",
+      "zoneStates"
+    ],
+    "actions": [
+      "setTemperature"
+    ]
+  },
+  {
+    "id": "kavibay.weather/weather",
+    "displayName": "Weather (Open-Meteo)",
+    "description": "Current weather for a chosen location.",
+    "queries": [
+      "airQuality",
+      "airQualityHours",
+      "current",
+      "forecast",
+      "places",
+      "sun",
+      "temperatureHours"
+    ],
+    "actions": []
+  }
+]
