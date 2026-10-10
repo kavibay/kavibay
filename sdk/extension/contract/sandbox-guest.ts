@@ -561,6 +561,7 @@ export function sandboxContext<T>(
   /** One handle per declared provider, each closing over its own id. */
   const apiFor = (provider: ProviderId): WidgetProviderApi => ({
     query: (name, args) => call({ type: "provider.query", provider, name, args: args ?? {} }),
+    refresh: (name, args) => call({ type: "provider.refresh", provider, name, args: args ?? {} }),
     action: (name, args) => call({ type: "provider.action", provider, name, args: args ?? {} }),
     subscribe: async (name, args, onState) => {
       const subscriptionId = `${instance.id}-${++n}`;

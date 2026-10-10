@@ -604,6 +604,12 @@ assert(
   "and says what happens to the rest, or omitting a file reads as deleting it",
 );
 assert(/deleted=true/.test(editTurn), "with the one way to actually remove one");
+// "Most of it" let the model resend whole files for one-line changes; the
+// threshold has to be one it can count.
+assert(
+  /```edit path=/.test(editTurn) && /more than\s+half of its lines/i.test(editTurn),
+  "a follow-up asks for edit blocks and names when a whole file is allowed",
+);
 // Not on the first turn: there is no package to be partial against, and a model
 // told it may omit files before one exists omits them.
 assert(

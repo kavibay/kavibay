@@ -1686,18 +1686,29 @@ export function turnForPackage(
      * per turn would throw that away. And it is not true on the first turn:
      * there is no package to be partial against, and a model told it may omit
      * files before one exists omits them.
+     *
+     * A NUMBER, NOT "MOST OF IT". Measured over 41 stored follow-ups, the
+     * earlier wording ("send the whole file when you are rewriting most of
+     * it") was in front of the model 36 times, and it still resent whole files
+     * in 19 of them — 24 files over 30 lines with under a fifth of their lines
+     * changed, roughly half of all follow-up output. "Most" left the call to
+     * the model; a threshold it can count does not.
      */
     parts.push(
       "This widget already exists, so return **only the files you change** — " +
         "every file you leave out is kept exactly as it is. Do not repeat a " +
         "file whose contents you are not changing. To remove a file, emit its " +
         "block with `deleted=true` and an empty body.\n\n" +
-        "For a change to part of a file, send an edit block instead of the whole " +
-        "file. Each SEARCH text is copied exactly from the current file and occurs " +
-        "there once; add surrounding lines until it does:\n\n" +
+        "**Change an existing file with edit blocks, not by sending it again.** " +
+        "Each SEARCH text is copied exactly from the current file and occurs " +
+        "there once; add surrounding lines until it does. One block per place " +
+        "you change:\n\n" +
         "```edit path=app.js\n<<<<<<< SEARCH\nconst GOAL = 2000;\n=======\n" +
         "const GOAL = 2500;\n>>>>>>> REPLACE\n```\n\n" +
-        "Send the whole file when you are rewriting most of it.",
+        "Send a whole file only when it is new, or when you change more than " +
+        "half of its lines. Resending a long file to change a few lines costs " +
+        "the person several times what the edit would, and it is the most " +
+        "common way a follow-up goes wrong.",
     );
   }
 

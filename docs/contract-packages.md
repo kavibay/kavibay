@@ -475,6 +475,7 @@ await ctx.data.delete(key)
 ctx.providers[id].query(name, args)   // one read, cached by the host
 ctx.providers[id].action(name, args)  // write through the provider; declared in its entry's actions
 ctx.providers[id].subscribe(name, args, (state) => {})
+ctx.providers[id].refresh(name, args) // fetch now, for a refresh button; subscribers get it too
 ctx.providers[id].status()
 
 ctx.openExternal.open(url)       // open one provider url in the person's browser
@@ -524,6 +525,14 @@ displays `ADM-72` is finished; one with a button that throws is not.
 `subscribe` is how a widget stays current. The host refetches on its own
 schedule and pushes the result; a package never polls, and a `setInterval`
 calling `query` will be refused by the rate limit rather than working.
+
+A refresh button is the one exception, and it calls `refresh`, not `query`:
+`query` answers from the host's cache until the data is stale, which for tado°
+is sixteen minutes. `refresh` fetches now and pushes the result to every
+subscriber, so a widget that subscribed needs no other code to redraw. Call it
+only from a click: the host answers a second refresh of the same query within a
+minute from cache, so a timer gains nothing and a provider's daily budget stays
+intact.
 
 Only `status: "success"` carries data:
 

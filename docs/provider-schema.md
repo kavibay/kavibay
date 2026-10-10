@@ -124,9 +124,9 @@ Needs a connected account. The widget gate shows a connect prompt until then.
 |---|---|---|---|---|
 | `roomHistory` | Temperature and humidity in one room between two local times (a reading every 15 minutes, at most 48 hours), plus when it heated (level 1–3) and when a window was open. A sleep's startTime and endTime fit as they are | `zoneId: string` (from `zones`), `start: string`, `end: string` | `{ readings: list of { time: string, temperature: number?, humidity: number? }, heating: list of { from: string, to: string, level: number }, windowOpen: list of { from: string, to: string } }` | 60 min |
 | `zones` | The names of your heating zones | none | `list of { id: string, name: string }` | 360 min |
-| `zoneStates` | Current temperature, humidity and target temperature in every room | none | `list of { id: string, temperature: number?, humidity: number?, target: number? }` | 16 min |
+| `zoneStates` | Current temperature, humidity, target temperature and whether a window is open in every room | none | `list of { id: string, temperature: number?, humidity: number?, target: number?, windowOpen: boolean }` | 16 min |
 
-Actions: `setTemperature` (write).
+Actions: `setTemperature` (write), `turnOff` (write).
 
 ## Weather (Open-Meteo)
 

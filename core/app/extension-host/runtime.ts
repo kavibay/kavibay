@@ -30,6 +30,13 @@ import { useDeveloperPrefs } from "../settings/useDeveloperPrefs";
 
 const fail = (e: ProviderError) => { throw e; };
 
+/**
+ * How soon a refresh click may fetch the same query again. One minute: long
+ * enough that a burst of clicks costs one upstream call, short enough that a
+ * person who just closed a window sees it on the next click.
+ */
+const REFRESH_FLOOR_MS = 60_000;
+
 export interface HostUi {
   prompt(spec: ArgSpec & { name: string; options?: { value: string | number; label: string }[] }):
     Promise<string | number | boolean | undefined>;
@@ -231,6 +238,19 @@ export class Host {
     const q = def.queries[name] ?? fail({ kind: "not-found", message: `unknown query ${name}` });
     return this.cache.read<T>([id, name, ...this.connectionKey(connection), ...q.key(args)], q.staleTime ?? 30_000, () =>
       this.runFetch(id, name, q, args, connection),
+    );
+  }
+
+  /** `query`, but past the cache — see `QueryCache.refresh` for the floor. */
+  async refresh<T>(id: ProviderId, name: string, args: any, caller: Caller = null): Promise<T> {
+    const connection = await this.requestConnection(id, caller);
+    const def = this.registry.providers.get(id)!.def;
+    const q = def.queries[name] ?? fail({ kind: "not-found", message: `unknown query ${name}` });
+    return this.cache.refresh<T>(
+      [id, name, ...this.connectionKey(connection), ...q.key(args)],
+      q.staleTime ?? 30_000,
+      () => this.runFetch(id, name, q, args, connection),
+      REFRESH_FLOOR_MS,
     );
   }
 
@@ -687,6 +707,7 @@ export class Host {
   providerApi(pid: ProviderId, caller: Caller = null): WidgetProviderApi {
     return {
       query: (name, args) => this.query(pid, name, args ?? {}, caller),
+      refresh: (name, args) => this.refresh(pid, name, args ?? {}, caller),
       action: (name, args) => this.action(pid, name, args ?? {}, caller),
       subscribe: (name, args, onState) => this.subscribe(pid, name, args ?? {}, onState, caller),
       status: async () => this.providerStatus(pid, caller?.instanceId),
