@@ -1,6 +1,7 @@
 import { createApp } from "vue";
 import "./styles.css";
 import { hydrateDurableStorage } from "./system/durableStorage";
+import { widgetWindowType } from "./host/widgetWindow";
 import { vTip } from "./system/floatingTip";
 import { suppressNativeContextMenu } from "./system/nativeContextMenu";
 import { installOverlayScrollbars } from "./system/overlayScroll";
@@ -11,10 +12,18 @@ suppressNativeContextMenu();
 // in composables that read localStorage while their module body runs
 // (useExtensionsPrefs, useDeveloperPrefs, …), so a static import here would read
 // an empty cache before the durable copy has landed. See system/durableStorage.
-void hydrateDurableStorage().then(async () => {
+//
+// A widget window (`?widgetWindow=<type>`, see host/widgetWindow.ts) skips the
+// hydration: the overlay opened it, so this origin's localStorage is already
+// filled, and the overlay stays the one writer of the durable copy — it sees
+// this window's writes through the `storage` event.
+const ready = widgetWindowType ? Promise.resolve() : hydrateDurableStorage();
+void ready.then(async () => {
   await import("./settings/useAppearance");
-  const { default: App } = await import("./App.vue");
+  const app = widgetWindowType
+    ? createApp((await import("./host/WidgetWindow.vue")).default, { typeId: widgetWindowType })
+    : createApp((await import("./App.vue")).default);
 
-  createApp(App).directive("tip", vTip).mount("#app");
+  app.directive("tip", vTip).mount("#app");
   installOverlayScrollbars();
 });

@@ -26,6 +26,7 @@ import CockpitWidget from "./ui/CockpitWidget.vue";
 import CockpitWidgetSettings from "./ui/CockpitWidgetSettings.vue";
 import WidgetConnectionSettings from "./ui/WidgetConnectionSettings.vue";
 import { useSettingsModal } from "../settings/useSettingsModal";
+import { openWidgetWindow, widgetWindowType, widgetWindowsSupported } from "../host/widgetWindow";
 
 /**
  * Where the extension host meets the running app.
@@ -449,6 +450,9 @@ function toRegistered(definitionId: string): RegisteredExtension | undefined {
   // Declared in the manifest, implemented in the definition, paired by
   // `bundledExtensions.ts` — which refuses either half without the other.
   const localActions = bundled?.actions ?? [];
+  const windowSize = metadata.defaultSize
+    ? { ...metadata.defaultSize }
+    : { w: widget.defaultSize.w * 120, h: widget.defaultSize.h * 90 };
   const actions: ExtensionAction[] = localActions.map((action) => ({
     id: action.id,
     title: action.title,
@@ -462,6 +466,18 @@ function toRegistered(definitionId: string): RegisteredExtension | undefined {
     localActions.map((action) => [
       action.id,
       async ({ instanceId, args }: { instanceId: string; args: Record<string, string> }) => {
+        // A windowed widget's state lives in its window's document, so its
+        // actions run there: the overlay only opens the window and says which.
+        if (metadata.ownWindow && !widgetWindowType && (await widgetWindowsSupported())) {
+          await openWidgetWindow(
+            { id: catalogId, title: widget.displayName, defaultSize: windowSize },
+            { action: action.id, args },
+          );
+          // The palette keeps the overlay open after an action, and the
+          // overlay is always on top: the window would open behind it.
+          window.dispatchEvent(new Event("kavibay:dismiss-cockpit"));
+          return;
+        }
         const instance: WidgetInstance = {
           id: instanceId,
           definitionId,
@@ -501,9 +517,7 @@ function toRegistered(definitionId: string): RegisteredExtension | undefined {
     iconComponent: bundled?.icon,
     menuComponent: bundled?.menu,
     position: metadata.position ? { ...metadata.position } : { x: 0, y: 0 },
-    defaultSize: metadata.defaultSize
-      ? { ...metadata.defaultSize }
-      : { w: widget.defaultSize.w * 120, h: widget.defaultSize.h * 90 },
+    defaultSize: windowSize,
     allowDuplicate: metadata.allowDuplicate ?? true,
     flush: metadata.flush ?? false,
     ...(metadata.padding === false ? { padding: false } : {}),
@@ -517,6 +531,7 @@ function toRegistered(definitionId: string): RegisteredExtension | undefined {
     hugHeight: metadata.hugHeight ?? false,
     opaque: metadata.opaque ?? false,
     keepAliveWhenHidden: metadata.keepAliveWhenHidden ?? false,
+    ...(metadata.ownWindow ? { ownWindow: true } : {}),
     ...(metadata.appearance ? { appearance: metadata.appearance } : {}),
     ...(metadata.appearanceEditable ? { appearanceEditable: true } : {}),
     permissions: [],

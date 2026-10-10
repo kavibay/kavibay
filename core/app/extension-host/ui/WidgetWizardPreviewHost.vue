@@ -6,7 +6,7 @@
  * CockpitWidget provides this component as a narrow rendering seam; the
  * extension supplies only package identity, URL, format and geometry.
  */
-import { computed, ref, useId, watch } from "vue";
+import { computed, onUnmounted, ref, useId, watch } from "vue";
 import { IconBase } from "@sdk/icons";
 import type { WizardPreviewElement } from "@sdk/wizardPreview";
 import { provideWizardPreviewPicker } from "../wizardPreviewPicker";
@@ -157,8 +157,38 @@ watch(
   },
 );
 
+/**
+ * Shrink a card bigger than the stage until it fits, never enlarge one.
+ *
+ * The stage centres the card and clips it, so an oversized one lost its edges
+ * on both sides and ran under the toolbar — common once the Wizard became a
+ * window of its own, whose preview column is narrower than a desk-sized card.
+ * Measured from layout sizes, which a transform does not change.
+ */
+const STAGE_GAP = 24;
+const fit = ref(1);
+function measureFit() {
+  const stage = stageEl.value;
+  const card = cardEl.value;
+  if (!stage || !card?.offsetWidth || !card.offsetHeight) return;
+  fit.value = Math.min(
+    1,
+    (stage.clientWidth - STAGE_GAP) / card.offsetWidth,
+    (stage.clientHeight - STAGE_GAP) / card.offsetHeight,
+  );
+}
+const fitObserver = new ResizeObserver(measureFit);
+watch([stageEl, cardEl], ([stage, card]) => {
+  fitObserver.disconnect();
+  if (stage) fitObserver.observe(stage);
+  if (card) fitObserver.observe(card);
+});
+onUnmounted(() => fitObserver.disconnect());
+
 const cardStyle = computed(() => ({
-  transform: `${props.sharing ? "scale(var(--share-preview-scale, 1)) " : ""}translate(${offset.value.x}px, ${offset.value.y}px)`,
+  transform: props.sharing
+    ? `scale(var(--share-preview-scale, 1)) translate(${offset.value.x}px, ${offset.value.y}px)`
+    : `scale(${Math.max(0.1, fit.value)}) translate(${offset.value.x}px, ${offset.value.y}px)`,
 }));
 
 /** Movement and resize offsets use the card's local pixels, even when fitted to the canvas. */

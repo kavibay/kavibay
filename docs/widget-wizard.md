@@ -387,14 +387,14 @@ so the request lands on the card the host chose instead of on whichever one the
 extension guessed at. A request no card ever answers expires after five seconds,
 so it cannot ambush the next deliberate open.
 
-The action's row also **replaces the Wizard's catalog row** in search results
-(`"replacesCatalogRow": true`). Both rows opened the Wizard and only one of them
-also started a project, so the other was noise. The **+** menu and the gallery
-build their lists from the catalog directly and still offer it.
+The action's row sits **beside** the Wizard's catalog row in search results.
+The catalog row opens the Wizard's window on the projects you already have; the
+action opens it on a new one. (When the Wizard was a card the action replaced
+the catalog row, since both opened the same card.)
 
 `newWidgetAction.assert.ts` pins the dispatch, the single redemption and the
-expiry; `paletteResults.assert.ts` pins that the catalog row goes and that
-Snippets' instance-less action — which never opens its widget — keeps its own.
+expiry; `paletteResults.assert.ts` pins how `replacesCatalogRow` drops a catalog row
+and that Snippets' instance-less action — which never opens its widget — keeps its own.
 
 ## What it needs
 

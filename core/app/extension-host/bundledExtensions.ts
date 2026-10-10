@@ -53,6 +53,7 @@ export interface ContractCatalogMetadata {
   hugHeight?: boolean;
   opaque?: boolean;
   keepAliveWhenHidden?: boolean;
+  ownWindow?: boolean;
   appearance?: WidgetAppearance;
   appearanceEditable?: boolean;
 }
@@ -188,6 +189,7 @@ function toCatalogMetadata(entry: Record<string, unknown>): ContractCatalogMetad
     hugHeight: asBool(ui.hugHeight),
     opaque: asBool(ui.opaque),
     keepAliveWhenHidden: asBool(ui.keepAliveWhenHidden),
+    ownWindow: asBool(ui.ownWindow),
     appearance: normalizeWidgetAppearance(ui.appearance),
     appearanceEditable: asBool(asRecord(ui.appearance).editable),
   };

@@ -32,10 +32,14 @@ onMounted(async () => {
   window.addEventListener("keydown", onKeydown);
   // Tray → Settings: open the same modal as the palette Settings command,
   // on a given section when the tray names one (Check for Updates → About).
-  unlistenSettingsShow = await listen<SettingsSectionId | null>("settings:show", ({ payload }) => {
-    if (payload) showSection(payload);
-    else showSettings();
-  });
+  // A widget window (the Wizard) also comes this way, naming the row to select.
+  unlistenSettingsShow = await listen<{ section: SettingsSectionId; focus: string | null } | null>(
+    "settings:show",
+    ({ payload }) => {
+      if (payload) showSection(payload.section, payload.focus ?? undefined);
+      else showSettings();
+    },
+  );
 });
 onUnmounted(() => {
   window.removeEventListener("keydown", onKeydown);

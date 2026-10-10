@@ -26,6 +26,7 @@ mod security;
 mod settings_store;
 mod updater;
 mod web_storage;
+mod widget_window;
 mod wizard;
 
 /// The per-extension Rust backends, named here so the command list below reads
@@ -612,9 +613,9 @@ pub fn run() {
                     .show_menu_on_left_click(true)
                     .on_menu_event(|app, event| match event.id().as_ref() {
                         "open" => reveal_main_window(app),
-                        "settings" => reveal_settings(app, None),
+                        "settings" => reveal_settings(app, None, None),
                         // About runs the check itself, and shows how it went.
-                        "check_updates" => reveal_settings(app, Some("about")),
+                        "check_updates" => reveal_settings(app, Some("about"), None),
                         // Only clickable once an update is downloaded.
                         "version" => {
                             let _ = updater::install(app);
@@ -780,6 +781,10 @@ pub fn run() {
             preview_capture::save_preview_clip,
             preview_capture::save_preview_image,
             preview_capture::stop_preview_clip,
+            widget_window::widget_window_supported,
+            widget_window::widget_window_open,
+            widget_window::widget_window_run,
+            widget_window::widget_window_show_settings,
             wizard::wizard_models,
             wizard::wizard_complete,
             wizard::store::wizard_conversations_list,
@@ -841,13 +846,18 @@ fn reveal_main_window(app: &tauri::AppHandle) {
     let _ = window.emit("palette:show", ());
 }
 
-/// Tray Settings: reveal the cockpit, then open the global Settings modal.
+/// Reveal the cockpit, then open the global Settings modal.
 /// `section` is a Settings section id; `None` opens on the default one.
-fn reveal_settings(app: &tauri::AppHandle, section: Option<&str>) {
-    reveal_main_window(app);
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.emit("settings:show", section);
+/// `focus` is the row to select in it (a credential type, an AI provider).
+fn reveal_settings(app: &tauri::AppHandle, section: Option<&str>, focus: Option<&str>) {
+    #[derive(Clone, Serialize)]
+    struct SettingsShow<'a> {
+        section: &'a str,
+        focus: Option<&'a str>,
     }
+    reveal_main_window(app);
+    let payload = section.map(|section| SettingsShow { section, focus });
+    let _ = app.emit_to("main", "settings:show", payload);
 }
 
 /// Read the configured open-monitor target (defaults to cursor if unset).
@@ -1585,6 +1595,14 @@ mod acl_tests {
             assert!(
                 allowed("main", command),
                 "the main window must reach {command}"
+            );
+        }
+
+        // A widget window (the Wizard) runs the same first-party app as main.
+        for command in &commands {
+            assert!(
+                allowed("widget-window-widget-wizard", command),
+                "a widget window must reach {command}"
             );
         }
 

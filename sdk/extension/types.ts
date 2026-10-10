@@ -455,6 +455,11 @@ export interface RegisteredExtension {
   opaque: boolean;
   /** Keep running when hidden or on another desk; disabling/deleting ends background work. */
   keepAliveWhenHidden?: boolean;
+  /**
+   * Lives in a window of its own instead of on the desk (`ui.ownWindow`), so it
+   * can sit beside other apps in Alt+Tab. Hosts without windows ignore it.
+   */
+  ownWindow?: boolean;
   /** The card's own surface from `ui.appearance`. */
   appearance?: WidgetAppearance;
   /** `ui.appearance.editable`: each instance may change it in its settings. */
