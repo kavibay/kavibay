@@ -68,6 +68,25 @@ pub fn provider_ids() -> Vec<String> {
     ids
 }
 
+/// The provider catalog without schemas, generated from the same definitions as
+/// the blocks and checked by the same assert.
+const PROVIDER_INDEX: &str = include_str!("provider-index.json");
+
+/// One provider as `list_widget_providers` lists it: enough to pick one.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderSummary {
+    pub id: String,
+    pub display_name: String,
+    pub description: String,
+    pub queries: Vec<String>,
+    pub actions: Vec<String>,
+}
+
+pub fn provider_summaries() -> Vec<ProviderSummary> {
+    serde_json::from_str(PROVIDER_INDEX).unwrap_or_default()
+}
+
 /// Exact generated provider schema document used by the read-only MCP resource.
 pub fn provider_schema_document() -> String {
     PROVIDER_BLOCKS.to_string()
