@@ -7,6 +7,7 @@ import { hasKeptInstance, shouldKeepWindowAfterDismiss, survivesDismiss } from "
 import { widgetFocusRequestMatches, WIDGET_FOCUS_EVENT } from "../../../sdk/extension/widgetFocusRequest.ts";
 import { classifyCtrlKey, emptyCtrlTapState, observeCtrlTap } from "./ctrlDoubleTap.ts";
 import { isSetupVisible } from "../onboarding/setupLogic.ts";
+import { resolvePeek } from "./peekSession.ts";
 
 // Run the actual SFC handlers with native effects stubbed; no copied pop logic.
 function source(path) {
@@ -268,3 +269,58 @@ assert.deepEqual(trace, ["close"], "after setup the double tap still closes the 
 assert.equal(setupContext.setupGestureCount.value, 1, "completed setup receives no further tour-start requests");
 console.log("setup gesture handoff assertions passed");
 
+// Iframe clicks must use the same keep/raise path as native widget chrome.
+instances.splice(0, instances.length,
+  { instanceId: "timer", typeId: "background" },
+  { instanceId: "other", typeId: "plain" },
+  { instanceId: "untouched", typeId: "plain" },
+  { instanceId: "pinned", typeId: "plain", pinned: true },
+);
+cockpitOpen.value = false;
+peekKept.value.clear();
+Object.assign(context, {
+  resolvePeek, peeking: ref(false), peekRestorePaletteHidden: false,
+  frontInstanceId: ref(null), focusedInstanceId: ref(null),
+  previewInstanceId: ref(null), paletteFront: ref(false),
+});
+const frames = ["timer", "other"].map((id) => ({
+  contentWindow: {},
+  closest: () => ({ dataset: { widgetInstance: id } }),
+}));
+context.document = { querySelectorAll: () => frames };
+handlers(script("./WidgetHost.vue"), ["raiseWidget", "onFramePointerDown", "onPeekHotkey"], context);
+const framePress = (source, instanceId = "pinned") => context.onFramePointerDown({
+  source, data: { type: "kavibay.ext.pointerdown", instanceId },
+});
+framePress(frames[0].contentWindow);
+assert.equal(peekKept.value.size, 0, "ordinary iframe clicks do not create a temporary keep");
+context.onPeekHotkey(true, true);
+trace.length = 0;
+framePress({});
+framePress(null);
+context.onFramePointerDown({ source: frames[0].contentWindow, data: null });
+context.onFramePointerDown({ source: frames[0].contentWindow, data: { type: "unrelated" } });
+assert.equal(peekKept.value.size, 0, "unrelated or unknown sources cannot keep a widget");
+framePress(frames[0].contentWindow);
+framePress(frames[1].contentWindow);
+assert.deepEqual(Array.from(peekKept.value), ["timer", "other"],
+  "frame identity, never a payload id, selects every clicked widget");
+assert.equal(context.frontInstanceId.value, "other", "iframe clicks also raise the card");
+context.onPeekHotkey(false, false);
+assert.deepEqual(visible(), ["timer", "other", "pinned"],
+  "releasing Ctrl+Space keeps clicked and pinned cards and hides untouched ones");
+assert.deepEqual(trace, ["onSuspend:untouched"], "kept cards continue running after release");
+assert.equal(instances[1].pinned, undefined, "clicking during peek never saves a pin");
+context.onDismissOutside();
+assert.deepEqual(visible(), ["pinned"], "ordinary dismiss releases temporary keeps");
+assert(trace.includes("onSuspend:other"), "dismissing a kept card suspends it");
+instances[3].pinned = false;
+context.onPeekHotkey(true, true);
+context.raiseWidget("other");
+context.onPeekHotkey(false, false);
+assert.deepEqual(visible(), ["other"], "native chrome clicks still keep their card");
+context.onDismissOutside();
+context.onPeekHotkey(true, true);
+context.onPeekHotkey(false, false);
+assert.deepEqual(visible(), [], "a later untouched peek cannot revive previous keeps");
+console.log("peek interaction handoff assertions passed");

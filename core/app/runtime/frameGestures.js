@@ -1,5 +1,10 @@
 /** Host-served in every package document; widgets do not implement host gestures. */
-(function forwardWidgetZoom() {
+(function forwardWidgetGestures() {
+  // Pointer events never bubble out of the iframe into the host's card.
+  window.addEventListener("pointerdown", function () {
+    parent.postMessage({ type: "kavibay.ext.pointerdown" }, "*");
+  }, { capture: true });
+
   var gestureScale = null;
   function send(change) {
     parent.postMessage(Object.assign({ type: "kavibay.ext.zoom" }, change), "*");
