@@ -264,6 +264,15 @@ change breaks one, the change is wrong.
   files under `docs/`; `docs/superpowers/` is gitignored for skills that write
   plans there.
 
+## Commits and PRs
+
+PR titles are checked by `.github/workflows/pr-title.yml` (squash merges use
+them as the commit message), so every PR title must be a Conventional Commit:
+`<type>(<optional scope>): <lowercase subject>`, type one of `feat fix docs
+refactor perf test build ci chore`, scope usually the extension id — e.g.
+`feat(wizard): open the Widget Wizard in its own window`. Use the same form for
+commit messages. Never a plain title like "Widget Wizard in its own window".
+
 ## Definition of done (any change)
 
 `pnpm run verify` green · `pnpm run verify:rust` green when Rust was touched · manual UI
@@ -286,6 +295,13 @@ checks.
 Anything that touches the embed package (`core/embed/`), the web entry
 (`core/web/`), their Vite configs, or the bundles the landing loads **does** run typecheck — `pnpm run verify`. A broken import
 there is a typecheck failure that the static-only exception would hide.
+
+# TLDR
+
+Before **What you need from me**, put a short TLDR: the handful of things that
+matter from this turn, as bullet points. Outcomes, decisions, and anything I
+need to know at a glance — not a recap of every step. If the turn was a
+one-liner, one bullet is enough.
 
 # What you need from me
 - End every turn where you're blocked on me, or where the next step needs me, with a short "**What I need from you**" section. Numbered, one concrete action per item: exactly what to do, where (which site, app, file or person), and what to send back. e.g. "Add `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` under GitHub → kavibay/kavibay → Settings → Secrets → Actions, then tell me when they are in", not "I need the signing key".

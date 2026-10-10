@@ -171,6 +171,7 @@ import WidgetInstanceView from "./WidgetInstanceView.vue";
 import DemoHotkeyOverlay from "./DemoHotkeyOverlay.vue";
 import { kavibayCockpitOpen, type CockpitTrigger } from "./cockpitSession";
 import { startBrowserZoomGuard } from "./browserZoomGuard";
+import { openWidgetWindow, widgetWindowInstanceId, widgetWindowsSupported } from "./widgetWindow";
 
 const extensionRegistry = listExtensions().filter((extension) => extension.isWidget);
 const { hideOnOutsideClick, widgetLayoutMode } = useAppearance();
@@ -555,6 +556,7 @@ let unlistenCockpitPeek: UnlistenFn | undefined;
 let unlistenOutsideClick: UnlistenFn | undefined;
 let unlistenQuickActionWidget: UnlistenFn | undefined;
 let unlistenDraftChanged: UnlistenFn | undefined;
+let unlistenWidgetWindow: UnlistenFn[] = [];
 /** Instance currently showing the search flash highlight (null = none). */
 const highlightedInstanceId = ref<string | null>(null);
 /** Raised above sibling widgets while focused from search. */
@@ -812,6 +814,33 @@ function widgetStyle(instance: WidgetInstance) {
  */
 function defFor(typeId: string): HostExtensionRef | undefined {
   return resolveExtension(typeId);
+}
+
+/** Set once the backend says it can open windows; see `widgetWindow.ts`. */
+let widgetWindows = false;
+
+/** The extension when `typeId` opens in its own window rather than as a card. */
+function windowedExtension(typeId: string) {
+  const extension = getExtension(typeId);
+  return widgetWindows && extension?.ownWindow ? extension : undefined;
+}
+
+/**
+ * Drop cards of windowed types — layouts saved before the type moved into its
+ * window. Its state is not card state: the Wizard keeps conversations in Rust.
+ */
+function removeWindowedCards() {
+  const stale = layoutDoc.catalog.filter((entry) => windowedExtension(entry.typeId));
+  if (stale.length === 0) return;
+  flushToDoc();
+  let next = cloneLayoutDoc();
+  for (const entry of stale) next = removeEverywhere(next, entry.instanceId);
+  applyLayoutDoc(next);
+  reloadInstances();
+  for (const entry of stale) {
+    runExtensionHook(getExtension(entry.typeId), "onDispose", entry.instanceId);
+  }
+  persist();
 }
 
 /** Open About with the effective UI values of this concrete widget instance. */
@@ -2183,6 +2212,15 @@ async function onRunRuntimeWidget(event: Event) {
   if (typeof typeId !== "string" || !typeId) return;
   // Bundled widgets are already registered; opening them must not wait for disk scans.
   if (!getExtension(typeId)) await rescanRuntimeExtensions();
+  const windowed = windowedExtension(typeId);
+  if (windowed) {
+    closeCockpit();
+    await openWidgetWindow(
+      windowed,
+      detail?.openPackageId ? { openPackageId: detail.openPackageId } : {},
+    );
+    return;
+  }
   /**
    * A card of this type that is already on screen is the answer.
    *
@@ -2225,9 +2263,18 @@ onMounted(async () => {
   }
   // Same moment, same reason: the catalog is loaded and complete here, which is
   // the only point where "this instance no longer exists" can be said safely.
-  void pruneConnections(layoutDoc.catalog.map((entry) => entry.instanceId)).catch(
-    console.error,
-  );
+  // Windowed widgets have no catalog entry, and their binding must survive too.
+  const windowInstanceIds = listExtensions()
+    .filter((extension) => extension.ownWindow)
+    .map((extension) => widgetWindowInstanceId(extension.id));
+  void pruneConnections([
+    ...layoutDoc.catalog.map((entry) => entry.instanceId),
+    ...windowInstanceIds,
+  ]).catch(console.error);
+  void widgetWindowsSupported().then((supported) => {
+    widgetWindows = supported;
+    removeWindowedCards();
+  });
   window.addEventListener("kavibay:reveal-widget", onRevealWidgetEvent);
   window.addEventListener("kavibay:dismiss-cockpit", onDismissOutside);
   window.addEventListener("kavibay:resize-widget", onResizeWidgetEvent);
@@ -2288,6 +2335,17 @@ onMounted(async () => {
   unlistenOutsideClick = await listen("cockpit:outside-click", () => {
     onDismissOutside();
   });
+  // A widget window cannot reach the desk: Rust has already revealed this
+  // window, and the request goes down the path the card's own event takes.
+  unlistenWidgetWindow = await Promise.all([
+    listen<{ typeId?: string; openPackageId?: string }>("widget-window:run", (event) => {
+      window.dispatchEvent(
+        new CustomEvent("kavibay:run-runtime-widget", { detail: event.payload }),
+      );
+    }),
+    // The Wizard saved, enabled or deleted a package in its own window.
+    listen("widget-window:packages-changed", () => void rescanRuntimeExtensions()),
+  ]);
   unlistenQuickActionWidget = await listen<{
     extensionId: string;
     actionId: string;
@@ -2408,6 +2466,7 @@ onUnmounted(() => {
   unlistenOutsideClick?.();
   unlistenQuickActionWidget?.();
   unlistenDraftChanged?.();
+  for (const unlisten of unlistenWidgetWindow) unlisten();
   setOutsideClickDismiss(false);
 });
 
@@ -2796,6 +2855,12 @@ function onAddType(
   },
 ): string | undefined {
   if (!isEnabled(typeId)) return undefined;
+  const windowed = windowedExtension(typeId);
+  if (windowed) {
+    closeCockpit();
+    void openWidgetWindow(windowed).catch(console.error);
+    return undefined;
+  }
   if (!opts?.forceNew) {
     const hidden = instances.find(
       (row) => row.typeId === typeId && row.hidden === true,

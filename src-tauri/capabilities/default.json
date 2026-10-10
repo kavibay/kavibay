@@ -1,14 +1,19 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": ["main"],
+  "description": "Capability for the main window and the windows of widgets that live outside the desk (ui.ownWindow). Both run first-party code only.",
+  "windows": ["main", "widget-window-*"],
   "permissions": [
     "dialog:default",
     "core:default",
     "core:window:allow-hide",
     "core:window:allow-show",
     "core:window:allow-set-focus",
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
     "app-commands"
   ]
 }

@@ -96,6 +96,9 @@ export const ANSWERS: Record<string, (args: Args) => unknown> = {
     return null;
   },
 
+  // One document, no windows: the Wizard stays a card on the demo desk.
+  widget_window_supported: () => false,
+
   ...WINDOW_ANSWERS,
   ...WIZARD_ANSWERS,
   ...PROVIDER_ANSWERS,
@@ -135,6 +138,10 @@ export const NO_OPS = new Set([
 ]);
 
 export const NOT_ON_WEB = new Set<string>([
+  // Widget windows; never reached once `widget_window_supported` says no.
+  "widget_window_open",
+  "widget_window_run",
+  "widget_window_show_settings",
   // The machine: clipboard history, screen, media session, system sensors.
   "clipboard_list",
   "clipboard_clear",

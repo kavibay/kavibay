@@ -21,7 +21,8 @@
         "defaultHideTitle": false,
         "padding": false,
         "opaque": true,
-        "keepAliveWhenHidden": true
+        "keepAliveWhenHidden": true,
+        "ownWindow": true
       },
       "actions": [
         {
@@ -29,8 +30,7 @@
           "title": "New Widget",
           "subtitle": "Start a new widget in the Widget Wizard",
           "keywords": ["new", "widget", "wizard", "create", "build", "generate", "project"],
-          "needsInstance": false,
-          "replacesCatalogRow": true
+          "needsInstance": false
         }
       ]
     }

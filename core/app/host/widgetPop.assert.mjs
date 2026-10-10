@@ -215,6 +215,7 @@ const openContext = {
   rescanRuntimeExtensions: async () => { scans++; },
   onAddType: () => "new-runtime",
   onFocusWidget: async (id) => trace.push(`open-focus:${id}`),
+  windowedExtension: () => undefined,
 };
 handlers(script("./WidgetHost.vue"), ["onRunRuntimeWidget"], openContext);
 await openContext.onRunRuntimeWidget({ detail: { typeId: "widget-wizard" } });
@@ -222,6 +223,17 @@ assert.equal(scans, 0, "opening a bundled Wizard does not wait for unrelated run
 assert.equal(trace.at(-1), "open-focus:wizard");
 await openContext.onRunRuntimeWidget({ detail: { typeId: "saved-package" } });
 assert.equal(scans, 1, "new runtime packages are still discovered before opening");
+// A windowed type (the Wizard on the desktop) opens its window, never a card.
+Object.assign(openContext, {
+  windowedExtension: (id) => (id === "widget-wizard" ? { id } : undefined),
+  closeCockpit: () => trace.push("close"),
+  openWidgetWindow: async (extension, request) =>
+    trace.push(`window:${extension.id}:${request.openPackageId ?? ""}`),
+});
+handlers(script("./WidgetHost.vue"), ["onRunRuntimeWidget"], openContext);
+await openContext.onRunRuntimeWidget({ detail: { typeId: "widget-wizard", openPackageId: "pkg" } });
+assert.deepEqual(trace.slice(-2), ["close", "window:widget-wizard:pkg"],
+  "the overlay steps aside and the window gets the package to edit");
 console.log("widget focus handoff assertions passed");
 
 // On first launch the setup card owns focus, so the double tap arrives via DOM.
@@ -255,3 +267,4 @@ doubleCtrl(2000);
 assert.deepEqual(trace, ["close"], "after setup the double tap still closes the cockpit");
 assert.equal(setupContext.setupGestureCount.value, 1, "completed setup receives no further tour-start requests");
 console.log("setup gesture handoff assertions passed");
+
