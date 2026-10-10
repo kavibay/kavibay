@@ -159,7 +159,18 @@ pub enum McpClientKind {
 
 impl McpClientKind {
     pub fn from_name(name: &str) -> Option<Self> {
+        // `mcp-remote` bridges a stdio client to this HTTP server and appends
+        // itself to the name it forwards; the client is what comes before it.
+        let name = name.trim();
+        let name = name
+            .find(" (via mcp-remote")
+            .map_or(name, |cut| &name[..cut]);
         let normalized = name.trim().to_ascii_lowercase().replace([' ', '_'], "-");
+        // The Claude desktop app's Code tab names itself `local-agent-mode-`
+        // plus the server it connects to. A prefix, but one only that app uses.
+        if normalized == "local-agent-mode" || normalized.starts_with("local-agent-mode-") {
+            return Some(Self::Claude);
+        }
         match normalized.as_str() {
             "codex" | "codex-cli" | "codex-mcp" | "codex-mcp-client" | "openai-codex"
             | "openai-codex-cli" => Some(Self::Codex),
@@ -1923,6 +1934,24 @@ mod tests {
         assert_eq!(reread.last_client_name.as_deref(), Some("codex-cli"));
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn claude_desktop_through_mcp_remote_reads_as_claude() {
+        assert_eq!(
+            McpClientKind::from_name("local-agent-mode-kavibay (via mcp-remote 0.14.3)"),
+            Some(McpClientKind::Claude)
+        );
+        assert_eq!(
+            McpClientKind::from_name("claude-code (via mcp-remote 0.14.3)"),
+            Some(McpClientKind::Claude)
+        );
+        // Still an allowlist: an unknown name behind the bridge stays unbranded.
+        assert_eq!(
+            McpClientKind::from_name("my-agent (via mcp-remote 0.14.3)"),
+            None
+        );
+        assert_eq!(McpClientKind::from_name("not-local-agent-mode"), None);
     }
 
     #[test]
