@@ -61,10 +61,16 @@ const states = (await zoneStates.fetch({}, hostWith({
     },
     // A room that is offline: tado° simply omits the sensor block.
     "2": { setting: { power: "OFF", temperature: null }, sensorDataPoints: {} },
+    // Heating paused for an open window, and one only detected (awaiting confirmation).
+    "3": { setting: { power: "ON", temperature: { celsius: 20 } }, openWindow: { durationInSeconds: 900 }, openWindowDetected: true },
+    "4": { setting: { power: "ON", temperature: { celsius: 20 } }, openWindow: null, openWindowDetected: true },
   },
 }))) as TadoRoomState[];
 
-assert(states.length === 2, "both rooms are reported, including the offline one");
+assert(states.length === 4, "every room is reported, including the offline one");
+assert(!states[0].windowOpen && !states[1].windowOpen, "no open-window fields means closed");
+assert(states[2].windowOpen, "heating paused for an open window reads as open");
+assert(states[3].windowOpen, "a detection still awaiting confirmation reads as open too");
 assert(states[0].temperature === 21.5, "the celsius value is lifted out of the nesting");
 assert(states[0].humidity === 44, "so is the humidity percentage");
 assert(
@@ -117,6 +123,25 @@ assert(await refused({ zoneId: "../me", celsius: 21 }), "a zone id that is not a
 assert(await refused({ zoneId: "3", celsius: 30 }), "a value above tado°'s range is refused");
 assert(await refused({ zoneId: "3", celsius: Number.NaN }), "so is a value that is not a number");
 assert(puts.length === 1, "refused calls send nothing");
+
+// --- turnOff ---------------------------------------------------------------
+
+const turnOff = tadoProvider.actions.turnOff;
+await turnOff.execute({ zoneId: "3" }, writer);
+assert(puts.length === 2, "turnOff writes once");
+assert(puts[1].url === "https://my.tado.com/api/v2/homes/{{homeId}}/zones/3/overlay", "same overlay endpoint");
+assert(
+  JSON.stringify(puts[1].body) === JSON.stringify({
+    setting: { type: "HEATING", power: "OFF" },
+    termination: { typeSkillBasedApp: "NEXT_TIME_BLOCK" },
+  }),
+  "heating off, with no temperature, until the next scheduled change",
+);
+assert(
+  await turnOff.execute({ zoneId: "../me" }, writer).then(() => false, () => true),
+  "a zone id that is not a number never reaches the path",
+);
+assert(puts.length === 2, "the refused call sends nothing");
 
 // --- roomHistory -----------------------------------------------------------
 

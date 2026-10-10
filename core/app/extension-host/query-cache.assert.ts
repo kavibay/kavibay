@@ -133,6 +133,29 @@ const sink = () => (_s: QueryState<unknown>) => {};
   assert(served > 1, `a failed refresh reschedules, got ${served} attempts`);
 }
 
+// --- a refresh click fetches past staleTime, but not twice within the floor ---
+{
+  const cache = new QueryCache();
+  let served = 0;
+  const fetch = async () => ++served;
+  const seen: unknown[] = [];
+  const sub = cache.subscribe(KEY, 60_000, fetch, (s) => {
+    if (s.status === "success") seen.push(s.data);
+  });
+  await wait(10);
+  assert(served === 1, "the subscription fetched once");
+
+  // staleTime is a minute away, so a plain read is still answered from cache.
+  assert((await cache.read(KEY, 60_000, fetch)) === 1, "a read inside staleTime is cached");
+  // A floor of zero: the click is outside it, so it goes upstream.
+  assert((await cache.refresh(KEY, 60_000, fetch, 0)) === 2, "refresh fetches past staleTime");
+  assert(seen.includes(2), "subscribers see the refreshed value");
+  // Inside the floor, a second click is answered from what the first fetched.
+  assert((await cache.refresh(KEY, 60_000, fetch, 60_000)) === 2, "a burst of clicks costs one call");
+  assert(served === 2, `the floor held, got ${served} fetches`);
+  sub.unsubscribe();
+}
+
 /**
  * This file exiting is itself an assertion: a pending timer keeps the process
  * alive, and nothing above waits for the last one. They are unref'd, so node

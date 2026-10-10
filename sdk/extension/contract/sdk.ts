@@ -971,6 +971,15 @@ export interface WidgetProviderApi {
     args: Record<string, unknown> | undefined,
     onState: (state: QueryState<T>) => void,
   ): Promise<Subscription>;
+  /**
+   * Fetch a query again now instead of waiting out its cache, and resolve to
+   * the fresh value. For a person's click — a refresh button — never a timer:
+   * `subscribe` already keeps data current. The host answers from cache when
+   * the same query was fetched within the last minute, so a provider's daily
+   * budget survives a burst of clicks. Every subscriber to the query sees the
+   * new value.
+   */
+  refresh<T = unknown>(name: string, args?: Record<string, unknown>): Promise<T>;
   status(): Promise<ProviderStatus>;
   onStatusChange(cb: (status: ProviderStatus) => void): Subscription;
 }
@@ -1079,6 +1088,7 @@ export interface CommandContext {
  */
 export type WidgetRequest =
   | { type: "provider.query"; provider: ProviderId; name: string; args: unknown }
+  | { type: "provider.refresh"; provider: ProviderId; name: string; args: unknown }
   | { type: "provider.action"; provider: ProviderId; name: string; args: unknown }
   | {
       type: "provider.subscribe";

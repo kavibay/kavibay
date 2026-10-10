@@ -224,6 +224,14 @@ export class BridgeConnection {
             throw err;
           }
         }
+        case "provider.refresh": {
+          // Same declaration check and the same host-built key as a query;
+          // only the cache's answer differs.
+          const slot = this.slot(req.name, req.args);
+          const value = await this.host.refresh(this.provider(req.provider), req.name, req.args, this.caller());
+          this.onQueryState?.(slot, { status: "success", data: value, isStale: false, updatedAt: Date.now() });
+          return ok(value);
+        }
         case "provider.action":
           return ok(
             await this.host.action(
@@ -395,6 +403,7 @@ export { sandboxContext } from "@sdk/contract/sandbox-guest";
 function targetOf(req: WidgetRequest): string {
   switch (req.type) {
     case "provider.query":
+    case "provider.refresh":
     case "provider.action":
     case "provider.subscribe":
       return `${req.provider}.${req.name}`;

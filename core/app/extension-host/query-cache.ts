@@ -131,6 +131,26 @@ export class QueryCache {
     e.timer = undefined;
   }
 
+  /**
+   * Fetch one entry again now, past `staleTime` — for a person's refresh click.
+   *
+   * THE FLOOR IS THE POINT. `staleTime` is how a provider stays inside its
+   * upstream budget (tado° allows roughly a hundred calls a day); a refresh
+   * that ignored it entirely would let one impatient button spend that budget.
+   * Within `floor` of the last successful fetch the cached value is returned
+   * instead, so a burst of clicks costs one call. Subscribers see the new state
+   * through `set`, exactly as for a scheduled refetch.
+   */
+  async refresh<T>(key: QueryKey, staleTime: number, fetcher: () => Promise<T>, floor: number): Promise<T> {
+    const e = this.entry(key, staleTime);
+    if (e.inflight) return e.inflight as Promise<T>;
+    if (e.state.status === "success" && Date.now() - e.state.updatedAt < floor) {
+      return e.state.data as T;
+    }
+    if (e.state.status === "success") e.state = { ...e.state, isStale: true };
+    return this.read(key, staleTime, fetcher);
+  }
+
   /** Prefix match: ["tado","roomState"] invalidates every room. */
   invalidate(prefix: QueryKey) {
     for (const e of this.entries.values()) {

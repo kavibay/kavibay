@@ -30,6 +30,8 @@ export interface TadoRoomState {
   humidity: number | null;
   /** The setpoint the zone heats to right now; null while heating is off. */
   target: number | null;
+  /** tado°'s open-window detection fired: detected, or heating paused for it. */
+  windowOpen: boolean;
 }
 
 export interface TadoSetTemperatureArgs {
@@ -45,6 +47,10 @@ export const TARGET_MAX = 25;
 interface ZoneStatesRaw {
   zoneStates?: Record<string, {
     setting?: { power?: string; temperature?: { celsius?: number } | null };
+    /** Set while heating is paused for an open window; null otherwise. */
+    openWindow?: unknown;
+    /** Detected but not (yet) acted on, e.g. awaiting confirmation in the app. */
+    openWindowDetected?: boolean;
     sensorDataPoints?: {
       insideTemperature?: { celsius?: number };
       humidity?: { percentage?: number };
@@ -174,7 +180,7 @@ export const tadoProvider = defineProvider({
       staleTime: ZONES_TTL_MS,
     }),
     zoneStates: {
-      description: "Current temperature, humidity and target temperature in every room",
+      description: "Current temperature, humidity, target temperature and whether a window is open in every room",
       args: {},
       result: {
         type: "list",
@@ -185,6 +191,7 @@ export const tadoProvider = defineProvider({
             temperature: { type: "number", nullable: true },
             humidity: { type: "number", nullable: true },
             target: { type: "number", nullable: true },
+            windowOpen: { type: "boolean" },
           },
         },
       },
@@ -208,6 +215,7 @@ export const tadoProvider = defineProvider({
           target: state?.setting?.power === "ON"
             ? numberOrNull(state.setting.temperature?.celsius)
             : null,
+          windowOpen: state?.openWindow != null || state?.openWindowDetected === true,
         }));
       },
     },
@@ -352,6 +360,28 @@ export const tadoProvider = defineProvider({
         }
         await host.http.put(`${HOME}/zones/${zoneId}/overlay`, {
           setting: { type: "HEATING", power: "ON", temperature: { celsius } },
+          termination: { typeSkillBasedApp: "NEXT_TIME_BLOCK" },
+        });
+      },
+      invalidates: () => [{ query: "zoneStates" }],
+    },
+    /**
+     * The tado° app's power button. No matching "on": heating back on is a
+     * setpoint, which `setTemperature` already is — and handing the schedule
+     * back would need DELETE, which the provider http does not offer.
+     */
+    turnOff: {
+      effect: "write",
+      description:
+        "Turn a zone's heating off (frost protection) until the next scheduled change, as the tado° app's power button does. To turn it back on, call setTemperature.",
+      args: {
+        zoneId: { type: "string", label: "Room", required: true, source: { query: "zones" } },
+      },
+      execute: async (args: { zoneId: string }, host): Promise<void> => {
+        const zoneId = String(args.zoneId ?? "");
+        if (!/^\d+$/.test(zoneId)) throw { kind: "provider-error", message: "zoneId must be numeric" };
+        await host.http.put(`${HOME}/zones/${zoneId}/overlay`, {
+          setting: { type: "HEATING", power: "OFF" },
           termination: { typeSkillBasedApp: "NEXT_TIME_BLOCK" },
         });
       },

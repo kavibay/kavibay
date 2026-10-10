@@ -33,6 +33,7 @@ const provider: WidgetProviderApi = {
     let active = true;
     return { unsubscribe() { if (active) subscriptions--; active = false; } };
   },
+  refresh: async () => { throw new Error("not used here"); },
   status: async () => ({ state: "connected" }),
   onStatusChange: () => ({ unsubscribe() {} }),
 };
