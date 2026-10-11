@@ -61,6 +61,14 @@ pub enum SseParseItem {
     /// Provider reported a mid-stream failure (Anthropic `event: error`).
     Failure(String),
     Done,
+    /// Anthropic opened a content block: its `content_block` object as sent.
+    /// Text blocks open here too, so the assembler knows where text goes.
+    BlockStart(Value),
+    /// A fragment for the last opened block that is not answer text:
+    /// `thinking_delta`, `signature_delta` or `input_json_delta`, as sent.
+    BlockDelta(Value),
+    /// OpenAI `delta.tool_calls`: fragments of one or more calls, by index.
+    ToolCallDeltas(Vec<Value>),
 }
 
 /// Whether a one-purpose transform should run at `effort: "low"`.
@@ -222,11 +230,24 @@ impl LlmProvider {
         let value: Value = serde_json::from_str(data).ok()?;
         match self {
             LlmProvider::Anthropic => match value.get("type")?.as_str()? {
-                "content_block_delta" => value
-                    .pointer("/delta/text")
-                    .and_then(Value::as_str)
-                    .filter(|text| !text.is_empty())
-                    .map(|text| SseParseItem::Text(text.to_string())),
+                "content_block_start" => value
+                    .get("content_block")
+                    .cloned()
+                    .map(SseParseItem::BlockStart),
+                "content_block_delta" => {
+                    let delta = value.get("delta")?;
+                    match delta.get("type")?.as_str()? {
+                        "text_delta" => delta
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .filter(|text| !text.is_empty())
+                            .map(|text| SseParseItem::Text(text.to_string())),
+                        "thinking_delta" | "signature_delta" | "input_json_delta" => {
+                            Some(SseParseItem::BlockDelta(delta.clone()))
+                        }
+                        _ => None,
+                    }
+                }
                 // A declined or cut-off answer still ends with `message_stop`;
                 // only this event says so. Read as done, a quick action would
                 // paste the partial text over the selection as if it were whole.
@@ -249,11 +270,21 @@ impl LlmProvider {
                 )),
                 _ => None,
             },
-            LlmProvider::Openai => value
-                .pointer("/choices/0/delta/content")
-                .and_then(Value::as_str)
-                .filter(|text| !text.is_empty())
-                .map(|text| SseParseItem::Text(text.to_string())),
+            LlmProvider::Openai => {
+                let delta = value.pointer("/choices/0/delta")?;
+                if let Some(text) = delta
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .filter(|text| !text.is_empty())
+                {
+                    return Some(SseParseItem::Text(text.to_string()));
+                }
+                delta
+                    .get("tool_calls")
+                    .and_then(Value::as_array)
+                    .filter(|calls| !calls.is_empty())
+                    .map(|calls| SseParseItem::ToolCallDeltas(calls.clone()))
+            }
             LlmProvider::Cloudflare => value
                 .get("response")
                 .and_then(Value::as_str)
@@ -552,11 +583,12 @@ mod tests {
         assert!(LlmProvider::Anthropic
             .parse_sse_data(r#"{"type":"ping"}"#)
             .is_none());
-        assert!(LlmProvider::Anthropic
-            .parse_sse_data(
+        assert!(matches!(
+            LlmProvider::Anthropic.parse_sse_data(
                 r#"{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"x"}}"#
-            )
-            .is_none());
+            ),
+            Some(SseParseItem::BlockDelta(_))
+        ));
         assert!(LlmProvider::Openai
             .parse_sse_data(r#"{"choices":[{"delta":{"role":"assistant"}}]}"#)
             .is_none());

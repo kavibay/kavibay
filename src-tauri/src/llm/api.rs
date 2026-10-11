@@ -144,6 +144,9 @@ fn emit_parsed_items(
                 state.finish(request_id);
                 return Ok(true);
             }
+            SseParseItem::BlockStart(_)
+            | SseParseItem::BlockDelta(_)
+            | SseParseItem::ToolCallDeltas(_) => {}
         }
     }
     Ok(false)
