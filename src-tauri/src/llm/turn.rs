@@ -99,8 +99,7 @@ impl TurnAssembler {
                     if let Some(id) = fragment["id"].as_str() {
                         call.id = id.to_string();
                     }
-                    if let Some(name) = fragment.pointer("/function/name").and_then(Value::as_str)
-                    {
+                    if let Some(name) = fragment.pointer("/function/name").and_then(Value::as_str) {
                         call.name.push_str(name);
                     }
                     if let Some(arguments) = fragment

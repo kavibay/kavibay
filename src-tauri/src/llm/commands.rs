@@ -8,7 +8,7 @@ use crate::credentials::ResolveError;
 use crate::llm::api::stream_chat;
 use crate::llm::catalog::{self, LlmModelOption};
 use crate::llm::prefs;
-use crate::llm::provider::ChatMessage;
+use crate::llm::provider::{ChatMessage, ToolChoice, ToolDef};
 use crate::llm::state::LlmState;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -129,6 +129,7 @@ pub fn llm_quick_model_set(app: AppHandle, model_id: String) -> Result<(), Strin
 /// that could name both would eventually pair an Anthropic model with a
 /// Cloudflare key, and the resulting 401 says nothing about which half is wrong.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // one per IPC field; same call as `stream_chat`
 pub fn llm_chat_stream(
     app: AppHandle,
     owner: String,
@@ -136,6 +137,8 @@ pub fn llm_chat_stream(
     request_id: String,
     model: String,
     messages: Vec<ChatMessage>,
+    tools: Option<Vec<ToolDef>>,
+    tool_choice: Option<ToolChoice>,
 ) -> Result<(), String> {
     let Some(model_def) = catalog::find_model(model.trim()) else {
         return emit_chat_error(
@@ -190,6 +193,8 @@ pub fn llm_chat_stream(
             &request_id,
             &model,
             &messages,
+            tools.as_deref(),
+            tool_choice.unwrap_or_default(),
         )
         .await
         {

@@ -120,13 +120,9 @@ impl LlmProvider {
         matches!(self, LlmProvider::Anthropic | LlmProvider::Openai)
     }
 
-    /// Streaming request body in the provider's own message shape.
-    pub fn body(self, model: &str, messages: &[ChatMessage]) -> Result<Value, String> {
-        self.body_with_tools(model, messages, &[], ToolChoice::Auto)
-    }
-
-    /// `body`, plus the tools a chat round may call. No tools adds nothing, so
-    /// every existing caller sends exactly what it sent before.
+    /// Streaming request body in the provider's own message shape, plus the
+    /// tools a chat round may call. No tools adds nothing, so a plain request
+    /// sends exactly what it sent before tools existed.
     pub fn body_with_tools(
         self,
         model: &str,
@@ -438,7 +434,7 @@ mod tests {
     #[test]
     fn anthropic_lifts_system_out_of_the_message_list() {
         let body = LlmProvider::Anthropic
-            .body("claude-haiku-4-5", &messages())
+            .body_with_tools("claude-haiku-4-5", &messages(), &[], ToolChoice::Auto)
             .unwrap();
         assert_eq!(body["system"], "Translate.");
         assert_eq!(body["messages"].as_array().unwrap().len(), 1);
@@ -450,13 +446,15 @@ mod tests {
     #[test]
     fn anthropic_tunes_only_the_models_that_support_it() {
         let haiku = LlmProvider::Anthropic
-            .body("claude-haiku-4-5", &messages())
+            .body_with_tools("claude-haiku-4-5", &messages(), &[], ToolChoice::Auto)
             .unwrap();
         assert!(haiku.get("thinking").is_none());
         assert!(haiku.get("output_config").is_none());
 
         for model in ["claude-sonnet-5", "claude-opus-5", "claude-fable-5"] {
-            let body = LlmProvider::Anthropic.body(model, &messages()).unwrap();
+            let body = LlmProvider::Anthropic
+                .body_with_tools(model, &messages(), &[], ToolChoice::Auto)
+                .unwrap();
             assert!(body.get("thinking").is_none(), "{model} keeps thinking on");
             assert_eq!(
                 body["output_config"]["effort"], "low",
@@ -468,13 +466,18 @@ mod tests {
     #[test]
     fn openai_and_cloudflare_keep_the_plain_message_list() {
         let openai = LlmProvider::Openai
-            .body("gpt-4o-mini", &messages())
+            .body_with_tools("gpt-4o-mini", &messages(), &[], ToolChoice::Auto)
             .unwrap();
         assert_eq!(openai["messages"].as_array().unwrap().len(), 2);
         assert_eq!(openai["model"], "gpt-4o-mini");
 
         let cloudflare = LlmProvider::Cloudflare
-            .body("@cf/meta/llama-3.2-1b-instruct", &messages())
+            .body_with_tools(
+                "@cf/meta/llama-3.2-1b-instruct",
+                &messages(),
+                &[],
+                ToolChoice::Auto,
+            )
             .unwrap();
         assert_eq!(cloudflare["messages"].as_array().unwrap().len(), 2);
         // Workers AI reads the model from the URL.
@@ -492,7 +495,9 @@ mod tests {
             }],
             ..Default::default()
         };
-        assert!(LlmProvider::Openai.body("gpt-4o-mini", &[message]).is_ok());
+        assert!(LlmProvider::Openai
+            .body_with_tools("gpt-4o-mini", &[message], &[], ToolChoice::Auto)
+            .is_ok());
     }
 
     #[test]
@@ -507,19 +512,26 @@ mod tests {
             ..Default::default()
         }];
         let anthropic = LlmProvider::Anthropic
-            .body("claude-haiku-4-5", &messages)
+            .body_with_tools("claude-haiku-4-5", &messages, &[], ToolChoice::Auto)
             .unwrap();
         assert_eq!(
             anthropic["messages"][0]["content"][0]["source"]["media_type"],
             "image/png"
         );
-        let openai = LlmProvider::Openai.body("gpt-4o-mini", &messages).unwrap();
+        let openai = LlmProvider::Openai
+            .body_with_tools("gpt-4o-mini", &messages, &[], ToolChoice::Auto)
+            .unwrap();
         assert_eq!(
             openai["messages"][0]["content"][0]["image_url"]["url"],
             "data:image/png;base64,QUJD"
         );
         assert_eq!(
-            LlmProvider::Cloudflare.body("@cf/meta/llama-3.2-1b-instruct", &messages),
+            LlmProvider::Cloudflare.body_with_tools(
+                "@cf/meta/llama-3.2-1b-instruct",
+                &messages,
+                &[],
+                ToolChoice::Auto
+            ),
             Err("images_not_supported".into())
         );
     }
@@ -614,17 +626,30 @@ mod tests {
     #[test]
     fn tools_and_tool_choice_use_each_provider_shape() {
         let anthropic = LlmProvider::Anthropic
-            .body_with_tools("claude-haiku-4-5", &messages(), &[weather_tool()], ToolChoice::None)
+            .body_with_tools(
+                "claude-haiku-4-5",
+                &messages(),
+                &[weather_tool()],
+                ToolChoice::None,
+            )
             .unwrap();
         assert_eq!(anthropic["tools"][0]["name"], "weather_current");
         assert_eq!(anthropic["tools"][0]["input_schema"]["type"], "object");
         assert_eq!(anthropic["tool_choice"]["type"], "none");
 
         let openai = LlmProvider::Openai
-            .body_with_tools("gpt-4o-mini", &messages(), &[weather_tool()], ToolChoice::Auto)
+            .body_with_tools(
+                "gpt-4o-mini",
+                &messages(),
+                &[weather_tool()],
+                ToolChoice::Auto,
+            )
             .unwrap();
         assert_eq!(openai["tools"][0]["type"], "function");
-        assert_eq!(openai["tools"][0]["function"]["parameters"]["type"], "object");
+        assert_eq!(
+            openai["tools"][0]["function"]["parameters"]["type"],
+            "object"
+        );
         assert!(openai.get("tool_choice").is_none(), "auto stays implicit");
     }
 
@@ -694,7 +719,12 @@ mod tests {
     #[test]
     fn anthropic_echoes_the_turn_and_merges_tool_results() {
         let body = LlmProvider::Anthropic
-            .body_with_tools("claude-haiku-4-5", &tool_round(), &[weather_tool()], ToolChoice::Auto)
+            .body_with_tools(
+                "claude-haiku-4-5",
+                &tool_round(),
+                &[weather_tool()],
+                ToolChoice::Auto,
+            )
             .unwrap();
         let turns = body["messages"].as_array().unwrap();
         assert_eq!(turns.len(), 3);
