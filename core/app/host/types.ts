@@ -99,6 +99,8 @@ export interface WidgetCatalogEntry {
   title?: string;
   hideTitle?: boolean;
   appearance?: WidgetAppearance;
+  /** See `WidgetInstance.chat`: a per-card grant, shared by the card on every desk. */
+  chat?: { model: string };
 }
 
 /** Persisted layout for layout-v4 (catalog + per-desk placements). */

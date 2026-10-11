@@ -213,6 +213,7 @@ function instanceToCatalogEntry(instance: WidgetInstance): WidgetCatalogEntry {
     ...(instance.title !== undefined ? { title: instance.title } : {}),
     ...(instance.hideTitle !== undefined ? { hideTitle: instance.hideTitle } : {}),
     ...(instance.appearance !== undefined ? { appearance: { ...instance.appearance } } : {}),
+    ...(instance.chat !== undefined ? { chat: { ...instance.chat } } : {}),
   };
 }
 
@@ -236,7 +237,7 @@ function instanceToPlacement(instance: WidgetInstance): DeskPlacement {
   };
 }
 
-/** Copy title/hideTitle/appearance from a live instance into its catalog entry. */
+/** Copy title/hideTitle/appearance/chat grant from a live instance into its catalog entry. */
 function syncCatalogFromInstance(instance: WidgetInstance): void {
   const entry = layoutDoc.catalog.find((row) => row.instanceId === instance.instanceId);
   if (!entry) return;
@@ -246,6 +247,8 @@ function syncCatalogFromInstance(instance: WidgetInstance): void {
   else entry.hideTitle = instance.hideTitle;
   if (instance.appearance === undefined) delete entry.appearance;
   else entry.appearance = { ...instance.appearance };
+  if (instance.chat === undefined) delete entry.chat;
+  else entry.chat = { ...instance.chat };
 }
 
 /** Replace reactive layoutDoc fields from a pure helper result. */
@@ -1187,7 +1190,6 @@ function onRename(instanceId: string, title: string | undefined) {
   scheduleRegionSync();
 }
 
-/** Persist title visibility for one instance. */
 /** Grants or revokes one card's chat. Revoking ends its conversation. */
 function onChatGrant(instanceId: string, chat: { model: string } | null) {
   const instance = instances.find((item) => item.instanceId === instanceId);
@@ -1201,6 +1203,7 @@ function onChatGrant(instanceId: string, chat: { model: string } | null) {
   persist();
 }
 
+/** Persist title visibility for one instance. */
 function onHideTitle(instanceId: string, hideTitle: boolean) {
   const instance = instances.find((item) => item.instanceId === instanceId);
   if (!instance) return;
