@@ -22,6 +22,7 @@ import {
 import { CORNER_SHAPE_SUPPORTED } from "../settings/appearanceLogic";
 import { useAppearance } from "../settings/useAppearance";
 import { connectionEpoch } from "../settings/credentials/connections";
+import { chatDefinition } from "./widgetChatSessions";
 
 const props = defineProps<{
   instance: WidgetInstance;
@@ -33,6 +34,8 @@ const props = defineProps<{
   previewed?: boolean;
   /** When true, Remove menu offers scoped vs global delete. */
   multiDeskRemove?: boolean;
+  /** The chat panel is open beside this card. */
+  chatOpen?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -60,9 +63,14 @@ const emit = defineEmits<{
   ];
   "resize-end": [];
   "update:contentScale": [scale: number];
+  "toggle-chat": [];
+  /** Grant or (null) revoke this card's chat. */
+  "update:chat": [chat: { model: string } | null];
 }>();
 
 const isRuntime = computed(() => props.def.origin === "runtime");
+
+const canChat = computed(() => Boolean(chatDefinition(props.def)));
 
 /** Built here, so the Wizard has a draft to reopen. */
 const wizardEditable = computed(() => canEditInWizard(props.def));
@@ -125,12 +133,13 @@ const cardVars = computed(() =>
 );
 const surfaceVars = computed(() => surfaceStyle(appearance.value));
 
-/** The gear opens for the widget's own settings, the Appearance section, or both. */
+/** The gear opens for the widget's own settings, the Appearance section, a chat grant, or several. */
 const hasSettings = computed(
   () =>
     Boolean(props.def.settingsComponent) ||
     Boolean(contractSettingsId.value) ||
-    Boolean(props.def.appearanceEditable),
+    Boolean(props.def.appearanceEditable) ||
+    Boolean(props.instance.chat),
 );
 
 /** Playground widgets stay square while resizing; keep normal card chrome (border). */
@@ -294,6 +303,9 @@ onBeforeUnmount(() => stopShareMove?.());
     :has-about="true"
     :can-share="!sharing"
     :can-edit-in-wizard="wizardEditable"
+    :can-chat="canChat"
+    :chat-open="chatOpen"
+    @toggle-chat="$emit('toggle-chat')"
     :flush="Boolean(def.flush)"
     :padding="def.padding !== false"
     :compact="Boolean(def.compact)"
@@ -350,6 +362,10 @@ onBeforeUnmount(() => stopShareMove?.());
     <template v-if="hasSettings" #settings>
       <component v-if="def.settingsComponent" :is="def.settingsComponent" />
       <CockpitWidgetSettings v-else-if="contractSettingsId" :definition-id="contractSettingsId" />
+      <div v-if="instance.chat" class="chat-grant">
+        <span>Chat sends this widget's data to {{ instance.chat.model }}.</span>
+        <button type="button" @click="$emit('update:chat', null)">Revoke</button>
+      </div>
       <WidgetAppearanceSettings
         v-if="def.appearanceEditable"
         :effective="appearance"
