@@ -118,61 +118,69 @@ export function promptConfig(
   return lines;
 }
 
-type Path = (string | number)[];
-
-/** Every list in `value`, nested ones included. */
-function listsIn(value: unknown, path: Path = []): { path: Path; length: number }[] {
+/** Every list in `value`, nested ones included, keyed by its path. */
+function listsIn(value: unknown, path = ""): { path: string; length: number }[] {
   if (Array.isArray(value)) {
     return [
       { path, length: value.length },
-      ...value.flatMap((item, index) => listsIn(item, [...path, index])),
+      ...value.flatMap((item, index) => listsIn(item, `${path}\u0000${index}`)),
     ];
   }
   if (value === null || typeof value !== "object") return [];
-  return Object.entries(value).flatMap(([key, child]) => listsIn(child, [...path, key]));
+  return Object.entries(value).flatMap(([key, child]) => listsIn(child, `${path}\u0000${key}`));
 }
 
-function getAt(value: unknown, path: Path): unknown {
-  return path.reduce<unknown>(
-    (node, key) => (node as Record<string | number, unknown> | null | undefined)?.[key],
-    value,
+function ordinal(n: number): string {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return `${n}th`;
+  return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
+}
+
+/** `value` with every list at a path in `steps` thinned to every k-th item and marked. */
+function thinned(value: unknown, steps: Map<string, number>, path = ""): unknown {
+  if (Array.isArray(value)) {
+    const step = steps.get(path) ?? 1;
+    const items = value.flatMap((item, index) =>
+      index % step === 0 ? [thinned(item, steps, `${path}\u0000${index}`)] : [],
+    );
+    if (step === 1) return items;
+    const sampled = items.length === 1
+      ? `1 of ${value.length}`
+      : `${items.length} of ${value.length} (every ${ordinal(step)})`;
+    return { sampled, items };
+  }
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [key, thinned(child, steps, `${path}\u0000${key}`)]),
   );
 }
 
-function setAt(value: unknown, path: Path, replacement: unknown): unknown {
-  if (path.length === 0) return replacement;
-  const [head, ...rest] = path;
-  if (Array.isArray(value)) {
-    const copy = [...value];
-    copy[head as number] = setAt(copy[head as number], rest, replacement);
-    return copy;
-  }
-  const copy = { ...(value as Record<string, unknown>) };
-  copy[head as string] = setAt(copy[head as string], rest, replacement);
-  return copy;
-}
-
 const size = (value: unknown) => JSON.stringify(value)?.length ?? 0;
-const ordinal = (step: number) => (step === 2 ? "2nd" : `${step}th`);
 
 /**
- * Shrinks a result to `maxChars` of JSON. Lists are thinned to every k-th item,
- * longest first, and marked so the model knows; a thinned time series is still
- * a time series, which a cut one is not. The model can fetch a narrower range
- * through a tool when it needs the detail.
+ * Shrinks a result to `maxChars` of JSON. Lists are thinned to every k-th item
+ * and marked so the model knows; a thinned time series is still a time series,
+ * which a cut one is not. Each pass halves every list in the top half of the
+ * current longest length together, so sibling series (six rooms, a week of
+ * nights) keep the same resolution and stay comparable, and the pass count
+ * grows with the log of the longest list, not with the number of lists.
  */
 export function fitForModel(value: unknown, maxChars: number): unknown {
   if (size(value) <= maxChars) return value;
+  const lists = listsIn(value);
+  const steps = new Map<string, number>();
+  const kept = (list: { path: string; length: number }) =>
+    Math.ceil(list.length / (steps.get(list.path) ?? 1));
   let out = value;
-  for (const { path } of listsIn(value).sort((a, b) => b.length - a.length)) {
-    const list = getAt(out, path);
-    // An earlier, outer thinning replaced this list's parent: nothing left to do here.
-    if (!Array.isArray(list)) continue;
-    for (let step = 2; step < list.length * 2; step *= 2) {
-      const items = list.filter((_, index) => index % step === 0);
-      out = setAt(out, path, { sampled: `every ${ordinal(step)} of ${list.length}`, items });
-      if (size(out) <= maxChars) return out;
+  for (;;) {
+    const thinnable = lists.filter((list) => kept(list) > 1);
+    if (thinnable.length === 0) break;
+    const longest = Math.max(...thinnable.map(kept));
+    for (const list of thinnable) {
+      if (kept(list) > longest / 2) steps.set(list.path, (steps.get(list.path) ?? 1) * 2);
     }
+    out = thinned(value, steps);
+    if (size(out) <= maxChars) return out;
   }
   // ponytail: last resort cuts the JSON text; half the budget leaves room for escaping.
   return { truncated: true, preview: JSON.stringify(out).slice(0, Math.floor(maxChars / 2)) };
@@ -190,7 +198,7 @@ export interface PromptInput {
   widgetDescription?: string;
   /** Lines from `promptConfig`. */
   config: string[];
-  /** Local wall-clock time, already formatted, and its IANA zone. */
+  /** Local wall-clock time the conversation started, already formatted, and its IANA zone. */
   now: string;
   timeZone: string;
   snapshot: SnapshotEntry[];
@@ -201,7 +209,10 @@ export function systemPrompt(input: PromptInput): string {
   const about = input.widgetDescription ? `: ${input.widgetDescription}` : ".";
   const parts = [
     `You answer questions about the data in the Kavibay widget "${input.widgetName}"${about}`,
-    `It is ${input.now} (${input.timeZone}). "Last night" and "today" mean that local time.`,
+    [
+      `This conversation started at ${input.now} (${input.timeZone}); the data below is from then.`,
+      `Each question begins with the local time it was asked; "last night" and "today" mean that time.`,
+    ].join(" "),
   ];
   if (input.config.length > 0) {
     parts.push(["The person's settings for this widget:", ...input.config.map((line) => `- ${line}`)].join("\n"));
@@ -229,6 +240,15 @@ export function systemPrompt(input: PromptInput): string {
     ].join("\n"),
   );
   return parts.join("\n\n");
+}
+
+/**
+ * A question with the time it was asked. Conversations live until the app
+ * restarts, and the system prompt cannot be edited, so "last night" asked the
+ * next morning needs its own clock.
+ */
+export function stampQuestion(question: string, now: string, timeZone: string): string {
+  return `[${now} ${timeZone}] ${question}`;
 }
 
 /** One message on the wire; the same shape `llm_chat_stream` deserializes. */
@@ -295,11 +315,18 @@ export async function runQuestion(
   io: QuestionIo,
 ): Promise<"answered" | "stopped"> {
   for (let round = 0; ; round++) {
+    // Checked before every round, the first included: Stop or a revoked grant
+    // while the snapshot loaded must keep the data from leaving at all.
+    if (io.stopped()) return "stopped";
     // The last round keeps the same tools (dropping them is a 400 once the
     // history holds a call) and forbids calling them, which forces an answer.
     const toolChoice = round < MAX_TOOL_ROUNDS ? "auto" : "none";
     const result = await io.round(history, toolChoice);
     if (result.kind === "cancelled") return "stopped";
+    if (result.toolCalls.length === 0 && !result.text.trim()) {
+      // Stored, an empty turn makes the provider refuse every later question.
+      throw new Error("The model returned an empty answer. Ask again.");
+    }
     history.push({ role: "assistant", content: result.text, native: result.assistant });
     if (result.toolCalls.length === 0) return "answered";
     history.push(
@@ -312,6 +339,5 @@ export async function runQuestion(
       )),
     );
     if (toolChoice === "none") return "answered";
-    if (io.stopped()) return "stopped";
   }
 }

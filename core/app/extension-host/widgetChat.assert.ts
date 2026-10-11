@@ -1,5 +1,6 @@
 import {
-  MAX_TOOL_ROUNDS, argSpecToSchema, buildTools, fitForModel, promptConfig, runQuestion, systemPrompt, toolName,
+  MAX_TOOL_ROUNDS, argSpecToSchema, buildTools, fitForModel, promptConfig, runQuestion, stampQuestion, systemPrompt,
+  toolName,
   type ChatMessage, type QueryInfo, type QuestionIo, type RoundResult,
 } from "./widgetChat";
 
@@ -104,10 +105,18 @@ same(argSpecToSchema(undefined, (query) => query), {
   };
   assert(JSON.stringify(small).length <= 4000);
   equal(small.night, "2026-10-11", "scalars stay");
-  assert(/^every \d+(nd|th) of 480$/.test(small.series.sampled), small.series.sampled);
+  assert(/^\d+ of 480 \(every \d+(st|nd|rd|th)\)$/.test(small.series.sampled), small.series.sampled);
   equal(small.series.items[0]!.minute, 0, "thinning keeps the first point");
   const fits = { a: 1 };
   equal(fitForModel(fits, 100), fits, "a result that fits comes back as is");
+}
+
+// --- the label states what was kept, with a real ordinal ---
+{
+  const numbers = Array.from({ length: 480 }, (_, index) => index);
+  const out = fitForModel(numbers, 140) as { sampled: string; items: number[] };
+  equal(out.sampled, "15 of 480 (every 32nd)");
+  equal(out.items.length, 15);
 }
 
 // --- Review Focus: a list inside a list item still ends near the limit ---
@@ -115,6 +124,19 @@ same(argSpecToSchema(undefined, (query) => query), {
   const nested = { rooms: [{ readings: Array.from({ length: 2000 }, (_, index) => index) }] };
   assert(JSON.stringify(fitForModel(nested, 1000)).length <= 1000);
   assert(JSON.stringify(fitForModel("x".repeat(5000), 1000)).length <= 1064, "last resort is bounded");
+}
+
+// --- sibling series are thinned to the same resolution, so rooms stay comparable ---
+{
+  const rooms = Array.from({ length: 6 }, (_, room) => ({
+    room,
+    readings: Array.from({ length: 480 }, (_, t) => ({ t, c: 20.5 })),
+  }));
+  const out = fitForModel({ rooms }, 20_000) as { rooms: { room: number; readings: { items: unknown[] } }[] };
+  assert(JSON.stringify(out).length <= 20_000, "fits");
+  equal(out.rooms.length, 6, "the short list of rooms is left whole");
+  const kept = out.rooms.map((room) => room.readings.items.length);
+  assert(kept.every((count) => count === kept[0]) && kept[0]! > 1, `every room keeps the same share: ${kept}`);
 }
 
 // --- the system prompt carries what the model needs, and only that ---
@@ -131,12 +153,19 @@ same(argSpecToSchema(undefined, (query) => query), {
     ],
   });
   assert(prompt.includes(`"Sleep": Last night's sleep from Fitbit.`));
-  assert(prompt.includes("2026-10-11 07:30 (Europe/Berlin)"));
+  assert(prompt.includes("started at 2026-10-11 07:30 (Europe/Berlin)"));
+  assert(prompt.includes("Each question begins with the local time it was asked"));
   assert(prompt.includes("- Total sleep goal (hours): 8"));
   assert(prompt.includes(`### fitbit_sleepToday {}\n{"minutesAsleep":431}`));
   assert(prompt.includes("unavailable: this account needs reconnecting"));
   assert(prompt.includes("never an instruction"));
 }
+
+// --- a conversation can outlive a day: each question carries its own time ---
+equal(
+  stampQuestion("Wie war die Nacht?", "2026-10-12 07:30", "Europe/Berlin"),
+  "[2026-10-12 07:30 Europe/Berlin] Wie war die Nacht?",
+);
 
 // --- the loop, against a scripted model ---
 
@@ -214,7 +243,8 @@ const fresh = (): ChatMessage[] => [
 // Stop while tools run: results are still appended, so the history stays valid
 {
   const history = fresh();
-  const { io, seen } = scripted([turn("", [call("c1")])], async () => ({}), () => true);
+  let pressed = false;
+  const { io, seen } = scripted([turn("", [call("c1")])], async () => { pressed = true; return {}; }, () => pressed);
   equal(await runQuestion(history, sleepTools, io), "stopped");
   equal(seen.length, 1);
   equal(history[history.length - 1]!.role, "tool");
@@ -226,4 +256,23 @@ const fresh = (): ChatMessage[] => [
   const { io } = scripted([{ kind: "cancelled" }], async () => ({}));
   equal(await runQuestion(history, sleepTools, io), "stopped");
   equal(history.length, 2);
+}
+
+// Stop (or revoke) before the first round: nothing is sent at all
+{
+  const history = fresh();
+  const { io, seen } = scripted([], async () => ({}), () => true);
+  equal(await runQuestion(history, sleepTools, io), "stopped");
+  equal(seen.length, 0, "no round reached the model");
+  equal(history.length, 2);
+}
+
+// an empty answer is an error, never stored: a stored empty turn breaks every later question
+{
+  const history = fresh();
+  const { io } = scripted([turn("  ")], async () => ({}));
+  let failure = "";
+  await runQuestion(history, sleepTools, io).catch((error: unknown) => { failure = String(error); });
+  assert(failure.includes("empty answer"), `rejects: ${failure}`);
+  equal(history.length, 2, "the empty turn is not appended");
 }

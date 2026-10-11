@@ -10,8 +10,8 @@ import { extensionHost, instanceConfig, packageDefinitionId } from "../extension
 import type { Caller } from "../extension-host/runtime";
 import { tauriWidgetCapabilityTransport } from "../extension-host/tauriWidgetCapabilityTransport";
 import {
-  MAX_RESULT_CHARS, buildTools, describeError, fitForModel, promptConfig, runQuestion, systemPrompt,
-  toolName, type ChatMessage, type ChatTools, type SnapshotEntry,
+  MAX_RESULT_CHARS, buildTools, describeError, fitForModel, promptConfig, runQuestion, stampQuestion,
+  systemPrompt, toolName, type ChatMessage, type ChatTools, type SnapshotEntry,
 } from "../extension-host/widgetChat";
 import type { HostExtensionRef } from "../runtime/runtimeTypes";
 import { streamRound } from "./widgetChatLlm";
@@ -39,6 +39,10 @@ interface Conversation {
 const chats = reactive(new Map<string, WidgetChat>());
 const conversations = new Map<string, Conversation>();
 const running = new Map<string, { requestId: string | null; stopped: boolean }>();
+
+const timeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+// `sv-SE` formats as `2026-10-11 07:30:12`; minutes are enough.
+const localNow = (zone: string) => new Date().toLocaleString("sv-SE", { timeZone: zone }).slice(0, 16);
 
 /** The definition a card's chat reads, or undefined when the card offers none. */
 export function chatDefinition(def: HostExtensionRef): string | undefined {
@@ -88,14 +92,13 @@ async function startConversation(
       }
     }),
   );
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = timeZone();
   const system = systemPrompt({
     widgetName: found.widget.displayName,
     widgetDescription: found.widget.description,
     config: promptConfig(found.widget.configuration, instanceConfig(instanceId)),
-    // `sv-SE` formats as `2026-10-11 07:30:12`; minutes are enough.
-    now: new Date().toLocaleString("sv-SE", { timeZone }).slice(0, 16),
-    timeZone,
+    now: localNow(zone),
+    timeZone: zone,
     snapshot,
   });
   return { history: [{ role: "system", content: system }], tools };
@@ -117,9 +120,13 @@ export async function askWidget(instanceId: string, definitionId: string, questi
     let conversation = conversations.get(instanceId);
     if (!conversation) {
       conversation = await startConversation(instanceId, definitionId, caller);
+      // Revoked, re-modelled or removed while the snapshot loaded: this chat is
+      // gone, and nothing of it may reach a model any more.
+      if (chats.get(instanceId) !== chat) return;
       conversations.set(instanceId, conversation);
     }
-    conversation.history.push({ role: "user", content: question });
+    const zone = timeZone();
+    conversation.history.push({ role: "user", content: stampQuestion(question, localNow(zone), zone) });
     const tools = conversation.tools;
     const outcome = await runQuestion(conversation.history, tools, {
       round: (history, toolChoice) => {
@@ -139,7 +146,8 @@ export async function askWidget(instanceId: string, definitionId: string, questi
     chat.error = describeError(error);
   } finally {
     chat.busy = false;
-    running.delete(instanceId);
+    // A revoke-and-ask-again can start a newer run on this card; its control stays.
+    if (running.get(instanceId) === control) running.delete(instanceId);
   }
 }
 
