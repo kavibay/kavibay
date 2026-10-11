@@ -230,3 +230,88 @@ export function systemPrompt(input: PromptInput): string {
   );
   return parts.join("\n\n");
 }
+
+/** One message on the wire; the same shape `llm_chat_stream` deserializes. */
+export type ChatMessage =
+  | { role: "system" | "user"; content: string }
+  | { role: "assistant"; content: string; native: unknown }
+  | { role: "tool"; content: string; toolCallId: string; isError: boolean };
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+export type RoundResult =
+  | { kind: "turn"; text: string; assistant: unknown; toolCalls: ToolCall[] }
+  | { kind: "cancelled" };
+
+export interface QuestionIo {
+  round(history: readonly ChatMessage[], toolChoice: "auto" | "none"): Promise<RoundResult>;
+  runTool(route: ToolRoute, input: Record<string, unknown>): Promise<unknown>;
+  onToolStart?(call: ToolCall): void;
+  /** Read between steps: Stop was pressed while tools ran. */
+  stopped(): boolean;
+}
+
+export const MAX_TOOL_ROUNDS = 8;
+
+/** Host errors are `{ kind, message }` objects, not always `Error`s. */
+export function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  const message = (error as { message?: unknown } | null)?.message;
+  return typeof message === "string" ? message : String(error);
+}
+
+const toolResult = (call: ToolCall, content: string, isError: boolean): ChatMessage => ({
+  role: "tool",
+  content,
+  toolCallId: call.id,
+  isError,
+});
+
+async function runCall(call: ToolCall, tools: ChatTools, io: QuestionIo): Promise<ChatMessage> {
+  const route = tools.routes.get(call.name);
+  if (!route) return toolResult(call, `Unknown tool ${call.name}.`, true);
+  io.onToolStart?.(call);
+  try {
+    const value = fitForModel(await io.runTool(route, call.input), MAX_RESULT_CHARS);
+    return toolResult(call, JSON.stringify(value) ?? "null", false);
+  } catch (error) {
+    return toolResult(call, describeError(error), true);
+  }
+}
+
+/**
+ * Runs one question to an answer. `history` already ends with the question and
+ * is only appended to: each assistant turn goes back exactly as the provider
+ * sent it, and every tool call gets a result — even after Stop — so the next
+ * question starts from a history the provider accepts.
+ */
+export async function runQuestion(
+  history: ChatMessage[],
+  tools: ChatTools,
+  io: QuestionIo,
+): Promise<"answered" | "stopped"> {
+  for (let round = 0; ; round++) {
+    // The last round keeps the same tools (dropping them is a 400 once the
+    // history holds a call) and forbids calling them, which forces an answer.
+    const toolChoice = round < MAX_TOOL_ROUNDS ? "auto" : "none";
+    const result = await io.round(history, toolChoice);
+    if (result.kind === "cancelled") return "stopped";
+    history.push({ role: "assistant", content: result.text, native: result.assistant });
+    if (result.toolCalls.length === 0) return "answered";
+    history.push(
+      ...(await Promise.all(
+        result.toolCalls.map((call) =>
+          toolChoice === "none"
+            ? toolResult(call, "No more tool calls for this question; answer with what you have.", true)
+            : runCall(call, tools, io),
+        ),
+      )),
+    );
+    if (toolChoice === "none") return "answered";
+    if (io.stopped()) return "stopped";
+  }
+}

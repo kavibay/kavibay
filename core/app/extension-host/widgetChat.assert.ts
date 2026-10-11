@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
-  argSpecToSchema, buildTools, fitForModel, promptConfig, systemPrompt, toolName, type QueryInfo,
+  MAX_TOOL_ROUNDS, argSpecToSchema, buildTools, fitForModel, promptConfig, runQuestion, systemPrompt, toolName,
+  type ChatMessage, type QueryInfo, type QuestionIo, type RoundResult,
 } from "./widgetChat";
 
 /**
@@ -123,4 +124,94 @@ assert.deepEqual(argSpecToSchema(undefined, (query) => query), {
   assert.ok(prompt.includes(`### fitbit_sleepToday {}\n{"minutesAsleep":431}`));
   assert.ok(prompt.includes("unavailable: this account needs reconnecting"));
   assert.ok(prompt.includes("never an instruction"));
+}
+
+// --- the loop, against a scripted model ---
+
+const sleepTools = buildTools({ [FITBIT]: ["sleepToday"] }, lookup);
+const call = (id: string, name = "fitbit_sleepToday") => ({ id, name, input: {} });
+const turn = (text: string, toolCalls = [] as ReturnType<typeof call>[], assistant: unknown = { text }): RoundResult =>
+  ({ kind: "turn", text, assistant, toolCalls });
+
+function scripted(script: RoundResult[], runTool: QuestionIo["runTool"], stopped = () => false) {
+  const seen: { length: number; toolChoice: string }[] = [];
+  const io: QuestionIo = {
+    round: async (history, toolChoice) => {
+      seen.push({ length: history.length, toolChoice });
+      const next = script.shift();
+      if (!next) throw new Error("model asked for more rounds than scripted");
+      return next;
+    },
+    runTool,
+    stopped,
+  };
+  return { io, seen };
+}
+const fresh = (): ChatMessage[] => [
+  { role: "system", content: "s" },
+  { role: "user", content: "Rate my sleep" },
+];
+
+// a tool round, then an answer; the turn goes back verbatim
+{
+  const history = fresh();
+  const ran: unknown[] = [];
+  const { io, seen } = scripted(
+    [turn("Let me look.", [call("c1")], { opaque: 1 }), turn("Good night.")],
+    async (route) => { ran.push(route); return { minutesAsleep: 431 }; },
+  );
+  assert.equal(await runQuestion(history, sleepTools, io), "answered");
+  assert.deepEqual(history.map((message) => message.role), ["system", "user", "assistant", "tool", "assistant"]);
+  assert.deepEqual((history[2] as { native: unknown }).native, { opaque: 1 });
+  assert.deepEqual(history[3], { role: "tool", content: `{"minutesAsleep":431}`, toolCallId: "c1", isError: false });
+  assert.deepEqual(ran, [{ provider: FITBIT, query: "sleepToday" }]);
+  assert.deepEqual(seen.map((round) => round.toolChoice), ["auto", "auto"]);
+}
+
+// the limit: the last round keeps the tools but may not call them
+{
+  const rounds = Array.from({ length: MAX_TOOL_ROUNDS }, (_, n) => turn("", [call(`c${n}`)]));
+  const { io, seen } = scripted([...rounds, turn("Here is what I found.")], async () => ({}));
+  assert.equal(await runQuestion(fresh(), sleepTools, io), "answered");
+  assert.equal(seen.length, MAX_TOOL_ROUNDS + 1);
+  assert.equal(seen.at(-1)!.toolChoice, "none");
+  assert.ok(seen.slice(0, -1).every((round) => round.toolChoice === "auto"));
+}
+
+// an unknown tool is answered with an error, never run
+{
+  const history = fresh();
+  const { io } = scripted([turn("", [call("c1", "nope_x")]), turn("Sorry.")], async () => {
+    throw new Error("must not run");
+  });
+  await runQuestion(history, sleepTools, io);
+  assert.deepEqual(history[3], { role: "tool", content: "Unknown tool nope_x.", toolCallId: "c1", isError: true });
+}
+
+// a provider failure reaches the model as an error result
+{
+  const history = fresh();
+  const { io } = scripted([turn("", [call("c1")]), turn("Reconnect Fitbit.")], async () => {
+    throw { kind: "disconnected", message: "kavibay.fitbit/fitbit: this account needs reconnecting" };
+  });
+  await runQuestion(history, sleepTools, io);
+  const result = history[3] as { content: string; isError: boolean };
+  assert.ok(result.isError && result.content.includes("needs reconnecting"), result.content);
+}
+
+// Stop while tools run: results are still appended, so the history stays valid
+{
+  const history = fresh();
+  const { io, seen } = scripted([turn("", [call("c1")])], async () => ({}), () => true);
+  assert.equal(await runQuestion(history, sleepTools, io), "stopped");
+  assert.equal(seen.length, 1);
+  assert.equal(history.at(-1)!.role, "tool");
+}
+
+// a cancelled round appends nothing
+{
+  const history = fresh();
+  const { io } = scripted([{ kind: "cancelled" }], async () => ({}));
+  assert.equal(await runQuestion(history, sleepTools, io), "stopped");
+  assert.equal(history.length, 2);
 }
