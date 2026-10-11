@@ -114,10 +114,14 @@ impl LlmProvider {
         }
     }
 
-    /// Providers whose streamed tool calls this module reads. Workers AI's
-    /// `/ai/run` stream is unverified for tool calls (Linear KAV-18).
-    pub fn supports_tools(self) -> bool {
-        matches!(self, LlmProvider::Anthropic | LlmProvider::Openai)
+    /// Models whose tool calls this endpoint can stream. Astra and 6.1 Sol
+    /// require Responses; Workers AI's stream is unverified (Linear KAV-18).
+    pub fn supports_tools(self, model: &str) -> bool {
+        match self {
+            LlmProvider::Anthropic => true,
+            LlmProvider::Openai => !matches!(model, "gpt-6-astra" | "gpt-6.1-sol"),
+            LlmProvider::Cloudflare => false,
+        }
     }
 
     /// Streaming request body in the provider's own message shape, plus the
@@ -130,7 +134,7 @@ impl LlmProvider {
         tools: &[ToolDef],
         tool_choice: ToolChoice,
     ) -> Result<Value, String> {
-        if !tools.is_empty() && !self.supports_tools() {
+        if !tools.is_empty() && !self.supports_tools(model) {
             return Err("tools_not_supported".into());
         }
         let mut body = match self {
@@ -198,6 +202,10 @@ impl LlmProvider {
                 body["tool_choice"] = json!({ "type": "none" });
             }
         } else {
+            // GPT-6 Sol/Luna reject Chat Completions tools with default reasoning.
+            if matches!(model, "gpt-6-sol" | "gpt-6-luna") {
+                body["reasoning_effort"] = json!("none");
+            }
             body["tools"] = tools
                 .iter()
                 .map(|tool| {
@@ -651,6 +659,42 @@ mod tests {
             "object"
         );
         assert!(openai.get("tool_choice").is_none(), "auto stays implicit");
+    }
+
+    #[test]
+    fn gpt6_chat_tools_disable_reasoning_only_where_supported() {
+        for model in ["gpt-6-sol", "gpt-6-luna"] {
+            assert!(LlmProvider::Openai.supports_tools(model));
+            for choice in [ToolChoice::Auto, ToolChoice::None] {
+                let body = LlmProvider::Openai
+                    .body_with_tools(model, &messages(), &[weather_tool()], choice)
+                    .unwrap();
+                assert_eq!(body["reasoning_effort"], "none");
+                assert_eq!(body["tools"][0]["function"]["name"], "weather_current");
+            }
+            let plain = LlmProvider::Openai
+                .body_with_tools(model, &messages(), &[], ToolChoice::Auto)
+                .unwrap();
+            assert!(plain.get("reasoning_effort").is_none());
+        }
+        for model in ["gpt-4o-mini", "gpt-5.4-nano-2026-03-17"] {
+            let body = LlmProvider::Openai
+                .body_with_tools(model, &messages(), &[weather_tool()], ToolChoice::Auto)
+                .unwrap();
+            assert!(body.get("reasoning_effort").is_none());
+        }
+        for model in ["gpt-6-astra", "gpt-6.1-sol"] {
+            assert!(!LlmProvider::Openai.supports_tools(model));
+            assert_eq!(
+                LlmProvider::Openai.body_with_tools(
+                    model,
+                    &messages(),
+                    &[weather_tool()],
+                    ToolChoice::Auto,
+                ),
+                Err("tools_not_supported".into()),
+            );
+        }
     }
 
     /// OpenAI rejects `tools: []`; a chat round with nothing to call sends none.

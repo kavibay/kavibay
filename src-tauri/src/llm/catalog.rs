@@ -233,7 +233,7 @@ pub struct LlmModelOption {
     pub pricing: LlmPricing,
     pub capabilities: Vec<String>,
     /// The widget chat can run tools on it: the catalog lists `functionCalling`
-    /// and this app reads that provider's streamed tool calls.
+    /// and this app's endpoint supports that model's streamed tool calls.
     pub tools: bool,
     pub effort_levels: Vec<String>,
     /// The Wizard starts on this model when its provider is connected.
@@ -321,7 +321,7 @@ fn build(
                 .capabilities
                 .iter()
                 .any(|capability| capability == "functionCalling")
-                && model.provider.supports_tools(),
+                && model.provider.supports_tools(&model.api_id),
             effort_levels: model.effort_levels.clone(),
             authoring_default: model.authoring_default,
             source_url: model.source_url.clone(),
