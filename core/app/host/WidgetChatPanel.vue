@@ -7,6 +7,7 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import ConnectionSelect from "../settings/credentials/ConnectionSelect.vue";
 import { useSettingsModal } from "../settings/useSettingsModal";
+import { AI_PROVIDER_TABS } from "../settings/ai/aiPanelLogic";
 import { tauriWidgetCapabilityTransport } from "../extension-host/tauriWidgetCapabilityTransport";
 import type { HostExtensionRef } from "../runtime/runtimeTypes";
 import type { WidgetInstance } from "./types";
@@ -17,6 +18,8 @@ import {
 interface ModelOption {
   id: string;
   label: string;
+  /** Who receives the data: the catalog provider, not the model's vendor. */
+  provider: string;
   credentialType: string;
   configured: boolean;
   enabled: boolean;
@@ -40,6 +43,10 @@ watch(
 const models = ref<ModelOption[]>([]);
 const picked = ref("");
 const pickedModel = computed(() => models.value.find((model) => model.id === picked.value));
+const recipient = computed(() => {
+  const provider = pickedModel.value?.provider;
+  return AI_PROVIDER_TABS.find((tab) => tab.id === provider)?.label ?? provider;
+});
 
 async function loadModels() {
   const all = (await tauriWidgetCapabilityTransport.llmModels(props.instance.instanceId)) as ModelOption[];
@@ -90,7 +97,8 @@ onMounted(async () => {
     <div v-if="!chat" class="chat-consent">
       <p>
         Kavibay sends this widget's data (<strong>{{ sources.join(", ") }}</strong>) to
-        <strong>{{ pickedModel?.label ?? "the model you pick" }}</strong>. The widget itself does not see the chat.
+        <template v-if="pickedModel"><strong>{{ recipient }}</strong> ({{ pickedModel.label }})</template>
+        <template v-else>the provider of the model you pick</template>. The widget itself does not see the chat.
       </p>
       <template v-if="models.length > 0">
         <label class="chat-field">
