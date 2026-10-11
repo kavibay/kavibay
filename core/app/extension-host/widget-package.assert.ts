@@ -2,6 +2,7 @@ import exampleManifest from "@sdk/contract/example-package/manifest.json";
 import { ExtensionRegistry } from "./registry";
 import { tadoExtension } from "./fixtures/tado";
 import { WidgetPackageError, requestedPermissions, widgetPackageManifest } from "./widgetPackage";
+import { buildTools } from "./widgetChat";
 
 /**
  * Asserts for loading a widget package.
@@ -452,6 +453,28 @@ console.log("widget-package.assert.ts: ok");
       JSON.stringify({ providers: [TADO], actions: { [TADO]: ["setTemperature"] }, queries: { [TADO]: ["rooms", "roomState"] } }),
     "an entry's lists come back per provider",
   );
+}
+
+// --- a cached widget still gives the chat tools to read its declared data ---
+{
+  const manifest = widgetPackageManifest({
+    ...greedy,
+    widget: {
+      ...greedy.widget,
+      requires: { providers: [{ id: TADO, queries: ["rooms", "roomState"], actions: ["setTemperature"] }] },
+    },
+  }, { providers: [TADO], actions: {} });
+  const reg = new ExtensionRegistry();
+  reg.load(tadoExtension, { kind: "bundled" });
+  const ext = reg.load(manifest, { kind: "generated", builderSessionId: "cached-widget" });
+  assert(ext !== undefined && reg.link().length === 0, "the chat's package loads and links");
+  const widget = reg.widget(`${ext!}/tile`)!.widget;
+  const tools = buildTools(widget.requires?.queries ?? {}, (id) => reg.providers.get(id)?.def.queries);
+  assert(
+    tools.tools.map((tool) => tool.name).join(",") === "tado_rooms,tado_roomState",
+    "declared reads survive package loading, so chat tools work even without a provider-read snapshot",
+  );
+  assert(Object.keys(widget.requires?.actions ?? {}).length === 0, "read declarations grant no actions");
 }
 
 console.log("widget-package.assert.ts: generated code contributions ok");

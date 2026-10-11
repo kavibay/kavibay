@@ -63,6 +63,9 @@ pub struct ScannedRuntimeExtension {
     pub default_size: Option<WidgetSize>,
     /// Whether the card opens with its title bar hidden, from `ui.defaultHideTitle`.
     pub default_hide_title: Option<bool>,
+    /// `ui.chat`, contract packages only: the card offers the host's chat
+    /// panel about the widget's data.
+    pub chat: Option<bool>,
     /// `false` when the card drops its padding, from `ui.padding`.
     pub padding: Option<bool>,
     /// Content zoom the card opens at, from `ui.defaultScale` (1 = unzoomed).
@@ -243,6 +246,7 @@ fn validate_manifest_on_disk(
         ui_entry: String::new(),
         default_size: None,
         default_hide_title: None,
+        chat: None,
         padding: None,
         default_scale: None,
         icon: None,
@@ -520,6 +524,7 @@ struct PartialScan {
     ui_entry: String,
     default_size: Option<WidgetSize>,
     default_hide_title: Option<bool>,
+    chat: Option<bool>,
     padding: Option<bool>,
     default_scale: Option<f64>,
     icon: Option<String>,
@@ -562,6 +567,7 @@ fn scan_row(
         ui_entry: partial.ui_entry.clone(),
         default_size: partial.default_size,
         default_hide_title: partial.default_hide_title,
+        chat: partial.chat,
         padding: partial.padding,
         default_scale: partial.default_scale,
         icon: partial.icon.clone(),
@@ -593,6 +599,7 @@ fn scan_package_dir(
         ui_entry: String::new(),
         default_size: None,
         default_hide_title: None,
+        chat: None,
         padding: None,
         default_scale: None,
         icon: None,
@@ -743,6 +750,9 @@ fn contract_partial(
         ui_entry: "index.html".to_string(),
         default_size: contract_default_size(raw),
         default_hide_title: None,
+        // The one `ui` key a contract package carries; the rest of its `ui`
+        // block is the runtime format's vocabulary and is not read here.
+        chat: raw.pointer("/ui/chat").and_then(Value::as_bool),
         padding: None,
         default_scale: None,
         // Same rules as a runtime package's icon, but a bad one is no icon
@@ -822,6 +832,25 @@ mod tests {
         let root = temp_package();
         let (_, error) = validate_manifest_on_disk("demo", &root, &manifest(Value::Null));
         assert_eq!(error, None);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// `ui.chat` is the one `ui` key read for a contract package: it offers
+    /// the host's chat panel.
+    #[test]
+    fn contract_chat_flag_is_carried() {
+        let root = temp_package();
+        let raw = serde_json::json!({
+            "format": "contract",
+            "displayName": "Sleep",
+            "version": "1.0.0",
+            "ui": { "chat": true },
+        });
+        let (partial, _) = contract_partial("sleep", &root, &raw);
+        assert_eq!(partial.chat, Some(true));
+        let (plain, _) =
+            contract_partial("sleep", &root, &serde_json::json!({ "format": "contract" }));
+        assert_eq!(plain.chat, None);
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -913,6 +942,7 @@ mod tests {
             ui_entry: "ui/index.html".into(),
             default_size: None,
             default_hide_title: None,
+            chat: None,
             padding: None,
             default_scale: None,
             icon: None,

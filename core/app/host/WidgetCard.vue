@@ -60,6 +60,10 @@ const props = withDefaults(
      * promise an edit it cannot make.
      */
     canEditInWizard?: boolean;
+    /** Shows the chat button: the widget offers the host's chat panel (`ui.chat`). */
+    canChat?: boolean;
+    /** The chat panel is open beside this card. */
+    chatOpen?: boolean;
     /** No card padding; body fills the chrome (e.g. Image widget). */
     flush?: boolean;
     /** False: no card padding, but the title stays above the body (unlike `flush`). */
@@ -137,6 +141,7 @@ const emit = defineEmits<{
   share: [];
   /** Reopen this widget's own package in the Widget Wizard. */
   "edit-in-wizard": [];
+  "toggle-chat": [];
   hide: [];
   /** Leave the desk and open in the palette panel instead. */
   "move-to-panel": [];
@@ -973,6 +978,21 @@ watch(
               <span>Pin</span>
               <span>{{ shortcutModifier }}+P</span>
             </span>
+          </button>
+          <button
+            v-if="canChat && !chromeCompact"
+            type="button"
+            class="widget-card-chrome-btn"
+            :class="{ 'widget-card-chrome-btn--pin-on': chatOpen }"
+            v-tip="'Ask about this data'"
+            aria-label="Chat about this widget's data"
+            :aria-pressed="chatOpen"
+            @pointerdown.stop
+            @click.stop="emit('toggle-chat')"
+          >
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+            </svg>
           </button>
           <button
             ref="triggerEl"

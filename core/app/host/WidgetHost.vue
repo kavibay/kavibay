@@ -168,6 +168,8 @@ import {
   type ShortcutHintTarget,
 } from "./shortcutHints";
 import WidgetInstanceView from "./WidgetInstanceView.vue";
+import WidgetChatPanel from "./WidgetChatPanel.vue";
+import { dropWidgetChat } from "./widgetChatSessions";
 import DemoHotkeyOverlay from "./DemoHotkeyOverlay.vue";
 import { kavibayCockpitOpen, type CockpitTrigger } from "./cockpitSession";
 import { startBrowserZoomGuard } from "./browserZoomGuard";
@@ -211,6 +213,7 @@ function instanceToCatalogEntry(instance: WidgetInstance): WidgetCatalogEntry {
     ...(instance.title !== undefined ? { title: instance.title } : {}),
     ...(instance.hideTitle !== undefined ? { hideTitle: instance.hideTitle } : {}),
     ...(instance.appearance !== undefined ? { appearance: { ...instance.appearance } } : {}),
+    ...(instance.chat !== undefined ? { chat: { ...instance.chat } } : {}),
   };
 }
 
@@ -234,7 +237,7 @@ function instanceToPlacement(instance: WidgetInstance): DeskPlacement {
   };
 }
 
-/** Copy title/hideTitle/appearance from a live instance into its catalog entry. */
+/** Copy title/hideTitle/appearance/chat grant from a live instance into its catalog entry. */
 function syncCatalogFromInstance(instance: WidgetInstance): void {
   const entry = layoutDoc.catalog.find((row) => row.instanceId === instance.instanceId);
   if (!entry) return;
@@ -244,6 +247,8 @@ function syncCatalogFromInstance(instance: WidgetInstance): void {
   else entry.hideTitle = instance.hideTitle;
   if (instance.appearance === undefined) delete entry.appearance;
   else entry.appearance = { ...instance.appearance };
+  if (instance.chat === undefined) delete entry.chat;
+  else entry.chat = { ...instance.chat };
 }
 
 /** Replace reactive layoutDoc fields from a pure helper result. */
@@ -561,6 +566,8 @@ let unlistenWidgetWindow: UnlistenFn[] = [];
 const highlightedInstanceId = ref<string | null>(null);
 /** Raised above sibling widgets while focused from search. */
 const focusedInstanceId = ref<string | null>(null);
+/** The card whose chat panel is open; one at a time. */
+const chatOpenId = ref<string | null>(null);
 /** Last interacted widget — stays above siblings until another is raised. */
 const frontInstanceId = ref<string | null>(null);
 /** Instance scaled up while a matching palette row is selected (null = none). */
@@ -1181,6 +1188,19 @@ function onRename(instanceId: string, title: string | undefined) {
   }
   persist();
   scheduleRegionSync();
+}
+
+/** Grants or revokes one card's chat. Revoking ends its conversation. */
+function onChatGrant(instanceId: string, chat: { model: string } | null) {
+  const instance = instances.find((item) => item.instanceId === instanceId);
+  if (!instance) return;
+  if (chat) {
+    instance.chat = chat;
+  } else {
+    delete instance.chat;
+    dropWidgetChat(instanceId);
+  }
+  persist();
 }
 
 /** Persist title visibility for one instance. */
@@ -3355,8 +3375,19 @@ provide("kavibayPaletteMovePointerdown", (event: PointerEvent) => {
           @resize="onResizeInstance(instance.instanceId, $event)"
           @resize-end="onResizeInstanceEnd"
           @update:content-scale="onContentScale(instance.instanceId, $event)"
+          :chat-open="chatOpenId === instance.instanceId"
+          @toggle-chat="chatOpenId = chatOpenId === instance.instanceId ? null : instance.instanceId"
+          @update:chat="onChatGrant(instance.instanceId, $event)"
         />
       </div>
+      <WidgetChatPanel
+        v-if="chatOpenId === instance.instanceId && defFor(instance.typeId)"
+        :instance="instance"
+        :def="defFor(instance.typeId)!"
+        @grant="onChatGrant(instance.instanceId, { model: $event })"
+        @revoke="onChatGrant(instance.instanceId, null)"
+        @close="chatOpenId = null"
+      />
     </div>
 
     <!-- Untransformed root slot: lets Settings sit in the provide tree (inject

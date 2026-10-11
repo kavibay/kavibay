@@ -45,6 +45,7 @@ export function normalizeCatalogEntry(e: WidgetCatalogEntry): WidgetCatalogEntry
   if (typeof e.hideTitle === "boolean") next.hideTitle = e.hideTitle;
   const appearance = normalizeWidgetAppearance(e.appearance);
   if (appearance) next.appearance = appearance;
+  if (typeof e.chat?.model === "string" && e.chat.model.length > 0) next.chat = { model: e.chat.model };
   return next;
 }
 
@@ -169,6 +170,7 @@ export function instancesForDesk(layout: SavedLayoutV4, deskId: string): WidgetI
       ...(entry.title !== undefined ? { title: entry.title } : {}),
       ...(entry.hideTitle !== undefined ? { hideTitle: entry.hideTitle } : {}),
       ...(entry.appearance !== undefined ? { appearance: { ...entry.appearance } } : {}),
+      ...(entry.chat !== undefined ? { chat: { ...entry.chat } } : {}),
       ...(placement.hidden === true ? { hidden: true } : {}),
       ...(placement.hidden === true &&
       typeof placement.hiddenAt === "number" &&

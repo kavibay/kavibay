@@ -368,13 +368,7 @@ export class BridgeConnection {
   }
 
   private caller() {
-    const found = this.definition();
-    return {
-      extensionId: found.ext.id,
-      trust: found.ext.trust,
-      instanceId: this.instance.id,
-      actions: found.widget.requires?.actions ?? {},
-    };
+    return this.host.callerFor(this.instance.definitionId, this.instance.id);
   }
 
   private scope() {

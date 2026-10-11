@@ -113,6 +113,7 @@ export function scannedToHostRef(
     // is decided by the scan, and a second opinion formed anywhere else is how
     // a card ends up offering to edit a package the Wizard never made.
     packageOrigin: row.origin,
+    ...(row.chat === true ? { chat: true } : {}),
     // Carried through from the manifest. Without it the host falls back to its
     // own default, and a package's declared size never applied at all.
     ...(row.defaultSize ? { defaultSize: { ...row.defaultSize } } : {}),

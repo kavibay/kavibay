@@ -231,6 +231,8 @@ export function widgetPackageManifest(raw: unknown, approved: ApprovedGrant): Ex
       ? {
           requires: {
             providers: [...declared],
+            // Read metadata feeds the chat tools; account access still comes from the grant.
+            queries: namesBy(declaredEntries(widget), "queries"),
             ...(Object.keys(actions).length > 0 ? { actions } : {}),
           },
         }

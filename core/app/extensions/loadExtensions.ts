@@ -12,6 +12,7 @@ import { DEFAULT_CONTENT_SCALE, clampContentScale } from "../host/resizeLogic";
 import { extensionHostWidgets } from "../extension-host/cockpit";
 import { isContractManifest } from "../extension-host/bundledExtensions";
 import { copyConnections, disposeConnections } from "../settings/credentials/connections";
+import { forgetWidgetChat } from "../host/widgetChatSessions";
 
 /**
  * Discover first-party extensions via Vite glob.
@@ -374,7 +375,10 @@ export function runExtensionHook(
   hook: "onCreate" | "onSuspend" | "onResume" | "onDispose",
   instanceId: string,
 ): void {
-  if (hook === "onDispose") void disposeConnections(instanceId).catch(console.error);
+  if (hook === "onDispose") {
+    void disposeConnections(instanceId).catch(console.error);
+    forgetWidgetChat(instanceId);
+  }
   if (!ext) return;
   const fn = ext[hook];
   if (!fn) return;

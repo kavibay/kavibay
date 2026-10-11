@@ -62,14 +62,31 @@ export type Caller = {
   trust: TrustTier;
   instanceId?: string;
   actions: ProviderActions;
+  /**
+   * The host's widget chat, reading on this instance's behalf: same account,
+   * same rights. Only the read log skips it, so a long tool session cannot
+   * evict what the widget itself loaded.
+   */
+  chat?: true;
 } | null;
 const connectionOwner = (caller: Caller) => caller?.instanceId ? `widget:${caller.instanceId}` : "host:default";
+
+/** One provider read a widget instance made. The result stays in the cache. */
+export interface RecordedRead {
+  provider: ProviderId;
+  query: string;
+  args: unknown;
+}
+
+/** Reads kept per instance for the widget chat's snapshot. */
+const READ_LOG_LIMIT = 20;
 
 export class Host {
   readonly cache = new QueryCache();
   readonly vault = new CredentialVault();
   readonly data = new InstanceDataStore();
   private http: HttpBroker;
+  private reads = new Map<string, Map<string, RecordedRead>>();
   /** Capability http, bound to the declaring extension so the host can vet it. */
   httpFor = (extensionId: string, policy: { hosts: string[]; methods: ("GET" | "POST")[] }) =>
     this.http.forCapability(extensionId, policy);
@@ -232,7 +249,42 @@ export class Host {
     return connection ? ["connection", connection.credentialId!, connection.revision, connection.packageId ?? "bundled"] : [];
   }
 
+  private recordRead(caller: Caller, provider: ProviderId, query: string, args: unknown) {
+    if (!caller?.instanceId || caller.chat) return;
+    const log = this.reads.get(caller.instanceId) ?? new Map<string, RecordedRead>();
+    const key = JSON.stringify([provider, query, args]);
+    log.delete(key); // re-inserted as the newest
+    log.set(key, { provider, query, args });
+    for (const oldest of log.keys()) {
+      if (log.size <= READ_LOG_LIMIT) break;
+      log.delete(oldest);
+    }
+    this.reads.set(caller.instanceId, log);
+  }
+
+  /** What this instance read lately, oldest first: the widget chat's snapshot. */
+  recentReads(instanceId: string): RecordedRead[] {
+    return [...(this.reads.get(instanceId)?.values() ?? [])];
+  }
+
+  forgetReads(instanceId: string): void {
+    this.reads.delete(instanceId);
+  }
+
+  /** The caller for one widget instance — the bridge's, the in-process context's and the chat's. */
+  callerFor(definitionId: string, instanceId: string): NonNullable<Caller> {
+    const found = this.registry.widget(definitionId);
+    if (!found) throw new Error(`unknown widget ${definitionId}`);
+    return {
+      extensionId: found.ext.id,
+      trust: found.ext.trust,
+      instanceId,
+      actions: found.widget.requires?.actions ?? {},
+    };
+  }
+
   async query<T>(id: ProviderId, name: string, args: any, caller: Caller = null): Promise<T> {
+    this.recordRead(caller, id, name, args);
     const connection = await this.requestConnection(id, caller);
     const def = this.registry.providers.get(id)!.def;
     const q = def.queries[name] ?? fail({ kind: "not-found", message: `unknown query ${name}` });
@@ -243,6 +295,7 @@ export class Host {
 
   /** `query`, but past the cache — see `QueryCache.refresh` for the floor. */
   async refresh<T>(id: ProviderId, name: string, args: any, caller: Caller = null): Promise<T> {
+    this.recordRead(caller, id, name, args);
     const connection = await this.requestConnection(id, caller);
     const def = this.registry.providers.get(id)!.def;
     const q = def.queries[name] ?? fail({ kind: "not-found", message: `unknown query ${name}` });
@@ -258,6 +311,7 @@ export class Host {
     id: ProviderId, name: string, args: any,
     onState: (s: QueryState<T>) => void, caller: Caller = null,
   ): Promise<Subscription> {
+    this.recordRead(caller, id, name, args);
     const connection = await this.requestConnection(id, caller);
     const def = this.registry.providers.get(id)!.def;
     const q = def.queries[name] ?? fail({ kind: "not-found", message: `unknown query ${name}` });
@@ -691,12 +745,7 @@ export class Host {
 
     const declared = w.requires?.providers ?? [];
     if (declared.length > 0) {
-      const caller = {
-        extensionId: found.ext.id,
-        trust: found.ext.trust,
-        instanceId: instance.id,
-        actions: w.requires?.actions ?? {},
-      };
+      const caller = this.callerFor(instance.definitionId, instance.id);
       ctx.providers = Object.fromEntries(
         declared.map((pid) => [pid, this.providerApi(pid, caller)]),
       );

@@ -418,6 +418,25 @@ if (!states.some((state) => state.id === zone)) {
 }
 ```
 
+### Asking about the data: `ui.chat`
+
+Set `"ui": { "chat": true }` when the widget shows data a person would want to
+ask about — sleep, energy use, a backlog — and leave it out for a clock or a
+launcher. The host then puts a chat button on the card. The person picks a
+model and allows it once per card; after that the host answers questions from
+what the widget loaded and from the queries listed in `requires.providers`.
+
+Do not build a chat yourself and do not call a model from `widget.js`: the
+widget never sees the conversation, and there is no API for it. The model reads
+only the queries you declared, never actions, so list the queries that help
+answer questions — not only the ones the tile renders.
+
+Settings reach the model only as `number`, `boolean` and `select` values with
+their labels. A `string` setting never does, because it may hold a token.
+Provider data can contain text that reads like instructions (a calendar entry,
+a page title); the model is told it is data, and it can only read — that is the
+whole protection, so do not promise more.
+
 ## Styling
 
 The host pushes its design tokens onto your document and pushes them again when

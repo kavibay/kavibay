@@ -21,6 +21,11 @@ export interface WidgetInstance {
   /** This instance's own surface, over the manifest's `ui.appearance`. */
   appearance?: WidgetAppearance;
   /**
+   * The person allowed this card's chat to send the widget's data to `model`.
+   * Never copied by Duplicate: a grant to send data out is given per card.
+   */
+  chat?: { model: string };
+  /**
    * Persisted Hidden: not visible; background widgets may stay mounted. Can be shown again
    * from the palette. Distinct from session cockpit close (Ctrl double tap / outside click).
    */
@@ -94,6 +99,8 @@ export interface WidgetCatalogEntry {
   title?: string;
   hideTitle?: boolean;
   appearance?: WidgetAppearance;
+  /** See `WidgetInstance.chat`: a per-card grant, shared by the card on every desk. */
+  chat?: { model: string };
 }
 
 /** Persisted layout for layout-v4 (catalog + per-desk placements). */
