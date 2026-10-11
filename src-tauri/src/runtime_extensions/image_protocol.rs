@@ -1,6 +1,6 @@
 //! Custom `kavibay-img` URI scheme: pictures a widget may show but not fetch.
 //!
-//! URL form (conceptual): `kavibay-img://p/<provider>/<absolute https url>`,
+//! URL form (conceptual): `kavibay-img://localhost/p/<provider>/<absolute https url>`,
 //! both segments percent-encoded. On Windows/Android Tauri presents requests as
 //! `http://kavibay-img.localhost/p/<provider>/<url>`.
 //!
@@ -154,11 +154,24 @@ mod tests {
     #[test]
     fn a_target_is_two_decoded_segments() {
         let target = parse_kavibay_img_uri(&uri(
-            "kavibay-img://p/p/kavibay.spotify%2Fspotify/https%3A%2F%2Fi.scdn.co%2Fimage%2Fabc",
+            "kavibay-img://localhost/p/kavibay.spotify%2Fspotify/https%3A%2F%2Fi.scdn.co%2Fimage%2Fabc",
         ))
         .unwrap();
         assert_eq!(target.provider_id, "kavibay.spotify/spotify");
         assert_eq!(target.url, "https://i.scdn.co/image/abc");
+    }
+
+    #[test]
+    fn a_windows_tmdb_target_preserves_the_poster_filename() {
+        let target = parse_kavibay_img_uri(&uri(
+            "http://kavibay-img.localhost/p/kavibay.tmdb%2Ftmdb/https%3A%2F%2Fimage.tmdb.org%2Ft%2Fp%2Fw500%2FsNxqwtyHMNQwKWoFYDqCYTu5Ok.jpg",
+        ))
+        .unwrap();
+        assert_eq!(target.provider_id, "kavibay.tmdb/tmdb");
+        assert_eq!(
+            target.url,
+            "https://image.tmdb.org/t/p/w500/sNxqwtyHMNQwKWoFYDqCYTu5Ok.jpg"
+        );
     }
 
     #[test]

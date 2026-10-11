@@ -27,15 +27,19 @@ import type { ProviderId, ResultSchema } from "./sdk";
 export const IMAGE_SCHEME = "kavibay-img";
 
 /**
- * `kavibay-img://p/<provider>/<url>`, both segments percent-encoded.
+ * `kavibay-img://localhost/p/<provider>/<url>`, both segments percent-encoded.
  *
  * The provider travels in the url because the check is per provider: Spotify
  * declaring `i.scdn.co` must not let some other provider's widget reach it.
- * A fixed `p` authority keeps one shape across both url forms — a provider id
- * contains a `/` and cannot be a host name.
+ * The host supplies Tauri's platform-specific base URL in the running app.
+ * The `/p/` route stays in the path on every platform, as Rust expects.
  */
-export function brokeredImageUrl(provider: ProviderId, url: string): string {
-  return `${IMAGE_SCHEME}://p/${encodeURIComponent(provider)}/${encodeURIComponent(url)}`;
+export function brokeredImageUrl(
+  provider: ProviderId,
+  url: string,
+  baseUrl = `${IMAGE_SCHEME}://localhost`,
+): string {
+  return `${baseUrl.replace(/\/$/, "")}/p/${encodeURIComponent(provider)}/${encodeURIComponent(url)}`;
 }
 
 /** Whether a value is worth rewriting: an absolute https url and nothing else. */
@@ -60,23 +64,24 @@ export function rewriteImageUrls(
   schema: ResultSchema,
   value: unknown,
   provider: ProviderId,
+  baseUrl?: string,
 ): unknown {
   switch (schema.type) {
     case "string":
-      return schema.image && isFetchableImage(value) ? brokeredImageUrl(provider, value) : value;
+      return schema.image && isFetchableImage(value) ? brokeredImageUrl(provider, value, baseUrl) : value;
     case "number":
     case "boolean":
       return value;
     case "list":
       return Array.isArray(value)
-        ? value.map((entry) => rewriteImageUrls(schema.of, entry, provider))
+        ? value.map((entry) => rewriteImageUrls(schema.of, entry, provider, baseUrl))
         : value;
     case "object": {
       if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
       const record = value as Record<string, unknown>;
       const out: Record<string, unknown> = { ...record };
       for (const [key, field] of Object.entries(schema.fields)) {
-        if (key in record) out[key] = rewriteImageUrls(field, record[key], provider);
+        if (key in record) out[key] = rewriteImageUrls(field, record[key], provider, baseUrl);
       }
       return out;
     }
