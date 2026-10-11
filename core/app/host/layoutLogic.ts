@@ -416,6 +416,7 @@ export function normalizeInstance(i: WidgetInstance): WidgetInstance {
   };
   if (typeof i.title === "string") next.title = i.title;
   if (typeof i.hideTitle === "boolean") next.hideTitle = i.hideTitle;
+  if (typeof i.chat?.model === "string" && i.chat.model.length > 0) next.chat = { model: i.chat.model };
   const appearance = normalizeWidgetAppearance(i.appearance);
   if (appearance) next.appearance = appearance;
   if (i.hidden === true) {

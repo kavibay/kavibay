@@ -53,6 +53,8 @@ export interface HostExtensionRef {
   padding?: boolean;
   compact: boolean;
   defaultHideTitle: boolean;
+  /** Offers the host's chat panel (`ui.chat`); shown only for a contract package with providers. */
+  chat?: boolean;
   /** Content zoom new instances open at (1 = unzoomed). */
   defaultScale: number;
   grabCursor: boolean;
@@ -127,6 +129,8 @@ export interface ScannedRuntimeExtension {
   defaultSize?: { w: number; h: number };
   /** `ui.defaultHideTitle` from the manifest, when it declares one. */
   defaultHideTitle?: boolean;
+  /** `ui.chat` from a contract manifest: the card offers the host's chat panel. */
+  chat?: boolean;
   /** `ui.padding` from the manifest, when it declares one. */
   padding?: boolean;
   /** `ui.defaultScale` from the manifest, when it declares one. */
