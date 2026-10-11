@@ -1,8 +1,11 @@
 import { computed, ref, watch, type ComputedRef, type Ref } from "vue";
 import { defineWidget, type WidgetContext } from "@sdk/contract/sdk";
+import { CURRENCY_ALIASES, CURRENCY_HOST, currencyRates, loadCurrencyRates, looksLikeCurrency } from "./currency";
 
-/** `unit` is set only for a conversion and holds the target's symbol. */
-export type EvalResult = { ok: true; value: number; unit?: string } | { ok: false };
+/** `unit` and `from` are set only for a conversion: the target's symbol, and what was converted. */
+export type EvalResult =
+  | { ok: true; value: number; unit?: string; from?: { value: number; unit: string } }
+  | { ok: false };
 
 export interface CalcHistoryEntry {
   id: string;
@@ -146,11 +149,16 @@ export function formatAnswer(result: { value: number; unit?: string }): string {
   return result.unit ? `${number} ${result.unit}` : number;
 }
 
-/** What gets copied: rounded to 12 significant digits, so 0.1+0.2 reads 0.3. */
+/**
+ * What gets copied: rounded to 12 significant digits, so 0.1+0.2 reads 0.3 —
+ * or to cents for a currency, the only unit written as three capitals.
+ */
 export function roundAnswer(answer: string): string {
   const [number = "", ...unit] = answer.split(" ");
   const value = Number(number);
-  return Number.isFinite(value) ? [formatResult(value), ...unit].join(" ") : answer;
+  if (!Number.isFinite(value)) return answer;
+  const rounded = /^[A-Z]{3}$/.test(unit[0] ?? "") ? value.toFixed(2) : formatResult(value);
+  return [rounded, ...unit].join(" ");
 }
 
 const NARROW_SPACE = String.fromCharCode(0x202f);
@@ -244,32 +252,80 @@ for (const [symbol, factor, offset, ...names] of TEMPERATURES) {
   for (const name of names) UNITS.set(name, { symbol, dimension: "temperature", factor, offset });
 }
 
-function findUnit(name: string): Unit | undefined {
-  return UNITS.get(name.toLowerCase().replace(/^°/, ""));
+function findUnit(name: string, rates: Record<string, number>): Unit | undefined {
+  const unit = UNITS.get(name.toLowerCase().replace(/^°/, ""));
+  if (unit) return unit;
+  // Currencies are units whose factor is the day's rate, through EUR.
+  const symbol = CURRENCY_ALIASES[name.toLowerCase()] ?? name.toUpperCase();
+  const rate = rates[symbol];
+  return rate ? { symbol, dimension: "currency", factor: 1 / rate, offset: 0 } : undefined;
 }
 
 // "<amount> <unit> in|to <unit>". A unit starts with anything but a digit or an
 // operator, so "25km" splits as 25 + km rather than 2 + "5km".
 const UNIT_NAME = String.raw`[^\s\d.,+\-*/()][^\s]*`;
 const CONVERSION = new RegExp(String.raw`^(.+?)\s*(${UNIT_NAME})\s+(?:in|to)\s+(${UNIT_NAME})$`, "i");
+// The same before the target is typed: "100 $", "100 $ in", "100 $ in e".
+const PENDING = new RegExp(String.raw`^(.+?)\s*(${UNIT_NAME})(?:\s+(?:in|to)(?:\s+\S*)?)?$`, "i");
 
 /**
- * Evaluate arithmetic, or a unit conversion such as "5 km in mi", without
- * eval/Function, failing closed on malformed input.
+ * Shared front of both: "$100" is written symbol first, so the symbol moves
+ * behind the amount like any unit. Null past 200 characters — the palette
+ * evaluates every query, and these patterns backtrack quadratically on a long
+ * miss, so a pasted blob would stall typing. No conversion is this long.
  */
-export function evaluate(expression: string): EvalResult {
+function unitLast(expression: string): string | null {
   const trimmed = expression.trim();
-  // The palette evaluates every query, and CONVERSION backtracks quadratically
-  // on a long miss — a pasted blob would stall typing. No conversion is this long.
-  const match = trimmed.length <= 200 ? CONVERSION.exec(trimmed) : null;
+  return trimmed.length <= 200 ? trimmed.replace(/^([$€£¥])\s*(\S+)/, "$2 $1") : null;
+}
+
+const POPULAR_CURRENCIES = ["EUR", "USD", "GBP", "CHF", "JPY"];
+
+/**
+ * An amount with a unit and no target yet, so the palette can say it is
+ * converting before the expression is complete. `targets` suggests a few units
+ * of the same dimension.
+ */
+export function pendingConversion(
+  expression: string,
+  rates: Record<string, number> = currencyRates.value,
+): { value: number; unit: string; targets: string[] } | null {
+  const text = unitLast(expression);
+  const match = text == null ? null : PENDING.exec(text);
+  if (!match) return null;
+  const [, amountText = "", name = ""] = match;
+  const unit = findUnit(name, rates);
+  const amount = evaluateArithmetic(amountText);
+  if (!unit || !amount.ok) return null;
+  const candidates =
+    unit.dimension === "currency"
+      ? POPULAR_CURRENCIES.filter((code) => rates[code])
+      : [...new Set([...UNITS.values()].filter((u) => u.dimension === unit.dimension).map((u) => u.symbol))];
+  return {
+    value: amount.value,
+    unit: unit.symbol,
+    targets: candidates.filter((symbol) => symbol !== unit.symbol).slice(0, 4),
+  };
+}
+
+/**
+ * Evaluate arithmetic, or a unit conversion such as "5 km in mi" or
+ * "100 usd in eur", without eval/Function, failing closed on malformed input.
+ * A currency fails until `rates` holds it (see `loadCurrencyRates`).
+ */
+export function evaluate(expression: string, rates: Record<string, number> = currencyRates.value): EvalResult {
+  const text = unitLast(expression);
+  const match = text == null ? null : CONVERSION.exec(text);
   if (!match) return evaluateArithmetic(expression);
   const [, amountText = "", fromName = "", toName = ""] = match;
-  const from = findUnit(fromName);
-  const to = findUnit(toName);
+  const from = findUnit(fromName, rates);
+  const to = findUnit(toName, rates);
   const amount = evaluateArithmetic(amountText);
   if (!from || !to || from.dimension !== to.dimension || !amount.ok) return { ok: false };
   const value = (amount.value * from.factor + from.offset - to.offset) / to.factor;
-  return Number.isFinite(value) ? { ok: true, value, unit: to.symbol } : { ok: false };
+  return Number.isFinite(value)
+    ? { ok: true, value, unit: to.symbol, from: { value: amount.value, unit: from.symbol } }
+    : { ok: false };
 }
 
 function evaluateArithmetic(expression: string): EvalResult {
@@ -415,7 +471,10 @@ export const calculatorWidget = defineWidget<Record<string, never>>({
   description: "Arithmetic and unit conversions.",
   defaultSize: { w: 2, h: 3 },
   mode: "both",
-  capabilities: { clipboard: true },
+  capabilities: {
+    clipboard: true,
+    http: { hosts: [CURRENCY_HOST], methods: ["GET"] },
+  },
   component: {
     async setup(ctx: WidgetContext<Record<string, never>>): Promise<CalculatorModel> {
       const history = ref<CalcHistoryEntry[]>([]);
@@ -442,6 +501,13 @@ export const calculatorWidget = defineWidget<Record<string, never>>({
           if (hydrated) void persist().catch(() => undefined);
         },
         { deep: true },
+      );
+
+      watch(
+        expression,
+        (value) => {
+          if (ctx.http && looksLikeCurrency(value)) void loadCurrencyRates(ctx.http);
+        },
       );
 
       const saved = normalizeCalculatorState(await ctx.data.get(CALCULATOR_STATE_KEY));

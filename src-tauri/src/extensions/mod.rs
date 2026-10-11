@@ -38,6 +38,7 @@ mod generated;
 
 pub mod ai_usage;
 pub mod app_launcher;
+pub mod calculator;
 pub mod clipboard_widget;
 pub mod color_picker;
 pub mod focus_tracker;
@@ -88,6 +89,7 @@ pub struct ExtensionRust {
 pub const ALL: &[&ExtensionRust] = &[
     &ai_usage::EXTENSION,
     &app_launcher::EXTENSION,
+    &calculator::EXTENSION,
     &clipboard_widget::EXTENSION,
     &color_picker::EXTENSION,
     &focus_tracker::EXTENSION,
