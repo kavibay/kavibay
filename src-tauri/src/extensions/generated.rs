@@ -74,6 +74,13 @@ pub const PROVIDERS: &[ProviderDef] = &[
         link_hosts: &[],
     },
     ProviderDef {
+        id: "kavibay.tmdb/tmdb",
+        host_rule: HostRule::Exact(&["api.themoviedb.org"]),
+        credential_type: Some("tmdbApi"),
+        image_hosts: &["image.tmdb.org"],
+        link_hosts: &["www.themoviedb.org"],
+    },
+    ProviderDef {
         id: "kavibay.weather/weather",
         host_rule: HostRule::Exact(&["geocoding-api.open-meteo.com", "api.open-meteo.com", "air-quality-api.open-meteo.com"]),
         credential_type: None,

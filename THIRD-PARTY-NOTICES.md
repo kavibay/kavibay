@@ -109,6 +109,7 @@ of them is used as this app's own identity.
 - OpenAI — OpenAI, Inc. — https://openai.com
 - Open-Meteo — https://open-meteo.com
 - tado° — tado GmbH — https://www.tado.com/
+- TMDB (The Movie Database) — user-supplied SVG — https://www.themoviedb.org/about/logos-attribution
 
 Trademark guidelines are the binding terms here, not a file licence. **Confirm
 each mark against its owner's current guidelines before advertising or

@@ -63,11 +63,23 @@ assert(
 
 // Both halves survive a round trip, including the `/` a provider id contains.
 const url = brokeredImageUrl(PROVIDER, "https://i.scdn.co/image/a?b=1&c=2");
-const [, , , provider, target] = url.split("/");
+const [, , , route, provider, target] = url.split("/");
+assert(route === "p", "the Rust protocol route is a path segment, not the URL authority");
 assert(decodeURIComponent(provider!) === PROVIDER, "the provider id survives its own slash");
 assert(
   decodeURIComponent(target!) === "https://i.scdn.co/image/a?b=1&c=2",
   "a query string survives rather than splitting the path Rust parses",
+);
+
+const windowsBase = "http://kavibay-img.localhost/";
+const windows = rewriteImageUrls(playlist, source, PROVIDER, windowsBase) as { imageUrl: string }[];
+assert(
+  windows[0]?.imageUrl === "http://kavibay-img.localhost/p/kavibay.spotify%2Fspotify/https%3A%2F%2Fi.scdn.co%2Fimage%2Fabc",
+  "Windows uses the Tauri HTTP origin with separately encoded path segments",
+);
+assert(
+  (rewriteImageUrls(playlist, windows, PROVIDER, windowsBase) as { imageUrl: string }[])[0]?.imageUrl === windows[0]?.imageUrl,
+  "a platform URL is not wrapped again",
 );
 
 // A schema with no picture in it must not send a result through the copy at all.

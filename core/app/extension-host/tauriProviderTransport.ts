@@ -1,4 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { IMAGE_SCHEME } from "@sdk/contract/imageUrls";
 import type { ExtensionId, ProviderId } from "@sdk/contract/sdk";
 import type { ProviderConnection, ProviderTransport } from "./providerTransport";
 import { connectionEpoch } from "../settings/credentials/connections";
@@ -51,6 +52,8 @@ export function connectionCache(
  * to finding 8's boundary).
  */
 export const tauriProviderTransport: ProviderTransport = {
+  // Convert only the base: encoding the full path would encode its separators twice.
+  imageBaseUrl: () => convertFileSrc("", IMAGE_SCHEME),
   // The body key is omitted rather than sent as null: `Option<Value>` on the
   // Rust side reads an explicit null as `Some(Null)`, not `None`.
   fetch: (providerId, url, method, body, connection) =>

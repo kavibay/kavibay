@@ -26,6 +26,7 @@ import NotionMark from "./NotionMark.vue";
 import OpenAiMark from "./OpenAiMark.vue";
 import OpenMeteoMark from "./OpenMeteoMark.vue";
 import TadoMark from "./TadoMark.vue";
+import TmdbMark from "./TmdbMark.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -56,6 +57,8 @@ const mark = computed(() => {
       return FitbitMark;
     case "notion":
       return NotionMark;
+    case "tmdb":
+      return TmdbMark;
     case "google":
       return GoogleMark;
     case "open-meteo":

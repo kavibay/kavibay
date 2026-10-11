@@ -362,7 +362,7 @@ export class Host {
      * url costs the in-app path nothing and keeps one shape to reason about.
      */
     if (q.result && schemaHasImage(q.result)) {
-      return rewriteImageUrls(q.result, value, id);
+      return rewriteImageUrls(q.result, value, id, this.transport?.imageBaseUrl?.());
     }
     return value;
   }

@@ -22,6 +22,9 @@ export interface ProviderConnection {
  * out, a status and a body come back.
  */
 export interface ProviderTransport {
+  /** Tauri's platform-specific origin for the host-owned image protocol. */
+  imageBaseUrl?(): string;
+
   /** Executes a request as the provider, with auth attached host-side. */
   fetch(
     providerId: ProviderId,

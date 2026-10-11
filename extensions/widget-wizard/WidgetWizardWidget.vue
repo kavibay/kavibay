@@ -8293,6 +8293,8 @@ button:disabled {
 }
 
 .wiz-account-name {
+  /* Providers without a logo still use the full text column. */
+  grid-column: 2;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -8308,6 +8310,7 @@ button:disabled {
   credential; the rest of the row still toggles selection.
 */
 .wiz-account-offline {
+  grid-column: 3;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -8322,6 +8325,7 @@ button:disabled {
 }
 
 .wiz-account-check {
+  grid-column: 3;
   width: 16px;
   color: rgba(160, 220, 180, 0.95);
   font-size: 14px;
