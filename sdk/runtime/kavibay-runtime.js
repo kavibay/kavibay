@@ -143,12 +143,26 @@
   var probe = document.createElement("style");
   probe.textContent = "html,body{height:auto!important;min-height:0!important}";
   function flowHeight(root, body) {
+    // At `height: auto` every inner scroll box grows to its content and the
+    // browser clamps its scrollTop to 0. This runs on every mutation, so a
+    // scrolled widget would jump back to the top; put each position back.
+    var scrolled = [];
+    var all = document.querySelectorAll("*");
+    for (var i = 0; i < all.length; i += 1) {
+      if (all[i].scrollTop || all[i].scrollLeft) {
+        scrolled.push([all[i], all[i].scrollTop, all[i].scrollLeft]);
+      }
+    }
     root.appendChild(probe);
     var height =
       body && body.getBoundingClientRect().height
         ? Math.ceil(root.getBoundingClientRect().height) + hiddenInside()
         : 0;
     root.removeChild(probe);
+    for (var j = 0; j < scrolled.length; j += 1) {
+      scrolled[j][0].scrollTop = scrolled[j][1];
+      scrolled[j][0].scrollLeft = scrolled[j][2];
+    }
     return height;
   }
 

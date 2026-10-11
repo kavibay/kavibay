@@ -149,11 +149,22 @@ installFaultReporting(window, console, (fault) =>
   const probe = document.createElement("style");
   probe.textContent = "html,body{height:auto!important;min-height:0!important}";
   const flowHeight = (root: HTMLElement) => {
+    // At `height: auto` every inner scroll box grows to its content, and the
+    // browser clamps its scrollTop to 0 on the way. The probe runs on every
+    // mutation, so without this a tooltip's text changing on hover threw a
+    // scrolled widget back to the top. Put each scroll position back.
+    const scrolled = Array.from(document.querySelectorAll("*"))
+      .filter((el) => el.scrollTop || el.scrollLeft)
+      .map((el) => [el, el.scrollTop, el.scrollLeft] as const);
     root.append(probe);
     const height = document.body?.getBoundingClientRect().height
       ? Math.ceil(root.getBoundingClientRect().height) + hiddenInside()
       : 0;
     probe.remove();
+    for (const [el, top, left] of scrolled) {
+      el.scrollTop = top;
+      el.scrollLeft = left;
+    }
     return height;
   };
 
