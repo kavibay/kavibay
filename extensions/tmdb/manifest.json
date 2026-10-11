@@ -1,0 +1,9 @@
+{
+  "format": "contract",
+  "name": "tmdb",
+  "version": "1.0.0",
+  "displayName": "TMDB",
+  "description": "Movie search with posters, ratings and streaming availability for custom widgets.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" }
+}

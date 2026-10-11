@@ -25,6 +25,8 @@ assert(brandMarkFor("kavibay.fitbit/fitbit") === "fitbit", "fitbit provider id")
 assert(brandMarkFor("fitbitOAuth2") === "fitbit", "fitbit credential type");
 assert(brandMarkFor("kavibay.notion/notion") === "notion", "notion provider id");
 assert(brandMarkFor("notionApi") === "notion", "notion credential type");
+assert(brandMarkFor("kavibay.tmdb/tmdb") === "tmdb", "TMDB provider id");
+assert(brandMarkFor("tmdbApi") === "tmdb", "TMDB credential type");
 assert(brandMarkFor("kavibay.calendar/calendar") === "google", "calendar provider id");
 assert(brandMarkFor("googleCalendarOAuth2") === "google", "google credential type");
 
@@ -46,4 +48,4 @@ assert(brandMarkFor("dev.evil/github") === undefined, "namespace is part of the 
 assert(brandMarkFor("local.notgithub/notgithub") === undefined, "no substring matching");
 assert(brandMarkFor("github") === undefined, "a bare provider name is not a key");
 
-console.log("brandMarks.assert.ts: 27 assertions passed");
+console.log("brandMarks.assert.ts: ok");

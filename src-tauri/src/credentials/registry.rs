@@ -12,6 +12,7 @@ use super::types::{
 pub const GITHUB_PAT: &str = "githubPat";
 pub const LINEAR_API: &str = "linearApi";
 pub const NOTION_API: &str = "notionApi";
+pub const TMDB_API: &str = "tmdbApi";
 pub const N8N_API: &str = "n8nApi";
 pub const SPOTIFY_OAUTH2: &str = "spotifyOAuth2";
 pub const FITBIT_OAUTH2: &str = "fitbitOAuth2";
@@ -108,6 +109,34 @@ const NOTION: CredentialTypeDef = CredentialTypeDef {
         url: "https://api.notion.com/v1/users/me",
         headers: &[],
         success: "Token accepted by Notion.",
+        body: None,
+    }),
+    instance_url_field: None,
+};
+
+/// TMDB application read access token, not the v3 API key.
+const TMDB: CredentialTypeDef = CredentialTypeDef {
+    id: TMDB_API,
+    display_name: "TMDB",
+    description: "Movie search, posters and TMDB community ratings.",
+    docs_url: Some("https://www.themoviedb.org/settings/api"),
+    fields: &[FieldDef {
+        key: "token",
+        label: "API Read Access Token",
+        kind: FieldKind::Password,
+        required: true,
+        placeholder: None,
+        help: Some("TMDB account → Settings → API. Paste the API Read Access Token without the Bearer prefix, not the API key."),
+    }],
+    auth: AuthKind::Static,
+    inject: Injection::Bearer {
+        value: "{{token}}",
+        extra_headers: &[],
+    },
+    test: Some(TestRequest {
+        url: "https://api.themoviedb.org/3/configuration",
+        headers: &[],
+        success: "Token accepted by TMDB.",
         body: None,
     }),
     instance_url_field: None,
@@ -445,6 +474,7 @@ pub const ALL: &[CredentialTypeDef] = &[
     GITHUB,
     LINEAR,
     NOTION,
+    TMDB,
     N8N,
     SPOTIFY,
     FITBIT,

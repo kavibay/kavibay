@@ -25,6 +25,7 @@ export type BrandId =
   | "spotify"
   | "fitbit"
   | "notion"
+  | "tmdb"
   | "anthropic"
   | "openai"
   | "cloudflare";
@@ -40,6 +41,7 @@ const MARKS: Readonly<Record<string, BrandId>> = {
   "kavibay.spotify/spotify": "spotify",
   "kavibay.fitbit/fitbit": "fitbit",
   "kavibay.notion/notion": "notion",
+  "kavibay.tmdb/tmdb": "tmdb",
   "kavibay.calendar/calendar": "google",
   "kavibay.weather/weather": "open-meteo",
 
@@ -51,6 +53,7 @@ const MARKS: Readonly<Record<string, BrandId>> = {
   spotifyoauth2: "spotify",
   fitbitoauth2: "fitbit",
   notionapi: "notion",
+  tmdbapi: "tmdb",
   googlecalendaroauth2: "google",
   anthropicapi: "anthropic",
   openaiapi: "openai",

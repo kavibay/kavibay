@@ -211,7 +211,7 @@ pub async fn resolve_for_connection(
 mod tests {
     use super::*;
     use crate::credentials::db::{CredentialRecord, CredentialState};
-    use crate::credentials::registry::{CLOUDFLARE_WORKERS_AI, GITHUB_PAT, NOTION_API};
+    use crate::credentials::registry::{CLOUDFLARE_WORKERS_AI, GITHUB_PAT, NOTION_API, TMDB_API};
 
     fn secret_with(pairs: &[(&str, &str)]) -> SecretData {
         let mut data = SecretData::default();
@@ -277,6 +277,32 @@ mod tests {
                 .get(reqwest::header::AUTHORIZATION)
                 .and_then(|v| v.to_str().ok()),
             Some("Bearer ntn_test")
+        );
+    }
+
+    #[test]
+    fn tmdb_read_access_token_is_attached_as_bearer_only() {
+        let cred = ResolvedCredential {
+            type_def: registry::require(TMDB_API).unwrap(),
+            record: dummy_record(TMDB_API),
+            secret: secret_with(&[("token", "tmdb_test_token")]),
+        };
+        let built = cred
+            .apply(
+                reqwest::Client::new().get("https://api.themoviedb.org/3/search/movie?query=film"),
+            )
+            .unwrap()
+            .build()
+            .unwrap();
+        assert_eq!(
+            built.headers().get(reqwest::header::AUTHORIZATION).unwrap(),
+            "Bearer tmdb_test_token"
+        );
+        assert_eq!(built.url().query(), Some("query=film"));
+        assert!(!has_required_fields(cred.type_def, &SecretData::default()));
+        assert_eq!(
+            cred.type_def.test.unwrap().url,
+            "https://api.themoviedb.org/3/configuration"
         );
     }
 

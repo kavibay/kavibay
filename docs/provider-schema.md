@@ -128,6 +128,19 @@ Needs a connected account. The widget gate shows a connect prompt until then.
 
 Actions: `setTemperature` (write), `turnOff` (write).
 
+## TMDB
+
+`kavibay.tmdb/tmdb` · `extensions/tmdb/provider.ts`
+
+Needs a connected account. The widget gate shows a connect prompt until then.
+
+| Query | Reads | Arguments | Returns | Refresh |
+|---|---|---|---|---|
+| `searchMovies` | Search movies by title (first page, up to 20 results). language defaults to de-DE; use e.g. en-US for English. posterUrl is nullable; rating is the TMDB community average out of 10, null without votes. Credit TMDB when displaying its data and images (developer.themoviedb.org/docs/faq). | `query: string`, `language?: string` | `list of { id: string, title: string, releaseDate: string?, posterUrl: string?, rating: number?, voteCount: number, url: string }` | 5 min |
+| `watchProviders` | Get a movie's streaming, rental and purchase offers for one country. Pass movieId from searchMovies.id; country is a two-letter code, default DE. offers contain provider id, name, nullable logoUrl and type: subscription (included in a subscription), free, ads (with ads), rent or buy. A provider can occur in multiple types; use id + type as the row key. Empty offers mean TMDB has no availability data for this country, not proof that the movie is unavailable. watchUrl is a nullable TMDB watch-page link, not a streaming-service deep link. Display the returned JustWatch attribution with the availability data; credit TMDB for its data/images too. | `movieId: string`, `country?: string` | `{ movieId: string, country: string, watchUrl: string?, offers: list of { id: string, name: string, logoUrl: string?, type: string }, attribution: string }` | 60 min |
+
+No actions — this provider is read-only.
+
 ## Weather (Open-Meteo)
 
 `kavibay.weather/weather` · `extensions/weather/provider.ts`

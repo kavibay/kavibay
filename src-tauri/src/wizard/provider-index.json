@@ -114,6 +114,16 @@
     ]
   },
   {
+    "id": "kavibay.tmdb/tmdb",
+    "displayName": "TMDB",
+    "description": "Movie search with posters, ratings and streaming availability for custom widgets.",
+    "queries": [
+      "searchMovies",
+      "watchProviders"
+    ],
+    "actions": []
+  },
+  {
     "id": "kavibay.weather/weather",
     "displayName": "Weather (Open-Meteo)",
     "description": "Current weather for a chosen location.",
