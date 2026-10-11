@@ -2,11 +2,13 @@
 
 use crate::credentials::ResolvedCredential;
 use crate::llm::catalog::LlmProvider;
-use crate::llm::provider::{ChatMessage, SseParseItem};
+use crate::llm::provider::{ChatMessage, SseParseItem, ToolChoice, ToolDef};
 use crate::llm::sse::push_sse_bytes;
 use crate::llm::state::LlmState;
+use crate::llm::turn::{ToolCall, TurnAssembler};
 use futures_util::StreamExt;
 use serde::Serialize;
+use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 
 #[derive(Clone, Serialize)]
@@ -19,13 +21,23 @@ struct LlmChunkPayload {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct LlmTurnPayload {
+    instance_id: String,
+    request_id: String,
+    /// Sent back verbatim next round; see `turn.rs`.
+    assistant: Value,
+    tool_calls: Vec<ToolCall>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct LlmLifecyclePayload {
     instance_id: String,
     request_id: String,
 }
 
 /// Streams a chat completion and emits chunk / done / cancelled events.
-// Eight parameters, none of which travel together elsewhere: bundling them into
+// Ten parameters, none of which travel together elsewhere: bundling them into
 // a struct would exist only to satisfy the lint. Same call as
 // `credentials::oauth::device_code`.
 #[allow(clippy::too_many_arguments)]
@@ -38,6 +50,8 @@ pub async fn stream_chat(
     request_id: &str,
     model: &str,
     messages: &[ChatMessage],
+    tools: Option<&[ToolDef]>,
+    tool_choice: ToolChoice,
 ) -> Result<(), String> {
     let model = model.trim();
     if model.is_empty() {
@@ -52,7 +66,12 @@ pub async fn stream_chat(
         // token would sit in the decoder until the response ends.
         .header("Accept", "text/event-stream")
         .header("Accept-Encoding", "identity")
-        .json(&provider.body(model, messages)?);
+        .json(&provider.body_with_tools(
+            model,
+            messages,
+            tools.unwrap_or_default(),
+            tool_choice,
+        )?);
     for (name, value) in provider.extra_headers() {
         request = request.header(*name, *value);
     }
@@ -69,6 +88,8 @@ pub async fn stream_chat(
         return Err(format!("HTTP {status}: {body}"));
     }
 
+    // A chat round (tools passed, even none) also returns the assembled turn.
+    let mut turn = tools.map(|_| TurnAssembler::new(provider));
     let mut stream = response.bytes_stream();
     let mut buffer = Vec::new();
     while let Some(item) = stream.next().await {
@@ -84,6 +105,7 @@ pub async fn stream_chat(
             instance_id,
             request_id,
             push_sse_bytes(&mut buffer, &bytes, provider)?,
+            &mut turn,
         )? {
             return Ok(());
         }
@@ -98,6 +120,7 @@ pub async fn stream_chat(
             instance_id,
             request_id,
             push_sse_bytes(&mut buffer, &[], provider)?,
+            &mut turn,
         )? {
             return Ok(());
         }
@@ -106,6 +129,10 @@ pub async fn stream_chat(
     if state.is_cancelled(request_id) {
         emit_lifecycle(app, "llm:cancelled", instance_id, request_id);
     } else {
+        if let Err(error) = emit_turn(app, instance_id, request_id, turn.take()) {
+            state.finish(request_id);
+            return Err(error);
+        }
         emit_lifecycle(app, "llm:done", instance_id, request_id);
     }
     state.finish(request_id);
@@ -119,10 +146,14 @@ fn emit_parsed_items(
     instance_id: &str,
     request_id: &str,
     items: Vec<SseParseItem>,
+    turn: &mut Option<TurnAssembler>,
 ) -> Result<bool, String> {
     for parsed in items {
         if emit_if_cancelled(app, state, instance_id, request_id) {
             return Ok(true);
+        }
+        if let Some(assembler) = turn.as_mut() {
+            assembler.push(&parsed);
         }
         match parsed {
             SseParseItem::Text(text) => {
@@ -140,13 +171,41 @@ fn emit_parsed_items(
                 return Err(message);
             }
             SseParseItem::Done => {
-                emit_lifecycle(app, "llm:done", instance_id, request_id);
+                let finished = emit_turn(app, instance_id, request_id, turn.take());
                 state.finish(request_id);
+                finished?;
+                emit_lifecycle(app, "llm:done", instance_id, request_id);
                 return Ok(true);
             }
+            SseParseItem::BlockStart(_)
+            | SseParseItem::BlockDelta(_)
+            | SseParseItem::ToolCallDeltas(_) => {}
         }
     }
     Ok(false)
+}
+
+/// Emits a chat round's assembled turn; a no-op for requests without tools.
+fn emit_turn(
+    app: &AppHandle,
+    instance_id: &str,
+    request_id: &str,
+    turn: Option<TurnAssembler>,
+) -> Result<(), String> {
+    let Some(assembler) = turn else {
+        return Ok(());
+    };
+    let turn = assembler.finish()?;
+    let _ = app.emit(
+        "llm:turn",
+        LlmTurnPayload {
+            instance_id: instance_id.to_string(),
+            request_id: request_id.to_string(),
+            assistant: turn.assistant,
+            tool_calls: turn.tool_calls,
+        },
+    );
+    Ok(())
 }
 
 /// HTTP client for SSE: compression off, so tokens are not held until `done`.

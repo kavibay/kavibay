@@ -14,12 +14,44 @@ pub struct ChatImage {
     pub data: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
     pub role: String,
+    #[serde(default)]
     pub content: String,
     #[serde(default)]
     pub images: Vec<ChatImage>,
+    /// An assistant turn exactly as `llm:turn` delivered it, sent back
+    /// verbatim. Claude's thinking blocks and their signatures must reach the
+    /// provider unchanged in a tool loop, so a turn is never rebuilt from parts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<Value>,
+    /// Role `"tool"`: the call this result answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    #[serde(default)]
+    pub is_error: bool,
+}
+
+/// One tool a chat round may call, in the host's neutral shape.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolDef {
+    pub name: String,
+    pub description: String,
+    pub input_schema: Value,
+}
+
+/// `None` keeps the tools declared but stops the model calling them: the way
+/// to force a final answer once the history holds a tool call, where dropping
+/// `tools` is a 400.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolChoice {
+    #[default]
+    Auto,
+    None,
 }
 
 /// One completed item decoded from a provider's event stream.
@@ -29,6 +61,14 @@ pub enum SseParseItem {
     /// Provider reported a mid-stream failure (Anthropic `event: error`).
     Failure(String),
     Done,
+    /// Anthropic opened a content block: its `content_block` object as sent.
+    /// Text blocks open here too, so the assembler knows where text goes.
+    BlockStart(Value),
+    /// A fragment for the last opened block that is not answer text:
+    /// `thinking_delta`, `signature_delta` or `input_json_delta`, as sent.
+    BlockDelta(Value),
+    /// OpenAI `delta.tool_calls`: fragments of one or more calls, by index.
+    ToolCallDeltas(Vec<Value>),
 }
 
 /// Whether a one-purpose transform should run at `effort: "low"`.
@@ -74,9 +114,30 @@ impl LlmProvider {
         }
     }
 
-    /// Streaming request body in the provider's own message shape.
-    pub fn body(self, model: &str, messages: &[ChatMessage]) -> Result<Value, String> {
+    /// Models whose tool calls this endpoint can stream. Astra and 6.1 Sol
+    /// require Responses; Workers AI's stream is unverified (Linear KAV-18).
+    pub fn supports_tools(self, model: &str) -> bool {
         match self {
+            LlmProvider::Anthropic => true,
+            LlmProvider::Openai => !matches!(model, "gpt-6-astra" | "gpt-6.1-sol"),
+            LlmProvider::Cloudflare => false,
+        }
+    }
+
+    /// Streaming request body in the provider's own message shape, plus the
+    /// tools a chat round may call. No tools adds nothing, so a plain request
+    /// sends exactly what it sent before tools existed.
+    pub fn body_with_tools(
+        self,
+        model: &str,
+        messages: &[ChatMessage],
+        tools: &[ToolDef],
+        tool_choice: ToolChoice,
+    ) -> Result<Value, String> {
+        if !tools.is_empty() && !self.supports_tools(model) {
+            return Err("tools_not_supported".into());
+        }
+        let mut body = match self {
             // Anthropic takes `system` as a top-level field, not a message.
             LlmProvider::Anthropic => {
                 if messages
@@ -91,17 +152,12 @@ impl LlmProvider {
                     .map(|message| message.content.as_str())
                     .collect::<Vec<_>>()
                     .join("\n\n");
-                let turns: Vec<Value> = messages
-                    .iter()
-                    .filter(|message| message.role != "system")
-                    .map(|message| message_value(message, self))
-                    .collect::<Result<_, _>>()?;
 
                 let mut body = json!({
                     "model": model,
                     "max_tokens": MAX_OUTPUT_TOKENS,
                     "stream": true,
-                    "messages": turns,
+                    "messages": anthropic_turns(messages)?,
                 });
                 if !system.is_empty() {
                     body["system"] = json!(system);
@@ -109,25 +165,65 @@ impl LlmProvider {
                 if runs_at_low_effort(model) {
                     body["output_config"] = json!({ "effort": "low" });
                 }
-                Ok(body)
+                body
             }
-            LlmProvider::Openai => Ok(json!({
+            LlmProvider::Openai => json!({
                 "model": model,
                 "stream": true,
                 "messages": messages
                     .iter()
                     .map(|message| message_value(message, self))
                     .collect::<Result<Vec<_>, _>>()?,
-            })),
+            }),
             // Workers AI takes the model in the URL, not the body.
-            LlmProvider::Cloudflare => Ok(json!({
+            LlmProvider::Cloudflare => json!({
                 "stream": true,
                 "messages": messages
                     .iter()
                     .map(|message| message_value(message, self))
                     .collect::<Result<Vec<_>, _>>()?,
-            })),
+            }),
+        };
+        if tools.is_empty() {
+            return Ok(body);
         }
+        if self == LlmProvider::Anthropic {
+            body["tools"] = tools
+                .iter()
+                .map(|tool| {
+                    json!({
+                        "name": tool.name,
+                        "description": tool.description,
+                        "input_schema": tool.input_schema,
+                    })
+                })
+                .collect();
+            if tool_choice == ToolChoice::None {
+                body["tool_choice"] = json!({ "type": "none" });
+            }
+        } else {
+            // GPT-6 Sol/Luna reject Chat Completions tools with default reasoning.
+            if matches!(model, "gpt-6-sol" | "gpt-6-luna") {
+                body["reasoning_effort"] = json!("none");
+            }
+            body["tools"] = tools
+                .iter()
+                .map(|tool| {
+                    json!({
+                        "type": "function",
+                        "function": {
+                            "name": tool.name,
+                            "description": tool.description,
+                            "parameters": tool.input_schema,
+                        },
+                    })
+                })
+                .collect();
+            if tool_choice == ToolChoice::None {
+                body["tool_choice"] = json!("none");
+            }
+        }
+        Ok(body)
     }
 
     /// Decode one `data:` payload into a stream item, or `None` to skip it.
@@ -138,11 +234,24 @@ impl LlmProvider {
         let value: Value = serde_json::from_str(data).ok()?;
         match self {
             LlmProvider::Anthropic => match value.get("type")?.as_str()? {
-                "content_block_delta" => value
-                    .pointer("/delta/text")
-                    .and_then(Value::as_str)
-                    .filter(|text| !text.is_empty())
-                    .map(|text| SseParseItem::Text(text.to_string())),
+                "content_block_start" => value
+                    .get("content_block")
+                    .cloned()
+                    .map(SseParseItem::BlockStart),
+                "content_block_delta" => {
+                    let delta = value.get("delta")?;
+                    match delta.get("type")?.as_str()? {
+                        "text_delta" => delta
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .filter(|text| !text.is_empty())
+                            .map(|text| SseParseItem::Text(text.to_string())),
+                        "thinking_delta" | "signature_delta" | "input_json_delta" => {
+                            Some(SseParseItem::BlockDelta(delta.clone()))
+                        }
+                        _ => None,
+                    }
+                }
                 // A declined or cut-off answer still ends with `message_stop`;
                 // only this event says so. Read as done, a quick action would
                 // paste the partial text over the selection as if it were whole.
@@ -165,11 +274,21 @@ impl LlmProvider {
                 )),
                 _ => None,
             },
-            LlmProvider::Openai => value
-                .pointer("/choices/0/delta/content")
-                .and_then(Value::as_str)
-                .filter(|text| !text.is_empty())
-                .map(|text| SseParseItem::Text(text.to_string())),
+            LlmProvider::Openai => {
+                let delta = value.pointer("/choices/0/delta")?;
+                if let Some(text) = delta
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .filter(|text| !text.is_empty())
+                {
+                    return Some(SseParseItem::Text(text.to_string()));
+                }
+                delta
+                    .get("tool_calls")
+                    .and_then(Value::as_array)
+                    .filter(|calls| !calls.is_empty())
+                    .map(|calls| SseParseItem::ToolCallDeltas(calls.clone()))
+            }
             LlmProvider::Cloudflare => value
                 .get("response")
                 .and_then(Value::as_str)
@@ -193,6 +312,17 @@ const MAX_IMAGE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_IMAGES_PER_MESSAGE: usize = 6;
 
 fn message_value(message: &ChatMessage, provider: LlmProvider) -> Result<Value, String> {
+    if let Some(native) = &message.native {
+        return Ok(native.clone());
+    }
+    if message.role == "tool" {
+        // Anthropic merges tool results in `anthropic_turns` and never gets here.
+        return Ok(json!({
+            "role": "tool",
+            "tool_call_id": message.tool_call_id.as_deref().ok_or("tool_result_without_id")?,
+            "content": message.content,
+        }));
+    }
     if message.images.is_empty() {
         return Ok(json!({ "role": message.role, "content": message.content }));
     }
@@ -203,6 +333,40 @@ fn message_value(message: &ChatMessage, provider: LlmProvider) -> Result<Value, 
         "role": message.role,
         "content": image_content(&message.content, &message.images, provider)?,
     }))
+}
+
+/// Anthropic's turn list without `system`, with consecutive tool results
+/// merged into one `user` message: sent apart they are a 400, and split
+/// results teach the model to stop calling tools in parallel.
+fn anthropic_turns(messages: &[ChatMessage]) -> Result<Vec<Value>, String> {
+    let mut turns: Vec<Value> = Vec::new();
+    for message in messages.iter().filter(|message| message.role != "system") {
+        if message.role != "tool" {
+            turns.push(message_value(message, LlmProvider::Anthropic)?);
+            continue;
+        }
+        let block = json!({
+            "type": "tool_result",
+            "tool_use_id": message.tool_call_id.as_deref().ok_or("tool_result_without_id")?,
+            "content": message.content,
+            "is_error": message.is_error,
+        });
+        match turns.last_mut() {
+            Some(last) if is_tool_result_turn(last) => last["content"]
+                .as_array_mut()
+                .expect("checked by is_tool_result_turn")
+                .push(block),
+            _ => turns.push(json!({ "role": "user", "content": [block] })),
+        }
+    }
+    Ok(turns)
+}
+
+fn is_tool_result_turn(turn: &Value) -> bool {
+    turn["role"] == "user"
+        && turn["content"].as_array().is_some_and(|blocks| {
+            !blocks.is_empty() && blocks.iter().all(|block| block["type"] == "tool_result")
+        })
 }
 
 fn image_content(text: &str, images: &[ChatImage], provider: LlmProvider) -> Result<Value, String> {
@@ -255,6 +419,7 @@ fn decoded_len(data: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn messages() -> Vec<ChatMessage> {
         vec![
@@ -262,11 +427,13 @@ mod tests {
                 role: "system".into(),
                 content: "Translate.".into(),
                 images: Vec::new(),
+                ..Default::default()
             },
             ChatMessage {
                 role: "user".into(),
                 content: "Hallo".into(),
                 images: Vec::new(),
+                ..Default::default()
             },
         ]
     }
@@ -275,7 +442,7 @@ mod tests {
     #[test]
     fn anthropic_lifts_system_out_of_the_message_list() {
         let body = LlmProvider::Anthropic
-            .body("claude-haiku-4-5", &messages())
+            .body_with_tools("claude-haiku-4-5", &messages(), &[], ToolChoice::Auto)
             .unwrap();
         assert_eq!(body["system"], "Translate.");
         assert_eq!(body["messages"].as_array().unwrap().len(), 1);
@@ -287,13 +454,15 @@ mod tests {
     #[test]
     fn anthropic_tunes_only_the_models_that_support_it() {
         let haiku = LlmProvider::Anthropic
-            .body("claude-haiku-4-5", &messages())
+            .body_with_tools("claude-haiku-4-5", &messages(), &[], ToolChoice::Auto)
             .unwrap();
         assert!(haiku.get("thinking").is_none());
         assert!(haiku.get("output_config").is_none());
 
         for model in ["claude-sonnet-5", "claude-opus-5", "claude-fable-5"] {
-            let body = LlmProvider::Anthropic.body(model, &messages()).unwrap();
+            let body = LlmProvider::Anthropic
+                .body_with_tools(model, &messages(), &[], ToolChoice::Auto)
+                .unwrap();
             assert!(body.get("thinking").is_none(), "{model} keeps thinking on");
             assert_eq!(
                 body["output_config"]["effort"], "low",
@@ -305,13 +474,18 @@ mod tests {
     #[test]
     fn openai_and_cloudflare_keep_the_plain_message_list() {
         let openai = LlmProvider::Openai
-            .body("gpt-4o-mini", &messages())
+            .body_with_tools("gpt-4o-mini", &messages(), &[], ToolChoice::Auto)
             .unwrap();
         assert_eq!(openai["messages"].as_array().unwrap().len(), 2);
         assert_eq!(openai["model"], "gpt-4o-mini");
 
         let cloudflare = LlmProvider::Cloudflare
-            .body("@cf/meta/llama-3.2-1b-instruct", &messages())
+            .body_with_tools(
+                "@cf/meta/llama-3.2-1b-instruct",
+                &messages(),
+                &[],
+                ToolChoice::Auto,
+            )
             .unwrap();
         assert_eq!(cloudflare["messages"].as_array().unwrap().len(), 2);
         // Workers AI reads the model from the URL.
@@ -327,8 +501,11 @@ mod tests {
                 media_type: "image/png".into(),
                 data: "==".into(),
             }],
+            ..Default::default()
         };
-        assert!(LlmProvider::Openai.body("gpt-4o-mini", &[message]).is_ok());
+        assert!(LlmProvider::Openai
+            .body_with_tools("gpt-4o-mini", &[message], &[], ToolChoice::Auto)
+            .is_ok());
     }
 
     #[test]
@@ -340,21 +517,29 @@ mod tests {
                 media_type: "image/png".into(),
                 data: "QUJD".into(),
             }],
+            ..Default::default()
         }];
         let anthropic = LlmProvider::Anthropic
-            .body("claude-haiku-4-5", &messages)
+            .body_with_tools("claude-haiku-4-5", &messages, &[], ToolChoice::Auto)
             .unwrap();
         assert_eq!(
             anthropic["messages"][0]["content"][0]["source"]["media_type"],
             "image/png"
         );
-        let openai = LlmProvider::Openai.body("gpt-4o-mini", &messages).unwrap();
+        let openai = LlmProvider::Openai
+            .body_with_tools("gpt-4o-mini", &messages, &[], ToolChoice::Auto)
+            .unwrap();
         assert_eq!(
             openai["messages"][0]["content"][0]["image_url"]["url"],
             "data:image/png;base64,QUJD"
         );
         assert_eq!(
-            LlmProvider::Cloudflare.body("@cf/meta/llama-3.2-1b-instruct", &messages),
+            LlmProvider::Cloudflare.body_with_tools(
+                "@cf/meta/llama-3.2-1b-instruct",
+                &messages,
+                &[],
+                ToolChoice::Auto
+            ),
             Err("images_not_supported".into())
         );
     }
@@ -418,11 +603,12 @@ mod tests {
         assert!(LlmProvider::Anthropic
             .parse_sse_data(r#"{"type":"ping"}"#)
             .is_none());
-        assert!(LlmProvider::Anthropic
-            .parse_sse_data(
+        assert!(matches!(
+            LlmProvider::Anthropic.parse_sse_data(
                 r#"{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"x"}}"#
-            )
-            .is_none());
+            ),
+            Some(SseParseItem::BlockDelta(_))
+        ));
         assert!(LlmProvider::Openai
             .parse_sse_data(r#"{"choices":[{"delta":{"role":"assistant"}}]}"#)
             .is_none());
@@ -435,5 +621,182 @@ mod tests {
                 .parse_sse_data(r#"{"type":"error","error":{"message":"overloaded"}}"#),
             Some(SseParseItem::Failure("overloaded".into()))
         );
+    }
+
+    fn weather_tool() -> ToolDef {
+        ToolDef {
+            name: "weather_current".into(),
+            description: "Current weather".into(),
+            input_schema: json!({ "type": "object", "properties": {}, "required": [] }),
+        }
+    }
+
+    #[test]
+    fn tools_and_tool_choice_use_each_provider_shape() {
+        let anthropic = LlmProvider::Anthropic
+            .body_with_tools(
+                "claude-haiku-4-5",
+                &messages(),
+                &[weather_tool()],
+                ToolChoice::None,
+            )
+            .unwrap();
+        assert_eq!(anthropic["tools"][0]["name"], "weather_current");
+        assert_eq!(anthropic["tools"][0]["input_schema"]["type"], "object");
+        assert_eq!(anthropic["tool_choice"]["type"], "none");
+
+        let openai = LlmProvider::Openai
+            .body_with_tools(
+                "gpt-4o-mini",
+                &messages(),
+                &[weather_tool()],
+                ToolChoice::Auto,
+            )
+            .unwrap();
+        assert_eq!(openai["tools"][0]["type"], "function");
+        assert_eq!(
+            openai["tools"][0]["function"]["parameters"]["type"],
+            "object"
+        );
+        assert!(openai.get("tool_choice").is_none(), "auto stays implicit");
+    }
+
+    #[test]
+    fn gpt6_chat_tools_disable_reasoning_only_where_supported() {
+        for model in ["gpt-6-sol", "gpt-6-luna"] {
+            assert!(LlmProvider::Openai.supports_tools(model));
+            for choice in [ToolChoice::Auto, ToolChoice::None] {
+                let body = LlmProvider::Openai
+                    .body_with_tools(model, &messages(), &[weather_tool()], choice)
+                    .unwrap();
+                assert_eq!(body["reasoning_effort"], "none");
+                assert_eq!(body["tools"][0]["function"]["name"], "weather_current");
+            }
+            let plain = LlmProvider::Openai
+                .body_with_tools(model, &messages(), &[], ToolChoice::Auto)
+                .unwrap();
+            assert!(plain.get("reasoning_effort").is_none());
+        }
+        for model in ["gpt-4o-mini", "gpt-5.4-nano-2026-03-17"] {
+            let body = LlmProvider::Openai
+                .body_with_tools(model, &messages(), &[weather_tool()], ToolChoice::Auto)
+                .unwrap();
+            assert!(body.get("reasoning_effort").is_none());
+        }
+        for model in ["gpt-6-astra", "gpt-6.1-sol"] {
+            assert!(!LlmProvider::Openai.supports_tools(model));
+            assert_eq!(
+                LlmProvider::Openai.body_with_tools(
+                    model,
+                    &messages(),
+                    &[weather_tool()],
+                    ToolChoice::Auto,
+                ),
+                Err("tools_not_supported".into()),
+            );
+        }
+    }
+
+    /// OpenAI rejects `tools: []`; a chat round with nothing to call sends none.
+    #[test]
+    fn no_tools_leaves_the_body_as_before() {
+        for provider in [LlmProvider::Anthropic, LlmProvider::Openai] {
+            let body = provider
+                .body_with_tools("claude-haiku-4-5", &messages(), &[], ToolChoice::None)
+                .unwrap();
+            assert!(body.get("tools").is_none());
+            assert!(body.get("tool_choice").is_none());
+        }
+    }
+
+    #[test]
+    fn cloudflare_refuses_tools_instead_of_dropping_them() {
+        assert_eq!(
+            LlmProvider::Cloudflare.body_with_tools(
+                "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+                &messages(),
+                &[weather_tool()],
+                ToolChoice::Auto
+            ),
+            Err("tools_not_supported".into())
+        );
+    }
+
+    fn tool_round() -> Vec<ChatMessage> {
+        let native = json!({
+            "role": "assistant",
+            "content": [
+                { "type": "thinking", "thinking": "", "signature": "sig-1" },
+                { "type": "tool_use", "id": "call_a", "name": "weather_current", "input": {} },
+                { "type": "tool_use", "id": "call_b", "name": "weather_current", "input": {} },
+            ],
+        });
+        vec![
+            ChatMessage {
+                role: "user".into(),
+                content: "Weather?".into(),
+                ..Default::default()
+            },
+            ChatMessage {
+                role: "assistant".into(),
+                native: Some(native),
+                ..Default::default()
+            },
+            ChatMessage {
+                role: "tool".into(),
+                content: "{\"t\":12}".into(),
+                tool_call_id: Some("call_a".into()),
+                ..Default::default()
+            },
+            ChatMessage {
+                role: "tool".into(),
+                content: "offline".into(),
+                tool_call_id: Some("call_b".into()),
+                is_error: true,
+                ..Default::default()
+            },
+        ]
+    }
+
+    /// The thinking signature goes back byte for byte, and parallel results
+    /// travel in one message.
+    #[test]
+    fn anthropic_echoes_the_turn_and_merges_tool_results() {
+        let body = LlmProvider::Anthropic
+            .body_with_tools(
+                "claude-haiku-4-5",
+                &tool_round(),
+                &[weather_tool()],
+                ToolChoice::Auto,
+            )
+            .unwrap();
+        let turns = body["messages"].as_array().unwrap();
+        assert_eq!(turns.len(), 3);
+        assert_eq!(turns[1]["content"][0]["signature"], "sig-1");
+        let results = turns[2]["content"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0]["tool_use_id"], "call_a");
+        assert_eq!(results[1]["is_error"], true);
+    }
+
+    #[test]
+    fn openai_sends_one_tool_message_per_result() {
+        let mut round = tool_round();
+        round[1].native = Some(json!({
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+                { "id": "call_a", "type": "function", "function": { "name": "weather_current", "arguments": "{}" } },
+                { "id": "call_b", "type": "function", "function": { "name": "weather_current", "arguments": "{}" } },
+            ],
+        }));
+        let body = LlmProvider::Openai
+            .body_with_tools("gpt-4o-mini", &round, &[weather_tool()], ToolChoice::Auto)
+            .unwrap();
+        let messages = body["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 4);
+        assert_eq!(messages[1]["tool_calls"][1]["id"], "call_b");
+        assert_eq!(messages[2]["role"], "tool");
+        assert_eq!(messages[3]["tool_call_id"], "call_b");
     }
 }
