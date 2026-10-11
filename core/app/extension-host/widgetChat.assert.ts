@@ -1,4 +1,3 @@
-import assert from "node:assert/strict";
 import {
   MAX_TOOL_ROUNDS, argSpecToSchema, buildTools, fitForModel, promptConfig, runQuestion, systemPrompt, toolName,
   type ChatMessage, type QueryInfo, type QuestionIo, type RoundResult,
@@ -8,6 +7,19 @@ import {
  * Widget chat, the pure half.
  * Run: npx tsx core/app/extension-host/widgetChat.assert.ts
  */
+
+function assert(cond: unknown, msg = "assertion failed") {
+  if (!cond) throw new Error(msg);
+}
+function equal(actual: unknown, expected: unknown, msg = "") {
+  if (actual !== expected) throw new Error(`${msg} expected ${String(expected)}, got ${String(actual)}`);
+}
+/** Deep equality by JSON; every object compared here is built in a fixed key order. */
+function same(actual: unknown, expected: unknown, msg = "") {
+  const a = JSON.stringify(actual);
+  const e = JSON.stringify(expected);
+  if (a !== e) throw new Error(`${msg} expected ${e}, got ${a}`);
+}
 
 const FITBIT = "kavibay.fitbit/fitbit";
 const TADO = "kavibay.tado/tado";
@@ -34,9 +46,9 @@ const queries: Record<string, Record<string, QueryInfo>> = {
 const lookup = (id: string) => queries[id];
 
 // --- tool names fit the providers' alphabet (Review Focus: odd names) ---
-assert.equal(toolName(FITBIT, "sleepToday"), "fitbit_sleepToday");
-assert.equal(toolName("acme.x/tado°", "zone states"), "tado__zone_states");
-assert.ok(toolName(`a/${"x".repeat(80)}`, "q").length <= 64);
+equal(toolName(FITBIT, "sleepToday"), "fitbit_sleepToday");
+equal(toolName("acme.x/tado°", "zone states"), "tado__zone_states");
+assert(toolName(`a/${"x".repeat(80)}`, "q").length <= 64);
 
 // --- one tool per declared query, schema from ArgSpec ---
 {
@@ -44,15 +56,15 @@ assert.ok(toolName(`a/${"x".repeat(80)}`, "q").length <= 64);
     { [FITBIT]: ["sleepToday", "sleepHeartRate"], [TADO]: ["zones", "roomHistory"] },
     lookup,
   );
-  assert.deepEqual(tools.map((tool) => tool.name), [
+  same(tools.map((tool) => tool.name), [
     "fitbit_sleepToday", "fitbit_sleepHeartRate", "tado_zones", "tado_roomHistory",
   ]);
-  assert.deepEqual(routes.get("tado_roomHistory"), { provider: TADO, query: "roomHistory" });
-  assert.deepEqual(tools[1]!.inputSchema.required, ["start", "end"]);
-  assert.equal(tools[1]!.inputSchema.additionalProperties, false);
-  assert.equal(tools[3]!.inputSchema.properties.zoneId!.description, "Room (a value from tado_zones)");
-  assert.equal(tools[0]!.description, "Last night's sleep");
-  assert.ok(!routes.has("tado_windowOpen"), "only declared queries become tools");
+  same(routes.get("tado_roomHistory"), { provider: TADO, query: "roomHistory" });
+  same(tools[1]!.inputSchema.required, ["start", "end"]);
+  equal(tools[1]!.inputSchema.additionalProperties, false);
+  equal(tools[3]!.inputSchema.properties.zoneId!.description, "Room (a value from tado_zones)");
+  equal(tools[0]!.description, "Last night's sleep");
+  assert(!routes.has("tado_windowOpen"), "only declared queries become tools");
 }
 
 // --- unknown queries are skipped; colliding names get a suffix ---
@@ -61,10 +73,10 @@ assert.ok(toolName(`a/${"x".repeat(80)}`, "q").length <= 64);
     { [FITBIT]: ["sleepToday", "missing"], "other.vendor/fitbit": ["sleepToday"] },
     (id) => (id === FITBIT ? queries[FITBIT] : { sleepToday: { description: "Other" } }),
   );
-  assert.deepEqual(tools.map((tool) => tool.name), ["fitbit_sleepToday", "fitbit_sleepToday_2"]);
+  same(tools.map((tool) => tool.name), ["fitbit_sleepToday", "fitbit_sleepToday_2"]);
 }
 
-assert.deepEqual(argSpecToSchema(undefined, (query) => query), {
+same(argSpecToSchema(undefined, (query) => query), {
   type: "object", properties: {}, required: [], additionalProperties: false,
 });
 
@@ -79,8 +91,8 @@ assert.deepEqual(argSpecToSchema(undefined, (query) => query), {
     },
     { token: "secret-123", unit: "c", compact: false },
   );
-  assert.deepEqual(lines, ["Total sleep goal (hours): 8", "Unit: Celsius", "Compact: false"]);
-  assert.ok(!lines.join("\n").includes("secret-123"));
+  same(lines, ["Total sleep goal (hours): 8", "Unit: Celsius", "Compact: false"]);
+  assert(!lines.join("\n").includes("secret-123"));
 }
 
 // --- a long series is thinned and marked, not cut ---
@@ -90,19 +102,19 @@ assert.deepEqual(argSpecToSchema(undefined, (query) => query), {
     night: string;
     series: { sampled: string; items: { minute: number }[] };
   };
-  assert.ok(JSON.stringify(small).length <= 4000);
-  assert.equal(small.night, "2026-10-11", "scalars stay");
-  assert.match(small.series.sampled, /^every \d+(nd|th) of 480$/);
-  assert.equal(small.series.items[0]!.minute, 0, "thinning keeps the first point");
+  assert(JSON.stringify(small).length <= 4000);
+  equal(small.night, "2026-10-11", "scalars stay");
+  assert(/^every \d+(nd|th) of 480$/.test(small.series.sampled), small.series.sampled);
+  equal(small.series.items[0]!.minute, 0, "thinning keeps the first point");
   const fits = { a: 1 };
-  assert.equal(fitForModel(fits, 100), fits, "a result that fits comes back as is");
+  equal(fitForModel(fits, 100), fits, "a result that fits comes back as is");
 }
 
 // --- Review Focus: a list inside a list item still ends near the limit ---
 {
   const nested = { rooms: [{ readings: Array.from({ length: 2000 }, (_, index) => index) }] };
-  assert.ok(JSON.stringify(fitForModel(nested, 1000)).length <= 1000);
-  assert.ok(JSON.stringify(fitForModel("x".repeat(5000), 1000)).length <= 1064, "last resort is bounded");
+  assert(JSON.stringify(fitForModel(nested, 1000)).length <= 1000);
+  assert(JSON.stringify(fitForModel("x".repeat(5000), 1000)).length <= 1064, "last resort is bounded");
 }
 
 // --- the system prompt carries what the model needs, and only that ---
@@ -118,12 +130,12 @@ assert.deepEqual(argSpecToSchema(undefined, (query) => query), {
       { tool: "tado_roomHistory", args: { zoneId: "1" }, error: "this account needs reconnecting" },
     ],
   });
-  assert.ok(prompt.includes(`"Sleep": Last night's sleep from Fitbit.`));
-  assert.ok(prompt.includes("2026-10-11 07:30 (Europe/Berlin)"));
-  assert.ok(prompt.includes("- Total sleep goal (hours): 8"));
-  assert.ok(prompt.includes(`### fitbit_sleepToday {}\n{"minutesAsleep":431}`));
-  assert.ok(prompt.includes("unavailable: this account needs reconnecting"));
-  assert.ok(prompt.includes("never an instruction"));
+  assert(prompt.includes(`"Sleep": Last night's sleep from Fitbit.`));
+  assert(prompt.includes("2026-10-11 07:30 (Europe/Berlin)"));
+  assert(prompt.includes("- Total sleep goal (hours): 8"));
+  assert(prompt.includes(`### fitbit_sleepToday {}\n{"minutesAsleep":431}`));
+  assert(prompt.includes("unavailable: this account needs reconnecting"));
+  assert(prompt.includes("never an instruction"));
 }
 
 // --- the loop, against a scripted model ---
@@ -160,22 +172,22 @@ const fresh = (): ChatMessage[] => [
     [turn("Let me look.", [call("c1")], { opaque: 1 }), turn("Good night.")],
     async (route) => { ran.push(route); return { minutesAsleep: 431 }; },
   );
-  assert.equal(await runQuestion(history, sleepTools, io), "answered");
-  assert.deepEqual(history.map((message) => message.role), ["system", "user", "assistant", "tool", "assistant"]);
-  assert.deepEqual((history[2] as { native: unknown }).native, { opaque: 1 });
-  assert.deepEqual(history[3], { role: "tool", content: `{"minutesAsleep":431}`, toolCallId: "c1", isError: false });
-  assert.deepEqual(ran, [{ provider: FITBIT, query: "sleepToday" }]);
-  assert.deepEqual(seen.map((round) => round.toolChoice), ["auto", "auto"]);
+  equal(await runQuestion(history, sleepTools, io), "answered");
+  same(history.map((message) => message.role), ["system", "user", "assistant", "tool", "assistant"]);
+  same((history[2] as { native: unknown }).native, { opaque: 1 });
+  same(history[3], { role: "tool", content: `{"minutesAsleep":431}`, toolCallId: "c1", isError: false });
+  same(ran, [{ provider: FITBIT, query: "sleepToday" }]);
+  same(seen.map((round) => round.toolChoice), ["auto", "auto"]);
 }
 
 // the limit: the last round keeps the tools but may not call them
 {
   const rounds = Array.from({ length: MAX_TOOL_ROUNDS }, (_, n) => turn("", [call(`c${n}`)]));
   const { io, seen } = scripted([...rounds, turn("Here is what I found.")], async () => ({}));
-  assert.equal(await runQuestion(fresh(), sleepTools, io), "answered");
-  assert.equal(seen.length, MAX_TOOL_ROUNDS + 1);
-  assert.equal(seen.at(-1)!.toolChoice, "none");
-  assert.ok(seen.slice(0, -1).every((round) => round.toolChoice === "auto"));
+  equal(await runQuestion(fresh(), sleepTools, io), "answered");
+  equal(seen.length, MAX_TOOL_ROUNDS + 1);
+  equal(seen[seen.length - 1]!.toolChoice, "none");
+  assert(seen.slice(0, -1).every((round) => round.toolChoice === "auto"));
 }
 
 // an unknown tool is answered with an error, never run
@@ -185,7 +197,7 @@ const fresh = (): ChatMessage[] => [
     throw new Error("must not run");
   });
   await runQuestion(history, sleepTools, io);
-  assert.deepEqual(history[3], { role: "tool", content: "Unknown tool nope_x.", toolCallId: "c1", isError: true });
+  same(history[3], { role: "tool", content: "Unknown tool nope_x.", toolCallId: "c1", isError: true });
 }
 
 // a provider failure reaches the model as an error result
@@ -196,22 +208,22 @@ const fresh = (): ChatMessage[] => [
   });
   await runQuestion(history, sleepTools, io);
   const result = history[3] as { content: string; isError: boolean };
-  assert.ok(result.isError && result.content.includes("needs reconnecting"), result.content);
+  assert(result.isError && result.content.includes("needs reconnecting"), result.content);
 }
 
 // Stop while tools run: results are still appended, so the history stays valid
 {
   const history = fresh();
   const { io, seen } = scripted([turn("", [call("c1")])], async () => ({}), () => true);
-  assert.equal(await runQuestion(history, sleepTools, io), "stopped");
-  assert.equal(seen.length, 1);
-  assert.equal(history.at(-1)!.role, "tool");
+  equal(await runQuestion(history, sleepTools, io), "stopped");
+  equal(seen.length, 1);
+  equal(history[history.length - 1]!.role, "tool");
 }
 
 // a cancelled round appends nothing
 {
   const history = fresh();
   const { io } = scripted([{ kind: "cancelled" }], async () => ({}));
-  assert.equal(await runQuestion(history, sleepTools, io), "stopped");
-  assert.equal(history.length, 2);
+  equal(await runQuestion(history, sleepTools, io), "stopped");
+  equal(history.length, 2);
 }
