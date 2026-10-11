@@ -175,7 +175,10 @@ import type {
 } from "@sdk/types";
 import { scheduleRegionSync, setClickThroughPaused } from "../system/clickThrough";
 import { isCardHeaderHit, useCardChromePosition } from "../host/useCardChromePosition";
-import { displayAnswer, evaluate, formatAnswer } from "../../../extensions/calculator/widgets/calculator";
+import { displayAnswer, evaluate, formatAnswer, pendingConversion } from "../../../extensions/calculator/widgets/calculator";
+import { loadCurrencyRates, looksLikeCurrency } from "../../../extensions/calculator/widgets/currency";
+import { tauriProviderTransport } from "../extension-host/tauriProviderTransport";
+import type { HttpCapability } from "@sdk/contract/sdk";
 import { useAppearance } from "../settings/useAppearance";
 import { useExtensionsPrefs } from "../settings/useExtensionsPrefs";
 import { useSettingsModal } from "../settings/useSettingsModal";
@@ -1384,11 +1387,40 @@ watch([query, selectedIndex], () => {
   if (actionChipMode.value) exitActionChipMode();
 });
 
-/** Live calculator result for the current query; null when not a valid expression. */
+/**
+ * "100 usd in eur" needs the day's rates. The palette borrows the Calculator's
+ * capability grant: same host, checked by the same Rust allowlist.
+ */
+const currencyHttp: HttpCapability = {
+  get: async <T,>(url: string) => {
+    const { status, body } = await tauriProviderTransport.capabilityFetch("kavibay.calculator", url, "GET");
+    if (status >= 400) throw new Error(`exchange rates: HTTP ${status}`);
+    return body as T;
+  },
+  post: () => Promise.reject(new Error("not used")),
+};
+watch(query, (value) => {
+  if (looksLikeCurrency(value)) void loadCurrencyRates(currencyHttp);
+});
+
+/**
+ * Live calculator result for the current query; null when it is neither an
+ * expression nor the start of a conversion. A conversion shows its source
+ * ("100.00 USD = 89.24 EUR"), and before the target is typed, `targets`
+ * suggests some — so "100 $ in" reads as a converter, not as "No matches".
+ */
 const calcDisplay = computed(() => {
   const result = evaluate(query.value);
-  if (!result.ok) return null;
-  return displayAnswer(formatAnswer(result));
+  if (result.ok) {
+    return {
+      from: result.from ? displayAnswer(formatAnswer(result.from)) : null,
+      value: displayAnswer(formatAnswer(result)),
+      targets: null,
+    };
+  }
+  const pending = pendingConversion(query.value);
+  if (!pending) return null;
+  return { from: displayAnswer(formatAnswer(pending)), value: null, targets: pending.targets.join(" · ") };
 });
 
 /**
@@ -4069,8 +4101,13 @@ onUnmounted(() => {
       />
       <p v-if="paletteActionError" class="palette-action-error" role="alert">{{ paletteActionError }}</p>
       <div v-if="calcDisplay !== null" class="palette-calc" aria-live="polite">
+        <span v-if="calcDisplay.from" class="palette-calc-kind">Convert</span>
+        <span v-if="calcDisplay.from" class="palette-calc-from">{{ calcDisplay.from }}</span>
         <span class="palette-calc-eq">=</span>
-        <span class="palette-calc-value">{{ calcDisplay }}</span>
+        <span v-if="calcDisplay.value" class="palette-calc-value">{{ calcDisplay.value }}</span>
+        <span v-else class="palette-calc-hint">
+          in <template v-if="calcDisplay.targets">{{ calcDisplay.targets }} …</template><template v-else>…</template>
+        </span>
       </div>
       <!-- Which folder the list belongs to. The chip names only the leaf, and
            after two levels down that stops being enough to place yourself. -->
@@ -6288,6 +6325,30 @@ onUnmounted(() => {
 .palette-calc-eq {
   font-size: 14px;
   color: rgba(var(--fg-rgb), 0.45);
+}
+
+.palette-calc-kind {
+  align-self: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: rgba(var(--fg-rgb), 0.6);
+  background: rgba(var(--fg-rgb), 0.08);
+}
+
+.palette-calc-from {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: rgba(var(--fg-rgb), 0.6);
+}
+
+.palette-calc-hint {
+  font-size: 18px;
+  color: rgba(var(--fg-rgb), 0.4);
 }
 
 .palette-calc-value {

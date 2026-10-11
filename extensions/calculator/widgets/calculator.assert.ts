@@ -7,6 +7,7 @@ import {
   appendHistoryEntry,
   calculatorWidget,
   evaluate,
+  pendingConversion,
   displayAnswer,
   formatAnswer,
   roundAnswer,
@@ -242,5 +243,25 @@ const duplicate = await duplicateScope.run(() => calculatorWidget.component.setu
 assert(duplicate.history.value.length === 0, "a duplicate starts with empty history as before");
 assert(duplicate.expression.value === "", "a duplicate starts without the source draft");
 duplicateScope.stop();
+
+// Currencies convert through EUR with whatever rates are loaded, and fail without them.
+const rates = { EUR: 1, USD: 1.25, GBP: 0.8 };
+const usd = evaluate("100 usd in eur", rates);
+assert(usd.ok && usd.value === 80 && usd.unit === "EUR", "100 usd in eur is 80 EUR");
+const cross = evaluate("100 usd to gbp", rates);
+assert(cross.ok && Math.abs(cross.value - 64) < 1e-9 && cross.unit === "GBP", "cross rates go through EUR");
+assert(!evaluate("100 usd in eur", {}).ok, "no rates, no conversion");
+assert(!evaluate("100 usd in km", rates).ok, "a currency never converts to a length");
+for (const input of ["100$ in €", "$100 in €", "100 dollar to euro"]) {
+  const symbol = evaluate(input, rates);
+  assert(symbol.ok && symbol.value === 80 && symbol.unit === "EUR", `${input} is 80 EUR`);
+}
+assert(usd.ok && usd.from?.value === 100 && usd.from.unit === "USD", "a conversion reports what it converted");
+const pending = pendingConversion("100 $ in", rates);
+assert(pending?.value === 100 && pending.unit === "USD", "100 $ in is a conversion waiting for a target");
+assert(pending?.targets.join() === "EUR,GBP", "currency targets come from the loaded rates");
+assert(pendingConversion("5 km", rates)?.targets.includes("m") === true, "a length suggests lengths");
+assert(pendingConversion("100 apples", rates) === null, "an unknown word is not a unit");
+assert(roundAnswer("92.23813314 EUR") === "92.24 EUR", "currencies round to cents");
 
 console.log("calculator.assert.ts: ok");
