@@ -78,6 +78,7 @@ Every first-party extension declares `ui.defaultSize: { w, h }` in `manifest.jso
 | `defaultOffset: { x, y }` | required | Spawn position relative to the palette (halved on the way, then de-overlapped and grid-snapped) |
 | `defaultSize: { w, h }` | required | Card size in CSS px |
 | `defaultHideTitle` | `false` | `true` opens without the title bar — the context menu still brings it back |
+| `chat` | `false` | Contract packages only: `true` puts the host's chat button on the card so a person can ask a model about the widget's data. Read-only tools from `requires.providers`; see `contract-packages.md` → Asking about the data |
 | `defaultScale` | `1` | Content zoom, the same factor **Ctrl + mousewheel** writes. Clamped to `0.5`…`3`; out-of-range values clamp rather than fail the load |
 
 ### Card appearance
