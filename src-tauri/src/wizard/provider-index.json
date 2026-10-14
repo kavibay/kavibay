@@ -41,6 +41,15 @@
     "actions": []
   },
   {
+    "id": "kavibay.heart-rate/heart-rate",
+    "displayName": "Heart Rate (Bluetooth)",
+    "description": "Live pulse from a Bluetooth heart-rate sensor, such as a Fitbit Air sharing its heart rate.",
+    "queries": [
+      "live"
+    ],
+    "actions": []
+  },
+  {
     "id": "kavibay.linear/linear",
     "displayName": "Linear",
     "description": "Linear issues and teams for widgets that connect a Linear account.",

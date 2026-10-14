@@ -564,6 +564,14 @@ export interface ProviderDefinition {
    * provider's widgets open nothing, which is the right default.
    */
   linkHosts?: string[];
+  /**
+   * Reviewed host capability: the latest reading of a Bluetooth LE heart-rate
+   * sensor, as `host.heartRate`. Granted only to bundled providers — the
+   * registry has no other kind today, and `Host` checks the trust tier anyway
+   * rather than relying on that. Widgets never get it: they read the
+   * provider's declared queries, like any other provider data.
+   */
+  heartRate?: true;
   queries: Record<string, ProviderQuery<any, any>>;
   actions: Record<string, ProviderAction<any, any>>;
 }
@@ -679,9 +687,25 @@ export interface ArgSpec {
  */
 export interface ProviderHostContext {
   http: ProviderHttpCapability;
+  /** Present only when the definition declares `heartRate: true`. */
+  heartRate?: HeartRateCapability;
   credentials: {
     isConnected(): Promise<boolean>;
   };
+}
+
+/** Newest BLE heart-rate notification the host holds; one radio, one reading. */
+export interface HeartRateReading {
+  /** Null before the first value, or while the sensor reports no skin contact. */
+  bpm: number | null;
+  /** Arrival time of `bpm`, ms since the Unix epoch. */
+  at: number | null;
+  connected: boolean;
+}
+
+export interface HeartRateCapability {
+  /** Starts the scan on first use; the host stops it once nobody reads. */
+  latest(): Promise<HeartRateReading>;
 }
 
 export type ProviderStatus =

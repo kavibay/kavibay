@@ -34,6 +34,13 @@ pub const PROVIDERS: &[ProviderDef] = &[
         link_hosts: &["github.com"],
     },
     ProviderDef {
+        id: "kavibay.heart-rate/heart-rate",
+        host_rule: HostRule::Exact(&[]),
+        credential_type: None,
+        image_hosts: &[],
+        link_hosts: &[],
+    },
+    ProviderDef {
         id: "kavibay.linear/linear",
         host_rule: HostRule::Exact(&["api.linear.app"]),
         credential_type: Some("linearApi"),

@@ -128,6 +128,11 @@ windows = { version = "0.62", features = [
   "Win32_System_ProcessStatus",
   "Win32_System_SystemInformation",
   "Win32_Security_Cryptography",
+  # Heart Rate reads a BLE heart-rate sensor (0x180D) live.
+  "Devices_Bluetooth",
+  "Devices_Bluetooth_Advertisement",
+  "Devices_Bluetooth_GenericAttributeProfile",
+  "Devices_Enumeration",
   "Foundation",
   "Foundation_Collections",
   "Media_Control",

@@ -150,6 +150,8 @@ export const NOT_ON_WEB = new Set<string>([
   "color_picker_start",
   "widget_system_info",
   "widget_now_playing",
+  // No Bluetooth radio on a page.
+  "heart_rate_latest",
   "now_playing_connect",
   "widget_notification_show",
   "widget_ai_usage",

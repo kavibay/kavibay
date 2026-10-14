@@ -385,7 +385,9 @@ function rustHostList(def: ProviderDefinition, field: string, hosts: string[]): 
 /** Compiled host rule: exact list, or the credential field that holds the origin. */
 function rustHostRule(def: ProviderDefinition): string {
   if (Array.isArray(def.hosts)) {
-    if (def.hosts.length === 0) {
+    // Empty is a mistake for a network provider. One whose data comes from a
+    // reviewed host capability instead reaches no host, and says so.
+    if (def.hosts.length === 0 && !def.heartRate) {
       throw new Error(`${def.name}: declares no hosts`);
     }
     return `HostRule::Exact(&[${def.hosts.map((h) => JSON.stringify(h)).join(", ")}])`;

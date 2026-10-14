@@ -1,0 +1,9 @@
+{
+  "format": "contract",
+  "name": "heart-rate",
+  "version": "1.0.0",
+  "displayName": "Heart Rate",
+  "description": "Live pulse from a Bluetooth heart-rate sensor, such as a Fitbit Air sharing its heart rate.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" }
+}

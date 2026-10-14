@@ -190,8 +190,18 @@ export class Host {
    * provider can reach it, so the Phase 2 swap is invisible to provider code.
    */
   private hostContext(id: ProviderId, connection?: ProviderConnection | null): ProviderHostContext {
-    const def = this.registry.providers.get(id)!.def;
+    const { def, owner } = this.registry.providers.get(id)!;
+    /**
+     * A reviewed OS surface, so the tier is checked here as well as by the
+     * registry refusing providers from generated code: a declaration is a
+     * request, the load source is the grant (SDK invariant 1).
+     */
+    const heartRate = def.heartRate && this.widgetTransport
+      && this.registry.extensions.get(owner)?.trust === "core"
+      ? { latest: () => this.widgetTransport!.heartRateLatest() }
+      : undefined;
     return {
+      ...(heartRate ? { heartRate } : {}),
       // forProvider, not forPolicy: the allowlist decision belongs to whoever
       // attaches the credential, and that is no longer this process.
       http: this.http.forProvider(id, Array.isArray(def.hosts) ? def.hosts : [], connection),

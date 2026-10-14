@@ -42,6 +42,7 @@ pub mod calculator;
 pub mod clipboard_widget;
 pub mod color_picker;
 pub mod focus_tracker;
+pub mod heart_rate;
 pub mod image_widget;
 pub mod kill_port;
 pub mod now_playing;
@@ -93,6 +94,7 @@ pub const ALL: &[&ExtensionRust] = &[
     &clipboard_widget::EXTENSION,
     &color_picker::EXTENSION,
     &focus_tracker::EXTENSION,
+    &heart_rate::EXTENSION,
     &image_widget::EXTENSION,
     &kill_port::EXTENSION,
     &now_playing::EXTENSION,
