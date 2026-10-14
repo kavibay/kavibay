@@ -87,6 +87,7 @@ import {
   readUsage,
   recordVersion,
   repairTurnFor,
+  NO_FILES_PROBLEM,
   sampleBody,
   updateLiveVersion,
   manifestSize,
@@ -2081,6 +2082,12 @@ assert(
     many.includes("- first problem") && many.includes("- second problem"),
     "and listed one per line, so none of them reads as a subordinate clause",
   );
+
+  // An answer that only described its change gets asked for the blocks, not
+  // relayed the person's "Reply Emit the files now" or invited to explain again.
+  const empty = repairTurnFor([NO_FILES_PROBLEM]);
+  assert(!empty.includes("Emit the files now"), "the person-facing hint is not relayed");
+  assert(/no\s+explanation/i.test(empty), "and the model is told to skip the prose");
 
   // One retry, not a loop. A second is a different bet: the model has already
   // seen the problem, failed at it, and been told again — and nothing on

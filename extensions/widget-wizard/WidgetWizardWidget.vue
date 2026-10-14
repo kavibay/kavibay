@@ -122,6 +122,7 @@ import {
   previewPermissionsFor,
   parseGeneratedFiles,
   replyProblem,
+  NO_FILES_PROBLEM,
   sortWizardModels,
   withPackageId,
   queueDraftConflict,
@@ -3062,7 +3063,9 @@ async function runTurn(mine: number, id: string, repairsLeft: number, repairFile
       id,
       outcome.problems,
       repairsLeft - 1,
-      outcome.problems.length === 1
+      outcome.problems[0] === NO_FILES_PROBLEM
+        ? "The answer contained no files — asking for them."
+        : outcome.problems.length === 1
         ? `That package has a problem — asking for a fix: ${outcome.problems[0]}`
         : `That package has ${outcome.problems.length} problems — asking for a fix.`,
       files,
