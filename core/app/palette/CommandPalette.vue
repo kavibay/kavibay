@@ -150,6 +150,7 @@ import {
   inlineWidgetRequest,
   inlineWidgetInstanceId,
   paletteDropActive,
+  paletteDeskDropTarget,
   paletteDropTypeId,
   paletteShortcutDropActive,
   paletteShortcutSlotEl,
@@ -3884,7 +3885,11 @@ onUnmounted(() => {
               type="button"
               class="palette-desk-tab"
               v-tip="shortcutHintVisible ? deskShortcutTip(deskIndex) : undefined"
-              :class="{ 'palette-desk-tab--active': desk.id === kavibayActiveDeskId }"
+              :class="{
+                'palette-desk-tab--active': desk.id === kavibayActiveDeskId,
+                'palette-desk-tab--drop': paletteDeskDropTarget === desk.id,
+              }"
+              :data-desk-drop="paletteDropTypeId && desk.id !== kavibayActiveDeskId ? desk.id : undefined"
               @pointerdown.stop
               @click.stop="onDeskTabClick(desk.id)"
               @dblclick.stop="onDeskTabDblClick(desk)"
@@ -3900,7 +3905,18 @@ onUnmounted(() => {
               </span>
             </button>
           </template>
+          <!-- Drop a dragged card here to move it onto a brand-new desk. -->
+          <span
+            v-if="paletteDropTypeId"
+            class="palette-shortcut-slot palette-desk-new-slot"
+            :class="{ 'palette-shortcut-slot--active': paletteDeskDropTarget === 'new' }"
+            data-desk-drop="new"
+            aria-hidden="true"
+          >
+            +
+          </span>
           <button
+            v-else
             type="button"
             class="palette-add-hit-area palette-desk-add-hit"
             v-tip:below="'Add desk'"
@@ -6156,6 +6172,20 @@ onUnmounted(() => {
 .palette-desk-tab--active {
   background: var(--fill-hover);
   color: var(--text);
+}
+
+.palette-desk-tab--drop {
+  background: var(--fill-hover);
+  color: var(--text);
+  outline: 1px dashed var(--text-muted);
+  outline-offset: -1px;
+}
+
+/* Dashed like a drop zone; reads as "a desk that does not exist yet". */
+.palette-desk-new-slot {
+  outline: 1px dashed var(--text-muted);
+  outline-offset: -3px;
+  font-size: 15px;
 }
 
 .palette-desk-tab:hover:not(.palette-desk-tab--active) {

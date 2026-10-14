@@ -301,6 +301,46 @@ export function placeOnDesk(
   };
 }
 
+/**
+ * Move a card from one desk to another (a card dropped on a desk tab).
+ *
+ * Offsets are relative to each desk's palette, so the offset is rebased onto the
+ * target palette: the card lands on the same spot of the screen it left. Already
+ * on the target (a multi-desk instance)? Then it only leaves the source — the
+ * target keeps the geometry it has. The catalog is untouched; nothing is disposed.
+ */
+export function moveToDesk(
+  layout: SavedLayoutV4,
+  instanceId: string,
+  fromDeskId: string,
+  toDeskId: string,
+): SavedLayoutV4 | null {
+  if (fromDeskId === toDeskId) return null;
+  const from = layout.desks.find((d) => d.id === fromDeskId);
+  const to = layout.desks.find((d) => d.id === toDeskId);
+  const placement = from?.placements.find((p) => p.instanceId === instanceId);
+  if (!from || !to || !placement) return null;
+  const moved: DeskPlacement = {
+    ...placement,
+    offset: {
+      x: placement.offset.x + from.palette.x - to.palette.x,
+      y: placement.offset.y + from.palette.y - to.palette.y,
+    },
+  };
+  return {
+    ...layout,
+    desks: layout.desks.map((d) => {
+      if (d.id === fromDeskId) {
+        return { ...d, placements: d.placements.filter((p) => p.instanceId !== instanceId) };
+      }
+      if (d.id === toDeskId && !d.placements.some((p) => p.instanceId === instanceId)) {
+        return { ...d, placements: [...d.placements, moved] };
+      }
+      return d;
+    }),
+  };
+}
+
 /** Remove a placement from one desk; dispose catalog when it was the last placement. */
 export function removeFromDesk(
   layout: SavedLayoutV4,

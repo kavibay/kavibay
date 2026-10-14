@@ -45,6 +45,7 @@ import {
   deleteDesk,
   desksWithInstance,
   instancesForDesk,
+  moveToDesk,
   normalizeCatalogEntry,
   normalizePlacement,
   placeOnDesk,
@@ -105,6 +106,7 @@ import { hostDismissHeld } from "@sdk";
 import {
   inlineWidgetInstanceId,
   paletteDropActive,
+  paletteDeskDropTarget,
   paletteDropTypeId,
   paletteShortcutDropActive,
   paletteShortcutSlotEl,
@@ -1095,6 +1097,7 @@ function onPointerMove(event: PointerEvent) {
   paletteShortcutDropActive.value = !!slot &&
     event.clientX >= slot.left && event.clientX <= slot.right &&
     event.clientY >= slot.top && event.clientY <= slot.bottom;
+  paletteDeskDropTarget.value = overPalette ? deskDropTargetAt(event) : null;
 
   if (drag.moveGroup) {
     // Keep the grabbed widget under the cursor; shift palette so all offsets stay put.
@@ -1123,7 +1126,9 @@ function onPointerUp(event: PointerEvent) {
   // the desk, so put the card's offset back before handing the widget over.
   const droppedOnPalette = paletteDropActive.value && movedWidgetId !== null;
   const droppedOnShortcutSlot = paletteShortcutDropActive.value && movedWidgetId !== null;
+  const droppedOnDesk = movedWidgetId !== null ? paletteDeskDropTarget.value : null;
   const restoreOffset = drag.startOffset;
+  paletteDeskDropTarget.value = null;
   paletteDropActive.value = false;
   paletteDropTypeId.value = null;
   paletteShortcutDropActive.value = false;
@@ -1148,10 +1153,51 @@ function onPointerUp(event: PointerEvent) {
     if (moved) paletteWidgetPrefs.setEnabled(moved.typeId, true);
     return;
   }
+  if (droppedOnDesk && movedWidgetId) {
+    moveInstanceToDesk(movedWidgetId, droppedOnDesk);
+    return;
+  }
   if (droppedOnPalette && movedWidgetId) {
     onMoveToPanel(movedWidgetId);
     return;
   }
+}
+
+/** The `[data-desk-drop]` footer element under the pointer — same rect test as the palette. */
+function deskDropTargetAt(event: PointerEvent): string | null {
+  const targets = paletteAnchorEl.value?.querySelectorAll<HTMLElement>("[data-desk-drop]") ?? [];
+  for (const el of targets) {
+    const rect = el.getBoundingClientRect();
+    if (event.clientX >= rect.left && event.clientX <= rect.right &&
+      event.clientY >= rect.top && event.clientY <= rect.bottom) {
+      return el.dataset.deskDrop ?? null;
+    }
+  }
+  return null;
+}
+
+/**
+ * A card dropped on a desk tab moves there ("new" makes the desk first). The
+ * user stays on this desk, so several cards can be sorted away in a row.
+ * ponytail: not on the Ctrl+Z stack — layout history records geometry only.
+ */
+function moveInstanceToDesk(instanceId: string, target: string) {
+  flushToDoc();
+  let doc = cloneLayoutDoc();
+  let deskId = target;
+  if (target === "new") ({ layout: doc, deskId } = addDesk(doc));
+  const next = moveToDesk(doc, instanceId, layoutDoc.activeDeskId, deskId);
+  if (!next) return;
+  suspendLeavingMountedSet(
+    mountedIdsForInstances(instances),
+    mountedIdsForInstances(instancesForDesk(next, next.activeDeskId)),
+  );
+  applyLayoutDoc(next);
+  reloadInstances();
+  clearFocusIfNotOnActiveDesk();
+  releasePeekKept(instanceId);
+  persist();
+  scheduleRegionSync();
 }
 
 /** Duplicate one instance on the active desk and run onDuplicate. */
@@ -1876,6 +1922,30 @@ function onGapMoveKeydown(event: KeyboardEvent) {
  */
 function onDeskSwitchKeydown(event: KeyboardEvent) {
   if (settingsOpen.value || commandUi.request.value || widgetRemoval.pending.value) return;
+  // While Ctrl+Space is held, ←/→ step through the desks, ↑ keeps every card on
+  // screen after the release — the same keep as reaching into one card, for all
+  // of them — and ↓ puts the peek away right now, keeps included. Peek only: in
+  // an open cockpit the arrows belong to the search list and to widgets like Snake.
+  if (peeking.value && !event.shiftKey && !event.altKey && !event.metaKey &&
+    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === "ArrowUp") {
+      for (const instance of visibleMountedInstances.value) peekKept.value.add(instance.instanceId);
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      // The release that follows finds no peek and is ignored (`resolvePeek`).
+      peeking.value = false;
+      closeCockpit();
+      paletteHidden.value = peekRestorePaletteHidden;
+      return;
+    }
+    const index = layoutDoc.desks.findIndex((desk) => desk.id === layoutDoc.activeDeskId);
+    const next = layoutDoc.desks[index + (event.key === "ArrowRight" ? 1 : -1)];
+    if (next) kavibaySwitchDesk(next.id);
+    return;
+  }
   if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) return;
   const match = /^Digit([1-9])$/.exec(event.code);
   if (!match) return;
@@ -3060,6 +3130,8 @@ function placeStarterDesk() {
 /** Switch active desk: flush current state, rebind palette, clear stale focus. */
 function kavibaySwitchDesk(deskId: string) {
   if (deskId === layoutDoc.activeDeskId) return;
+  const fromIndex = layoutDoc.desks.findIndex((desk) => desk.id === layoutDoc.activeDeskId);
+  const toIndex = layoutDoc.desks.findIndex((desk) => desk.id === deskId);
 
   const prevMountedIds = mountedIdsForInstances(instances);
   const nextMountedIds = mountedIdsForInstances(
@@ -3077,6 +3149,29 @@ function kavibaySwitchDesk(deskId: string) {
 
   persist();
   scheduleRegionSync();
+  void nextTick(() => slideInDesk(toIndex > fromIndex ? 1 : -1));
+}
+
+/**
+ * Slide the new desk's cards in from the side they come from, like turning a page.
+ *
+ * Animates `translate`, not `transform`: the position lives in the anchor's inline
+ * transform, and the individual property composes with it instead of replacing it.
+ * Only the entering cards move — the old desk is already unmounted (`v-show`).
+ */
+function slideInDesk(direction: 1 | -1) {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const cards = document.querySelectorAll<HTMLElement>(".widget-host > .widget-anchor");
+  let last: Animation | undefined;
+  for (const card of cards) {
+    if (card.style.display === "none") continue;
+    last = card.animate(
+      [{ translate: `${direction * 48}px 0`, opacity: 0 }, { translate: "0 0", opacity: 1 }],
+      { duration: 220, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+    );
+  }
+  // Click-through rects were measured mid-flight; report the resting ones.
+  last?.finished.then(scheduleRegionSync, () => {});
 }
 
 /** Append a new empty desk with the next default label ("Desk n"). */
