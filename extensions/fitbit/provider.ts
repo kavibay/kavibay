@@ -50,6 +50,26 @@ export interface FitbitSleep {
   timeline: FitbitSleepSegment[];
 }
 
+export interface FitbitSpo2Day {
+  /** The date the night ended on, yyyy-MM-dd. */
+  date: string;
+  avg: number;
+  min: number | null;
+  max: number | null;
+}
+
+export interface FitbitHrvDay {
+  /** The date the night ended on, yyyy-MM-dd. */
+  date: string;
+  rmssd: number;
+  deepRmssd: number | null;
+}
+
+export interface FitbitRestingHeartRateDay {
+  date: string;
+  bpm: number;
+}
+
 export interface FitbitSleepNight {
   /** Fitbit's dateOfSleep: the date the night ended on, yyyy-MM-dd. */
   date: string;
@@ -403,6 +423,68 @@ function mapSleepWeek(raw: unknown, dates: string[]): FitbitSleepNight[] {
   });
 }
 
+/** How many nights the `…History` queries cover: 53 weeks, a year-long calendar grid. */
+const HISTORY_NIGHTS = 371;
+
+/**
+ * The last HISTORY_NIGHTS as date-range requests of at most `windowNights`
+ * each, fetched side by side; the entries `rows` picks from every response,
+ * in one list.
+ */
+async function fetchHistory(
+  host: ProviderHostContext,
+  windowNights: number,
+  path: (from: string, to: string) => string,
+  rows: (raw: unknown) => unknown,
+): Promise<unknown[]> {
+  const dates = lastDates(HISTORY_NIGHTS);
+  const windows: string[][] = [];
+  for (let i = 0; i < dates.length; i += windowNights) windows.push(dates.slice(i, i + windowNights));
+  const parts = await Promise.all(
+    windows.map((window) => fitbitGet<unknown>(host, path(window[0]!, window[window.length - 1]!))),
+  );
+  return parts.flatMap((part) => {
+    const list = rows(part);
+    return Array.isArray(list) ? list : [];
+  });
+}
+
+/** History rows with a date and a reading, oldest first. */
+function byDateWithReading<T extends { date: string }>(rows: T[], reading: (row: T) => number | null): T[] {
+  return rows
+    .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date) && reading(row) !== null)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** Nightly SpO2 averages, oldest first. Only nights with a reading are listed. */
+function mapSpo2History(raw: unknown[]): FitbitSpo2Day[] {
+  const rows = raw.map((entry) => {
+    const row = asRecord(entry);
+    const value = asRecord(row.value);
+    return { date: asString(row.dateTime), avg: maybeNumber(value.avg), min: maybeNumber(value.min), max: maybeNumber(value.max) };
+  });
+  return byDateWithReading(rows, (day) => day.avg) as FitbitSpo2Day[];
+}
+
+/** Nightly HRV (RMSSD, ms), oldest first. Only nights with a reading are listed. */
+function mapHrvHistory(raw: unknown[]): FitbitHrvDay[] {
+  const rows = raw.map((entry) => {
+    const row = asRecord(entry);
+    const value = asRecord(row.value);
+    return { date: asString(row.dateTime), rmssd: maybeNumber(value.dailyRmssd), deepRmssd: maybeNumber(value.deepRmssd) };
+  });
+  return byDateWithReading(rows, (day) => day.rmssd) as FitbitHrvDay[];
+}
+
+/** Daily resting heart rate, oldest first. Only days with a reading are listed. */
+function mapRestingHeartRateHistory(raw: unknown[]): FitbitRestingHeartRateDay[] {
+  const rows = raw.map((entry) => {
+    const row = asRecord(entry);
+    return { date: asString(row.dateTime), bpm: maybeNumber(asRecord(row.value).restingHeartRate) };
+  });
+  return byDateWithReading(rows, (day) => day.bpm) as FitbitRestingHeartRateDay[];
+}
+
 /** The last `count` local dates ending today, oldest first. */
 function lastDates(count: number, now = new Date()): string[] {
   return Array.from({ length: count }, (_, i) => {
@@ -626,6 +708,96 @@ export const fitbitProvider = defineProvider({
         const range = `${dates[0]}/${dates[dates.length - 1]}`;
         return mapSleepWeek(await fitbitGet(host, `/1.2/user/-/sleep/date/${range}.json`), dates);
       },
+    },
+    spo2History: {
+      description: "Nightly SpO2 average, minimum and maximum on Fitbit for the last 53 weeks, oldest first; nights without a reading are left out",
+      args: {},
+      result: {
+        type: "list" as const,
+        of: {
+          type: "object" as const,
+          fields: {
+            date: { type: "string" as const },
+            avg: { type: "number" as const },
+            min: { type: "number" as const, nullable: true },
+            max: { type: "number" as const, nullable: true },
+          },
+        },
+      },
+      key: () => [],
+      staleTime: 6 * 60 * 60 * 1000,
+      // The docs list no range limit for SpO2, but a year in one request came
+      // back with most nights missing that the Fitbit app shows; 30-day
+      // windows, like HRV's documented cap, return them all.
+      fetch: async (_args: Record<string, never>, host): Promise<FitbitSpo2Day[]> =>
+        mapSpo2History(
+          await fetchHistory(host, 30, (from, to) => `/1/user/-/spo2/date/${from}/${to}.json`, (raw) => raw),
+        ),
+    },
+    hrvHistory: {
+      description: "Nightly HRV (RMSSD in ms, overall and in deep sleep) on Fitbit for the last 53 weeks, oldest first; nights without a reading are left out",
+      args: {},
+      result: {
+        type: "list" as const,
+        of: {
+          type: "object" as const,
+          fields: {
+            date: { type: "string" as const },
+            rmssd: { type: "number" as const },
+            deepRmssd: { type: "number" as const, nullable: true },
+          },
+        },
+      },
+      key: () => [],
+      staleTime: 6 * 60 * 60 * 1000,
+      // The HRV range endpoint is capped at 30 days.
+      fetch: async (_args: Record<string, never>, host): Promise<FitbitHrvDay[]> =>
+        mapHrvHistory(
+          await fetchHistory(host, 30, (from, to) => `/1/user/-/hrv/date/${from}/${to}.json`, (raw) => asRecord(raw).hrv),
+        ),
+    },
+    sleepHistory: {
+      description: "Your nights on Fitbit for the last 53 weeks, oldest first: duration, time in bed, efficiency, bed and wake time, stage minutes; nights without a log are left out",
+      args: {},
+      result: { type: "list" as const, of: sleepNightSchema },
+      key: () => [],
+      staleTime: 6 * 60 * 60 * 1000,
+      // The sleep range endpoint takes at most 100 days.
+      fetch: async (_args: Record<string, never>, host): Promise<FitbitSleepNight[]> => {
+        const logs = await fetchHistory(
+          host,
+          100,
+          (from, to) => `/1.2/user/-/sleep/date/${from}/${to}.json`,
+          (raw) => asRecord(raw).sleep,
+        );
+        return mapSleepWeek({ sleep: logs }, lastDates(HISTORY_NIGHTS)).filter((night) => night.minutesAsleep > 0);
+      },
+    },
+    restingHeartRateHistory: {
+      description: "Daily resting heart rate (bpm) on Fitbit for the last 53 weeks, oldest first; days without a reading are left out",
+      args: {},
+      result: {
+        type: "list" as const,
+        of: {
+          type: "object" as const,
+          fields: {
+            date: { type: "string" as const },
+            bpm: { type: "number" as const },
+          },
+        },
+      },
+      key: () => [],
+      staleTime: 6 * 60 * 60 * 1000,
+      // The heart-rate range endpoint takes at most a year; 53 weeks is two halves.
+      fetch: async (_args: Record<string, never>, host): Promise<FitbitRestingHeartRateDay[]> =>
+        mapRestingHeartRateHistory(
+          await fetchHistory(
+            host,
+            186,
+            (from, to) => `/1/user/-/activities/heart/date/${from}/${to}.json`,
+            (raw) => asRecord(raw)["activities-heart"],
+          ),
+        ),
     },
   },
   actions: {},
