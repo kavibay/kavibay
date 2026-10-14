@@ -102,6 +102,12 @@ export const browserCapabilityTransport: WidgetCapabilityTransport = {
   focusTrackerUpsertIgnoreRule: async () => absent("focusTracker.upsertIgnoreRule"),
   focusTrackerDeleteIgnoreRule: async () => absent("focusTracker.deleteIgnoreRule"),
 
+  // — TV remote ————————————————————————————————————————————
+  tvRemoteIsPaired: async () => absent("tvRemote.isPaired"),
+  tvRemotePairStart: async () => absent("tvRemote.pairStart"),
+  tvRemotePairFinish: async () => absent("tvRemote.pairFinish"),
+  tvRemotePress: async () => absent("tvRemote.press"),
+
   // — LLM ——————————————————————————————————————————————————
   // No key on a marketing page, and no proxy behind it. A hosted runtime is
   // where these become answerable; see the plan's W0.

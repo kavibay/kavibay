@@ -646,6 +646,14 @@ export class Host {
         deleteIgnoreRule: (id) => this.widgetTransport!.focusTrackerDeleteIgnoreRule(id),
       };
     }
+    if (w.capabilities?.tvRemote && this.widgetTransport) {
+      ctx.tvRemote = {
+        isPaired: (host) => this.widgetTransport!.tvRemoteIsPaired(host),
+        pairStart: (host) => this.widgetTransport!.tvRemotePairStart(host),
+        pairFinish: (host, code) => this.widgetTransport!.tvRemotePairFinish(host, code),
+        press: (host, key) => this.widgetTransport!.tvRemotePress(host, key),
+      };
+    }
     if (w.capabilities?.llm && this.widgetTransport) {
       ctx.llm = {
         models: <T>() => this.widgetTransport!.llmModels(instance.id) as Promise<T>,

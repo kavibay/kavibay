@@ -170,6 +170,11 @@ export const NOT_ON_WEB = new Set<string>([
   "focus_tracker_upsert_ignore_rule",
   "focus_tracker_delete_habit_rule",
   "focus_tracker_delete_ignore_rule",
+  // A TV on the visitor's network is not something a web page may reach.
+  "tv_remote_status",
+  "tv_remote_pair_start",
+  "tv_remote_pair_finish",
+  "tv_remote_key",
   // Share: screen recording and preview capture.
   "preview_recording_availability",
   "record_preview_clip",

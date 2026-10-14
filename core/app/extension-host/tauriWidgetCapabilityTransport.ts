@@ -14,6 +14,7 @@ import type {
   LlmStreamEvent,
   NotificationRequest,
   NowPlayingControl,
+  TvRemoteKey,
   DraftChanged,
   DraftPresence,
   WidgetExportReport,
@@ -198,6 +199,11 @@ export const tauriWidgetCapabilityTransport: WidgetCapabilityTransport = {
     invoke("focus_tracker_upsert_ignore_rule", { kind, value }),
   focusTrackerDeleteIgnoreRule: (id: number) =>
     invoke("focus_tracker_delete_ignore_rule", { id }),
+  tvRemoteIsPaired: (host: string) => invoke<boolean>("tv_remote_status", { host }),
+  tvRemotePairStart: (host: string) => invoke("tv_remote_pair_start", { host }),
+  tvRemotePairFinish: (host: string, code: string) =>
+    invoke("tv_remote_pair_finish", { host, code }),
+  tvRemotePress: (host: string, key: TvRemoteKey) => invoke("tv_remote_key", { host, key }),
   llmModels: (instanceId) => invoke("llm_models", { instanceId }),
   llmQuickModel: () => invoke("llm_quick_model"),
   llmStream: async (

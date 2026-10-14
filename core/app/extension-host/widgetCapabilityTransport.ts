@@ -10,6 +10,7 @@ import type {
   NotificationRequest,
   NowPlayingControl,
   SystemInfoInclude,
+  TvRemoteKey,
   DraftChanged,
   DraftPresence,
   WidgetExportReport,
@@ -72,6 +73,10 @@ export interface WidgetCapabilityTransport {
   focusTrackerListIgnoreRules(): Promise<unknown>;
   focusTrackerUpsertIgnoreRule(kind: FocusTrackerIgnoreKind, value: string): Promise<unknown>;
   focusTrackerDeleteIgnoreRule(id: number): Promise<void>;
+  tvRemoteIsPaired(host: string): Promise<boolean>;
+  tvRemotePairStart(host: string): Promise<void>;
+  tvRemotePairFinish(host: string, code: string): Promise<void>;
+  tvRemotePress(host: string, key: TvRemoteKey): Promise<void>;
   llmModels(instanceId?: string): Promise<unknown>;
   llmQuickModel(): Promise<unknown>;
   llmStream(

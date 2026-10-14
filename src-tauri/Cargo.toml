@@ -57,6 +57,15 @@ open = "5"
 # the sealed format stays under test on the Windows CI job too.
 ring = "0.17"
 tauri-plugin-updater = "2"
+# TV Remote (`extensions/tv_remote/`) speaks the Android TV Remote v2 protocol:
+# mutual TLS with a self-signed RSA client certificate, and the pairing secret
+# hashes both RSA moduli. tokio-rustls is already in the tree through reqwest.
+# `ring` cannot generate RSA keys, so `rsa` makes the key once, `rcgen` signs
+# the certificate with it, and `x509-cert` reads the TV's public key.
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rsa = { version = "0.9", features = ["getrandom"] }
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
+x509-cert = { version = "0.2", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 plist = "1.7"
@@ -147,3 +156,7 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
+
+# RSA key generation (TV Remote pairing) takes tens of seconds unoptimized.
+[profile.dev.package.num-bigint-dig]
+opt-level = 3

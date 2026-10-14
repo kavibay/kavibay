@@ -89,6 +89,8 @@ export interface CapabilityDeclaration {
   launcher?: true;
   /** Focus tracking snapshots and rule management; only bundled first-party widgets may declare it. */
   focusTracker?: true;
+  /** Android TV remote on the local network; only bundled first-party widgets may declare it. */
+  tvRemote?: true;
   /** Provider-neutral LLM model discovery and streaming; host owns credentials. */
   llm?: true;
   /** Widget Wizard authoring and generated-package management; bundled only. */
@@ -223,6 +225,25 @@ export interface ImageCapability {
   import(sourcePath: string): Promise<string>;
   clear(): Promise<void>;
   imageUrl(path: string): string;
+}
+
+/** The buttons a TV remote has. Rust maps each to one Android key code. */
+export type TvRemoteKey =
+  | "power" | "home" | "back" | "menu" | "guide" | "info"
+  | "up" | "down" | "left" | "right" | "ok"
+  | "volumeUp" | "volumeDown" | "mute" | "channelUp" | "channelDown" | "playPause"
+  | "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
+
+/**
+ * Fixed Android TV Remote v2 surface: pair once with the code the TV shows,
+ * then press keys. `host` is the TV's local IPv4 address; the client
+ * certificate and the TV pins stay in Rust.
+ */
+export interface TvRemoteCapability {
+  isPaired(host: string): Promise<boolean>;
+  pairStart(host: string): Promise<void>;
+  pairFinish(host: string, code: string): Promise<void>;
+  press(host: string, key: TvRemoteKey): Promise<void>;
 }
 
 export type LauncherPickKind = "file" | "folder" | "image";
@@ -963,6 +984,7 @@ export interface WidgetContext<TConfig = Record<string, unknown>> {
   image?: ImageCapability;
   launcher?: LauncherCapability;
   focusTracker?: FocusTrackerCapability;
+  tvRemote?: TvRemoteCapability;
   llm?: LlmCapability;
   wizard?: WizardCapability;
   /**

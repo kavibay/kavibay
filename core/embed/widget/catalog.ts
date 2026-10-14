@@ -57,7 +57,7 @@ import timeTrackerManifest from "../../../extensions/time-tracker/manifest.json"
  * operating system nor a network call:
  *
  *   - no `capabilities` that a browser cannot answer (clipboard, launcher,
- *     colorPicker, focusTracker, nowPlaying, systemInfo, image, alarm,
+ *     colorPicker, focusTracker, nowPlaying, systemInfo, image, alarm, tvRemote,
  *     notification, aiUsage, wizard)
  *   - no `requires.providers`, no `http`, no `endpoint`
  *
