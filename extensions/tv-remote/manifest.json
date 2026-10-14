@@ -1,0 +1,21 @@
+{
+  "format": "contract",
+  "name": "tv-remote",
+  "version": "1.0.0",
+  "displayName": "TV Remote",
+  "description": "Remote control for a Samsung TV, optionally with a waipu.tv 4K Stick or other Android TV device.",
+  "author": "kavibay",
+  "engines": { "kavibay": "^0.1" },
+  "widgets": {
+    "tv-remote": {
+      "keywords": ["tv", "remote", "fernbedienung", "samsung", "waipu", "android tv", "google tv"],
+      "categories": ["media"],
+      "ui": {
+        "defaultOffset": { "x": 240, "y": -260 },
+        "defaultSize": { "w": 230, "h": 770 },
+        "allowDuplicate": true,
+        "defaultHideTitle": true
+      }
+    }
+  }
+}

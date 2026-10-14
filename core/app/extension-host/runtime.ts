@@ -646,6 +646,19 @@ export class Host {
         deleteIgnoreRule: (id) => this.widgetTransport!.focusTrackerDeleteIgnoreRule(id),
       };
     }
+    if (w.capabilities?.tvRemote && this.widgetTransport) {
+      ctx.tvRemote = {
+        isPaired: (host) => this.widgetTransport!.tvRemoteIsPaired(host),
+        pairStart: (host) => this.widgetTransport!.tvRemotePairStart(host),
+        pairFinish: (host, code) => this.widgetTransport!.tvRemotePairFinish(host, code),
+        press: (host, key) => this.widgetTransport!.tvRemotePress(host, key),
+        samsungPair: (host) => this.widgetTransport!.tvRemoteSamsungPair(host),
+        samsungPress: (host, key) => this.widgetTransport!.tvRemoteSamsungPress(host, key),
+        discover: () => this.widgetTransport!.tvRemoteDiscover(),
+        launch: (host, app) => this.widgetTransport!.tvRemoteLaunch(host, app),
+        samsungLaunch: (host, app) => this.widgetTransport!.tvRemoteSamsungLaunch(host, app),
+      };
+    }
     if (w.capabilities?.llm && this.widgetTransport) {
       ctx.llm = {
         models: <T>() => this.widgetTransport!.llmModels(instance.id) as Promise<T>,

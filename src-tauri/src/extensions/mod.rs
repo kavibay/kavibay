@@ -48,6 +48,7 @@ pub mod kill_port;
 pub mod now_playing;
 pub mod stocks;
 pub mod system_info;
+pub mod tv_remote;
 pub mod weather;
 
 use crate::extension_providers::{CapabilityHosts, ProviderDef};
@@ -100,6 +101,7 @@ pub const ALL: &[&ExtensionRust] = &[
     &now_playing::EXTENSION,
     &stocks::EXTENSION,
     &system_info::EXTENSION,
+    &tv_remote::EXTENSION,
     &weather::EXTENSION,
 ];
 

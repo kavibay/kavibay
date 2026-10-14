@@ -34,7 +34,7 @@ mod wizard;
 /// grouping is the point — see `extensions/mod.rs` for what earns a place.
 use extensions::{
     ai_usage, app_launcher, clipboard_widget, color_picker, focus_tracker, heart_rate,
-    image_widget, kill_port, now_playing, system_info,
+    image_widget, kill_port, now_playing, system_info, tv_remote,
 };
 
 #[cfg(target_os = "macos")]
@@ -496,6 +496,7 @@ pub fn run() {
                 }
             });
             app.manage(color_picker::ColorPickerSession::default());
+            app.manage(tv_remote::TvRemote::default());
             // Managed before the watcher starts writing it and before the first fit.
             let active_window: SharedActiveWindow = Arc::new(Mutex::new(None));
             app.manage(active_window.clone());
@@ -650,6 +651,15 @@ pub fn run() {
             ai_usage::widget_ai_usage_enable_claude,
             notifications::widget_notification_show,
             system_info::widget_system_info,
+            tv_remote::tv_remote_status,
+            tv_remote::tv_remote_pair_start,
+            tv_remote::tv_remote_pair_finish,
+            tv_remote::tv_remote_key,
+            tv_remote::tv_remote_samsung_pair,
+            tv_remote::tv_remote_samsung_key,
+            tv_remote::tv_remote_discover,
+            tv_remote::tv_remote_launch,
+            tv_remote::tv_remote_samsung_launch,
             commands::set_interactive_rects,
             commands::set_click_through_paused,
             commands::set_outside_click_dismiss,
