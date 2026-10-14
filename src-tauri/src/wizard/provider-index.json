@@ -129,9 +129,13 @@
   {
     "id": "kavibay.tmdb/tmdb",
     "displayName": "TMDB",
-    "description": "Movie search with posters, ratings and streaming availability for custom widgets.",
+    "description": "Movie search and trending movies with posters, ratings and streaming availability for custom widgets.",
     "queries": [
+      "discoverStreaming",
       "searchMovies",
+      "streamingServices",
+      "topRatedMovies",
+      "trendingMovies",
       "watchProviders"
     ],
     "actions": []

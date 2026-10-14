@@ -41,6 +41,8 @@ try {
     assert(segments[0] === "p", "Rust sees the /p/ image route");
     assert(decodeURIComponent(segments[1]!) === PROVIDER_ID, "the provider survives one decoding pass");
     assert(decodeURIComponent(segments[2]!) === "https://image.tmdb.org/t/p/w500/sNxqwtyHMNQwKWoFYDqCYTu5Ok.jpg", "the CDN path survives one decoding pass");
+    const trending = await host.query<TmdbMovie[]>(PROVIDER_ID, "trendingMovies", {});
+    assert(trending[0]?.posterUrl === base + expectedPath, "trending posters also use the platform image origin");
     const availability = await host.query<TmdbWatchProviders>(PROVIDER_ID, "watchProviders", { movieId: "27205" });
     assert(availability.offers[0]?.logoUrl === base + "p/kavibay.tmdb%2Ftmdb/https%3A%2F%2Fimage.tmdb.org%2Ft%2Fp%2Fw92%2Flogo.jpg",
       "nested provider logos also use the platform image origin");
