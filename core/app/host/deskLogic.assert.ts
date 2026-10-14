@@ -10,6 +10,7 @@ import {
   desksWithInstance,
   fullyHiddenInstanceIds,
   migrateV3ToV4,
+  moveToDesk,
   normalizeLayoutV4,
   placeOnDesk,
   renameDesk,
@@ -308,6 +309,35 @@ function assertThrows(fn: () => void, msg: string) {
   };
   const live = instancesForDesk(normalizeLayoutV4(layout), "1");
   assert(live[0]?.hidden === true && live[0].hiddenAt === 100, "reload keeps hide recency");
+}
+
+// moveToDesk: keeps the screen spot, merges into an existing placement, disposes nothing
+{
+  const layout: SavedLayoutV4 = {
+    activeDeskId: "1",
+    desks: [
+      { id: "1", name: "Desk 1", palette: { x: 100, y: 50 }, placements: [
+        { instanceId: "a", offset: { x: 10, y: 20 }, width: 300 },
+        { instanceId: "b", offset: { x: 0, y: 0 } },
+      ] },
+      { id: "2", name: "Desk 2", palette: { x: 40, y: 50 }, placements: [
+        { instanceId: "b", offset: { x: 7, y: 7 } },
+      ] },
+    ],
+    catalog: [{ instanceId: "a", typeId: "notes" }, { instanceId: "b", typeId: "clock" }],
+  };
+  const moved = moveToDesk(layout, "a", "1", "2")!;
+  const landed = moved.desks[1]!.placements.find((p) => p.instanceId === "a");
+  assert(landed?.offset.x === 70 && landed.offset.y === 20, "offset rebased onto target palette");
+  assert(landed?.width === 300, "geometry travels with the card");
+  assert(!moved.desks[0]!.placements.some((p) => p.instanceId === "a"), "card leaves the source");
+  assert(moved.catalog.length === 2, "catalog untouched");
+
+  const merged = moveToDesk(layout, "b", "1", "2")!;
+  const bOnTarget = merged.desks[1]!.placements.filter((p) => p.instanceId === "b");
+  assert(bOnTarget.length === 1 && bOnTarget[0]!.offset.x === 7, "multi-desk card keeps the target geometry");
+  assert(moveToDesk(layout, "a", "1", "1") === null, "same desk is a no-op");
+  assert(moveToDesk(layout, "a", "2", "1") === null, "card not on source is a no-op");
 }
 
 console.log("deskLogic.assert.ts: ok");

@@ -42,3 +42,10 @@ export const paletteShortcutSlotEl = ref<HTMLElement | null>(null);
 
 /** True while the dragged card is over that slot: releasing adds a shortcut instead of moving the card. */
 export const paletteShortcutDropActive = ref(false);
+
+/**
+ * Desk the dragged card would land on: a desk id from a footer tab, "new" for
+ * the new-desk slot, null when not over either. The host hit-tests the palette's
+ * `[data-desk-drop]` elements and the palette lights the matching one up.
+ */
+export const paletteDeskDropTarget = ref<string | null>(null);
