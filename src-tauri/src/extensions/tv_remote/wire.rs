@@ -253,6 +253,16 @@ pub fn remote_key(key_code: u64) -> Vec<u8> {
     out
 }
 
+/// `remote_app_link_launch_request { app_link }`: the device opens the link
+/// with whatever app handles it.
+pub fn remote_app_link(link: &str) -> Vec<u8> {
+    let mut inner = Vec::new();
+    field_bytes(&mut inner, 1, link.as_bytes());
+    let mut out = Vec::new();
+    field_bytes(&mut out, 90, &inner);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,6 +271,12 @@ mod tests {
     fn key_press_matches_protobuf_encoding() {
         // remote_key_inject { key_code: KEYCODE_POWER (26), direction: SHORT }
         assert_eq!(remote_key(26), [0x52, 0x04, 0x08, 0x1a, 0x10, 0x03]);
+    }
+
+    #[test]
+    fn app_link_uses_field_90() {
+        // Field 90, wire type 2: tag 0x2d2 as a varint is d2 05.
+        assert_eq!(remote_app_link("x"), [0xd2, 0x05, 0x03, 0x0a, 0x01, b'x']);
     }
 
     #[test]

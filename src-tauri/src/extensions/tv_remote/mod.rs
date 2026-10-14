@@ -1,8 +1,9 @@
-//! TV Remote: key presses for an Android TV or Google TV device — the
-//! waipu.tv 4K Stick is one — over Android TV Remote v2, the protocol Google's
-//! own phone remote uses.
+//! TV Remote: key presses for a Samsung TV (`samsung.rs`, the default) and,
+//! optionally, an Android TV or Google TV device such as the waipu.tv 4K
+//! Stick, over Android TV Remote v2 — the protocol Google's own phone remote
+//! uses. `discover.rs` finds both on the network.
 //!
-//! Pairing happens once, on port 6467: the TV shows a six-digit hex code and
+//! Android TV pairing happens once, on port 6467: the TV shows a six-digit hex code and
 //! the user types it into the widget. Afterwards the TV accepts our client
 //! certificate on port 6466, where one TLS connection stays open: the TV pings
 //! every five seconds, and keys are sent down the same connection, so a press
@@ -12,14 +13,17 @@
 //! powerful as a remote in the room, which is the point, but they are no
 //! reason to let the webview open TLS connections to the internet.
 
+mod apps;
+mod discover;
 mod identity;
+mod samsung;
 mod wire;
 
 use std::{net::IpAddr, sync::Arc, time::Duration};
 
 use tauri::{AppHandle, State};
 use tokio::{
-    io::{AsyncWriteExt, ReadHalf},
+    io::{AsyncWrite, AsyncWriteExt, ReadHalf},
     net::TcpStream,
     sync::{mpsc, oneshot, MappedMutexGuard, Mutex, MutexGuard},
     time::timeout,
@@ -55,6 +59,8 @@ pub struct TvRemote {
     store: Mutex<Option<Store>>,
     pairing: Mutex<Option<Pairing>>,
     link: Mutex<Option<Link>>,
+    /// The open connection to a Samsung TV taking volume keys.
+    samsung: Mutex<Option<Link>>,
 }
 
 /// A pairing waiting for the code: the TV keeps it on screen only while this
@@ -76,6 +82,27 @@ impl Link {
     fn close(self) {
         let _ = self.tx.send(Vec::new());
     }
+}
+
+/// Writes queued frames in order until an empty frame or a write fails, then
+/// closes. Dropping the receiver is what tells senders the link is gone.
+fn spawn_writer<W>(mut writer: W) -> mpsc::UnboundedSender<Vec<u8>>
+where
+    W: AsyncWrite + Unpin + Send + 'static,
+{
+    let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    tauri::async_runtime::spawn(async move {
+        while let Some(bytes) = rx.recv().await {
+            if bytes.is_empty() || writer.write_all(&bytes).await.is_err() {
+                break;
+            }
+            if writer.flush().await.is_err() {
+                break;
+            }
+        }
+        let _ = writer.shutdown().await;
+    });
+    tx
 }
 
 /// Only a literal address on the local network.
@@ -243,20 +270,9 @@ async fn open_link(app: &AppHandle, state: &TvRemote, ip: IpAddr) -> Result<Link
         store.client_config(Some(pin))?
     };
     let stream = connect(config, ip, REMOTE_PORT).await?;
-    let (reader, mut writer) = tokio::io::split(stream);
-    let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    let (reader, writer) = tokio::io::split(stream);
+    let tx = spawn_writer(writer);
     let (started_tx, started_rx) = oneshot::channel();
-    tauri::async_runtime::spawn(async move {
-        while let Some(bytes) = rx.recv().await {
-            if bytes.is_empty() || writer.write_all(&bytes).await.is_err() {
-                break;
-            }
-            if writer.flush().await.is_err() {
-                break;
-            }
-        }
-        let _ = writer.shutdown().await;
-    });
     tauri::async_runtime::spawn(read_loop(reader, tx.clone(), started_tx));
     let link = Link { host, tx };
     match timeout(REPLY_TIMEOUT, started_rx).await {
@@ -362,7 +378,29 @@ pub async fn tv_remote_key(
 ) -> Result<(), String> {
     let ip = parse_host(&host)?;
     let code = key_code(&key).ok_or_else(|| format!("unknown key: {key}"))?;
-    let frame = wire::frame(&wire::remote_key(code));
+    send_to_stick(&app, &state, ip, wire::frame(&wire::remote_key(code))).await
+}
+
+/// Starts an app on the Android TV device.
+#[tauri::command]
+pub async fn tv_remote_launch(
+    app: AppHandle,
+    state: State<'_, TvRemote>,
+    host: String,
+    name: String,
+) -> Result<(), String> {
+    let ip = parse_host(&host)?;
+    let link = apps::find(&name)?.android;
+    send_to_stick(&app, &state, ip, wire::frame(&wire::remote_app_link(link))).await
+}
+
+/// Sends one frame over the open stick link, reconnecting once if it is gone.
+async fn send_to_stick(
+    app: &AppHandle,
+    state: &TvRemote,
+    ip: IpAddr,
+    frame: Vec<u8>,
+) -> Result<(), String> {
     let mut link = state.link.lock().await;
     if let Some(open) = link.as_ref().filter(|open| open.host == ip.to_string()) {
         if open.tx.send(frame.clone()).is_ok() {
@@ -372,7 +410,109 @@ pub async fn tv_remote_key(
     if let Some(old) = link.take() {
         old.close();
     }
-    let fresh = open_link(&app, &state, ip).await?;
+    let fresh = open_link(app, state, ip).await?;
+    fresh
+        .tx
+        .send(frame)
+        .map_err(|_| "The TV closed the connection.".to_string())?;
+    *link = Some(fresh);
+    Ok(())
+}
+
+fn start_samsung_link(stream: TlsStream<TcpStream>, host: String) -> Link {
+    let (reader, writer) = tokio::io::split(stream);
+    let tx = spawn_writer(writer);
+    tauri::async_runtime::spawn(samsung::read_loop(reader, tx.clone()));
+    Link { host, tx }
+}
+
+/// Samsung TVs and Android TV devices on the local network.
+#[tauri::command]
+pub async fn tv_remote_discover() -> Result<Vec<discover::Device>, String> {
+    discover::devices().await
+}
+
+/// Connects to a Samsung TV. The first time, the TV asks on screen whether to
+/// allow Kavibay; this waits for that answer.
+#[tauri::command]
+pub async fn tv_remote_samsung_pair(
+    app: AppHandle,
+    state: State<'_, TvRemote>,
+    host: String,
+) -> Result<(), String> {
+    let ip = parse_host(&host)?;
+    let host = ip.to_string();
+    let (config, known) = {
+        let store = store(&app, &state).await?;
+        (store.client_config(None)?, store.samsung(&host)?)
+    };
+    // A token from an earlier pairing saves the user a second prompt.
+    let token = known.and_then(|tv| tv.token);
+    let (stream, issued, cert) = samsung::connect(config, ip, token.as_deref()).await?;
+    store(&app, &state).await?.remember_samsung(
+        host.clone(),
+        &cert,
+        issued.or(token).as_deref(),
+    )?;
+    let link = start_samsung_link(stream, host);
+    if let Some(old) = state.samsung.lock().await.replace(link) {
+        old.close();
+    }
+    Ok(())
+}
+
+/// Presses one button on the Samsung TV.
+#[tauri::command]
+pub async fn tv_remote_samsung_key(
+    app: AppHandle,
+    state: State<'_, TvRemote>,
+    host: String,
+    key: String,
+) -> Result<(), String> {
+    let ip = parse_host(&host)?;
+    let name = samsung::key_name(&key).ok_or_else(|| format!("unknown key: {key}"))?;
+    send_to_samsung(&app, &state, ip, samsung::key_frame(name)).await
+}
+
+/// Starts an app on the Samsung TV.
+#[tauri::command]
+pub async fn tv_remote_samsung_launch(
+    app: AppHandle,
+    state: State<'_, TvRemote>,
+    host: String,
+    name: String,
+) -> Result<(), String> {
+    let ip = parse_host(&host)?;
+    let frame = samsung::launch_frame(apps::find(&name)?.samsung);
+    send_to_samsung(&app, &state, ip, frame).await
+}
+
+/// Sends one frame over the open Samsung link, reconnecting once if it is gone.
+async fn send_to_samsung(
+    app: &AppHandle,
+    state: &TvRemote,
+    ip: IpAddr,
+    frame: Vec<u8>,
+) -> Result<(), String> {
+    let host = ip.to_string();
+    let mut link = state.samsung.lock().await;
+    if let Some(open) = link.as_ref().filter(|open| open.host == host) {
+        if open.tx.send(frame.clone()).is_ok() {
+            return Ok(());
+        }
+    }
+    if let Some(old) = link.take() {
+        old.close();
+    }
+    let (config, token) = {
+        let store = store(app, state).await?;
+        let tv = store
+            .samsung(&host)?
+            .ok_or_else(|| "This TV is not connected yet.".to_string())?;
+        (store.client_config(Some(tv.pin))?, tv.token)
+    };
+    let (stream, _, _) = samsung::connect(config, ip, token.as_deref()).await?;
+    let fresh = start_samsung_link(stream, host);
     fresh
         .tx
         .send(frame)
@@ -384,6 +524,80 @@ pub async fn tv_remote_key(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Sends app links to a paired stick and prints how it answers: the error
+    /// it reports for a link no app takes, and the readable strings of what it
+    /// sends after one opens (the foreground app's package among them). For
+    /// finding a link `apps.rs` can use. It starts apps on the TV.
+    /// `KAVIBAY_DATA_DIR=<dir> STICK_HOST=<ip> LINKS=<a,b> cargo test --lib probe_app_links -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn probe_app_links_on_a_paired_stick() {
+        let dir = std::env::var("KAVIBAY_DATA_DIR").expect("KAVIBAY_DATA_DIR");
+        let host = std::env::var("STICK_HOST").expect("STICK_HOST");
+        let links = std::env::var("LINKS").expect("LINKS");
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let store = Store::load_or_create(std::path::Path::new(&dir)).unwrap();
+                let config = store.client_config(store.pin(&host)).unwrap();
+                let ip: IpAddr = host.parse().unwrap();
+                let stream = connect(config, ip, REMOTE_PORT).await.unwrap();
+                let (mut reader, mut writer) = tokio::io::split(stream);
+                // IME (4) makes the stick report the foreground app.
+                let mut features = wire::FEATURES | 4;
+                let mut started = None;
+                let mut pending: Vec<&str> = links.split(',').rev().collect();
+                // When the next link goes out: a second after the stick is
+                // ready, then one every six seconds. The stick pings every
+                // five, so silence never marks the moment.
+                let mut next_at: Option<tokio::time::Instant> = None;
+                loop {
+                    if next_at.is_some_and(|at| tokio::time::Instant::now() >= at) {
+                        match pending.pop() {
+                            Some(link) => {
+                                println!("trying {link}");
+                                let frame = wire::frame(&wire::remote_app_link(link));
+                                writer.write_all(&frame).await.unwrap();
+                                next_at =
+                                    Some(tokio::time::Instant::now() + Duration::from_secs(6));
+                            }
+                            None => break,
+                        }
+                    }
+                    match timeout(Duration::from_secs(1), wire::read_frame(&mut reader)).await {
+                        Ok(Ok(body)) => {
+                            if let Some(reply) = answer(&body, &mut features, &mut started) {
+                                writer.write_all(&wire::frame(&reply)).await.unwrap();
+                            }
+                            let field = wire::fields(&body).first().map(|(f, _)| *f);
+                            if field == Some(wire::REMOTE_START) && next_at.is_none() {
+                                next_at =
+                                    Some(tokio::time::Instant::now() + Duration::from_secs(1));
+                            }
+                            if field == Some(wire::REMOTE_ERROR) {
+                                println!("   -> refused");
+                            }
+                            if field == Some(20) {
+                                let text = String::from_utf8_lossy(&body);
+                                let words: Vec<&str> = text
+                                    .split(|c: char| !c.is_ascii_graphic())
+                                    .filter(|w| w.len() >= 4)
+                                    .collect();
+                                println!("   -> foreground: {words:?}");
+                            }
+                        }
+                        Ok(Err(error)) => {
+                            println!("connection ended: {error}");
+                            break;
+                        }
+                        Err(_) => {}
+                    }
+                }
+            });
+    }
 
     #[test]
     fn only_local_addresses_are_accepted() {

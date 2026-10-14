@@ -175,6 +175,11 @@ export const NOT_ON_WEB = new Set<string>([
   "tv_remote_pair_start",
   "tv_remote_pair_finish",
   "tv_remote_key",
+  "tv_remote_samsung_pair",
+  "tv_remote_samsung_key",
+  "tv_remote_discover",
+  "tv_remote_launch",
+  "tv_remote_samsung_launch",
   // Share: screen recording and preview capture.
   "preview_recording_availability",
   "record_preview_clip",

@@ -110,7 +110,7 @@ What each one returns is in [../docs/provider-schema.md](../docs/provider-schema
 |--------|------|--------------|:----:|-------|
 | Image | `image` | Show a local image or URL on the desktop. | L | Contract `ctx.image` capability; source in `ctx.data` |
 | Now Playing | `now-playing` | Currently playing media session. | L | Host polls `widget_now_playing` every second |
-| TV Remote | `tv-remote` | Remote control for an Android TV or Google TV device (waipu.tv 4K Stick). | L | Contract `ctx.tvRemote` capability; Android TV Remote v2 over the LAN, pairing in Rust |
+| TV Remote | `tv-remote` | Remote control for a Samsung TV, optionally with a waipu.tv 4K Stick / Android TV. | L | Contract `ctx.tvRemote` capability; Samsung remote API and Android TV Remote v2 over the LAN, found by SSDP, pairing in Rust |
 
 ## Credentials
 

@@ -235,15 +235,37 @@ export type TvRemoteKey =
   | "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
 
 /**
- * Fixed Android TV Remote v2 surface: pair once with the code the TV shows,
- * then press keys. `host` is the TV's local IPv4 address; the client
- * certificate and the TV pins stay in Rust.
+ * Fixed TV remote surface: a Samsung TV allowed once on its screen, and an
+ * optional Android TV device (Remote v2) paired once with the code it shows.
+ * `host` is a local IPv4 address; certificates, pins and the Samsung token
+ * stay in Rust.
  */
 export interface TvRemoteCapability {
   isPaired(host: string): Promise<boolean>;
   pairStart(host: string): Promise<void>;
   pairFinish(host: string, code: string): Promise<void>;
   press(host: string, key: TvRemoteKey): Promise<void>;
+  /**
+   * Connects a Samsung TV. The first time, the TV asks on screen whether to
+   * allow it; this resolves once the user answered there.
+   */
+  samsungPair(host: string): Promise<void>;
+  samsungPress(host: string, key: TvRemoteKey): Promise<void>;
+  /** Samsung TVs and Android TV devices on the local network (takes a few seconds). */
+  discover(): Promise<TvRemoteDevice[]>;
+  /** Starts an app on the Android TV device. */
+  launch(host: string, app: TvRemoteApp): Promise<void>;
+  samsungLaunch(host: string, app: TvRemoteApp): Promise<void>;
+}
+
+/** Apps a remote can start. Rust maps each to the device's own app id. */
+export type TvRemoteApp = "youtube" | "netflix" | "primeVideo" | "disneyPlus" | "spotify" | "appleTv";
+
+export interface TvRemoteDevice {
+  kind: "samsung" | "androidTv";
+  host: string;
+  /** The name the device announces, e.g. "Samsung TV (GQ55Q80TGTXZG)". */
+  name: string;
 }
 
 export type LauncherPickKind = "file" | "folder" | "image";

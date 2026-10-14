@@ -111,6 +111,17 @@ of them is used as this app's own identity.
 - tado° — tado GmbH — https://www.tado.com/
 - TMDB (The Movie Database) — user-supplied SVG — https://www.themoviedb.org/about/logos-attribution
 
+The TV Remote widget (`extensions/tv-remote/appMarks.ts`) shows app logos on
+the buttons that start each app, under the same nominative terms. Prime Video,
+Disney+ and Apple TV are drawn in `currentColor` because their own dark colours
+vanish on the widget's dark surface; Spotify reuses the mark above.
+
+- YouTube — Google LLC — Simple Icons, https://www.youtube.com/howyoutubeworks/resources/brand-resources/
+- Netflix — Netflix, Inc. — Simple Icons, https://brand.netflix.com/en/assets/brand-symbol
+- Prime Video — Amazon.com, Inc. — Simple Icons, https://videodirect.amazon.com
+- Disney+ — Disney Enterprises, Inc. — https://commons.wikimedia.org/wiki/File:Disney%2B_logo.svg
+- Apple TV — Apple Inc. — Simple Icons, https://www.apple.com/legal/intellectual-property/guidelinesfor3rdparties.html
+
 Trademark guidelines are the binding terms here, not a file licence. **Confirm
 each mark against its owner's current guidelines before advertising or
 distributing the app more widely**, in the same pass as the Pixabay review above.

@@ -652,6 +652,11 @@ export class Host {
         pairStart: (host) => this.widgetTransport!.tvRemotePairStart(host),
         pairFinish: (host, code) => this.widgetTransport!.tvRemotePairFinish(host, code),
         press: (host, key) => this.widgetTransport!.tvRemotePress(host, key),
+        samsungPair: (host) => this.widgetTransport!.tvRemoteSamsungPair(host),
+        samsungPress: (host, key) => this.widgetTransport!.tvRemoteSamsungPress(host, key),
+        discover: () => this.widgetTransport!.tvRemoteDiscover(),
+        launch: (host, app) => this.widgetTransport!.tvRemoteLaunch(host, app),
+        samsungLaunch: (host, app) => this.widgetTransport!.tvRemoteSamsungLaunch(host, app),
       };
     }
     if (w.capabilities?.llm && this.widgetTransport) {

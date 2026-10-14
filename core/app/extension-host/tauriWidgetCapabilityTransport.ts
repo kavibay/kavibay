@@ -15,6 +15,8 @@ import type {
   NotificationRequest,
   NowPlayingControl,
   TvRemoteKey,
+  TvRemoteApp,
+  TvRemoteDevice,
   DraftChanged,
   DraftPresence,
   WidgetExportReport,
@@ -204,6 +206,14 @@ export const tauriWidgetCapabilityTransport: WidgetCapabilityTransport = {
   tvRemotePairFinish: (host: string, code: string) =>
     invoke("tv_remote_pair_finish", { host, code }),
   tvRemotePress: (host: string, key: TvRemoteKey) => invoke("tv_remote_key", { host, key }),
+  tvRemoteSamsungPair: (host: string) => invoke("tv_remote_samsung_pair", { host }),
+  tvRemoteSamsungPress: (host: string, key: TvRemoteKey) =>
+    invoke("tv_remote_samsung_key", { host, key }),
+  tvRemoteDiscover: () => invoke<TvRemoteDevice[]>("tv_remote_discover"),
+  tvRemoteLaunch: (host: string, app: TvRemoteApp) =>
+    invoke("tv_remote_launch", { host, name: app }),
+  tvRemoteSamsungLaunch: (host: string, app: TvRemoteApp) =>
+    invoke("tv_remote_samsung_launch", { host, name: app }),
   llmModels: (instanceId) => invoke("llm_models", { instanceId }),
   llmQuickModel: () => invoke("llm_quick_model"),
   llmStream: async (

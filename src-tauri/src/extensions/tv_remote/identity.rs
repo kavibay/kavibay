@@ -46,6 +46,25 @@ struct StoreFile {
     /// TV address → hex SHA-256 of the certificate it presented while pairing.
     #[serde(default)]
     devices: BTreeMap<String, String>,
+    /// Samsung TVs taking volume keys (`samsung.rs`), by address.
+    #[serde(default)]
+    samsung: BTreeMap<String, SamsungEntry>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SamsungEntry {
+    /// Hex SHA-256 of the TV's certificate.
+    pin: String,
+    /// The token the TV issued, sealed by `protect_secret`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    token: Option<String>,
+}
+
+/// A Samsung TV Kavibay may send volume keys to.
+pub struct SamsungTv {
+    pub pin: String,
+    pub token: Option<String>,
 }
 
 pub struct Store {
@@ -53,6 +72,7 @@ pub struct Store {
     pub cert: Vec<u8>,
     key: Vec<u8>,
     devices: BTreeMap<String, String>,
+    samsung: BTreeMap<String, SamsungEntry>,
 }
 
 impl Store {
@@ -76,6 +96,7 @@ impl Store {
                 cert,
                 key,
                 devices: file.devices,
+                samsung: file.samsung,
             });
         }
         let (cert, key) = generate()?;
@@ -84,6 +105,7 @@ impl Store {
             cert,
             key,
             devices: BTreeMap::new(),
+            samsung: BTreeMap::new(),
         };
         store.save()?;
         Ok(store)
@@ -94,6 +116,7 @@ impl Store {
             cert: B64.encode(&self.cert),
             key: protect_secret(&B64.encode(&self.key))?,
             devices: self.devices.clone(),
+            samsung: self.samsung.clone(),
         };
         let json = serde_json::to_string_pretty(&file).map_err(|error| error.to_string())?;
         fs::write(&self.path, json)
@@ -106,6 +129,32 @@ impl Store {
 
     pub fn remember(&mut self, host: String, server_cert: &[u8]) -> Result<(), String> {
         self.devices.insert(host, fingerprint(server_cert));
+        self.save()
+    }
+
+    pub fn samsung(&self, host: &str) -> Result<Option<SamsungTv>, String> {
+        let Some(entry) = self.samsung.get(host) else {
+            return Ok(None);
+        };
+        let token = match &entry.token {
+            Some(sealed) => Some(unprotect_secret(sealed).map_err(String::from)?),
+            None => None,
+        };
+        Ok(Some(SamsungTv {
+            pin: entry.pin.clone(),
+            token,
+        }))
+    }
+
+    pub fn remember_samsung(
+        &mut self,
+        host: String,
+        cert: &[u8],
+        token: Option<&str>,
+    ) -> Result<(), String> {
+        let token = token.map(protect_secret).transpose()?;
+        let pin = fingerprint(cert);
+        self.samsung.insert(host, SamsungEntry { pin, token });
         self.save()
     }
 
