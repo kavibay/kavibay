@@ -1299,16 +1299,20 @@ export function renderReachesForCtx(widgetJs: string): boolean {
   return /(^|[^.\w$])ctx\s*[.[]/.test(body);
 }
 
+/**
+ * The model wrote its explanation and stopped. Worded for the person, who sees
+ * it only once the automatic repair also came back empty; `repairTurnFor`
+ * recognises it and says something different to the model.
+ */
+export const NO_FILES_PROBLEM =
+  'The answer contained no files. Reply "Emit the files now." to ask for them.';
+
 export function fileSetProblem(
   files: GeneratedFile[],
   packageId: string,
   format: WidgetFormat = "runtime-package",
 ): string | null {
-  if (files.length === 0) {
-    // The common cause is a model that wrote its explanation and stopped, so the
-    // fix is one short follow-up — say it here rather than leaving a dead end.
-    return 'The answer contained no files. Reply "Emit the files now." to ask for them.';
-  }
+  if (files.length === 0) return NO_FILES_PROBLEM;
   const manifest = files.find((file) => file.path === "manifest.json");
   if (!manifest) {
     return "The answer had no manifest.json.";
@@ -1516,7 +1520,7 @@ export function replyProblem(
     return `The edit block for ${reply.malformedEdits[0]} is not in SEARCH/REPLACE form. Send the whole file instead.`;
   }
   if (reply.files.length === 0 && reply.removed.length === 0 && !reply.edits?.length) {
-    return 'The answer contained no files. Reply "Emit the files now." to ask for them.';
+    return NO_FILES_PROBLEM;
   }
   return fileSetProblem(merged, packageId, format);
 }
@@ -1718,7 +1722,11 @@ export function turnForPackage(
         "Send a whole file only when it is new, or when you change more than " +
         "half of its lines. Resending a long file to change a few lines costs " +
         "the person several times what the edit would, and it is the most " +
-        "common way a follow-up goes wrong.",
+        "common way a follow-up goes wrong.\n\n" +
+        // Observed: a one-sentence answer ("I'll remove the inner scroll
+        // areas…") and nothing else — the turn reads done and changes nothing.
+        "Every answer to a change request contains at least one block. A " +
+        "sentence saying what you will change is not the change.",
     );
   }
 
@@ -2336,6 +2344,18 @@ export function faultProblem(fault: WizardFault): string {
  * that only this file has.
  */
 export function repairTurnFor(problems: string[]): string {
+  // Not the generic repair. That one asks for "the package in full" with "one
+  // line of explanation", and relays a sentence written for the person — a
+  // model that just answered with one sentence of explanation answers it with
+  // one sentence of explanation again.
+  if (problems.includes(NO_FILES_PROBLEM)) {
+    return [
+      "Your last answer described the change but contained no file or edit blocks,",
+      "so nothing was changed. Send the blocks for exactly that change now, in the",
+      "format from the instructions. Start your reply with the first block — no",
+      "explanation this time.",
+    ].join("\n");
+  }
   const heading =
     problems.length === 1
       ? "The package you just returned has a problem, found automatically before anyone looked at it:"
