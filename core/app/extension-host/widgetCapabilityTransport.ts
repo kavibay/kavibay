@@ -4,6 +4,7 @@ import type {
   FocusTrackerGroupBy,
   FocusTrackerIgnoreKind,
   FocusTrackerRange,
+  HeartRateReading,
   LlmChatRequest,
   LlmStreamEvent,
   NotificationRequest,
@@ -31,6 +32,8 @@ export interface WidgetCapabilityTransport {
   systemInfoSnapshot(include?: SystemInfoInclude): Promise<unknown>;
   nowPlayingSnapshot(): Promise<unknown>;
   nowPlayingControl(action: NowPlayingControl): Promise<void>;
+  /** Backs `ProviderHostContext.heartRate` for a provider that declares it. */
+  heartRateLatest(): Promise<HeartRateReading>;
   alarmNotify(instanceId: WidgetInstanceId, mode: AlarmNotification): Promise<void>;
   openExternal(url: string): Promise<void>;
   /**

@@ -1075,16 +1075,23 @@ mod tests {
         );
     }
 
-    /// A declaration with no hosts allows nothing and is a mistake either way
-    /// — unless the host is the instance URL on the credential, which is the
-    /// compiled rule rather than an empty list.
+    /// A declaration with no hosts allows nothing and is a mistake for a
+    /// network provider — unless the host is the instance URL on the
+    /// credential, which is the compiled rule rather than an empty list.
+    ///
+    /// The one legitimate empty list is a provider whose data is a reviewed
+    /// host capability instead of the network (Heart Rate). The generator
+    /// refuses empty `hosts` without that declaration; here it must at least
+    /// never come with a credential to send.
     #[test]
     fn every_provider_declares_where_it_may_send() {
         for provider in crate::extensions::providers() {
             match provider.host_rule {
-                HostRule::Exact(hosts) => {
-                    assert!(!hosts.is_empty(), "{} declares no hosts", provider.id)
-                }
+                HostRule::Exact(hosts) => assert!(
+                    !hosts.is_empty() || provider.credential_type.is_none(),
+                    "{} declares no hosts but holds a credential",
+                    provider.id
+                ),
                 HostRule::FromCredential { field } => assert!(
                     !field.is_empty(),
                     "{} declares FromCredential with an empty field",

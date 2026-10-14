@@ -52,6 +52,18 @@ Needs a connected account. The widget gate shows a connect prompt until then.
 
 No actions — this provider is read-only.
 
+## Heart Rate (Bluetooth)
+
+`kavibay.heart-rate/heart-rate` · `extensions/heart-rate/provider.ts`
+
+Needs no credential.
+
+| Query | Reads | Arguments | Returns | Refresh |
+|---|---|---|---|---|
+| `live` | The latest heart rate in bpm from a Bluetooth heart-rate sensor (e.g. a Fitbit Air sharing its heart rate), when it arrived (ms since epoch) and whether a sensor is connected; bpm is null until a sensor is found or while it is off the wrist | none | `{ bpm: number?, at: number?, connected: boolean }` | 1 s |
+
+No actions — this provider is read-only.
+
 ## Linear
 
 `kavibay.linear/linear` · `extensions/linear/provider.ts`

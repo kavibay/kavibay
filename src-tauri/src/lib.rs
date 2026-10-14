@@ -33,8 +33,8 @@ mod wizard;
 /// as it did before the move. `extensions::` is the whole difference, and the
 /// grouping is the point — see `extensions/mod.rs` for what earns a place.
 use extensions::{
-    ai_usage, app_launcher, clipboard_widget, color_picker, focus_tracker, image_widget, kill_port,
-    now_playing, system_info,
+    ai_usage, app_launcher, clipboard_widget, color_picker, focus_tracker, heart_rate,
+    image_widget, kill_port, now_playing, system_info,
 };
 
 #[cfg(target_os = "macos")]
@@ -692,6 +692,7 @@ pub fn run() {
             file_search::search_folder,
             file_search::open_in_terminal,
             file_search::reveal_in_file_manager,
+            heart_rate::heart_rate_latest,
             image_widget::image_widget_import,
             image_widget::image_widget_clear,
             kill_port::kill_port,

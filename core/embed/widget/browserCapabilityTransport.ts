@@ -39,6 +39,7 @@ export const browserCapabilityTransport: WidgetCapabilityTransport = {
   systemInfoSnapshot: async () => absent("systemInfo.snapshot"),
   nowPlayingSnapshot: async () => absent("nowPlaying.snapshot"),
   nowPlayingControl: async () => absent("nowPlaying.control"),
+  heartRateLatest: async () => absent("heartRate.latest"),
   alarmNotify: async () => absent("alarm.notify"),
 
   /**
