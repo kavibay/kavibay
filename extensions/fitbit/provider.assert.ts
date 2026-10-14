@@ -13,6 +13,9 @@ import {
   type FitbitNightSeries,
   type FitbitNightVitals,
   type FitbitSleepNight,
+  type FitbitSpo2Day,
+  type FitbitHrvDay,
+  type FitbitRestingHeartRateDay,
 } from "./provider";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -190,6 +193,98 @@ assert(week[6]!.startTime === `${earlier}T23:10:00.000`, "times come from the ma
 const classic = week.find((night) => night.date === earlier)!;
 assert(classic.minutesAsleep === 380 && classic.deepMinutes === null, "a classic log has no stages");
 assert(week[0]!.minutesAsleep === 0 && week[0]!.startTime === null, "a night without a log is a gap, not missing");
+
+const spo2Urls: string[] = [];
+const spo2Host = hostFor([]);
+spo2Host.http.get = async <T>(url: string): Promise<T> => {
+  spo2Urls.push(url);
+  // Each window answers its own nights; one window carries all three here.
+  return (spo2Urls.length === 1
+    ? [
+        { dateTime: "2026-10-02", value: { avg: 94.1, min: 91, max: 97 } },
+        { dateTime: "2026-10-03", value: {} },
+      ]
+    : spo2Urls.length === 2
+      ? [{ dateTime: "2026-10-01", value: { avg: 96.5, min: 93.2, max: 99 } }]
+      : []) as T;
+};
+const spo2Year = (await fitbitProvider.queries.spo2History.fetch({}, spo2Host)) as FitbitSpo2Day[];
+const noon = (date: string) => Date.parse(`${date}T12:00:00`) / 86_400_000;
+const spo2Windows = spo2Urls.map((url) => {
+  const match = /\/1\/user\/-\/spo2\/date\/(\d{4}-\d{2}-\d{2})\/(\d{4}-\d{2}-\d{2})\.json$/.exec(url);
+  assert(match, `spo2 history asks for a date range: ${url}`);
+  return [noon(match[1]!), noon(match[2]!)] as const;
+});
+assert(spo2Windows.every(([from, to]) => to - from < 30), "each spo2 request spans at most 30 nights");
+assert(
+  spo2Windows.every(([from], i) => i === 0 || from === spo2Windows[i - 1]![1] + 1),
+  "spo2 windows follow each other without a gap or overlap",
+);
+assert(
+  spo2Windows[spo2Windows.length - 1]![1] - spo2Windows[0]![0] === 370,
+  "spo2 history covers 53 weeks, today included",
+);
+assert(spo2Year.length === 2, "a night without an average is left out");
+assert(spo2Year[0]!.date === "2026-10-01" && spo2Year[0]!.avg === 96.5, "oldest first");
+assert(spo2Year[1]!.min === 91 && spo2Year[1]!.max === 97, "min and max are kept");
+
+/** A host that answers the first request with `first` and the rest empty, recording every url. */
+function firstWindowHost(first: unknown, empty: unknown): ProviderHostContext & { urls: string[] } {
+  const host = Object.assign(hostFor({}), { urls: [] as string[] });
+  host.http.get = async <T>(url: string): Promise<T> => {
+    host.urls.push(url);
+    return (host.urls.length === 1 ? first : empty) as T;
+  };
+  return host;
+}
+
+const hrvHost = firstWindowHost(
+  {
+    hrv: [
+      { dateTime: "2026-10-02", value: { dailyRmssd: 31.4, deepRmssd: 40.1 } },
+      { dateTime: "2026-10-01", value: { dailyRmssd: 28 } },
+      { dateTime: "2026-10-03", value: {} },
+    ],
+  },
+  { hrv: [] },
+);
+const hrvYear = (await fitbitProvider.queries.hrvHistory.fetch({}, hrvHost)) as FitbitHrvDay[];
+assert(hrvHost.urls.length === 13 && hrvHost.urls.every((url) => url.includes("/1/user/-/hrv/date/")), "hrv history asks in 30-day windows");
+assert(hrvYear.length === 2 && hrvYear[0]!.date === "2026-10-01", "hrv: oldest first, nights without a reading left out");
+assert(hrvYear[0]!.deepRmssd === null && hrvYear[1]!.rmssd === 31.4 && hrvYear[1]!.deepRmssd === 40.1, "hrv keeps overall and deep RMSSD");
+
+const sleepYearHost = firstWindowHost(
+  {
+    sleep: [
+      {
+        dateOfSleep: lastNight,
+        isMainSleep: true,
+        type: "stages",
+        minutesAsleep: 400,
+        timeInBed: 430,
+        levels: { summary: { deep: { minutes: 70 }, light: { minutes: 220 }, rem: { minutes: 110 }, wake: { minutes: 30 } } },
+      },
+    ],
+  },
+  { sleep: [] },
+);
+const sleepYear = (await fitbitProvider.queries.sleepHistory.fetch({}, sleepYearHost)) as FitbitSleepNight[];
+assert(sleepYearHost.urls.length === 4 && sleepYearHost.urls.every((url) => url.includes("/1.2/user/-/sleep/date/")), "sleep history asks in 100-day windows");
+assert(sleepYear.length === 1 && sleepYear[0]!.date === lastNight, "nights without a log are left out");
+assert(sleepYear[0]!.deepMinutes === 70 && sleepYear[0]!.remMinutes === 110, "sleep history keeps stage minutes");
+
+const rhrHost = firstWindowHost(
+  {
+    "activities-heart": [
+      { dateTime: "2026-10-02", value: { restingHeartRate: 61, heartRateZones: [] } },
+      { dateTime: "2026-10-03", value: { heartRateZones: [] } },
+    ],
+  },
+  { "activities-heart": [] },
+);
+const rhrYear = (await fitbitProvider.queries.restingHeartRateHistory.fetch({}, rhrHost)) as FitbitRestingHeartRateDay[];
+assert(rhrHost.urls.length === 2 && rhrHost.urls.every((url) => url.includes("/1/user/-/activities/heart/date/")), "resting HR asks for the year in two halves");
+assert(rhrYear.length === 1 && rhrYear[0]!.bpm === 61 && rhrYear[0]!.date === "2026-10-02", "a day without a resting HR is left out");
 
 /** A host answering by path; a `kind` value is thrown as that host error. */
 function routedHost(routes: Record<string, unknown>): ProviderHostContext {

@@ -17,12 +17,16 @@
     "description": "Fitbit profile, activity and sleep for widgets that connect a Fitbit account.",
     "queries": [
       "activityToday",
+      "hrvHistory",
       "nightSeries",
       "nightVitals",
       "profile",
+      "restingHeartRateHistory",
       "sleepHeartRate",
+      "sleepHistory",
       "sleepToday",
-      "sleepWeek"
+      "sleepWeek",
+      "spo2History"
     ],
     "actions": []
   },
