@@ -5,7 +5,7 @@
 
 use super::types::{
     AuthCodeDef, AuthKind, ClientSource, CredentialTypeDef, DeviceCodeDef, FieldDef, FieldKind,
-    IdentityProbe, Injection, TestRequest, TokenAuth,
+    IdentityProbe, Injection, TestRequest,
 };
 
 /// Type id constants — used by API modules and (later) extension manifests.
@@ -222,7 +222,6 @@ const SPOTIFY: CredentialTypeDef = CredentialTypeDef {
             extras: &[],
         }),
         extra_auth_params: &[],
-        token_auth: TokenAuth::Form,
         loopback_port: Some(17444),
         loopback_path: Some("/callback"),
     }),
@@ -234,23 +233,26 @@ const SPOTIFY: CredentialTypeDef = CredentialTypeDef {
     instance_url_field: None,
 };
 
-/// Fitbit: user-registered OAuth Personal/Server client. Token requests use
-/// HTTP Basic (`client_id:client_secret`); the dashboard matches the redirect
-/// URI including the port, so the loopback bind is fixed rather than ephemeral.
+/// Fitbit through the Google Health API: Google shut the Fitbit Web API and
+/// its OAuth endpoints down on 2026-10-30. The type id stays `fitbitOAuth2`
+/// so existing widget bindings survive; the user swaps in a Google client and
+/// signs in again (old Fitbit tokens cannot be carried over).
 const FITBIT: CredentialTypeDef = CredentialTypeDef {
     id: FITBIT_OAUTH2,
-    display_name: "Fitbit",
-    description: "Your own Fitbit Web API app, then sign in to connect the account.",
-    docs_url: Some("https://dev.fitbit.com/apps"),
+    display_name: "Fitbit (Google Health)",
+    description: "Your own Google Cloud OAuth Desktop client with the Google Health API, then sign in to connect the account.",
+    docs_url: Some("https://developers.google.com/health/setup"),
     fields: &[
         FieldDef {
             key: "clientId",
             label: "Client ID",
             kind: FieldKind::Text,
             required: true,
-            placeholder: None,
+            placeholder: Some("…apps.googleusercontent.com"),
+            // Same 7-day note as Calendar; the linked-profile note because an
+            // unlinked account signs in fine and then fails every request.
             help: Some(
-                "Register a Personal app at dev.fitbit.com/apps with Redirect URL exactly http://127.0.0.1:17443/ — 127.0.0.1, not localhost, with the trailing slash. Anything else and Fitbit answers \"Invalid redirect_uri parameter value\".",
+                "A Desktop app client in a Google Cloud project with the Google Health API enabled and your account added as a test user. Your Google account must be linked in the Google Health app first. While the publishing status is Testing, Google ends the sign-in after 7 days.",
             ),
         },
         FieldDef {
@@ -263,24 +265,23 @@ const FITBIT: CredentialTypeDef = CredentialTypeDef {
         },
     ],
     auth: AuthKind::OAuth2AuthCode(AuthCodeDef {
-        auth_url: "https://www.fitbit.com/oauth2/authorize",
-        token_url: "https://api.fitbit.com/oauth2/token",
-        // heartrate, respiratory_rate and oxygen_saturation are the night vitals
-        // (resting HR + HRV, breathing rate, SpO2). A connection made before
-        // they were added lacks them until it is connected again.
-        scopes: "activity sleep profile heartrate respiratory_rate oxygen_saturation",
+        auth_url: "https://accounts.google.com/o/oauth2/v2/auth",
+        token_url: "https://oauth2.googleapis.com/token",
+        // health_metrics_and_measurements covers the night vitals (HRV,
+        // resting HR, SpO2, breathing rate); profile the member-since date.
+        // userinfo.email only names the connection in Settings.
+        scopes: "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly https://www.googleapis.com/auth/googlehealth.sleep.readonly https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly https://www.googleapis.com/auth/googlehealth.profile.readonly https://www.googleapis.com/auth/userinfo.email",
         client: ClientSource::Fields {
             id_key: "clientId",
             secret_key: Some("clientSecret"),
         },
         identity: Some(IdentityProbe {
-            url: "https://api.fitbit.com/1/user/-/profile.json",
-            label_pointer: "/user/displayName",
+            url: "https://www.googleapis.com/oauth2/v2/userinfo",
+            label_pointer: "/email",
             extras: &[],
         }),
-        extra_auth_params: &[],
-        token_auth: TokenAuth::Basic,
-        loopback_port: Some(17443),
+        extra_auth_params: &[("access_type", "offline"), ("prompt", "consent")],
+        loopback_port: None,
         loopback_path: None,
     }),
     inject: Injection::Bearer {
@@ -386,7 +387,6 @@ const OPENAI: CredentialTypeDef = CredentialTypeDef {
     instance_url_field: None,
 };
 
-/// Google Calendar: user-registered OAuth Desktop client + consent flow.
 /// DeepSeek API: one secret key, bearer auth.
 const DEEPSEEK: CredentialTypeDef = CredentialTypeDef {
     id: DEEPSEEK_API,
@@ -415,6 +415,7 @@ const DEEPSEEK: CredentialTypeDef = CredentialTypeDef {
     instance_url_field: None,
 };
 
+/// Google Calendar: user-registered OAuth Desktop client + consent flow.
 const GOOGLE_CALENDAR: CredentialTypeDef = CredentialTypeDef {
     id: GOOGLE_CALENDAR_OAUTH2,
     display_name: "Google Calendar OAuth2",
@@ -457,7 +458,6 @@ const GOOGLE_CALENDAR: CredentialTypeDef = CredentialTypeDef {
         }),
         // offline access + forced consent, so a refresh token is always issued.
         extra_auth_params: &[("access_type", "offline"), ("prompt", "consent")],
-        token_auth: TokenAuth::Form,
         loopback_port: None,
         loopback_path: None,
     }),
@@ -761,17 +761,20 @@ mod tests {
         );
     }
 
-    /// Fitbit Personal/Server apps authenticate the token endpoint with Basic,
-    /// and the dashboard matches the redirect URI including the port.
+    /// Fitbit data now comes from the Google Health API, signed in through a
+    /// Google Desktop client like Calendar's (any loopback port, offline access).
     #[test]
-    fn fitbit_is_auth_code_basic_with_fixed_loopback() {
+    fn fitbit_signs_in_through_google_health() {
         let def = require(FITBIT_OAUTH2).unwrap();
         match def.auth {
             AuthKind::OAuth2AuthCode(auth) => {
-                assert_eq!(auth.auth_url, "https://www.fitbit.com/oauth2/authorize");
-                assert_eq!(auth.token_url, "https://api.fitbit.com/oauth2/token");
-                assert_eq!(auth.token_auth, TokenAuth::Basic);
-                assert_eq!(auth.loopback_port, Some(17443));
+                assert_eq!(
+                    auth.auth_url,
+                    "https://accounts.google.com/o/oauth2/v2/auth"
+                );
+                assert_eq!(auth.token_url, "https://oauth2.googleapis.com/token");
+                assert_eq!(auth.loopback_port, None);
+                assert!(auth.extra_auth_params.contains(&("access_type", "offline")));
                 match auth.client {
                     ClientSource::Fields {
                         id_key,
@@ -780,19 +783,19 @@ mod tests {
                         assert_eq!(id_key, "clientId");
                         assert_eq!(secret_key, "clientSecret");
                     }
-                    _ => panic!("Fitbit Personal/Server apps have a client secret"),
+                    _ => panic!("Google Desktop clients have a client secret"),
                 }
-                let identity = auth.identity.expect("Fitbit names the connected account");
-                assert_eq!(identity.url, "https://api.fitbit.com/1/user/-/profile.json");
-                assert_eq!(identity.label_pointer, "/user/displayName");
-                assert!(
-                    auth.scopes.contains("activity") && auth.scopes.contains("sleep"),
-                    "activity and sleep are declared scopes, not later add-ons"
-                );
-                for vital in ["heartrate", "respiratory_rate", "oxygen_saturation"] {
+                for scope in [
+                    "activity_and_fitness",
+                    "sleep",
+                    "health_metrics_and_measurements",
+                    "profile",
+                ] {
+                    let full =
+                        format!("https://www.googleapis.com/auth/googlehealth.{scope}.readonly");
                     assert!(
-                        auth.scopes.split(' ').any(|scope| scope == vital),
-                        "nightVitals needs the {vital} scope"
+                        auth.scopes.split(' ').any(|declared| declared == full),
+                        "the provider reads {scope}"
                     );
                 }
             }
@@ -806,33 +809,10 @@ mod tests {
                 extra_headers: _,
             } => assert_eq!(value, "{{accessToken}}"),
             Injection::Header { .. } => {
-                panic!("Fitbit Web API is Bearer")
+                panic!("the Google Health API is Bearer")
             }
         }
         assert!(def.test.is_none());
-    }
-
-    /// Basic token auth without a client secret would send an empty password.
-    #[test]
-    fn basic_token_auth_requires_a_client_secret() {
-        for def in ALL {
-            let AuthKind::OAuth2AuthCode(auth) = def.auth else {
-                continue;
-            };
-            if auth.token_auth != TokenAuth::Basic {
-                continue;
-            }
-            match auth.client {
-                ClientSource::Fields {
-                    secret_key: Some(_),
-                    ..
-                } => {}
-                _ => panic!(
-                    "{} uses Basic token auth without a client secret field",
-                    def.id
-                ),
-            }
-        }
     }
 
     #[test]
