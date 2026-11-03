@@ -47,6 +47,10 @@ assert(
   "preserve stripe shadow",
 );
 assert(
+  normalizeAppearance({ surfaceShadowStyle: "heavy" }).surfaceShadowStyle === "heavy",
+  "preserve heavy shadow",
+);
+assert(
   normalizeAppearance({ surfaceShadowStyle: "nope" }).surfaceShadowStyle === "s2",
   "bad shadow style → s2",
 );

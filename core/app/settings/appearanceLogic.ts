@@ -18,7 +18,8 @@ export type OpenMonitor = "cursor" | "primary" | "activeWindow";
 export type WidgetLayoutMode = "freehand" | "grid";
 
 /**
- * Shared drop-shadow preset id (Default + CSS Scan gallery, skipping #7/#14).
+ * Shared drop-shadow preset id (Default + CSS Scan gallery, skipping #7/#14,
+ * plus two stronger presets of our own).
  * CSS uses --shadow-rgb and scales alphas by --surface-shadow.
  */
 export type ShadowStyleId =
@@ -36,7 +37,12 @@ export type ShadowStyleId =
   | "s11"
   | "s12"
   | "s13"
-  | "s15";
+  | "s15"
+  | "s29"
+  | "s30"
+  | "s31"
+  | "heavy"
+  | "slab";
 
 export interface AppearanceState {
   fontId: FontId;
@@ -232,6 +238,40 @@ export const SHADOW_STYLE_OPTIONS: ShadowStyleOption[] = [
     name: "#15",
     hint: "Stripe",
     css: `0 50px 100px -20px ${sa(0.25)}, 0 30px 60px -30px ${sa(0.3)}`,
+  },
+  // Material elevation levels 3–5: a wide ambient layer plus a tighter key
+  // layer, so the card lifts without the edge going soft.
+  {
+    id: "s29",
+    name: "#29",
+    hint: "Raised",
+    css: `0 10px 20px ${sa(0.19)}, 0 6px 6px ${sa(0.23)}`,
+  },
+  {
+    id: "s30",
+    name: "#30",
+    hint: "Elevated",
+    css: `0 14px 28px ${sa(0.25)}, 0 10px 10px ${sa(0.22)}`,
+  },
+  {
+    id: "s31",
+    name: "#31",
+    hint: "Floating",
+    css: `0 19px 38px ${sa(0.3)}, 0 15px 12px ${sa(0.22)}`,
+  },
+  // Stronger than any gallery preset. The gallery is tuned for white cards on a
+  // white page; over a busy wallpaper a card needs more to separate.
+  {
+    id: "heavy",
+    name: "Heavy",
+    hint: "Heavy",
+    css: `0 24px 48px ${sa(0.45)}, 0 12px 18px ${sa(0.32)}, 0 2px 4px ${sa(0.2)}`,
+  },
+  {
+    id: "slab",
+    name: "Slab",
+    hint: "Hard slab",
+    css: `0 12px 0 -2px ${sa(0.35)}, 0 28px 40px ${sa(0.4)}`,
   },
 ];
 
