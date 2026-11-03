@@ -70,17 +70,6 @@ pub struct IdentityProbe {
     pub extras: &'static [(&'static str, &'static str)],
 }
 
-/// How the token endpoint authenticates the OAuth client.
-///
-/// Google and Spotify accept `client_id` / `client_secret` in the form body.
-/// Fitbit Personal/Server apps require `Authorization: Basic` and reject a
-/// request that only puts the secret in the form.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TokenAuth {
-    Form,
-    Basic,
-}
-
 /// OAuth 2.0 authorization-code flow with PKCE and a loopback redirect.
 #[derive(Debug, Clone, Copy)]
 pub struct AuthCodeDef {
@@ -91,11 +80,11 @@ pub struct AuthCodeDef {
     pub identity: Option<IdentityProbe>,
     /// Provider-specific consent params (`access_type=offline`, `prompt=consent`).
     pub extra_auth_params: &'static [(&'static str, &'static str)],
-    pub token_auth: TokenAuth,
     /// When set, bind this loopback port instead of an ephemeral one.
     ///
-    /// Fitbit and Spotify dashboards match the redirect URI including the port,
-    /// so a `:0` bind cannot be pre-registered. Google leaves this `None`.
+    /// The Spotify dashboard matches the redirect URI including the port, so a
+    /// `:0` bind cannot be pre-registered. Google Desktop clients accept any
+    /// loopback port and leave this `None`.
     pub loopback_port: Option<u16>,
     /// Path on the loopback URI (`/callback` for Spotify). `None` is `/`.
     pub loopback_path: Option<&'static str>,

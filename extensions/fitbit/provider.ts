@@ -4,9 +4,11 @@ import { defineProvider, type ProviderHostContext } from "@sdk/contract/sdk";
 /**
  * Fitbit: profile, today's activity and last night's sleep.
  *
- * Auth is attached host-side as Bearer. Vendor nesting (`user`, `summary`,
- * `distances`, sleep `stages`) stops here so a widget sees a flat object.
- * Activity summary does not accept the word "today" — the date is local yyyy-MM-dd.
+ * Read from the Google Health API: Google turned the Fitbit Web API off on
+ * 2026-10-30. The query names and result shapes are the ones widgets were
+ * built against, so the vendor's data points, rollups and sessions stop here
+ * and a widget still sees Fitbit's flat objects with wall-clock times.
+ * Auth is attached host-side as Bearer.
  */
 
 export const PROVIDER_ID = "kavibay.fitbit/fitbit";
@@ -101,9 +103,9 @@ export interface FitbitNightVitals {
   spo2Min: number | null;
   spo2Max: number | null;
   /**
-   * True when Fitbit refused a reading for a missing scope: the connection
-   * predates heartrate / respiratory_rate / oxygen_saturation and has to be
-   * connected again. The other readings still come through.
+   * True when Google refused a reading for a missing scope: the user unticked
+   * health metrics on the consent screen and has to connect again. The other
+   * readings still come through.
    */
   needsReconnect: boolean;
 }
@@ -141,84 +143,305 @@ const asRecord = (value: unknown): Record<string, unknown> =>
 
 const asString = (value: unknown): string => (typeof value === "string" ? value : "");
 
-const asNumber = (value: unknown): number =>
-  typeof value === "number" && Number.isFinite(value) ? value : 0;
+/** The API sends int64 as strings ("8432"); both forms count, anything else is 0. */
+const asNumber = (value: unknown): number => maybeNumber(value) ?? 0;
 
-/** Local calendar date; Fitbit's activity summary rejects the literal "today". */
+/** A finite number (or numeric string), else null: a vital the watch did not measure is not zero. */
+function maybeNumber(value: unknown): number | null {
+  const number = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  return typeof number === "number" && Number.isFinite(number) ? number : null;
+}
+
+const pad = (value: number, width = 2) => String(value).padStart(width, "0");
+
+/** Local calendar date, yyyy-MM-dd. */
 function localDate(now = new Date()): string {
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-/** Distance for `activity: "total"`, else the first row. */
-function totalDistance(summary: Record<string, unknown>): number {
-  const distances = summary.distances;
-  if (!Array.isArray(distances)) return 0;
-  const total = distances.find((row) => asRecord(row).activity === "total");
-  return asNumber(asRecord(total ?? distances[0]).distance);
+/** `date` moved by `days`, through the calendar so DST never shifts it. */
+function addDays(date: string, days: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  return localDate(new Date(year!, month! - 1, day! + days));
 }
 
-/** The main sleep log, or the first log when none is marked. */
-function mainSleep(sleep: unknown): Record<string, unknown> | null {
-  if (!Array.isArray(sleep) || sleep.length === 0) return null;
-  return asRecord(sleep.find((row) => asRecord(row).isMainSleep === true) ?? sleep[0]);
+/** A google.type.Date (`{ year, month, day }`) as yyyy-MM-dd; "" when incomplete. */
+function dateOf(raw: unknown): string {
+  const date = asRecord(raw);
+  const [year, month, day] = [date.year, date.month, date.day].map(maybeNumber);
+  return year && month && day ? `${pad(year, 4)}-${pad(month)}-${pad(day)}` : "";
 }
 
-/** Maps `/profile.json`; `user` nesting stops here. */
+/**
+ * An RFC 3339 instant shifted by its UTC offset ("7200s") to the wearer's wall
+ * clock, as ISO without offset ("2026-10-08T23:41:30.000") — the form widgets
+ * got from Fitbit. Without an offset this computer's time zone stands in.
+ */
+function localIso(instant: unknown, offset?: unknown): string | null {
+  const ms = Date.parse(asString(instant));
+  if (!Number.isFinite(ms)) return null;
+  const seconds = Number.parseFloat(asString(offset));
+  const shift = Number.isFinite(seconds) ? seconds * 1000 : -new Date(ms).getTimezoneOffset() * 60_000;
+  return new Date(ms + shift).toISOString().slice(0, 23);
+}
+
+/** A sample's wall-clock time, from `sampleTime.physicalTime` + `utcOffset`. */
+const sampleLocal = (point: Record<string, unknown>): string | null => {
+  const time = asRecord(point.sampleTime);
+  return localIso(time.physicalTime, time.utcOffset);
+};
+
+const BASE = "https://health.googleapis.com/v4/users/me";
+
+/** Upper bound on pages per list call, so a server that never ends paging cannot loop us. */
+const MAX_PAGES = 40;
+
+/** GET after confirming a connection exists; auth is attached host-side. */
+async function healthGet<T>(
+  host: ProviderHostContext,
+  url: string,
+  params?: Record<string, string | number>,
+): Promise<T> {
+  if (!(await host.credentials.isConnected())) {
+    throw { kind: "disconnected", message: "Fitbit is not connected" };
+  }
+  return host.http.get<T>(url, params);
+}
+
+/**
+ * Every data point of `dataType` matching `filter`, following `nextPageToken`.
+ * Each entry is the type's payload (`steps`, `sleep`, …) unwrapped from its
+ * DataPoint, newest first as the API orders them.
+ */
+async function listPoints(
+  host: ProviderHostContext,
+  dataType: string,
+  field: string,
+  filter: string,
+  pageSize: number,
+): Promise<Record<string, unknown>[]> {
+  const points: Record<string, unknown>[] = [];
+  let pageToken = "";
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const raw = asRecord(
+      await healthGet(host, `${BASE}/dataTypes/${dataType}/dataPoints`, {
+        filter,
+        pageSize,
+        ...(pageToken ? { pageToken } : {}),
+      }),
+    );
+    const rows = Array.isArray(raw.dataPoints) ? raw.dataPoints : [];
+    for (const row of rows) points.push(asRecord(asRecord(row)[field]));
+    pageToken = asString(raw.nextPageToken);
+    if (!pageToken) break;
+  }
+  return points;
+}
+
+/**
+ * A data type's name in a filter: snake_case (`daily_resting_heart_rate`), as
+ * the vitals guide's table lists it. The REST reference's one camelCase example
+ * (`dailyHeartRateVariability.date`) left every multi-word type empty, while
+ * one-word `steps` and `sleep` worked either way.
+ */
+const filterName = (dataType: string) => dataType.replace(/-/g, "_");
+
+/** Daily summaries (`daily-…` types) for dates in [from, to). */
+const listDaily = (host: ProviderHostContext, dataType: string, field: string, from: string, to: string) => {
+  const name = filterName(dataType);
+  return listPoints(host, dataType, field, `${name}.date >= "${from}" AND ${name}.date < "${to}"`, 1000);
+};
+
+/** Samples whose wall-clock time falls on a date in [from, to). */
+const listSamples = (host: ProviderHostContext, dataType: string, field: string, from: string, to: string) => {
+  const name = filterName(dataType);
+  return listPoints(
+    host,
+    dataType,
+    field,
+    `${name}.sample_time.civil_time >= "${from}" AND ${name}.sample_time.civil_time < "${to}"`,
+    10_000,
+  );
+};
+
+/** Sleep sessions that ended on a date in [from, to); sleep pages hold at most 25. */
+const listSleep = (host: ProviderHostContext, from: string, to: string) =>
+  listPoints(
+    host,
+    "sleep",
+    "sleep",
+    `sleep.interval.civil_end_time >= "${from}" AND sleep.interval.civil_end_time < "${to}"`,
+    25,
+  );
+
+/** One day's rollup of `dataType`; the value sits under `field` of the only row. */
+async function rollupDay(
+  host: ProviderHostContext,
+  dataType: string,
+  field: string,
+  date: string,
+): Promise<Record<string, unknown>> {
+  if (!(await host.credentials.isConnected())) {
+    throw { kind: "disconnected", message: "Fitbit is not connected" };
+  }
+  const civil = (day: string) => {
+    const [year, month, dayOfMonth] = day.split("-").map(Number);
+    return { date: { year, month, day: dayOfMonth } };
+  };
+  const raw = asRecord(
+    await host.http.post(`${BASE}/dataTypes/${dataType}/dataPoints:dailyRollUp`, {
+      range: { start: civil(date), end: civil(addDays(date, 1)) },
+    }),
+  );
+  const rows = Array.isArray(raw.rollupDataPoints) ? raw.rollupDataPoints : [];
+  return asRecord(asRecord(rows[0])[field]);
+}
+
+/** "3600s" (a protobuf Duration) in seconds. */
+const durationSeconds = (value: unknown): number => {
+  const seconds = Number.parseFloat(asString(value));
+  return Number.isFinite(seconds) ? seconds : 0;
+};
+
+/** Maps `users/me/profile`. The Google Health profile carries no name, avatar or step average. */
 function mapProfile(raw: unknown): FitbitProfile {
-  const user = asRecord(asRecord(raw).user);
-  const avatar150 = asString(user.avatar150);
   return {
-    displayName: asString(user.displayName),
-    memberSince: asString(user.memberSince),
-    avatarUrl: avatar150.length > 0 ? avatar150 : asString(user.avatar),
-    averageDailySteps: asNumber(user.averageDailySteps),
+    displayName: "",
+    memberSince: dateOf(asRecord(raw).membershipStartDate),
+    avatarUrl: "",
+    averageDailySteps: 0,
   };
 }
 
-/** Maps the daily activity summary; `distances` collapses to the total. */
-function mapActivity(raw: unknown): FitbitActivity {
-  const row = asRecord(raw);
-  const summary = asRecord(row.summary);
-  const goals = asRecord(row.goals);
-  const stepsGoal = goals.steps;
+/** One day's activity from six daily rollups, fetched side by side. */
+async function fetchActivity(host: ProviderHostContext, date: string): Promise<FitbitActivity> {
+  const [steps, distance, floors, calories, active, sedentary] = await Promise.all([
+    rollupDay(host, "steps", "steps", date),
+    rollupDay(host, "distance", "distance", date),
+    rollupDay(host, "floors", "floors", date),
+    rollupDay(host, "total-calories", "totalCalories", date),
+    rollupDay(host, "active-minutes", "activeMinutes", date),
+    rollupDay(host, "sedentary-period", "sedentaryPeriod", date),
+  ]);
+  const levels = Array.isArray(active.activeMinutesRollupByActivityLevel)
+    ? active.activeMinutesRollupByActivityLevel.map(asRecord)
+    : [];
+  const minutesAt = (level: string) =>
+    asNumber(levels.find((row) => row.activityLevel === level)?.activeMinutesSum);
   return {
-    steps: asNumber(summary.steps),
-    caloriesOut: asNumber(summary.caloriesOut),
-    distance: totalDistance(summary),
-    floors: asNumber(summary.floors),
-    fairlyActiveMinutes: asNumber(summary.fairlyActiveMinutes),
-    lightlyActiveMinutes: asNumber(summary.lightlyActiveMinutes),
-    sedentaryMinutes: asNumber(summary.sedentaryMinutes),
-    veryActiveMinutes: asNumber(summary.veryActiveMinutes),
-    stepsGoal: typeof stepsGoal === "number" && Number.isFinite(stepsGoal) ? stepsGoal : null,
+    steps: asNumber(steps.countSum),
+    caloriesOut: asNumber(calories.kcalSum),
+    // Kilometres, as Fitbit's metric summary had it.
+    distance: asNumber(distance.millimetersSum) / 1_000_000,
+    floors: asNumber(floors.countSum),
+    fairlyActiveMinutes: minutesAt("MODERATE"),
+    lightlyActiveMinutes: minutesAt("LIGHT"),
+    sedentaryMinutes: Math.round(durationSeconds(sedentary.durationSum) / 60),
+    veryActiveMinutes: minutesAt("VIGOROUS"),
+    // The daily goal moved out of the data API; null is the documented "no goal".
+    stepsGoal: null,
   };
 }
 
-/** Maps sleep v1.2; a night with no log is zeros, not an error. */
-function mapSleep(raw: unknown): FitbitSleep {
-  const row = asRecord(raw);
-  const summary = asRecord(row.summary);
-  const stages = "stages" in summary ? asRecord(summary.stages) : null;
-  const stage = (key: string): number | null => (stages ? asNumber(stages[key]) : null);
-  const main = mainSleep(row.sleep);
-  const efficiency = main?.efficiency;
-  const time = (key: string): string | null => asString(main?.[key]) || null;
+/** A sleep session in the shape the rest of this file reads. */
+interface SleepLog {
+  /** The date the night ended on, yyyy-MM-dd. */
+  date: string;
+  main: boolean;
+  startTime: string | null;
+  endTime: string | null;
+  minutesAsleep: number;
+  timeInBed: number;
+  stages: Record<"deep" | "light" | "rem" | "wake", number> | null;
+  timeline: FitbitSleepSegment[];
+}
+
+/** Fitbit's level names: deep/light/rem/wake for a stages log, asleep/restless/awake for classic. */
+const STAGE_LEVEL: Record<string, string> = {
+  DEEP: "deep",
+  LIGHT: "light",
+  REM: "rem",
+  ASLEEP: "asleep",
+  RESTLESS: "restless",
+};
+
+function toSleepLog(sleep: Record<string, unknown>): SleepLog {
+  const interval = asRecord(sleep.interval);
+  const summary = asRecord(sleep.summary);
+  const isStages = sleep.type === "STAGES";
+  const startMs = Date.parse(asString(interval.startTime));
+  const endMs = Date.parse(asString(interval.endTime));
+  const stageSummary = Array.isArray(summary.stagesSummary) ? summary.stagesSummary.map(asRecord) : [];
+  const stageMinutes = (type: string) => asNumber(stageSummary.find((row) => row.type === type)?.minutes);
+  const endTime = localIso(interval.endTime, interval.endUtcOffset);
+  const stages = Array.isArray(sleep.stages) ? sleep.stages.map(asRecord) : [];
   return {
-    minutesAsleep: asNumber(summary.totalMinutesAsleep),
-    timeInBed: asNumber(summary.totalTimeInBed),
-    efficiency: typeof efficiency === "number" && Number.isFinite(efficiency) ? efficiency : null,
-    startTime: time("startTime"),
-    endTime: time("endTime"),
-    records: asNumber(summary.totalSleepRecords),
-    deepMinutes: stage("deep"),
-    lightMinutes: stage("light"),
-    remMinutes: stage("rem"),
-    wakeMinutes: stage("wake"),
-    timeline: sleepTimeline(main),
+    date: dateOf(asRecord(interval.civilEndTime).date) || (endTime ?? "").slice(0, 10),
+    main: asRecord(sleep.metadata).mainSleep === true,
+    startTime: localIso(interval.startTime, interval.startUtcOffset),
+    endTime,
+    minutesAsleep: asNumber(summary.minutesAsleep),
+    timeInBed: Number.isFinite(startMs) && Number.isFinite(endMs) ? Math.round((endMs - startMs) / 60_000) : 0,
+    stages: isStages
+      ? { deep: stageMinutes("DEEP"), light: stageMinutes("LIGHT"), rem: stageMinutes("REM"), wake: stageMinutes("AWAKE") }
+      : null,
+    timeline: stages.map((stage) => {
+      const type = asString(stage.type);
+      const from = Date.parse(asString(stage.startTime));
+      const to = Date.parse(asString(stage.endTime));
+      return {
+        start: localIso(stage.startTime, stage.startUtcOffset) ?? "",
+        level: STAGE_LEVEL[type] ?? (isStages ? "wake" : "awake"),
+        minutes: Number.isFinite(from) && Number.isFinite(to) ? (to - from) / 60_000 : 0,
+      };
+    }),
   };
+}
+
+/** The main sleep, or the longest when none is marked. */
+function mainSleep(logs: SleepLog[]): SleepLog | null {
+  if (logs.length === 0) return null;
+  return logs.find((log) => log.main) ?? [...logs].sort((a, b) => b.timeInBed - a.timeInBed)[0]!;
+}
+
+/**
+ * Asleep share of time in bed, in percent: Fitbit's efficiency for a stages
+ * log. The new API reports no efficiency, so it is derived the same way.
+ */
+const efficiencyOf = (log: SleepLog | null): number | null =>
+  log && log.timeInBed > 0 ? Math.round((log.minutesAsleep / log.timeInBed) * 100) : null;
+
+/** One night from its sessions; a night with no log is zeros, not an error. */
+function mapSleep(logs: SleepLog[]): FitbitSleep {
+  const main = mainSleep(logs);
+  return {
+    minutesAsleep: logs.reduce((sum, log) => sum + log.minutesAsleep, 0),
+    timeInBed: logs.reduce((sum, log) => sum + log.timeInBed, 0),
+    efficiency: efficiencyOf(main),
+    startTime: main?.startTime ?? null,
+    endTime: main?.endTime ?? null,
+    records: logs.length,
+    deepMinutes: main?.stages?.deep ?? null,
+    lightMinutes: main?.stages?.light ?? null,
+    remMinutes: main?.stages?.rem ?? null,
+    wakeMinutes: main?.stages?.wake ?? null,
+    timeline: [...(main?.timeline ?? [])].sort((a, b) => a.start.localeCompare(b.start)),
+  };
+}
+
+/**
+ * One night per date, oldest first. Every date in `dates` gets a row so a
+ * widget can draw the gap; a night without a log is zeros with null stages and
+ * times. Naps count toward `minutesAsleep`; times and stages come from the main sleep.
+ */
+function mapNights(logs: SleepLog[], dates: string[]): FitbitSleepNight[] {
+  const byDate = new Map<string, SleepLog[]>();
+  for (const log of logs) byDate.set(log.date, [...(byDate.get(log.date) ?? []), log]);
+  return dates.map((date) => {
+    const { minutesAsleep, timeInBed, efficiency, startTime, endTime, deepMinutes, lightMinutes, remMinutes, wakeMinutes } =
+      mapSleep(byDate.get(date) ?? []);
+    return { date, minutesAsleep, timeInBed, efficiency, startTime, endTime, deepMinutes, lightMinutes, remMinutes, wakeMinutes };
+  });
 }
 
 interface SleepArgs {
@@ -226,23 +449,9 @@ interface SleepArgs {
   date?: string;
 }
 
-/** A finite number, else null: a vital Fitbit did not measure is not zero. */
-const maybeNumber = (value: unknown): number | null =>
-  typeof value === "number" && Number.isFinite(value) ? value : null;
-
-/** First row of a Fitbit `{ <key>: [{ value: {...} }] }` daily series. */
-const firstValue = (raw: unknown, key: string): Record<string, unknown> => {
-  const rows = asRecord(raw)[key];
-  return Array.isArray(rows) && rows.length ? asRecord(asRecord(rows[0]).value) : {};
-};
-
-/**
- * One stage's breaths per minute from the breathing-rate intraday summary.
- * Fitbit answers -1 (or 0) for a stage it had too little signal in; that is
- * no reading, not a rate.
- */
-const breathing = (value: Record<string, unknown>, stage: string): number | null => {
-  const rate = maybeNumber(asRecord(value[stage]).breathingRate);
+/** A stage's breaths per minute; 0 or less is no reading, not a rate. */
+const breathing = (summary: Record<string, unknown>, stats: string): number | null => {
+  const rate = maybeNumber(asRecord(summary[stats]).breathsPerMinute);
   return rate !== null && rate > 0 ? rate : null;
 };
 
@@ -250,85 +459,78 @@ const isPermissionDenied = (error: unknown): boolean =>
   asRecord(error).kind === "permission-denied";
 
 /**
- * The four vitals for one date, fetched side by side. A reading refused for a
- * missing scope becomes null plus `needsReconnect`, so one old connection does
- * not take the whole query down; any other failure still throws.
+ * Runs `fetch`; a refusal for a missing scope becomes `fallback` and sets the
+ * flag, so one scope the user did not grant does not take the whole query down.
+ * Any other failure still throws.
  */
-async function fetchNightVitals(host: ProviderHostContext, date: string): Promise<FitbitNightVitals> {
-  let needsReconnect = false;
-  const get = (path: string) =>
-    fitbitGet<unknown>(host, path).catch((error: unknown) => {
+function scopeTolerant() {
+  const state = { needsReconnect: false };
+  const tolerate = <T>(fetch: Promise<T>, fallback: T): Promise<T> =>
+    fetch.catch((error: unknown) => {
       if (!isPermissionDenied(error)) throw error;
-      needsReconnect = true;
-      return {};
+      state.needsReconnect = true;
+      return fallback;
     });
-  const day = encodeURIComponent(date);
-  const [hrv, br, spo2, heart] = await Promise.all([
-    get(`/1/user/-/hrv/date/${day}.json`),
-    // The intraday form: same one call, but split by sleep stage.
-    get(`/1/user/-/br/date/${day}/all.json`),
-    get(`/1/user/-/spo2/date/${day}.json`),
-    get(`/1/user/-/activities/heart/date/${day}/1d.json`),
+  return { state, tolerate };
+}
+
+/** The four vitals for the night ending on `date`, fetched side by side. */
+async function fetchNightVitals(host: ProviderHostContext, date: string): Promise<FitbitNightVitals> {
+  const { state, tolerate } = scopeTolerant();
+  const next = addDays(date, 1);
+  const [hrv, breaths, spo2, resting] = await Promise.all([
+    tolerate(listDaily(host, "daily-heart-rate-variability", "dailyHeartRateVariability", date, next), []),
+    // Per-stage rates, recorded once per night at wake-up.
+    tolerate(listSamples(host, "respiratory-rate-sleep-summary", "respiratoryRateSleepSummary", date, next), []),
+    tolerate(listDaily(host, "daily-oxygen-saturation", "dailyOxygenSaturation", date, next), []),
+    tolerate(listDaily(host, "daily-resting-heart-rate", "dailyRestingHeartRate", date, next), []),
   ]);
-  const hrvValue = firstValue(hrv, "hrv");
-  const brValue = firstValue(br, "br");
-  const spo2Value = asRecord(asRecord(spo2).value);
+  const hrvDay = hrv[0] ?? {};
+  const breathDay = breaths[0] ?? {};
+  const spo2Day = spo2[0] ?? {};
   return {
-    hrv: maybeNumber(hrvValue.dailyRmssd),
-    deepHrv: maybeNumber(hrvValue.deepRmssd),
-    breathingRate: breathing(brValue, "fullSleepSummary"),
-    breathingDeep: breathing(brValue, "deepSleepSummary"),
-    breathingLight: breathing(brValue, "lightSleepSummary"),
-    breathingRem: breathing(brValue, "remSleepSummary"),
-    restingHeartRate: maybeNumber(firstValue(heart, "activities-heart").restingHeartRate),
-    spo2Avg: maybeNumber(spo2Value.avg),
-    spo2Min: maybeNumber(spo2Value.min),
-    spo2Max: maybeNumber(spo2Value.max),
-    needsReconnect,
+    hrv: maybeNumber(hrvDay.averageHeartRateVariabilityMilliseconds),
+    deepHrv: maybeNumber(hrvDay.deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds),
+    breathingRate: breathing(breathDay, "fullSleepStats"),
+    breathingDeep: breathing(breathDay, "deepSleepStats"),
+    breathingLight: breathing(breathDay, "lightSleepStats"),
+    breathingRem: breathing(breathDay, "remSleepStats"),
+    restingHeartRate: maybeNumber(resting[0]?.beatsPerMinute),
+    spo2Avg: maybeNumber(spo2Day.averagePercentage),
+    // The daily summary gives the night's bounds, which is what min/max meant.
+    spo2Min: maybeNumber(spo2Day.lowerBoundPercentage),
+    spo2Max: maybeNumber(spo2Day.upperBoundPercentage),
+    needsReconnect: state.needsReconnect,
   };
 }
 
 /**
- * SpO2 and HRV intraday for the night ending on `date`. Both endpoints key the
- * night by its end date, like `dateOfSleep`. A series refused for a missing
- * scope is empty plus `needsReconnect`; any other failure throws.
+ * SpO2 and HRV samples through the night ending on `date`: noon the day before
+ * to noon on `date`, wall clock. Fitbit keyed this by the end date too.
  */
 async function fetchNightSeries(host: ProviderHostContext, date: string): Promise<FitbitNightSeries> {
-  let needsReconnect = false;
-  const get = (path: string) =>
-    fitbitGet<unknown>(host, path).catch((error: unknown) => {
-      if (!isPermissionDenied(error)) throw error;
-      needsReconnect = true;
-      return {};
-    });
-  const day = encodeURIComponent(date);
+  const { state, tolerate } = scopeTolerant();
+  const before = addDays(date, -1);
+  const next = addDays(date, 1);
   const [spo2Raw, hrvRaw] = await Promise.all([
-    get(`/1/user/-/spo2/date/${day}/all.json`),
-    get(`/1/user/-/hrv/date/${day}/all.json`),
+    tolerate(listSamples(host, "oxygen-saturation", "oxygenSaturation", before, next), []),
+    tolerate(listSamples(host, "heart-rate-variability", "heartRateVariability", before, next), []),
   ]);
-
-  const point = (time: unknown, value: unknown): FitbitSeriesPoint | null => {
-    const v = maybeNumber(value);
-    return typeof time === "string" && v !== null ? { time, value: v } : null;
+  const from = `${before}T12:00`;
+  const to = `${date}T12:00`;
+  const series = (points: Record<string, unknown>[], value: (point: Record<string, unknown>) => unknown) =>
+    points
+      .map((point) => ({ time: sampleLocal(point), value: maybeNumber(value(point)) }))
+      .filter((p): p is FitbitSeriesPoint => p.time !== null && p.value !== null && p.time >= from && p.time < to)
+      .sort((a, b) => a.time.localeCompare(b.time));
+  return {
+    spo2: series(spo2Raw, (point) => point.percentage),
+    hrv: series(hrvRaw, (point) => point.rootMeanSquareOfSuccessiveDifferencesMilliseconds),
+    needsReconnect: state.needsReconnect,
   };
-  const spo2Minutes = asRecord(spo2Raw).minutes;
-  const spo2 = (Array.isArray(spo2Minutes) ? spo2Minutes : [])
-    .map((row) => point(asRecord(row).minute, asRecord(row).value))
-    .filter((p): p is FitbitSeriesPoint => p !== null);
-  const hrvDays = asRecord(hrvRaw).hrv;
-  const hrv = (Array.isArray(hrvDays) ? hrvDays : [])
-    .flatMap((dayRow) => {
-      const minutes = asRecord(dayRow).minutes;
-      return Array.isArray(minutes) ? minutes : [];
-    })
-    .map((row) => point(asRecord(row).minute, asRecord(asRecord(row).value).rmssd))
-    .filter((p): p is FitbitSeriesPoint => p !== null);
-
-  const byTime = (a: FitbitSeriesPoint, b: FitbitSeriesPoint) => a.time.localeCompare(b.time);
-  return { spo2: spo2.sort(byTime), hrv: hrv.sort(byTime), needsReconnect };
 }
 
-/** `args.date` checked, or today; the only way a date reaches a Fitbit path. */
+/** `args.date` checked, or today; the only way a date reaches a filter. */
 function nightDate(args: SleepArgs): string {
   const date = args.date?.trim() || localDate();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("date must be yyyy-MM-dd");
@@ -344,110 +546,54 @@ interface HeartRangeArgs {
 const LOCAL_TIME = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/;
 
 /**
- * Per-minute heart rate between two device-local times. Fitbit's intraday
- * window lives inside one date, so a night across midnight is two requests:
- * start to 23:59 on the first date, 00:00 to end on the second.
+ * Per-minute heart rate between two wall-clock times. The API stores a sample
+ * per second, so each minute is the rounded mean of its samples.
+ *
+ * ponytail: the range is converted to UTC with this computer's time zone,
+ * which is the wearer's whenever both sit at the same desk; carry the sleep's
+ * UTC offset through if a travelling user ever sees a shifted night.
  */
 async function fetchHeartRange(host: ProviderHostContext, args: HeartRangeArgs): Promise<FitbitHeartPoint[]> {
   const from = LOCAL_TIME.exec(args.start ?? "");
   const to = LOCAL_TIME.exec(args.end ?? "");
   if (!from || !to) throw new Error("start and end must be yyyy-MM-ddTHH:mm");
-  const [, fromDate, fromTime] = from;
-  const [, toDate, toTime] = to;
-  if (`${toDate}T${toTime}` <= `${fromDate}T${fromTime}`) throw new Error("end must be after start");
-  const windows: [string, string, string][] =
-    fromDate === toDate
-      ? [[fromDate!, fromTime!, toTime!]]
-      : [
-          [fromDate!, fromTime!, "23:59"],
-          [toDate!, "00:00", toTime!],
-        ];
+  const start = `${from[1]}T${from[2]}`;
+  const end = `${to[1]}T${to[2]}`;
+  if (end <= start) throw new Error("end must be after start");
   // Longer than one night is not a night: refuse rather than fetch days of data.
-  if (Date.parse(`${toDate}T12:00:00`) - Date.parse(`${fromDate}T12:00:00`) > 86_400_000) {
+  if (Date.parse(`${to[1]}T12:00:00`) - Date.parse(`${from[1]}T12:00:00`) > 86_400_000) {
     throw new Error("start and end must be at most one night apart");
   }
-  const parts = await Promise.all(
-    windows.map(async ([date, startTime, endTime]) => {
-      const raw = await fitbitGet<unknown>(
-        host,
-        `/1/user/-/activities/heart/date/${date}/1d/1min/time/${startTime}/${endTime}.json`,
-      );
-      const dataset = asRecord(asRecord(raw)["activities-heart-intraday"]).dataset;
-      if (!Array.isArray(dataset)) return [];
-      return dataset
-        .map((row) => asRecord(row))
-        .filter((row) => typeof row.time === "string" && maybeNumber(row.value) !== null)
-        .map((row) => ({ time: `${date}T${row.time as string}`, bpm: row.value as number }));
-    }),
+  // `end` is inclusive to the minute, as Fitbit's intraday window was.
+  const utc = (local: string, plusMinutes = 0) => new Date(Date.parse(`${local}:00`) + plusMinutes * 60_000).toISOString();
+  const samples = await listPoints(
+    host,
+    "heart-rate",
+    "heartRate",
+    `heart_rate.sample_time.physical_time >= "${utc(start)}" AND heart_rate.sample_time.physical_time < "${utc(end, 1)}"`,
+    10_000,
   );
-  return parts.flat();
+  const minutes = new Map<string, number[]>();
+  for (const sample of samples) {
+    const time = sampleLocal(sample);
+    const bpm = maybeNumber(sample.beatsPerMinute);
+    if (!time || bpm === null) continue;
+    const minute = time.slice(0, 16);
+    minutes.set(minute, [...(minutes.get(minute) ?? []), bpm]);
+  }
+  return [...minutes.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([minute, bpms]) => ({
+      time: `${minute}:00`,
+      bpm: Math.round(bpms.reduce((sum, bpm) => sum + bpm, 0) / bpms.length),
+    }));
 }
 
 /** How many nights `sleepWeek` covers, last night included. */
 const WEEK_NIGHTS = 7;
 
-/**
- * One night per date, oldest first, from a date-range response. Every date in
- * `dates` gets a row so a widget can draw the gap; a night without a log is
- * zeros with null stages and times. Naps count toward `minutesAsleep`; times and
- * stages come from that night's main sleep.
- */
-function mapSleepWeek(raw: unknown, dates: string[]): FitbitSleepNight[] {
-  const logs = asRecord(raw).sleep;
-  const byDate = new Map<string, Record<string, unknown>[]>();
-  for (const log of Array.isArray(logs) ? logs : []) {
-    const row = asRecord(log);
-    const date = asString(row.dateOfSleep);
-    byDate.set(date, [...(byDate.get(date) ?? []), row]);
-  }
-  return dates.map((date) => {
-    const night = byDate.get(date) ?? [];
-    const main = mainSleep(night);
-    // Range logs carry stage totals per log, under levels.summary.<stage>.minutes.
-    const stages = main?.type === "stages" ? asRecord(asRecord(main.levels).summary) : null;
-    const stage = (key: string): number | null =>
-      stages ? asNumber(asRecord(stages[key]).minutes) : null;
-    const efficiency = main?.efficiency;
-    return {
-      date,
-      minutesAsleep: night.reduce((sum, log) => sum + asNumber(log.minutesAsleep), 0),
-      timeInBed: night.reduce((sum, log) => sum + asNumber(log.timeInBed), 0),
-      efficiency: typeof efficiency === "number" && Number.isFinite(efficiency) ? efficiency : null,
-      startTime: asString(main?.startTime) || null,
-      endTime: asString(main?.endTime) || null,
-      deepMinutes: stage("deep"),
-      lightMinutes: stage("light"),
-      remMinutes: stage("rem"),
-      wakeMinutes: stage("wake"),
-    };
-  });
-}
-
 /** How many nights the `…History` queries cover: 53 weeks, a year-long calendar grid. */
 const HISTORY_NIGHTS = 371;
-
-/**
- * The last HISTORY_NIGHTS as date-range requests of at most `windowNights`
- * each, fetched side by side; the entries `rows` picks from every response,
- * in one list.
- */
-async function fetchHistory(
-  host: ProviderHostContext,
-  windowNights: number,
-  path: (from: string, to: string) => string,
-  rows: (raw: unknown) => unknown,
-): Promise<unknown[]> {
-  const dates = lastDates(HISTORY_NIGHTS);
-  const windows: string[][] = [];
-  for (let i = 0; i < dates.length; i += windowNights) windows.push(dates.slice(i, i + windowNights));
-  const parts = await Promise.all(
-    windows.map((window) => fitbitGet<unknown>(host, path(window[0]!, window[window.length - 1]!))),
-  );
-  return parts.flatMap((part) => {
-    const list = rows(part);
-    return Array.isArray(list) ? list : [];
-  });
-}
 
 /** History rows with a date and a reading, oldest first. */
 function byDateWithReading<T extends { date: string }>(rows: T[], reading: (row: T) => number | null): T[] {
@@ -456,32 +602,36 @@ function byDateWithReading<T extends { date: string }>(rows: T[], reading: (row:
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+/** One daily type over the last HISTORY_NIGHTS dates, in one paged list. */
+function listHistory(host: ProviderHostContext, dataType: string, field: string) {
+  const dates = lastDates(HISTORY_NIGHTS);
+  return listDaily(host, dataType, field, dates[0]!, addDays(dates[dates.length - 1]!, 1));
+}
+
 /** Nightly SpO2 averages, oldest first. Only nights with a reading are listed. */
-function mapSpo2History(raw: unknown[]): FitbitSpo2Day[] {
-  const rows = raw.map((entry) => {
-    const row = asRecord(entry);
-    const value = asRecord(row.value);
-    return { date: asString(row.dateTime), avg: maybeNumber(value.avg), min: maybeNumber(value.min), max: maybeNumber(value.max) };
-  });
+function mapSpo2History(raw: Record<string, unknown>[]): FitbitSpo2Day[] {
+  const rows = raw.map((day) => ({
+    date: dateOf(day.date),
+    avg: maybeNumber(day.averagePercentage),
+    min: maybeNumber(day.lowerBoundPercentage),
+    max: maybeNumber(day.upperBoundPercentage),
+  }));
   return byDateWithReading(rows, (day) => day.avg) as FitbitSpo2Day[];
 }
 
 /** Nightly HRV (RMSSD, ms), oldest first. Only nights with a reading are listed. */
-function mapHrvHistory(raw: unknown[]): FitbitHrvDay[] {
-  const rows = raw.map((entry) => {
-    const row = asRecord(entry);
-    const value = asRecord(row.value);
-    return { date: asString(row.dateTime), rmssd: maybeNumber(value.dailyRmssd), deepRmssd: maybeNumber(value.deepRmssd) };
-  });
+function mapHrvHistory(raw: Record<string, unknown>[]): FitbitHrvDay[] {
+  const rows = raw.map((day) => ({
+    date: dateOf(day.date),
+    rmssd: maybeNumber(day.averageHeartRateVariabilityMilliseconds),
+    deepRmssd: maybeNumber(day.deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds),
+  }));
   return byDateWithReading(rows, (day) => day.rmssd) as FitbitHrvDay[];
 }
 
 /** Daily resting heart rate, oldest first. Only days with a reading are listed. */
-function mapRestingHeartRateHistory(raw: unknown[]): FitbitRestingHeartRateDay[] {
-  const rows = raw.map((entry) => {
-    const row = asRecord(entry);
-    return { date: asString(row.dateTime), bpm: maybeNumber(asRecord(row.value).restingHeartRate) };
-  });
+function mapRestingHeartRateHistory(raw: Record<string, unknown>[]): FitbitRestingHeartRateDay[] {
+  const rows = raw.map((day) => ({ date: dateOf(day.date), bpm: maybeNumber(day.beatsPerMinute) }));
   return byDateWithReading(rows, (day) => day.bpm) as FitbitRestingHeartRateDay[];
 }
 
@@ -493,26 +643,10 @@ function lastDates(count: number, now = new Date()): string[] {
   });
 }
 
-/** `levels.data` of one sleep log; `shortData` (sub-3-minute wakes) is left out. */
-function sleepTimeline(main: Record<string, unknown> | null): FitbitSleepSegment[] {
-  const data = asRecord(main?.levels).data;
-  if (!Array.isArray(data)) return [];
-  return data.map((raw) => {
-    const row = asRecord(raw);
-    return {
-      start: asString(row.dateTime),
-      level: asString(row.level),
-      minutes: asNumber(row.seconds) / 60,
-    };
-  });
-}
-
-/** GET after confirming a Fitbit credential exists; auth is attached host-side. */
-async function fitbitGet<T>(host: ProviderHostContext, path: string): Promise<T> {
-  if (!(await host.credentials.isConnected())) {
-    throw { kind: "disconnected", message: "Fitbit is not connected" };
-  }
-  return host.http.get<T>(`https://api.fitbit.com${path}`);
+/** Sleep sessions for the nights in `dates` (a contiguous, oldest-first run). */
+async function fetchSleepLogs(host: ProviderHostContext, dates: string[]): Promise<SleepLog[]> {
+  const raw = await listSleep(host, dates[0]!, addDays(dates[dates.length - 1]!, 1));
+  return raw.map(toSleepLog);
 }
 
 const profileSchema = {
@@ -593,7 +727,7 @@ export const fitbitProvider = defineProvider({
   displayName: "Fitbit",
   requiresCredential: true,
   credentialType: "fitbitOAuth2",
-  hosts: ["api.fitbit.com"],
+  hosts: ["health.googleapis.com"],
   queries: {
     profile: {
       description: "Your Fitbit profile name, member since date and average steps",
@@ -601,9 +735,8 @@ export const fitbitProvider = defineProvider({
       result: profileSchema,
       key: () => [],
       staleTime: 60 * 60 * 1000,
-      fetch: async (_args: Record<string, never>, host): Promise<FitbitProfile> => {
-        return mapProfile(await fitbitGet(host, "/1/user/-/profile.json"));
-      },
+      fetch: async (_args: Record<string, never>, host): Promise<FitbitProfile> =>
+        mapProfile(await healthGet(host, `${BASE}/profile`)),
     },
     activityToday: {
       description: "Today's steps, calories, distance and active minutes on Fitbit, or another day's with `date`",
@@ -613,12 +746,7 @@ export const fitbitProvider = defineProvider({
       result: activitySchema,
       key: (args: SleepArgs) => [args.date?.trim() ?? ""],
       staleTime: 15 * 60 * 1000,
-      fetch: async (args: SleepArgs, host): Promise<FitbitActivity> => {
-        const date = nightDate(args);
-        return mapActivity(
-          await fitbitGet(host, `/1/user/-/activities/date/${encodeURIComponent(date)}.json`),
-        );
-      },
+      fetch: async (args: SleepArgs, host): Promise<FitbitActivity> => fetchActivity(host, nightDate(args)),
     },
     sleepToday: {
       description: "Last night's sleep on Fitbit (or the night ending on `date`): total, time in bed, efficiency, fell-asleep and woke-up time, deep/light/REM/wake minutes, and the stage timeline through the night",
@@ -628,12 +756,8 @@ export const fitbitProvider = defineProvider({
       result: sleepSchema,
       key: (args: SleepArgs) => [args.date?.trim() ?? ""],
       staleTime: 30 * 60 * 1000,
-      fetch: async (args: SleepArgs, host): Promise<FitbitSleep> => {
-        const date = nightDate(args);
-        return mapSleep(
-          await fitbitGet(host, `/1.2/user/-/sleep/date/${encodeURIComponent(date)}.json`),
-        );
-      },
+      fetch: async (args: SleepArgs, host): Promise<FitbitSleep> =>
+        mapSleep(await fetchSleepLogs(host, [nightDate(args)])),
     },
     nightVitals: {
       description: "Overnight vitals on Fitbit for last night (or the night ending on `date`): HRV, breathing rate (overall and per deep/light/REM stage), resting heart rate and SpO2",
@@ -705,8 +829,7 @@ export const fitbitProvider = defineProvider({
       staleTime: 60 * 60 * 1000,
       fetch: async (_args: Record<string, never>, host): Promise<FitbitSleepNight[]> => {
         const dates = lastDates(WEEK_NIGHTS);
-        const range = `${dates[0]}/${dates[dates.length - 1]}`;
-        return mapSleepWeek(await fitbitGet(host, `/1.2/user/-/sleep/date/${range}.json`), dates);
+        return mapNights(await fetchSleepLogs(host, dates), dates);
       },
     },
     spo2History: {
@@ -726,13 +849,8 @@ export const fitbitProvider = defineProvider({
       },
       key: () => [],
       staleTime: 6 * 60 * 60 * 1000,
-      // The docs list no range limit for SpO2, but a year in one request came
-      // back with most nights missing that the Fitbit app shows; 30-day
-      // windows, like HRV's documented cap, return them all.
       fetch: async (_args: Record<string, never>, host): Promise<FitbitSpo2Day[]> =>
-        mapSpo2History(
-          await fetchHistory(host, 30, (from, to) => `/1/user/-/spo2/date/${from}/${to}.json`, (raw) => raw),
-        ),
+        mapSpo2History(await listHistory(host, "daily-oxygen-saturation", "dailyOxygenSaturation")),
     },
     hrvHistory: {
       description: "Nightly HRV (RMSSD in ms, overall and in deep sleep) on Fitbit for the last 53 weeks, oldest first; nights without a reading are left out",
@@ -750,11 +868,8 @@ export const fitbitProvider = defineProvider({
       },
       key: () => [],
       staleTime: 6 * 60 * 60 * 1000,
-      // The HRV range endpoint is capped at 30 days.
       fetch: async (_args: Record<string, never>, host): Promise<FitbitHrvDay[]> =>
-        mapHrvHistory(
-          await fetchHistory(host, 30, (from, to) => `/1/user/-/hrv/date/${from}/${to}.json`, (raw) => asRecord(raw).hrv),
-        ),
+        mapHrvHistory(await listHistory(host, "daily-heart-rate-variability", "dailyHeartRateVariability")),
     },
     sleepHistory: {
       description: "Your nights on Fitbit for the last 53 weeks, oldest first: duration, time in bed, efficiency, bed and wake time, stage minutes; nights without a log are left out",
@@ -762,15 +877,10 @@ export const fitbitProvider = defineProvider({
       result: { type: "list" as const, of: sleepNightSchema },
       key: () => [],
       staleTime: 6 * 60 * 60 * 1000,
-      // The sleep range endpoint takes at most 100 days.
+      // Sleep pages hold 25 sessions, so a year is a run of paged requests.
       fetch: async (_args: Record<string, never>, host): Promise<FitbitSleepNight[]> => {
-        const logs = await fetchHistory(
-          host,
-          100,
-          (from, to) => `/1.2/user/-/sleep/date/${from}/${to}.json`,
-          (raw) => asRecord(raw).sleep,
-        );
-        return mapSleepWeek({ sleep: logs }, lastDates(HISTORY_NIGHTS)).filter((night) => night.minutesAsleep > 0);
+        const dates = lastDates(HISTORY_NIGHTS);
+        return mapNights(await fetchSleepLogs(host, dates), dates).filter((night) => night.minutesAsleep > 0);
       },
     },
     restingHeartRateHistory: {
@@ -788,16 +898,8 @@ export const fitbitProvider = defineProvider({
       },
       key: () => [],
       staleTime: 6 * 60 * 60 * 1000,
-      // The heart-rate range endpoint takes at most a year; 53 weeks is two halves.
       fetch: async (_args: Record<string, never>, host): Promise<FitbitRestingHeartRateDay[]> =>
-        mapRestingHeartRateHistory(
-          await fetchHistory(
-            host,
-            186,
-            (from, to) => `/1/user/-/activities/heart/date/${from}/${to}.json`,
-            (raw) => asRecord(raw)["activities-heart"],
-          ),
-        ),
+        mapRestingHeartRateHistory(await listHistory(host, "daily-resting-heart-rate", "dailyRestingHeartRate")),
     },
   },
   actions: {},

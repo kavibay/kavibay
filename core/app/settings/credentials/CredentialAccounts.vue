@@ -117,6 +117,8 @@ watch(
       clearInterval(pollTimer);
       pollTimer = undefined;
       verification.value = null;
+      // "Finish the sign-in…" is stale now; let the row's status or error show.
+      notice.value = null;
     }
   },
   { immediate: true },
