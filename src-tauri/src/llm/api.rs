@@ -166,6 +166,18 @@ fn emit_parsed_items(
                     },
                 );
             }
+            SseParseItem::DeepseekDelta(delta) => {
+                if let Some(text) = delta["content"].as_str().filter(|text| !text.is_empty()) {
+                    let _ = app.emit(
+                        "llm:chunk",
+                        LlmChunkPayload {
+                            instance_id: instance_id.to_string(),
+                            request_id: request_id.to_string(),
+                            text: text.to_string(),
+                        },
+                    );
+                }
+            }
             SseParseItem::Failure(message) => {
                 state.finish(request_id);
                 return Err(message);

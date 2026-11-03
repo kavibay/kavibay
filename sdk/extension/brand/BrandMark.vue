@@ -16,6 +16,7 @@ import { computed } from "vue";
 import { brandMarkFor } from "./brandMarks";
 import AnthropicMark from "./AnthropicMark.vue";
 import CloudflareMark from "./CloudflareMark.vue";
+import DeepSeekMark from "./DeepSeekMark.vue";
 import GitHubMark from "./GitHubMark.vue";
 import GoogleMark from "./GoogleMark.vue";
 import LinearMark from "./LinearMark.vue";
@@ -67,6 +68,8 @@ const mark = computed(() => {
       return AnthropicMark;
     case "openai":
       return OpenAiMark;
+    case "deepseek":
+      return DeepSeekMark;
     case "cloudflare":
       return CloudflareMark;
     default:

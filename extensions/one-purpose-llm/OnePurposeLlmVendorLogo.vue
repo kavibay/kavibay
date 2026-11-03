@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { BrandMark } from "@sdk/brand";
 /** Vendor mark. `vendor` is the host catalog's value: who built the model. */
 withDefaults(
   defineProps<{
@@ -15,9 +16,11 @@ withDefaults(
     :style="{ width: `${size}px`, height: `${size}px` }"
     aria-hidden="true"
   >
+    <BrandMark v-if="vendor === 'deepseek'" provider="deepseek" :size="size" />
+
     <!-- Anthropic burst mark -->
     <svg
-      v-if="vendor === 'anthropic'"
+      v-else-if="vendor === 'anthropic'"
       viewBox="0 0 24 24"
       xmlns="http://www.w3.org/2000/svg"
       fill="#D97757"

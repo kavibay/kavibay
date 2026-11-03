@@ -2736,6 +2736,14 @@ assert(
   ];
 
   const platforms = wizardPlatforms(catalog);
+  const deepseek = wizardPlatforms([
+    model({ id: "deepseek-flash", provider: "deepseek", credentialType: "deepseekApi", configured: true }),
+  ])[0];
+  assertEq(
+    [deepseek.id, deepseek.label, deepseek.credentialType, deepseek.configured],
+    ["deepseek", "DeepSeek", "deepseekApi", true],
+    "DeepSeek appears with its display name and credential",
+  );
   assertEq(
     platforms.map((p) => p.id),
     ["anthropic", "openai", "cloudflare"],

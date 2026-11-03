@@ -59,6 +59,13 @@ const catalog: LlmModelOption[] = [
     configured: false,
     enabled: false,
   }),
+  model({
+    id: "deepseek-flash",
+    provider: "deepseek",
+    vendor: "deepseek",
+    credentialType: "deepseekApi",
+    configured: false,
+  }),
 ];
 
 // Every tab the panel renders must be able to find its models — a tab with a
@@ -68,11 +75,13 @@ for (const tab of AI_PROVIDER_TABS) {
   assert(credentialTypeForProvider(catalog, tab.id) !== null, `${tab.id} has no credential`);
 }
 
-assert(AI_PROVIDER_TABS.length === 3, "three provider tabs");
+assert(AI_PROVIDER_TABS.length === 4, "four provider tabs");
 assert(
-  AI_PROVIDER_TABS.map((tab) => tab.id).join() === "anthropic,openai,cloudflare",
+  AI_PROVIDER_TABS.map((tab) => tab.id).join() === "anthropic,openai,deepseek,cloudflare",
   "tab order is fixed",
 );
+
+assert(resolveAiProviderFocus("deepseekApi", catalog) === "deepseek", "DeepSeek credential opens AI settings");
 
 // Grouping keeps catalog order (strongest first), so the list does not reshuffle.
 assert(

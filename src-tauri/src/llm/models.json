@@ -307,6 +307,43 @@
       "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-5.4-nano"
     },
     {
+      "provider": "deepseek",
+      "vendor": "deepseek",
+      "model": "DeepSeek V4 Pro",
+      "apiId": "deepseek-v4-pro",
+      "note": "DeepSeek's flagship text reasoning model",
+      "description": "DeepSeek V4 Pro for complex reasoning, coding, and tool use.",
+      "context": { "windowTokens": 1048576, "maxOutputTokens": 393216 },
+      "pricing": {
+        "currency": "USD", "unitTokens": 1000000,
+        "input": 1.32, "cachedInput": 0.044, "output": 3.96,
+        "note": "Peak rates; off-peak rates are half. Verified 2026-10-25."
+      },
+      "capabilities": ["text", "reasoning", "streaming", "functionCalling", "structuredOutput"],
+      "authoring": true,
+      "effortLevels": ["low", "high", "max"],
+      "sourceUrl": "https://api-docs.deepseek.com/quick_start/pricing/"
+    },
+    {
+      "provider": "deepseek",
+      "vendor": "deepseek",
+      "model": "DeepSeek Flash",
+      "apiId": "deepseek-flash",
+      "note": "Fast, inexpensive DeepSeek model with vision",
+      "description": "DeepSeek V4.1 Flash for reasoning, coding, image understanding, and tool use.",
+      "context": { "windowTokens": 1048576, "maxOutputTokens": 393216 },
+      "pricing": {
+        "currency": "USD", "unitTokens": 1000000,
+        "input": 0.3, "cachedInput": 0.006, "output": 1.2,
+        "note": "Peak rates; off-peak rates are half. Verified 2026-10-25."
+      },
+      "capabilities": ["text", "vision", "reasoning", "streaming", "functionCalling", "structuredOutput"],
+      "authoring": true,
+      "authoringDefault": true,
+      "effortLevels": ["low", "high", "max"],
+      "sourceUrl": "https://api-docs.deepseek.com/quick_start/pricing/"
+    },
+    {
       "provider": "cloudflare",
       "vendor": "meta",
       "model": "Llama 3.3 70B Instruct FP8 Fast",

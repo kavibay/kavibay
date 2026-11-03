@@ -19,6 +19,7 @@ pub const FITBIT_OAUTH2: &str = "fitbitOAuth2";
 pub const CLOUDFLARE_WORKERS_AI: &str = "cloudflareWorkersAi";
 pub const ANTHROPIC_API: &str = "anthropicApi";
 pub const OPENAI_API: &str = "openaiApi";
+pub const DEEPSEEK_API: &str = "deepseekApi";
 pub const GOOGLE_CALENDAR_OAUTH2: &str = "googleCalendarOAuth2";
 pub const TADO_OAUTH2: &str = "tadoOAuth2";
 /// GitHub personal access token (single secret field).
@@ -386,6 +387,34 @@ const OPENAI: CredentialTypeDef = CredentialTypeDef {
 };
 
 /// Google Calendar: user-registered OAuth Desktop client + consent flow.
+/// DeepSeek API: one secret key, bearer auth.
+const DEEPSEEK: CredentialTypeDef = CredentialTypeDef {
+    id: DEEPSEEK_API,
+    display_name: "DeepSeek API",
+    description: "An API key from the DeepSeek platform with access to chat completions.",
+    docs_url: Some("https://platform.deepseek.com/api_keys"),
+    fields: &[FieldDef {
+        key: "apiKey",
+        label: "API Key",
+        kind: FieldKind::Password,
+        required: true,
+        placeholder: Some("sk-…"),
+        help: Some("Create a key on the DeepSeek platform. The account needs API credits."),
+    }],
+    auth: AuthKind::Static,
+    inject: Injection::Bearer {
+        value: "{{apiKey}}",
+        extra_headers: &[],
+    },
+    test: Some(TestRequest {
+        url: "https://api.deepseek.com/models",
+        headers: &[],
+        success: "Key accepted by DeepSeek.",
+        body: None,
+    }),
+    instance_url_field: None,
+};
+
 const GOOGLE_CALENDAR: CredentialTypeDef = CredentialTypeDef {
     id: GOOGLE_CALENDAR_OAUTH2,
     display_name: "Google Calendar OAuth2",
@@ -481,6 +510,7 @@ pub const ALL: &[CredentialTypeDef] = &[
     CLOUDFLARE,
     ANTHROPIC,
     OPENAI,
+    DEEPSEEK,
     GOOGLE_CALENDAR,
     TADO,
 ];

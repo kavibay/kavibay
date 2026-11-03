@@ -21,6 +21,7 @@ const CATALOG_SCHEMA_VERSION: u32 = 1;
 pub enum LlmProvider {
     Anthropic,
     Openai,
+    Deepseek,
     Cloudflare,
 }
 
@@ -29,6 +30,7 @@ impl LlmProvider {
         match self {
             LlmProvider::Anthropic => registry::ANTHROPIC_API,
             LlmProvider::Openai => registry::OPENAI_API,
+            LlmProvider::Deepseek => registry::DEEPSEEK_API,
             LlmProvider::Cloudflare => registry::CLOUDFLARE_WORKERS_AI,
         }
     }
@@ -378,6 +380,7 @@ mod tests {
         for provider in [
             LlmProvider::Anthropic,
             LlmProvider::Openai,
+            LlmProvider::Deepseek,
             LlmProvider::Cloudflare,
         ] {
             assert!(models().iter().any(|model| model.provider == provider));
@@ -395,6 +398,7 @@ mod tests {
             let allowed: &[&str] = match model.provider {
                 LlmProvider::Anthropic => &ANTHROPIC,
                 LlmProvider::Openai => &OPENAI,
+                LlmProvider::Deepseek => &["low", "high", "max"],
                 // Nothing on Workers AI takes an effort level.
                 LlmProvider::Cloudflare => &[],
             };
@@ -478,6 +482,10 @@ mod tests {
 
     #[test]
     fn provider_wire_names_are_stable() {
+        assert_eq!(
+            serde_json::to_string(&LlmProvider::Deepseek).unwrap(),
+            "\"deepseek\""
+        );
         assert_eq!(
             serde_json::to_string(&LlmProvider::Anthropic).unwrap(),
             "\"anthropic\""
