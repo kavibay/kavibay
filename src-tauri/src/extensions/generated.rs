@@ -21,7 +21,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
     },
     ProviderDef {
         id: "kavibay.fitbit/fitbit",
-        host_rule: HostRule::Exact(&["api.fitbit.com"]),
+        host_rule: HostRule::Exact(&["health.googleapis.com"]),
         credential_type: Some("fitbitOAuth2"),
         image_hosts: &[],
         link_hosts: &[],

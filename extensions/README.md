@@ -128,7 +128,7 @@ learns *whether* it is connected.
 | `githubPat` | GitHub Actions | Personal access token, entered in settings |
 | `spotifyOAuth2` | Spotify Playlists, Spotify provider | Your own Spotify app's Client ID, then sign-in |
 | `tadoOAuth2` | Tado | Device-code OAuth flow |
-| `fitbitOAuth2` | Fitbit provider | Your own Fitbit app, then sign-in |
+| `fitbitOAuth2` | Fitbit provider | Your own Google Cloud Desktop client with the Google Health API, then sign-in |
 | `linearApi` | Linear provider | Personal API key, entered in settings |
 | `n8nApi` | n8n provider | Instance URL + API key, entered in settings |
 | `notionApi` | Notion provider | Internal integration secret, entered in settings |

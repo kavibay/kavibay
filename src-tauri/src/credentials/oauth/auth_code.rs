@@ -23,8 +23,9 @@ use crate::credentials::registry;
 use crate::credentials::types::{AuthCodeDef, AuthKind};
 
 use super::{
-    claim_generation_locked, client_credentials, finish_pending, http_client, probe_identity,
-    save_login, slot, token_request_client_auth, tokens_from_response, PendingAuth, TokenResponse,
+    claim_generation_locked, client_credentials, client_form, finish_pending, http_client,
+    probe_identity, save_login, set_last_error, slot, tokens_from_response, PendingAuth,
+    TokenResponse,
 };
 
 /// How long to wait for the browser to complete the redirect before giving up.
@@ -70,7 +71,7 @@ fn generate_state() -> String {
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
-/// Loopback bind address: ephemeral unless the type pins a port (Fitbit, Spotify).
+/// Loopback bind address: ephemeral unless the type pins a port (Spotify).
 fn loopback_bind_addr(auth: &AuthCodeDef) -> String {
     match auth.loopback_port {
         Some(port) => format!("127.0.0.1:{port}"),
@@ -79,7 +80,7 @@ fn loopback_bind_addr(auth: &AuthCodeDef) -> String {
 }
 
 /// Redirect URI sent to the provider. Spotify requires a path (`/callback`);
-/// Google and Fitbit use `/`.
+/// Google uses `/`.
 fn loopback_redirect_uri(auth: &AuthCodeDef, port: u16) -> String {
     let path = auth.loopback_path.unwrap_or("/");
     format!("http://127.0.0.1:{port}{path}")
@@ -155,6 +156,7 @@ pub async fn start(app: &AppHandle, credential_id: &str) -> Result<(), String> {
         let mut inner = credential_slot.lock().unwrap();
         claim_generation_locked(&mut inner)
     };
+    set_last_error(app, credential_id, None);
 
     let params = FlowParams {
         credential_id: credential_id.to_string(),
@@ -172,6 +174,7 @@ pub async fn start(app: &AppHandle, credential_id: &str) -> Result<(), String> {
     let handle = tauri::async_runtime::spawn(async move {
         if let Err(error) = run_flow(&app_for_task, listener, params).await {
             eprintln!("[credentials] sign-in failed for {id_for_task}: {error}");
+            set_last_error(&app_for_task, &id_for_task, Some(error));
         }
         finish_pending(&app_for_task, &id_for_task, generation);
     });
@@ -317,23 +320,17 @@ async fn exchange_code(
         ("grant_type".into(), "authorization_code".into()),
         ("code_verifier".into(), params.code_verifier.clone()),
     ];
-    let client_auth = token_request_client_auth(
-        params.auth.token_auth,
+    form.extend(client_form(
         params.client_id.clone(),
         params.client_secret.clone(),
-    )?;
-    form.extend(
-        client_auth
-            .extra_form
-            .into_iter()
-            .map(|(key, value)| (key.to_string(), value)),
-    );
+    ));
 
-    let mut request = client.post(params.auth.token_url).form(&form);
-    if let Some((id, secret)) = client_auth.basic {
-        request = request.basic_auth(id, Some(secret));
-    }
-    let response = request.send().await.map_err(|e| e.to_string())?;
+    let response = client
+        .post(params.auth.token_url)
+        .form(&form)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
 
     if !response.status().is_success() {
         let detail = response.text().await.unwrap_or_default();
@@ -449,27 +446,10 @@ mod tests {
     }
 
     #[test]
-    fn fitbit_auth_url_is_pkce_on_www_fitbit() {
-        let url = build_auth_url(
-            &fitbit_auth(),
-            "fit-cid",
-            "http://127.0.0.1:17443/",
-            "challenge123",
-            "state456",
-        )
-        .unwrap();
-        assert!(url.starts_with("https://www.fitbit.com/oauth2/authorize?"));
-        assert!(url.contains("client_id=fit-cid"));
-        assert!(url.contains("code_challenge=challenge123"));
-        assert!(url.contains("scope=activity"));
-        assert!(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A17443%2F"));
-    }
-
-    #[test]
     fn loopback_bind_addr_is_ephemeral_unless_the_type_pins_a_port() {
         assert_eq!(loopback_bind_addr(&google_auth()), "127.0.0.1:0");
         assert_eq!(loopback_bind_addr(&spotify_auth()), "127.0.0.1:17444");
-        assert_eq!(loopback_bind_addr(&fitbit_auth()), "127.0.0.1:17443");
+        assert_eq!(loopback_bind_addr(&fitbit_auth()), "127.0.0.1:0");
     }
 
     #[test]
@@ -477,10 +457,6 @@ mod tests {
         assert_eq!(
             loopback_redirect_uri(&google_auth(), 1234),
             "http://127.0.0.1:1234/"
-        );
-        assert_eq!(
-            loopback_redirect_uri(&fitbit_auth(), 17443),
-            "http://127.0.0.1:17443/"
         );
         assert_eq!(
             loopback_redirect_uri(&spotify_auth(), 17444),

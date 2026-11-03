@@ -28,7 +28,7 @@ use super::db::{self, CredentialRecord, CredentialState, OAuthTokens, SecretData
 use super::now_secs;
 use super::registry;
 use super::resolve::field_value;
-use super::types::{AuthKind, ClientSource, CredentialTypeDef, IdentityProbe, TokenAuth};
+use super::types::{AuthKind, ClientSource, CredentialTypeDef, IdentityProbe};
 
 /// Refresh access tokens this many seconds before they actually expire, so a
 /// request started right before expiry doesn't race the server's clock.
@@ -334,41 +334,17 @@ pub(crate) fn client_credentials(
     }
 }
 
-/// Extra form fields and optional HTTP Basic credentials for a token request.
-///
-/// Fitbit Personal/Server apps require Basic and reject a secret that only
-/// lives in the form. Google and Spotify stay on `TokenAuth::Form`.
-pub(crate) struct TokenClientAuth {
-    pub extra_form: Vec<(&'static str, String)>,
-    pub basic: Option<(String, String)>,
-}
-
-pub(crate) fn token_request_client_auth(
-    token_auth: TokenAuth,
+/// The OAuth client's form fields for a token request: every provider we
+/// support takes `client_id` (and the secret, when there is one) in the body.
+pub(crate) fn client_form(
     client_id: String,
     client_secret: Option<String>,
-) -> Result<TokenClientAuth, String> {
-    match token_auth {
-        TokenAuth::Form => {
-            let mut extra_form = vec![("client_id", client_id)];
-            if let Some(secret) = client_secret {
-                extra_form.push(("client_secret", secret));
-            }
-            Ok(TokenClientAuth {
-                extra_form,
-                basic: None,
-            })
-        }
-        TokenAuth::Basic => {
-            let secret = client_secret.ok_or_else(|| {
-                "this sign-in flow needs a client secret for the token request".to_string()
-            })?;
-            Ok(TokenClientAuth {
-                extra_form: Vec::new(),
-                basic: Some((client_id, secret)),
-            })
-        }
+) -> Vec<(String, String)> {
+    let mut form = vec![("client_id".to_string(), client_id)];
+    if let Some(secret) = client_secret {
+        form.push(("client_secret".to_string(), secret));
     }
+    form
 }
 
 /// Runs the type's identity probe and returns `(account label, metadata)`.
@@ -590,9 +566,9 @@ async fn refresh(
 ) -> Result<SecretData, String> {
     let tokens = secret.oauth.clone().ok_or("Not connected")?;
     let (client_id, client_secret) = client_credentials(type_def, &secret)?;
-    let (token_url, token_auth) = match type_def.auth {
-        AuthKind::OAuth2AuthCode(auth) => (auth.token_url, auth.token_auth),
-        AuthKind::OAuth2DeviceCode(device) => (device.token_url, TokenAuth::Form),
+    let token_url = match type_def.auth {
+        AuthKind::OAuth2AuthCode(auth) => auth.token_url,
+        AuthKind::OAuth2DeviceCode(device) => device.token_url,
         AuthKind::Static => return Err("not an OAuth credential".into()),
     };
 
@@ -600,20 +576,15 @@ async fn refresh(
         ("grant_type".into(), "refresh_token".into()),
         ("refresh_token".into(), tokens.refresh_token.clone()),
     ];
-    let client_auth = token_request_client_auth(token_auth, client_id, client_secret)?;
-    form.extend(
-        client_auth
-            .extra_form
-            .into_iter()
-            .map(|(key, value)| (key.to_string(), value)),
-    );
+    form.extend(client_form(client_id, client_secret));
 
     let client = http_client(app);
-    let mut request = client.post(token_url).form(&form);
-    if let Some((id, secret)) = client_auth.basic {
-        request = request.basic_auth(id, Some(secret));
-    }
-    let response = request.send().await.map_err(|error| error.to_string())?;
+    let response = client
+        .post(token_url)
+        .form(&form)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
 
     let status = response.status();
     if !status.is_success() {
@@ -1212,35 +1183,24 @@ mod tests {
             .insert("clientSecret".into(), "fit-secret".into());
         assert_eq!(
             client_credentials(fitbit, &fitbit_secret).unwrap(),
-            ("fit-cid".to_string(), Some("fit-secret".to_string()))
+            ("fit-cid".to_string(), Some("fit-secret".to_string())),
+            "Google Desktop clients have a secret"
         );
     }
 
     #[test]
-    fn token_request_client_auth_form_puts_the_secret_in_the_body() {
-        let auth = token_request_client_auth(TokenAuth::Form, "cid".into(), Some("csecret".into()))
-            .unwrap();
+    fn client_form_puts_the_secret_in_the_body_only_when_there_is_one() {
         assert_eq!(
-            auth.extra_form,
+            client_form("cid".into(), Some("csecret".into())),
             vec![
-                ("client_id", "cid".into()),
-                ("client_secret", "csecret".into())
+                ("client_id".to_string(), "cid".to_string()),
+                ("client_secret".to_string(), "csecret".to_string())
             ]
         );
-        assert!(auth.basic.is_none());
-    }
-
-    #[test]
-    fn token_request_client_auth_basic_omits_the_form_secret() {
-        let auth =
-            token_request_client_auth(TokenAuth::Basic, "cid".into(), Some("csecret".into()))
-                .unwrap();
-        assert!(
-            auth.extra_form.is_empty(),
-            "Fitbit's token body does not repeat the secret"
+        assert_eq!(
+            client_form("cid".into(), None),
+            vec![("client_id".to_string(), "cid".to_string())]
         );
-        assert_eq!(auth.basic, Some(("cid".into(), "csecret".into())));
-        assert!(token_request_client_auth(TokenAuth::Basic, "cid".into(), None).is_err());
     }
 
     #[test]
