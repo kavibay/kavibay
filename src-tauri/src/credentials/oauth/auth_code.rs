@@ -24,7 +24,8 @@ use crate::credentials::types::{AuthCodeDef, AuthKind};
 
 use super::{
     claim_generation_locked, client_credentials, finish_pending, http_client, probe_identity,
-    save_login, slot, token_request_client_auth, tokens_from_response, PendingAuth, TokenResponse,
+    save_login, set_last_error, slot, token_request_client_auth, tokens_from_response, PendingAuth,
+    TokenResponse,
 };
 
 /// How long to wait for the browser to complete the redirect before giving up.
@@ -155,6 +156,7 @@ pub async fn start(app: &AppHandle, credential_id: &str) -> Result<(), String> {
         let mut inner = credential_slot.lock().unwrap();
         claim_generation_locked(&mut inner)
     };
+    set_last_error(app, credential_id, None);
 
     let params = FlowParams {
         credential_id: credential_id.to_string(),
@@ -172,6 +174,7 @@ pub async fn start(app: &AppHandle, credential_id: &str) -> Result<(), String> {
     let handle = tauri::async_runtime::spawn(async move {
         if let Err(error) = run_flow(&app_for_task, listener, params).await {
             eprintln!("[credentials] sign-in failed for {id_for_task}: {error}");
+            set_last_error(&app_for_task, &id_for_task, Some(error));
         }
         finish_pending(&app_for_task, &id_for_task, generation);
     });
