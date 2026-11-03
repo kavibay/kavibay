@@ -69,6 +69,8 @@ pub enum SseParseItem {
     BlockDelta(Value),
     /// OpenAI `delta.tool_calls`: fragments of one or more calls, by index.
     ToolCallDeltas(Vec<Value>),
+    /// DeepSeek can send reasoning, answer text and tool fragments in one delta.
+    DeepseekDelta(Value),
 }
 
 /// Whether a one-purpose transform should run at `effort: "low"`.
@@ -95,6 +97,7 @@ impl LlmProvider {
         Ok(match self {
             LlmProvider::Anthropic => "https://api.anthropic.com/v1/messages".to_string(),
             LlmProvider::Openai => "https://api.openai.com/v1/chat/completions".to_string(),
+            LlmProvider::Deepseek => "https://api.deepseek.com/chat/completions".to_string(),
             LlmProvider::Cloudflare => format!(
                 "https://api.cloudflare.com/client/v4/accounts/{}/ai/run/{}",
                 credential
@@ -110,7 +113,7 @@ impl LlmProvider {
     pub fn extra_headers(self) -> &'static [(&'static str, &'static str)] {
         match self {
             LlmProvider::Anthropic => &[("anthropic-version", "2023-06-01")],
-            LlmProvider::Openai | LlmProvider::Cloudflare => &[],
+            LlmProvider::Openai | LlmProvider::Deepseek | LlmProvider::Cloudflare => &[],
         }
     }
 
@@ -119,6 +122,7 @@ impl LlmProvider {
     pub fn supports_tools(self, model: &str) -> bool {
         match self {
             LlmProvider::Anthropic => true,
+            LlmProvider::Deepseek => true,
             LlmProvider::Openai => !matches!(model, "gpt-6-astra" | "gpt-6.1-sol"),
             LlmProvider::Cloudflare => false,
         }
@@ -136,6 +140,13 @@ impl LlmProvider {
     ) -> Result<Value, String> {
         if !tools.is_empty() && !self.supports_tools(model) {
             return Err("tools_not_supported".into());
+        }
+        if self == LlmProvider::Deepseek
+            && crate::llm::catalog::find_model(model)
+                .is_some_and(|def| !def.capabilities.iter().any(|cap| cap == "vision"))
+            && messages.iter().any(|message| !message.images.is_empty())
+        {
+            return Err("images_not_supported".into());
         }
         let mut body = match self {
             // Anthropic takes `system` as a top-level field, not a message.
@@ -167,7 +178,7 @@ impl LlmProvider {
                 }
                 body
             }
-            LlmProvider::Openai => json!({
+            LlmProvider::Openai | LlmProvider::Deepseek => json!({
                 "model": model,
                 "stream": true,
                 "messages": messages
@@ -184,6 +195,10 @@ impl LlmProvider {
                     .collect::<Result<Vec<_>, _>>()?,
             }),
         };
+        if self == LlmProvider::Deepseek {
+            body["max_tokens"] = json!(MAX_OUTPUT_TOKENS);
+            body["reasoning_effort"] = json!("low");
+        }
         if tools.is_empty() {
             return Ok(body);
         }
@@ -274,6 +289,32 @@ impl LlmProvider {
                 )),
                 _ => None,
             },
+            LlmProvider::Deepseek => {
+                if let Some(error) = value.get("error") {
+                    return Some(SseParseItem::Failure(
+                        error["message"]
+                            .as_str()
+                            .unwrap_or("DeepSeek reported a stream error")
+                            .to_string(),
+                    ));
+                }
+                match value
+                    .pointer("/choices/0/finish_reason")
+                    .and_then(Value::as_str)
+                {
+                    Some("length") => {
+                        return Some(SseParseItem::Failure("response_truncated".into()))
+                    }
+                    Some("content_filter") => {
+                        return Some(SseParseItem::Failure("model_refused".into()))
+                    }
+                    _ => {}
+                }
+                value
+                    .pointer("/choices/0/delta")
+                    .cloned()
+                    .map(SseParseItem::DeepseekDelta)
+            }
             LlmProvider::Openai => {
                 let delta = value.pointer("/choices/0/delta")?;
                 if let Some(text) = delta
@@ -396,7 +437,7 @@ fn image_content(text: &str, images: &[ChatImage], provider: LlmProvider) -> Res
                     "data": image.data,
                 },
             }),
-            LlmProvider::Openai => json!({
+            LlmProvider::Openai | LlmProvider::Deepseek => json!({
                 "type": "image_url",
                 "image_url": {
                     "url": format!("data:{};base64,{}", image.media_type, image.data),
@@ -628,6 +669,64 @@ mod tests {
             name: "weather_current".into(),
             description: "Current weather".into(),
             input_schema: json!({ "type": "object", "properties": {}, "required": [] }),
+        }
+    }
+
+    #[test]
+    fn deepseek_uses_chat_completions_tools_and_its_own_options() {
+        for model in ["deepseek-flash", "deepseek-v4-pro"] {
+            let body = LlmProvider::Deepseek
+                .body_with_tools(model, &messages(), &[weather_tool()], ToolChoice::None)
+                .unwrap();
+            assert_eq!(body["model"], model);
+            assert_eq!(body["stream"], true);
+            assert_eq!(body["messages"][0]["role"], "system");
+            assert_eq!(body["reasoning_effort"], "low");
+            assert_eq!(body["max_tokens"], MAX_OUTPUT_TOKENS);
+            assert_eq!(body["tools"][0]["function"]["name"], "weather_current");
+            assert_eq!(body["tool_choice"], "none");
+            assert!(body.get("max_completion_tokens").is_none());
+            assert!(body.get("prompt_cache_key").is_none());
+        }
+    }
+
+    #[test]
+    fn deepseek_only_offers_images_on_flash() {
+        let messages = [ChatMessage {
+            role: "user".into(),
+            content: "Describe this".into(),
+            images: vec![ChatImage {
+                media_type: "image/png".into(),
+                data: "QUJD".into(),
+            }],
+            ..Default::default()
+        }];
+        let body = LlmProvider::Deepseek
+            .body_with_tools("deepseek-flash", &messages, &[], ToolChoice::Auto)
+            .unwrap();
+        assert_eq!(
+            body["messages"][0]["content"][0]["image_url"]["url"],
+            "data:image/png;base64,QUJD"
+        );
+        assert_eq!(
+            LlmProvider::Deepseek
+                .body_with_tools("deepseek-v4-pro", &messages, &[], ToolChoice::Auto)
+                .unwrap_err(),
+            "images_not_supported"
+        );
+    }
+
+    #[test]
+    fn deepseek_stream_failures_are_not_successful_empty_answers() {
+        for frame in [
+            r#"{"error":{"message":"overloaded"}}"#,
+            r#"{"choices":[{"delta":{},"finish_reason":"length"}]}"#,
+            r#"{"choices":[{"delta":{},"finish_reason":"content_filter"}]}"#,
+        ] {
+            assert!(matches!(
+                LlmProvider::Deepseek.parse_sse_data(frame),
+                Some(SseParseItem::Failure(_))
+            ));
         }
     }
 

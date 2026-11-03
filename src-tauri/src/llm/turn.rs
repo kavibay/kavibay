@@ -41,6 +41,8 @@ pub struct TurnAssembler {
     tool_json: Vec<String>,
     /// OpenAI: answer text.
     text: String,
+    /// DeepSeek requires the complete reasoning history on subsequent tool rounds.
+    reasoning: String,
     /// OpenAI: calls by stream index.
     calls: Vec<OpenAiCall>,
 }
@@ -52,12 +54,24 @@ impl TurnAssembler {
             blocks: Vec::new(),
             tool_json: Vec::new(),
             text: String::new(),
+            reasoning: String::new(),
             calls: Vec::new(),
         }
     }
 
     pub fn push(&mut self, item: &SseParseItem) {
         match item {
+            SseParseItem::DeepseekDelta(delta) => {
+                if let Some(reasoning) = delta["reasoning_content"].as_str() {
+                    self.reasoning.push_str(reasoning);
+                }
+                if let Some(text) = delta["content"].as_str() {
+                    self.text.push_str(text);
+                }
+                if let Some(calls) = delta["tool_calls"].as_array() {
+                    self.push(&SseParseItem::ToolCallDeltas(calls.clone()));
+                }
+            }
             SseParseItem::BlockStart(block) => {
                 self.blocks.push(block.clone());
                 self.tool_json.push(String::new());
@@ -156,6 +170,9 @@ impl TurnAssembler {
             Value::String(self.text)
         };
         let mut assistant = json!({ "role": "assistant", "content": content });
+        if self.provider == LlmProvider::Deepseek {
+            assistant["reasoning_content"] = json!(self.reasoning);
+        }
         if !wire.is_empty() {
             assistant["tool_calls"] = Value::Array(wire);
         }
@@ -194,6 +211,45 @@ mod tests {
             }
         }
         assembler.finish().unwrap()
+    }
+
+    #[test]
+    fn deepseek_keeps_reasoning_and_fragmented_calls_for_the_next_round() {
+        let turn = feed(
+            LlmProvider::Deepseek,
+            &[
+                r#"{"choices":[{"delta":{"reasoning_content":"Check "}}]}"#,
+                r#"{"choices":[{"delta":{"reasoning_content":"weather.","content":"Looking.","tool_calls":[{"index":0,"id":"call_1","function":{"name":"weather_current","arguments":"{\"city\":"}}]}}]}"#,
+                r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"Berlin\"}"}}]}}]}"#,
+                "[DONE]",
+            ],
+        );
+        assert_eq!(turn.assistant["reasoning_content"], "Check weather.");
+        assert_eq!(turn.assistant["content"], "Looking.");
+        assert_eq!(turn.tool_calls[0].input, json!({"city":"Berlin"}));
+        let messages = [
+            crate::llm::provider::ChatMessage {
+                role: "assistant".into(),
+                native: Some(turn.assistant.clone()),
+                ..Default::default()
+            },
+            crate::llm::provider::ChatMessage {
+                role: "tool".into(),
+                content: "Sunny".into(),
+                tool_call_id: Some("call_1".into()),
+                ..Default::default()
+            },
+        ];
+        let body = LlmProvider::Deepseek
+            .body_with_tools(
+                "deepseek-flash",
+                &messages,
+                &[],
+                crate::llm::provider::ToolChoice::Auto,
+            )
+            .unwrap();
+        assert_eq!(body["messages"][0], turn.assistant);
+        assert_eq!(body["messages"][1]["tool_call_id"], "call_1");
     }
 
     /// A Claude round that thinks, says a sentence, then calls a tool.

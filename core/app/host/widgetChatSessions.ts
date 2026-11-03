@@ -15,10 +15,12 @@ import {
 } from "../extension-host/widgetChat";
 import type { HostExtensionRef } from "../runtime/runtimeTypes";
 import { streamRound } from "./widgetChatLlm";
+import type { ChatAttachment } from "./widgetChatImages";
 
 export interface ChatLine {
   role: "user" | "assistant";
   text: string;
+  images?: ChatAttachment[];
   /** Tool calls made for this answer, shown so the person sees what was read. */
   tools: string[];
 }
@@ -104,13 +106,15 @@ async function startConversation(
   return { history: [{ role: "system", content: system }], tools };
 }
 
-export async function askWidget(instanceId: string, definitionId: string, question: string): Promise<void> {
+export async function askWidget(
+  instanceId: string, definitionId: string, question: string, images: ChatAttachment[] = [],
+): Promise<void> {
   const chat = chats.get(instanceId);
   // A second Enter while an answer runs is ignored, not interleaved.
   if (!chat || chat.busy) return;
   chat.busy = true;
   chat.error = null;
-  chat.lines.push({ role: "user", text: question, tools: [] });
+  chat.lines.push({ role: "user", text: question, images, tools: [] });
   chat.lines.push({ role: "assistant", text: "", tools: [] });
   const line = chat.lines[chat.lines.length - 1]!;
   const control = { requestId: null as string | null, stopped: false };
@@ -126,7 +130,10 @@ export async function askWidget(instanceId: string, definitionId: string, questi
       conversations.set(instanceId, conversation);
     }
     const zone = timeZone();
-    conversation.history.push({ role: "user", content: stampQuestion(question, localNow(zone), zone) });
+    conversation.history.push({
+      role: "user", content: stampQuestion(question, localNow(zone), zone),
+      images: images.map(({ mediaType, data }) => ({ mediaType, data })),
+    });
     const tools = conversation.tools;
     const outcome = await runQuestion(conversation.history, tools, {
       round: (history, toolChoice) => {

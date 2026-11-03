@@ -3780,13 +3780,14 @@ export function effortLabel(level: string): string {
  *
  * A short map rather than a field on the model, because the catalog's `vendor`
  * is an identifier (`"openai"`), not a name anybody writes down. Core has the
- * same three strings in `AI_PROVIDER_TABS`, and an extension may not import
+ * same labels in `AI_PROVIDER_TABS`, and an extension may not import
  * core — so the duplication is deliberate and bounded: a platform missing from
  * here still shows up, under its own id, instead of vanishing from the list.
  */
 const PLATFORM_LABELS: Readonly<Record<string, string>> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
+  deepseek: "DeepSeek",
   cloudflare: "Cloudflare Workers AI",
 };
 

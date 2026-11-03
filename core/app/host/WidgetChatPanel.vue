@@ -13,6 +13,9 @@ import { tauriWidgetCapabilityTransport } from "../extension-host/tauriWidgetCap
 import type { HostExtensionRef } from "../runtime/runtimeTypes";
 import type { WidgetInstance } from "./types";
 import {
+  CHAT_IMAGE_TYPES, MAX_CHAT_IMAGES, imageProblem, imageSrc, readChatImage, type ChatAttachment,
+} from "./widgetChatImages";
+import {
   askWidget, chatDefinition, chatSources, resetWidgetChat, stopWidgetChat, widgetChat, type WidgetChat,
 } from "./widgetChatSessions";
 
@@ -25,6 +28,7 @@ interface ModelOption {
   configured: boolean;
   enabled: boolean;
   tools: boolean;
+  capabilities: string[];
 }
 
 const props = defineProps<{ instance: WidgetInstance; def: HostExtensionRef }>();
@@ -45,6 +49,8 @@ const models = ref<ModelOption[]>([]);
 const picked = ref("");
 const pickedModel = computed(() => models.value.find((model) => model.id === picked.value));
 const currentModel = computed(() => models.value.find((model) => model.id === chat.value?.model));
+const supportsImages = computed(() => currentModel.value?.provider !== "cloudflare" &&
+  Boolean(currentModel.value?.capabilities.includes("vision")));
 const recipient = computed(() => {
   const provider = pickedModel.value?.provider;
   return AI_PROVIDER_TABS.find((tab) => tab.id === provider)?.label ?? provider;
@@ -60,7 +66,11 @@ async function loadModels() {
 
 // --- chat ---
 const draft = ref("");
-const lastQuestion = ref("");
+const attachments = ref<ChatAttachment[]>([]);
+const attachmentError = ref("");
+const readingImages = ref(false);
+const fileInput = ref<HTMLInputElement | null>(null);
+const lastQuestion = computed(() => [...(chat.value?.lines ?? [])].reverse().find((line) => line.role === "user"));
 const input = ref<HTMLTextAreaElement | null>(null);
 const messages = ref<HTMLOListElement | null>(null);
 const followLatest = ref(true);
@@ -97,16 +107,66 @@ watch(() => Boolean(chat.value), async (allowed) => {
 
 function newConversation() {
   resetWidgetChat(props.instance.instanceId);
+  clearAttachments();
   followLatest.value = true;
   void nextTick(() => input.value?.focus({ preventScroll: true }));
 }
 
-function send(question = draft.value.trim()) {
-  if (!question || !chat.value || chat.value.busy || !definitionId.value) return;
+function send(question = draft.value.trim(), images = attachments.value) {
+  if ((!question && !images.length) || !chat.value || chat.value.busy || readingImages.value || !definitionId.value) return;
+  if (images.length && !supportsImages.value) {
+    attachmentError.value = "Choose a model that supports images.";
+    return;
+  }
   draft.value = "";
-  lastQuestion.value = question;
+  clearAttachments();
   followLatest.value = true;
-  void askWidget(props.instance.instanceId, definitionId.value, question);
+  void askWidget(props.instance.instanceId, definitionId.value, question, images);
+}
+
+function clearAttachments() {
+  attachments.value = [];
+  attachmentError.value = "";
+}
+
+watch(() => props.instance.chat?.model, clearAttachments);
+
+async function attach(files: File[]) {
+  if (!supportsImages.value || readingImages.value) return;
+  const target = attachments.value;
+  readingImages.value = true;
+  attachmentError.value = "";
+  try {
+    for (const file of files) {
+      if (attachments.value !== target) break;
+      const problem = imageProblem(file, target.length);
+      if (problem) { attachmentError.value = problem; continue; }
+      try {
+        const image = await readChatImage(file);
+        // Reset or model changes discard reads still in flight.
+        if (attachments.value !== target) break;
+        target.push(image);
+      } catch {
+        attachmentError.value = `Could not read ${file.name}.`;
+      }
+    }
+  } finally {
+    readingImages.value = false;
+  }
+}
+
+function onFilePicked(event: Event) {
+  const picker = event.target as HTMLInputElement;
+  void attach(Array.from(picker.files ?? []));
+  picker.value = "";
+}
+
+function onPaste(event: ClipboardEvent) {
+  if (!supportsImages.value) return;
+  const files = Array.from(event.clipboardData?.files ?? []);
+  if (!files.length) return;
+  event.preventDefault();
+  void attach(files);
 }
 
 // Opens to the right; flips left when that would leave the screen.
@@ -148,7 +208,7 @@ onMounted(async () => {
 
     <div v-if="!chat" class="chat-consent">
       <p>
-        Kavibay sends this widget's data (<strong>{{ sources.join(", ") }}</strong>) to
+        Kavibay sends this widget's data (<strong>{{ sources.join(", ") }}</strong>) and any images you attach to
         <template v-if="pickedModel"><strong>{{ recipient }}</strong> ({{ pickedModel.label }})</template>
         <template v-else>the provider of the model you pick</template>. The widget itself does not see the chat.
       </p>
@@ -178,6 +238,9 @@ onMounted(async () => {
       </div>
       <ol v-else ref="messages" class="chat-lines" aria-label="Conversation" aria-live="polite" @scroll="onScroll">
         <li v-for="(line, index) in chat.lines" :key="index" :class="`chat-line chat-line--${line.role}`">
+          <div v-if="line.images?.length" class="chat-images">
+            <img v-for="(image, imageIndex) in line.images" :key="imageIndex" :src="imageSrc(image)" :alt="image.name" />
+          </div>
           <p v-if="line.text" class="chat-text">{{ line.text }}</p>
           <p v-if="chat.busy && index === chat.lines.length - 1 && !line.text" class="chat-status" role="status">
             <span class="chat-spinner" aria-hidden="true" />
@@ -192,28 +255,42 @@ onMounted(async () => {
       <div v-if="chat.error" class="chat-error" role="alert">
         <p>{{ chat.error }}</p>
         <div class="chat-error-actions">
-          <button class="chat-button" type="button" :disabled="chat.busy" @click="send(lastQuestion)">Try again</button>
+          <button v-if="lastQuestion" class="chat-button" type="button" :disabled="chat.busy || readingImages" @click="send(lastQuestion.text, lastQuestion.images ?? [])">Try again</button>
           <button class="chat-button" type="button" @click="emit('revoke')">Choose another model</button>
         </div>
       </div>
       <form class="chat-composer" @submit.prevent="send()">
+        <div v-if="attachments.length" class="chat-images chat-images--draft" aria-label="Attached images">
+          <div v-for="(image, index) in attachments" :key="index" class="chat-image">
+            <img :src="imageSrc(image)" :alt="image.name" />
+            <button class="chat-action chat-image-remove" type="button" :disabled="readingImages" :aria-label="`Remove ${image.name}`" v-tip="`Remove ${image.name}`" @click="attachments.splice(index, 1)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+            </button>
+          </div>
+        </div>
+        <p v-if="attachmentError" class="chat-attachment-error" role="alert">{{ attachmentError }}</p>
+        <input ref="fileInput" type="file" :accept="CHAT_IMAGE_TYPES.join(',')" multiple hidden aria-label="Choose images" @change="onFilePicked" />
         <div class="chat-input">
+          <button class="chat-action" type="button" :disabled="!supportsImages || readingImages || attachments.length >= MAX_CHAT_IMAGES" aria-label="Attach images" v-tip="supportsImages ? 'Attach images (up to 6, 4 MB each)' : 'This model does not support images'" @click="fileInput?.click()">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.5" /><path d="m21 15-5-5L5 21M12 14l-3-3-6 6" /></svg>
+          </button>
           <textarea
             ref="input"
             v-model="draft"
             rows="2"
             placeholder="Ask about this data"
             aria-label="Question"
+            @paste="onPaste"
             @keydown.enter.exact="if (!$event.isComposing) { $event.preventDefault(); send(); }"
           />
           <button v-if="chat.busy" class="chat-send chat-send--stop" type="button" aria-label="Stop answer" v-tip="'Stop answer'" @click="stopWidgetChat(instance.instanceId)">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
           </button>
-          <button v-else class="chat-send" type="submit" :disabled="!draft.trim()" aria-label="Send question" v-tip="'Send question'">
+          <button v-else class="chat-send" type="submit" :disabled="readingImages || (!draft.trim() && !attachments.length)" aria-label="Send question" v-tip="'Send question'">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg>
           </button>
         </div>
-        <span class="chat-hint">Enter to send · Shift+Enter for a new line</span>
+        <span class="chat-hint" role="status">{{ readingImages ? "Reading images…" : "Enter to send · Shift+Enter for a new line" }}</span>
       </form>
     </template>
   </section>
@@ -439,6 +516,39 @@ svg {
   padding: 12px 16px 14px;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
+}
+.chat-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.chat-images img {
+  display: block;
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: var(--fill);
+}
+.chat-images--draft {
+  max-height: 160px;
+  overflow-y: auto;
+}
+.chat-image { position: relative; }
+.chat-image-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 24px;
+  height: 24px;
+  background: rgb(var(--surface-bg-rgb));
+  color: var(--text);
+}
+.chat-attachment-error {
+  margin: 0 0 8px;
+  color: rgb(var(--danger-rgb, 220, 38, 38));
+  font-size: 12px;
 }
 .chat-input {
   display: flex;

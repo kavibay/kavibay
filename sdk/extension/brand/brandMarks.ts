@@ -28,6 +28,7 @@ export type BrandId =
   | "tmdb"
   | "anthropic"
   | "openai"
+  | "deepseek"
   | "cloudflare";
 
 const MARKS: Readonly<Record<string, BrandId>> = {
@@ -57,12 +58,14 @@ const MARKS: Readonly<Record<string, BrandId>> = {
   googlecalendaroauth2: "google",
   anthropicapi: "anthropic",
   openaiapi: "openai",
+  deepseekapi: "deepseek",
   cloudflareworkersai: "cloudflare",
 
   // LLM provider ids (settings/ai): the AI panel names a provider before, or
   // without, the model catalog that links it to a credential type.
   anthropic: "anthropic",
   openai: "openai",
+  deepseek: "deepseek",
   cloudflare: "cloudflare",
 };
 

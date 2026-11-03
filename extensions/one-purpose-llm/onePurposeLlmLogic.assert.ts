@@ -178,6 +178,7 @@ function model(id: string, provider: string, configured: boolean): LlmModelOptio
 // Provider ids are the host's; the labels are ours.
 {
   eq(providerLabel("anthropic"), "Anthropic", "known provider is labelled");
+  eq(providerLabel("deepseek"), "DeepSeek", "DeepSeek is labelled");
   eq(providerLabel("cloudflare"), "Cloudflare Workers AI", "known provider is labelled");
   eq(providerLabel("brand-new"), "brand-new", "an unknown provider shows its id");
 }

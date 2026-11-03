@@ -116,7 +116,7 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
       {
         id: "ai",
         label: "AI",
-        keywords: ["providers", "models", "prompt", "openai", "anthropic", "claude"],
+        keywords: ["providers", "models", "prompt", "openai", "anthropic", "deepseek", "claude"],
       },
       {
         id: "credentials",

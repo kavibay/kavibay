@@ -23,10 +23,9 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// the non-streaming envelope — above roughly this, the request risks a timeout.
 const MAX_TOKENS: u32 = 16000;
 
-/// Output ceiling for Anthropic, which is streamed. Thinking and the package
-/// share it, and the models that think by default can spend most of 16K before
-/// the first file.
-const ANTHROPIC_MAX_TOKENS: u32 = 64000;
+/// Output ceiling for Anthropic and DeepSeek. Thinking and the package share
+/// it, and thinking models can spend most of 16K before the first file.
+const AUTHORING_MAX_TOKENS: u32 = 64000;
 
 /// One image attached to a turn.
 #[derive(Debug, Clone, Deserialize)]
@@ -125,6 +124,12 @@ pub async fn complete(
     };
 
     let provider = model.provider;
+    if provider == LlmProvider::Deepseek
+        && !model.capabilities.iter().any(|cap| cap == "vision")
+        && messages.iter().any(|message| !message.images.is_empty())
+    {
+        return Err("images_not_supported".into());
+    }
     let mut turns = normalize_turns(messages, provider)?;
     if provider == LlmProvider::Anthropic {
         mark_cache_breakpoint(&mut turns);
@@ -146,7 +151,7 @@ pub async fn complete(
             "https://api.anthropic.com/v1/messages",
             json!({
                 "model": model.api_id,
-                "max_tokens": ANTHROPIC_MAX_TOKENS,
+                "max_tokens": AUTHORING_MAX_TOKENS,
                 "stream": true,
                 // A block rather than a bare string, so it can carry a cache
                 // breakpoint. See `mark_cache_breakpoint` for why this is the
@@ -175,6 +180,10 @@ pub async fn complete(
                 }),
             )
         }
+        LlmProvider::Deepseek => (
+            "https://api.deepseek.com/chat/completions",
+            deepseek_body(&model.api_id, system, turns),
+        ),
         // Unreachable in practice — `authoring` is false for every Workers AI
         // model — but an error beats a panic if that list ever changes.
         LlmProvider::Cloudflare => return Err("model_not_for_authoring".into()),
@@ -200,7 +209,7 @@ pub async fn complete(
             LlmProvider::Anthropic => {
                 body["output_config"] = json!({ "effort": level });
             }
-            LlmProvider::Openai => {
+            LlmProvider::Openai | LlmProvider::Deepseek => {
                 body["reasoning_effort"] = json!(level);
             }
             LlmProvider::Cloudflare => {}
@@ -233,7 +242,7 @@ pub async fn complete(
 
     let text = match provider {
         LlmProvider::Anthropic => anthropic_text(&payload)?,
-        LlmProvider::Openai => openai_text(&payload)?,
+        LlmProvider::Openai | LlmProvider::Deepseek => openai_text(&payload)?,
         LlmProvider::Cloudflare => return Err("model_not_for_authoring".into()),
     };
 
@@ -243,6 +252,51 @@ pub async fn complete(
         model: model.api_id.clone(),
         usage: usage_of(&payload, provider),
     })
+}
+
+fn deepseek_body(model: &str, system: &str, turns: Vec<Value>) -> Value {
+    let mut messages = vec![json!({ "role": "system", "content": system })];
+    messages.extend(turns);
+    json!({
+        "model": model,
+        "max_tokens": AUTHORING_MAX_TOKENS,
+        "messages": messages,
+    })
+}
+
+#[cfg(test)]
+mod deepseek_tests {
+    use super::*;
+
+    #[test]
+    fn wizard_uses_deepseek_fields_and_reads_its_cached_usage() {
+        let body = deepseek_body(
+            "deepseek-flash",
+            "Write a widget",
+            vec![json!({"role":"user","content":"Clock"})],
+        );
+        assert_eq!(body["model"], "deepseek-flash");
+        assert_eq!(body["max_tokens"], AUTHORING_MAX_TOKENS);
+        assert_eq!(body["messages"][0]["role"], "system");
+        assert_eq!(body["messages"][1]["content"], "Clock");
+        assert!(body.get("prompt_cache_key").is_none());
+        assert!(body.get("max_completion_tokens").is_none());
+        let payload = json!({"choices":[{"message":{"content":"Done."},"finish_reason":"stop"}],"usage":{"prompt_tokens":1500,"prompt_cache_hit_tokens":1000,"completion_tokens":200}});
+        assert_eq!(openai_text(&payload).unwrap(), "Done.");
+        let usage = usage_of(&payload, LlmProvider::Deepseek);
+        assert_eq!(
+            (usage.input, usage.cached, usage.cache_write, usage.output),
+            (500, 1000, 0, 200)
+        );
+        assert_eq!(
+            usage_of(
+                &json!({"usage":{"prompt_tokens":1,"prompt_cache_hit_tokens":2}}),
+                LlmProvider::Deepseek
+            )
+            .input,
+            0
+        );
+    }
 }
 
 /// Marks the end of the conversation as a cache breakpoint.
@@ -315,6 +369,15 @@ fn usage_of(payload: &Value, provider: LlmProvider) -> WizardUsage {
             cache_write: count(usage.get("cache_creation_input_tokens")),
             output: count(usage.get("output_tokens")),
         },
+        LlmProvider::Deepseek => {
+            let cached = count(usage.get("prompt_cache_hit_tokens"));
+            WizardUsage {
+                input: count(usage.get("prompt_tokens")).saturating_sub(cached),
+                cached,
+                cache_write: 0,
+                output: count(usage.get("completion_tokens")),
+            }
+        }
         LlmProvider::Openai | LlmProvider::Cloudflare => {
             let details = usage.get("prompt_tokens_details");
             let cached = count(details.and_then(|d| d.get("cached_tokens")));
@@ -430,7 +493,7 @@ fn image_content(
                     "data": image.data,
                 },
             }),
-            LlmProvider::Openai => json!({
+            LlmProvider::Openai | LlmProvider::Deepseek => json!({
                 "type": "image_url",
                 "image_url": {
                     "url": format!("data:{};base64,{}", image.media_type, image.data),

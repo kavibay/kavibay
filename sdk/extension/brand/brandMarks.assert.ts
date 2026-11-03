@@ -35,8 +35,9 @@ assert(brandMarkFor("googleCalendarOAuth2") === "google", "google credential typ
 assert(brandMarkFor("kavibay.weather/weather") === "open-meteo", "weather mark");
 assert(brandMarkFor("anthropicApi") === "anthropic", "anthropic credential type");
 assert(brandMarkFor("openaiApi") === "openai", "openai credential type");
+assert(brandMarkFor("deepseekApi") === "deepseek", "deepseek credential type");
 assert(brandMarkFor("cloudflareWorkersAi") === "cloudflare", "cloudflare credential type");
-for (const provider of ["anthropic", "openai", "cloudflare"]) {
+for (const provider of ["anthropic", "openai", "deepseek", "cloudflare"]) {
   assert(brandMarkFor(provider) === provider, `${provider} LLM provider id`);
 }
 assert(brandMarkFor(undefined) === undefined, "undefined key");

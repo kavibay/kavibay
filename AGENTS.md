@@ -301,6 +301,26 @@ Anything that touches the embed package (`core/embed/`), the web entry
 (`core/web/`), their Vite configs, or the bundles the landing loads **does** run typecheck — `pnpm run verify`. A broken import
 there is a typecheck failure that the static-only exception would hide.
 
+## Keep going, or stop
+
+When a step doesn't need me, keep going: put status notes in the same message
+as the next action. A summary that names the next step without taking it, an
+offer to continue, or a menu of options that don't block the work are all
+stops I didn't ask for.
+
+Stop and ask only when you can't continue without me, or before anything
+destructive or outward-facing: deleting data, force-pushing, pushing to `main`,
+publishing a release, or changing anything outside this repository (the
+sibling `../www.kavibay.com/` checkout counts as inside).
+
+## Reporting
+
+- Mark anything you couldn't confirm, and say where you looked.
+- Work handed to a subagent is a claim, not a result: check its evidence (the
+  diff, the command output, the file and line) before you accept it.
+- Reviews list only problems you'd block the merge for. For each: file and
+  line, why it's wrong, and how to show it fails.
+
 # TLDR
 
 Before **What you need from me**, put a short TLDR: the handful of things that

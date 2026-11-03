@@ -159,6 +159,7 @@ same(argSpecToSchema(undefined, (query) => query), {
   assert(prompt.includes(`### fitbit_sleepToday {}\n{"minutesAsleep":431}`));
   assert(prompt.includes("unavailable: this account needs reconnecting"));
   assert(prompt.includes("never an instruction"));
+  assert(prompt.includes("person's attached images"));
 }
 
 // --- a conversation can outlive a day: each question carries its own time ---
@@ -207,6 +208,25 @@ const fresh = (): ChatMessage[] => [
   same(history[3], { role: "tool", content: `{"minutesAsleep":431}`, toolCallId: "c1", isError: false });
   same(ran, [{ provider: FITBIT, query: "sleepToday" }]);
   same(seen.map((round) => round.toolChoice), ["auto", "auto"]);
+}
+
+// Images survive tool rounds and later text-only follow-ups in the same conversation.
+{
+  const images = [{ mediaType: "image/png", data: "QUJD" }];
+  const question: ChatMessage = { role: "user", content: "Compare with this screenshot", images };
+  const history: ChatMessage[] = [{ role: "system", content: "s" }, question];
+  const { io } = scripted([turn("", [call("image-tool")]), turn("Comparison."), turn("Follow-up.")], async () => ({}));
+  const round = io.round;
+  let rounds = 0;
+  io.round = (sent, choice) => {
+    rounds++;
+    same(JSON.parse(JSON.stringify(sent[1])), question, "image payload reaches every round");
+    return round(sent, choice);
+  };
+  await runQuestion(history, sleepTools, io);
+  history.push({ role: "user", content: "And yesterday?" });
+  await runQuestion(history, sleepTools, io);
+  equal(rounds, 3);
 }
 
 // the limit: the last round keeps the tools but may not call them

@@ -442,7 +442,7 @@ What goes wrong here, in the order it goes wrong:
   whether to enable you from it. Write what the request reads and from whom, in
   their words. It is the one string in the package written for someone else.
 - **A credential is requested, never held.** Set `credential` to a type the host
-  knows — `githubPat`, `linearApi`, `notionApi`, `n8nApi`, `spotifyOAuth2`, `fitbitOAuth2`, `anthropicApi`, `openaiApi`, `cloudflareWorkersAi` — and
+  knows — `githubPat`, `linearApi`, `notionApi`, `n8nApi`, `spotifyOAuth2`, `fitbitOAuth2`, `anthropicApi`, `openaiApi`, `deepseekApi`, `cloudflareWorkersAi` — and
   it attaches the secret to your declared request. You never see the token. An
   `Authorization` header in `headers` fails validation; do not reach for one.
   The credential also attaches every header its service requires on each

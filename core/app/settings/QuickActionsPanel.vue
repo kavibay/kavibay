@@ -249,7 +249,7 @@ onUnmounted(() => {
         <span class="quick-empty-copy">
           <span class="quick-empty-title">No AI provider set up</span>
           <span class="quick-empty-text">
-            Quick actions run on a model from Anthropic, OpenAI or Cloudflare. Add a key
+            Quick actions run on a model from Anthropic, OpenAI, DeepSeek or Cloudflare. Add a key
             for one of them in Settings → AI, then pick its model here.
           </span>
         </span>

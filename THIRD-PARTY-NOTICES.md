@@ -97,6 +97,7 @@ of them is used as this app's own identity.
 - Brave Search — Brave Software, Inc. — https://brave.com/favicon.ico
 - Bing — Microsoft Corporation — https://www.bing.com/favicon.ico
 - Cloudflare — Cloudflare, Inc. — https://www.cloudflare.com
+- DeepSeek — user-supplied SVG — https://www.deepseek.com
 - DuckDuckGo — Duck Duck Go, Inc. — https://duckduckgo.com/press
 - Ecosia — Ecosia GmbH — https://www.ecosia.org/favicon.ico
 - GitHub — GitHub, Inc. — https://github.com/logos
