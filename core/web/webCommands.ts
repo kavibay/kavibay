@@ -105,6 +105,8 @@ export const ANSWERS: Record<string, (args: Args) => unknown> = {
 };
 
 export const NO_OPS = new Set([
+  // Dev-only stopwatch for the cockpit opening; Rust prints, the page has no terminal.
+  "open_timing_report",
   "web_storage_save",
   "settings_save_sections",
   "onboarding_preferences_save",

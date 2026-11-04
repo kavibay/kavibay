@@ -202,6 +202,7 @@ thread_local! {
 fn feed(event: KeyEvent) {
     let tap = DETECTOR.with(|detector| detector.borrow_mut().observe(event, Instant::now()));
     if tap == Tap::Double {
+        crate::open_timing::mark_trigger();
         toggle_cockpit_soon();
     }
 }

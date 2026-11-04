@@ -160,6 +160,7 @@ import {
   observeCtrlTap,
   type CtrlTapState,
 } from "./ctrlDoubleTap";
+import { beginOpenTiming, markOpenTiming } from "./openTiming";
 import {
   matchWidgetCloseKey,
   resolveWidgetCloseTarget,
@@ -2409,12 +2410,19 @@ onMounted(async () => {
   // hotkey path in particular emits this right after opening, which would
   // otherwise undo the saving in `onPaletteHotkey`.
   unlistenPaletteShow = await listen("palette:show", () => {
+    markOpenTiming("palette-show");
     void openCockpit(true);
   });
-  unlistenPaletteHotkey = await listen<{ revealed?: boolean; trigger?: CockpitTrigger }>(
+  unlistenPaletteHotkey = await listen<{
+    revealed?: boolean;
+    trigger?: CockpitTrigger;
+    timingOriginMs?: number;
+  }>(
     "palette:hotkey",
     (event) => {
       lastRustHotkeyAt = Date.now();
+      // Dev builds only: Rust sends the origin when it measured this opening.
+      const timing = beginOpenTiming(event.payload?.timingOriginMs);
       const revealed = event.payload?.revealed === true;
       // The setup card asks for this very gesture to start the tour; hiding
       // the window would take the card away mid-question.
@@ -2423,6 +2431,7 @@ onMounted(async () => {
         return;
       }
       onPaletteHotkey(revealed);
+      timing.afterHostHandled();
       // The tour's hotkey step is passed here and nowhere else: this is the only
       // path on which Rust reports *which* gesture brought a hidden window back.
       onboarding.notifyCockpitRevealed(event.payload?.trigger ?? "app", revealed);
