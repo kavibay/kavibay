@@ -176,29 +176,9 @@ for (const folder of folders) {
     continue;
   }
 
-  if (!existsSync(join(dir, "index.ts"))) at("no index.ts (the host globs index.ts to discover it)");
-
-  if (manifest.id !== folder) {
-    at(`manifest.id is "${manifest.id}" but the folder is "${folder}" — the host matches them by name, so rename one to match the other`);
-  }
-  if (seenIds.has(manifest.id)) at(`duplicate id, also used by extensions/${seenIds.get(manifest.id)}`);
-  else seenIds.set(manifest.id, folder);
-
-  for (const field of ["name", "description", "version"]) {
-    if (typeof manifest[field] !== "string" || manifest[field].trim() === "") {
-      at(`manifest.${field} is required and must be a non-empty string`);
-    }
-  }
-
-  const ui = manifest.ui ?? {};
-  const isNumberPair = (value, keys) =>
-    value && typeof value === "object" && keys.every((key) => typeof value[key] === "number");
-  if (!isNumberPair(ui.defaultSize, ["w", "h"])) at("manifest.ui.defaultSize { w, h } is required (CSS px)");
-  if (!isNumberPair(ui.defaultOffset, ["x", "y"])) at("manifest.ui.defaultOffset { x, y } is required");
-
-  if (manifest.icon && !existsSync(join(dir, manifest.icon))) {
-    at(`manifest.icon points at "${manifest.icon}", which does not exist`);
-  }
+  // The legacy `index.ts` loader is gone: a manifest without `format: "contract"`
+  // would load nothing and the widget would silently be missing from the palette.
+  at('manifest.format is not "contract" — only contract extensions load; see docs/extension-host.md');
 }
 
 if (problems.length > 0) {

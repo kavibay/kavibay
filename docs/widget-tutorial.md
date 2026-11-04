@@ -1,5 +1,11 @@
 # Write your first widget
 
+> **Outdated.** This walkthrough still uses the legacy `manifest.json` +
+> `index.ts` format, whose loader has been removed — a widget built from it
+> will not load, and `pnpm run verify` will say so. Until it is rewritten,
+> follow [extension-host.md](extension-host.md) and copy
+> `extensions/calculator/`.
+
 Hello world in three sizes. Pick the smallest tier that fits — going up a tier
 later is cheap, and most widgets never leave **S**.
 

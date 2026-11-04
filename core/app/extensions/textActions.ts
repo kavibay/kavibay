@@ -1,9 +1,9 @@
 /**
  * Selection quick actions, discovered from manifests only.
  *
- * Deliberately *not* built on `loadExtensions.ts`: that glob is eager and pulls
- * every extension's `index.ts` — and with it every widget component, composable
- * and module-level timer — into whatever bundle imports it. The quick-action
+ * Deliberately *not* built on `loadExtensions.ts`: that registry is eager and
+ * pulls every extension definition — and with it composables and module-level
+ * timers — into whatever bundle imports it. The quick-action
  * popup is a second, short-lived window that shows a five-row menu; booting the
  * whole extension catalog inside it would be both heavy and wrong (module state
  * would exist twice, once per webview).
@@ -40,16 +40,9 @@ const manifestModules = import.meta.glob("/extensions/*/manifest.json", {
 }) as Record<string, unknown>;
 
 /** Lazy: each value is an `() => import(...)` that Vite code-splits. */
-type TextActionModule = Pick<
-  ExtensionModule,
-  "textActions" | "dynamicTextActionHandler" | "dynamicTextActions" | "isTextActionAvailable"
->;
+type TextActionModule = Pick<ExtensionModule, "textActions">;
 
-const extensionModules = import.meta.glob("/extensions/*/index.ts", {
-  import: "default",
-}) as Record<string, () => Promise<TextActionModule>>;
-/** Contract extensions keep headless selection handlers out of `index.ts`. */
-const contractTextActionModules = import.meta.glob("/extensions/*/textActions.ts", {
+const textActionModules = import.meta.glob("/extensions/*/textActions.ts", {
   import: "default",
 }) as Record<string, () => Promise<TextActionModule>>;
 
@@ -61,44 +54,9 @@ const textActions: ResolvedTextAction[] = sortTextActions(
   }),
 );
 
-/** Folders whose manifest explicitly opts in to runtime-created menu rows. */
-const dynamicTextActionFolders = Object.entries(manifestModules).flatMap(([path, manifest]) => {
-  const folder = folderFromManifestPath(path);
-  if (!folder || !manifest || typeof manifest !== "object") return [];
-  return (manifest as { dynamicTextActions?: unknown }).dynamicTextActions === true ? [folder] : [];
-});
-
-/** Every quick action, including user-defined rows from opted-in extensions. */
+/** Every quick action the manifests declare. */
 export async function listTextActions(): Promise<ResolvedTextAction[]> {
-  const dynamic = await Promise.all(
-    dynamicTextActionFolders.map(async (folder) => {
-      try {
-        const mod = await extensionModules[`/extensions/${folder}/index.ts`]?.();
-        const rows = mod?.dynamicTextActions?.() ?? [];
-        return {
-          folder,
-          rows: normalizeTextActions(folder, { textActions: rows }),
-          isAvailable: mod?.isTextActionAvailable,
-        };
-      } catch (error) {
-        console.warn(`[kavibay] Could not load dynamic text actions for "${folder}":`, error);
-        return { folder, rows: [], isAvailable: undefined };
-      }
-    }),
-  );
-  const availability = new Map(
-    dynamic.map(({ folder, isAvailable }) => [folder, isAvailable] as const),
-  );
-  const seen = new Set(textActions.map((action) => `${action.extensionId}/${action.actionId}`));
-  return sortTextActions([
-    ...textActions,
-    ...dynamic.flatMap(({ rows }) => rows).filter((action) => {
-      const key = `${action.extensionId}/${action.actionId}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    }),
-  ]).filter((action) => availability.get(action.extensionId)?.(action.actionId) !== false);
+  return textActions;
 }
 
 /**
@@ -114,27 +72,18 @@ export async function runTextAction(
   signal: AbortSignal,
   onChunk?: (text: string) => void,
 ): Promise<string> {
-  const load =
-    contractTextActionModules[`/extensions/${action.extensionId}/textActions.ts`] ??
-    extensionModules[`/extensions/${action.extensionId}/index.ts`];
+  const load = textActionModules[`/extensions/${action.extensionId}/textActions.ts`];
   if (!load) {
     throw new Error(`Extension "${action.extensionId}" has no text-action handler`);
   }
   const mod = await load();
   const handler = mod?.textActions?.[action.actionId];
-  const isStatic = typeof handler === "function";
-  const ctx = { text, signal, onChunk, llm: quickActionLlm };
-  const result = isStatic
-    ? await handler(ctx)
-    : await mod?.dynamicTextActionHandler?.(action.actionId, ctx);
+  if (typeof handler !== "function") {
+    throw new Error(`Extension "${action.extensionId}" declares "${action.actionId}" but has no handler`);
+  }
+  const result = await handler({ text, signal, onChunk, llm: quickActionLlm });
   if (typeof result !== "string" || !result.trim()) {
-    throw new Error(
-      isStatic
-        ? "The model returned nothing"
-        : mod?.dynamicTextActionHandler
-          ? "This template is no longer available"
-          : `Extension "${action.extensionId}" declares "${action.actionId}" but has no handler`,
-    );
+    throw new Error("The model returned nothing");
   }
   return result;
 }
