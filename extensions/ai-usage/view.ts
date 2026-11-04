@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
+import { defineAsyncComponent } from "vue";
 import type { ExtensionViews } from "@sdk/contract/sdk-vue";
 import { ChartLineIcon } from "@sdk/icons";
-import AiUsageView from "./AiUsageWidget.vue";
+
+const AiUsageView = defineAsyncComponent(() => import("./AiUsageWidget.vue"));
 
 const views: ExtensionViews = {
   "ai-usage": { view: AiUsageView, icon: ChartLineIcon },

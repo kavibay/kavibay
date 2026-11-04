@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
+import { defineAsyncComponent } from "vue";
 import type { ExtensionViews } from "@sdk/contract/sdk-vue";
 import { CloudSunRainIcon } from "@sdk/icons";
-import WeatherView from "./widgets/WeatherWidget.vue";
+
+const WeatherView = defineAsyncComponent(() => import("./widgets/WeatherWidget.vue"));
 
 const views: ExtensionViews = {
   weather: { view: WeatherView, icon: CloudSunRainIcon },

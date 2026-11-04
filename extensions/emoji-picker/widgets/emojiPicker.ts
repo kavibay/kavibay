@@ -12,7 +12,7 @@ import {
   normalizeRecent,
   pushRecent,
   type EmojiPickerStoredState,
-} from "../emojiPickerLogic";
+} from "../emojiRecent";
 
 export const EMOJI_PICKER_STATE_KEY = "state";
 

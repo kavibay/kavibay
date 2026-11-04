@@ -107,11 +107,10 @@ const definitionModules = import.meta.glob("/extensions/*/extension.ts", {
 
 /**
  * Eager, like the definitions: `widgetViews` is read synchronously when the gate
- * resolves, and this is the same handful of components the host imported
- * statically before. `/extensions/*` + `view.ts` is also why this is a named
- * file rather than a glob over `*.vue` — the latter would eagerly pull in every
- * SFC of all 29 old extensions, which is precisely the boot-path cost the old
- * loader's README glob was made lazy to avoid.
+ * resolves. The components inside are not — each `view.ts` wraps its SFCs in
+ * `defineAsyncComponent`, so a widget's code loads when a card first mounts, not
+ * at start-up in every window. `/extensions/*` + `view.ts` is also why this is a
+ * named file rather than a glob over `*.vue`, which would pull in every SFC.
  */
 const viewModules = import.meta.glob("/extensions/*/view.ts", {
   eager: true,
