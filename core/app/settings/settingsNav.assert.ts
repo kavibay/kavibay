@@ -2,10 +2,12 @@ import {
   filterSettingsNav,
   flattenNavGroups,
   matchesNavEntry,
-  SETTINGS_NAV_GROUPS,
+  settingsNavGroups,
   stepNavSelection,
   type SettingsNavGroup,
 } from "./settingsNav";
+
+const SETTINGS_NAV_GROUPS = settingsNavGroups();
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);

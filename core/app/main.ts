@@ -1,12 +1,14 @@
 import { createApp } from "vue";
 import "./styles.css";
 import { hydrateDurableStorage } from "./system/durableStorage";
+import { initLocale } from "./i18n/i18n";
 import { widgetWindowType } from "./host/widgetWindow";
 import { vTip } from "./system/floatingTip";
 import { suppressNativeContextMenu } from "./system/nativeContextMenu";
 import { installOverlayScrollbars } from "./system/overlayScroll";
 
 suppressNativeContextMenu();
+initLocale();
 
 // App.vue and useAppearance are imported *after* hydration on purpose: both pull
 // in composables that read localStorage while their module body runs

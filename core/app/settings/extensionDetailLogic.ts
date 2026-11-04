@@ -15,6 +15,7 @@
  *
  * Pure so `npx tsx` can assert it; the query itself is the caller's.
  */
+import { t } from "../i18n/i18n";
 import type { ConfigField, ConfigOption, ProviderStatus } from "@sdk/contract/sdk";
 
 /** The field a bulk add would fill, with the key it is stored under. */
@@ -80,15 +81,15 @@ export function pendingOptions(
  * table of vendor vocabulary.
  */
 export function bulkAddLabel(field: ConfigField): string {
-  const noun = field.label.trim() || "option";
-  return `Add one widget per ${noun.toLowerCase()}`;
+  const noun = field.label.trim() || t("extensions.bulkAdd.fallbackNoun");
+  return t("extensions.bulkAdd.label", { noun: noun.toLowerCase() });
 }
 
 /** Outcome copy for a finished bulk add; `null` when nothing was added. */
 export function bulkAddSummary(added: number, field: ConfigField): string {
-  const noun = (field.label.trim() || "option").toLowerCase();
-  if (added === 0) return `Every ${noun} already has a widget.`;
-  return `Added ${added} widget${added === 1 ? "" : "s"}.`;
+  const noun = (field.label.trim() || t("extensions.bulkAdd.fallbackNoun")).toLowerCase();
+  if (added === 0) return t("extensions.bulkAdd.none", { noun });
+  return t("extensions.bulkAdd.added", { count: added });
 }
 
 /**

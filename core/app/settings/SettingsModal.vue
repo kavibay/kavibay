@@ -42,7 +42,7 @@ import QuickActionsPanel from "./QuickActionsPanel.vue";
 import {
   filterSettingsNav,
   flattenNavGroups,
-  SETTINGS_NAV_GROUPS,
+  settingsNavGroups,
   stepNavSelection,
 } from "./settingsNav";
 import {
@@ -53,6 +53,7 @@ import {
   type SettingsGeometry,
 } from "./settingsGeometry";
 import { useSettingsModal, type SettingsSectionId } from "./useSettingsModal";
+import { t } from "../i18n/i18n";
 import { useAppearance } from "./useAppearance";
 
 const { open, section: activeSection, hide } = useSettingsModal();
@@ -79,7 +80,7 @@ const sectionIcons: Record<SettingsSectionId, Component> = {
   about: InfoIcon,
 };
 
-const navGroups = computed(() => filterSettingsNav(SETTINGS_NAV_GROUPS, navQuery.value));
+const navGroups = computed(() => filterSettingsNav(settingsNavGroups(), navQuery.value));
 
 const geo = reactive<SettingsGeometry>(resolveSettingsGeometry());
 /** Center at resize pointer-down — deltaOffset is relative to this baseline. */
@@ -287,7 +288,7 @@ onUnmounted(() => {
       data-interactive
       role="dialog"
       aria-modal="true"
-      aria-label="Settings"
+      :aria-label="t('settings.dialog')"
       :style="modalStyle"
       @pointerdown.stop
     >
@@ -305,7 +306,7 @@ onUnmounted(() => {
         class="settings-drag"
         data-interactive
         role="button"
-        aria-label="Move settings"
+        :aria-label="t('settings.move')"
         @pointerdown="onMovePointerDown"
       />
       <div class="settings-modal-inner">
@@ -317,10 +318,10 @@ onUnmounted(() => {
               v-model="navQuery"
               class="settings-search-input"
               type="text"
-              placeholder="Search settings…"
+              :placeholder="t('settings.search.placeholder')"
               autocomplete="off"
               spellcheck="false"
-              aria-label="Search settings"
+              :aria-label="t('settings.search.label')"
               @keydown="onSearchKeydown"
             />
           </div>
@@ -347,11 +348,11 @@ onUnmounted(() => {
             </button>
           </template>
           <p v-if="navGroups.length === 0" class="settings-nav-empty">
-            Nothing matches “{{ navQuery }}”.
+            {{ t("settings.search.empty", { query: navQuery }) }}
           </p>
         </aside>
         <section class="settings-content">
-          <DialogCloseButton class="settings-close" label="Close settings" @click="hide" />
+          <DialogCloseButton class="settings-close" :label="t('settings.close')" @click="hide" />
           <div class="settings-sticky" />
           <div v-if="stickyTargetReady" class="settings-body">
             <AppearancePanel v-if="activeSection === 'appearance'" />
