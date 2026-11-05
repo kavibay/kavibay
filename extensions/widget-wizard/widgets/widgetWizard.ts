@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { defineWidget, type WizardCapability, type WidgetContext } from "@sdk/contract/sdk";
-import { useWizardConversations } from "../useWizardConversations";
-import { formatWizardTranscript, wizardMcpContinuationPrompt } from "../widgetWizardLogic";
+import type { useWizardConversations } from "../useWizardConversations";
 
 export interface WidgetWizardModel {
   wizard: WizardCapability;
@@ -87,6 +86,10 @@ export const widgetWizardWidget = defineWidget<Record<string, never>>({
   component: {
     async setup(ctx: WidgetContext<Record<string, never>>): Promise<WidgetWizardModel> {
       if (!ctx.wizard) throw new Error("Widget Wizard capability unavailable");
+      // Imported here, not at the top: this definition loads at start-up, and
+      // the Wizard's logic is ~160 KB that only an open Wizard needs.
+      const [{ useWizardConversations }, { formatWizardTranscript, wizardMcpContinuationPrompt }] =
+        await Promise.all([import("../useWizardConversations"), import("../widgetWizardLogic")]);
       const conversations = useWizardConversations(ctx.wizard, ctx.data);
       await conversations.hydrate();
       return {

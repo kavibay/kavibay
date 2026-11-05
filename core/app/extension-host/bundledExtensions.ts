@@ -71,10 +71,14 @@ export interface BundledWidget {
    * Keeping the old id is what makes a replacement invisible: a placed tile
    * stores `typeId: "clock"` in the layout, so reusing that id resolves every
    * existing instance to the new widget with no layout migration and no lost
-   * desks. A widget without it is still a duplicate of a shipping one and
-   * stays out of a release build.
+   * desks. Without it the catalog id is the definition id.
    */
   replaces?: string;
+  /**
+   * Kept out of release builds (`manifest.widgets[name].devOnly`). Explicit, so
+   * a new widget ships by default and only an unfinished one is held back.
+   */
+  devOnly: boolean;
   catalog: ContractCatalogMetadata;
   /** Declared in the manifest, already paired with a handler in the definition. */
   actions: WidgetActionDeclaration[];
@@ -82,6 +86,13 @@ export interface BundledWidget {
   icon?: Component;
   menu?: Component;
   settings?: Component;
+  /**
+   * The extension's `README.md`, loaded on demand. A fact about the folder, not
+   * the widget — every widget of one extension gets the same loader. It sits
+   * here because `cockpit.ts` maps widgets one at a time and never sees the
+   * folder.
+   */
+  loadReadme?: () => Promise<string>;
 }
 
 export interface BundledExtension {
@@ -109,16 +120,26 @@ const definitionModules = import.meta.glob("/extensions/*/extension.ts", {
 
 /**
  * Eager, like the definitions: `widgetViews` is read synchronously when the gate
- * resolves, and this is the same handful of components the host imported
- * statically before. `/extensions/*` + `view.ts` is also why this is a named
- * file rather than a glob over `*.vue` — the latter would eagerly pull in every
- * SFC of all 29 old extensions, which is precisely the boot-path cost the old
- * loader's README glob was made lazy to avoid.
+ * resolves. The components inside are not — each `view.ts` wraps its SFCs in
+ * `defineAsyncComponent`, so a widget's code loads when a card first mounts, not
+ * at start-up in every window. `/extensions/*` + `view.ts` is also why this is a
+ * named file rather than a glob over `*.vue`, which would pull in every SFC.
  */
 const viewModules = import.meta.glob("/extensions/*/view.ts", {
   eager: true,
   import: "default",
 }) as Record<string, ExtensionViews>;
+
+/**
+ * The README the widget About dialog shows. The only lazy glob here, on
+ * purpose: nobody reads it at start-up, and eagerly it put one request per
+ * extension (~30) on the boot path. Lazily it is one fetch when the dialog
+ * opens.
+ */
+const readmeModules = import.meta.glob("/extensions/*/README.md", {
+  query: "?raw",
+  import: "default",
+}) as Record<string, () => Promise<string>>;
 
 /**
  * Each extension's translations, `i18n/<lang>.ts`. Eager: they are small, and
@@ -274,6 +295,7 @@ function loadAll(): BundledExtension[] {
       widgets.push({
         name,
         replaces: typeof entry.replaces === "string" ? entry.replaces : undefined,
+        devOnly: entry.devOnly === true,
         catalog: toCatalogMetadata(entry),
         actions: localizeActions(
           toActionDeclarations(
@@ -289,6 +311,7 @@ function loadAll(): BundledExtension[] {
         icon: widgetView(views, name)?.icon,
         menu: widgetView(views, name)?.menu,
         settings: widgetView(views, name)?.settings,
+        loadReadme: readmeModules[`/extensions/${folder}/README.md`],
       });
     }
 

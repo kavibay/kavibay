@@ -126,7 +126,7 @@ const SETTINGS_NAV: NavGroupDef[] = [
       {
         id: "ai",
         label: "settings.nav.ai",
-        keywords: ["providers", "models", "prompt", "openai", "anthropic", "deepseek", "claude"],
+        keywords: ["providers", "models", "prompt", "openai", "anthropic", "deepseek", "openrouter", "claude"],
       },
       {
         id: "credentials",

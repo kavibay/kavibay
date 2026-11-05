@@ -160,3 +160,13 @@ debug = false
 # RSA key generation (TV Remote pairing) takes tens of seconds unoptimized.
 [profile.dev.package.num-bigint-dig]
 opt-level = 3
+
+# Shipped binary: smaller and faster at the cost of a slower release build.
+# Whole-program LTO with one codegen unit lets the optimizer inline and drop
+# code across crates; `strip` removes symbols nobody reads (no crash reporter
+# symbolicates them). `panic` stays unwind on purpose — abort would also skip
+# Drop on a panicking thread.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

@@ -1,6 +1,8 @@
+import { defineAsyncComponent } from "vue";
 import type { ExtensionViews } from "@sdk/contract/sdk-vue";
 import { CalculatorIcon } from "@sdk/icons";
-import CalculatorView from "./widgets/CalculatorView.vue";
+
+const CalculatorView = defineAsyncComponent(() => import("./widgets/CalculatorView.vue"));
 
 const views: ExtensionViews = {
   calculator: { view: CalculatorView, icon: CalculatorIcon },

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
+import { defineAsyncComponent } from "vue";
 import type { ExtensionViews } from "@sdk/contract/sdk-vue";
 import { CpuIcon } from "@sdk/icons";
-import SystemInfoView from "./SystemInfoWidget.vue";
+
+const SystemInfoView = defineAsyncComponent(() => import("./SystemInfoWidget.vue"));
 
 const views: ExtensionViews = {
   "system-info": { view: SystemInfoView, icon: CpuIcon },

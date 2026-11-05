@@ -344,6 +344,40 @@
       "sourceUrl": "https://api-docs.deepseek.com/quick_start/pricing/"
     },
     {
+      "provider": "openrouter",
+      "vendor": "google",
+      "model": "Gemini 3.8 Flash",
+      "apiId": "google/gemini-3.8-flash",
+      "note": "Google's fast Gemini model, routed by OpenRouter",
+      "description": "Gemini 3.8 Flash through OpenRouter, billed to the OpenRouter account.",
+      "context": { "windowTokens": 1048576 },
+      "pricing": {
+        "currency": "USD", "unitTokens": 1000000,
+        "input": 0.75, "output": 3.75,
+        "note": "UNVERIFIED: id, price and context from a third-party listing (2026-11-04); OpenRouter was unreachable when this entry was written."
+      },
+      "capabilities": ["text", "streaming"],
+      "authoring": false,
+      "sourceUrl": "https://openrouter.ai/google/gemini-3.8-flash"
+    },
+    {
+      "provider": "openrouter",
+      "vendor": "qwen",
+      "model": "Qwen3.7 Flash",
+      "apiId": "qwen/qwen3.7-flash",
+      "note": "Very cheap Qwen model with a long context",
+      "description": "Alibaba's Qwen3.7 Flash through OpenRouter, for short transforms.",
+      "context": { "windowTokens": 1000000 },
+      "pricing": {
+        "currency": "USD", "unitTokens": 1000000,
+        "input": 0.03, "output": 0.13,
+        "note": "UNVERIFIED: id, price and context from a third-party listing (2026-11-04); OpenRouter was unreachable when this entry was written."
+      },
+      "capabilities": ["text", "streaming"],
+      "authoring": false,
+      "sourceUrl": "https://openrouter.ai/qwen/qwen3.7-flash"
+    },
+    {
       "provider": "cloudflare",
       "vendor": "meta",
       "model": "Llama 3.3 70B Instruct FP8 Fast",

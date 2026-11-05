@@ -41,7 +41,8 @@ pub struct TurnAssembler {
     tool_json: Vec<String>,
     /// OpenAI: answer text.
     text: String,
-    /// DeepSeek requires the complete reasoning history on subsequent tool rounds.
+    /// Reasoning the service wants echoed next round (DeepSeek's
+    /// `reasoning_content`); see `ChatCompletions::reasoning_echo`.
     reasoning: String,
     /// OpenAI: calls by stream index.
     calls: Vec<OpenAiCall>,
@@ -61,8 +62,12 @@ impl TurnAssembler {
 
     pub fn push(&mut self, item: &SseParseItem) {
         match item {
-            SseParseItem::DeepseekDelta(delta) => {
-                if let Some(reasoning) = delta["reasoning_content"].as_str() {
+            SseParseItem::ChatDelta(delta) => {
+                let echo = self
+                    .provider
+                    .chat_completions()
+                    .and_then(|chat| chat.reasoning_echo);
+                if let Some(reasoning) = echo.and_then(|field| delta[field].as_str()) {
                     self.reasoning.push_str(reasoning);
                 }
                 if let Some(text) = delta["content"].as_str() {
@@ -170,8 +175,14 @@ impl TurnAssembler {
             Value::String(self.text)
         };
         let mut assistant = json!({ "role": "assistant", "content": content });
-        if self.provider == LlmProvider::Deepseek {
-            assistant["reasoning_content"] = json!(self.reasoning);
+        // Sent even when empty: DeepSeek rejects a tool round whose assistant
+        // turn lacks the field, and a round may think nothing aloud.
+        if let Some(field) = self
+            .provider
+            .chat_completions()
+            .and_then(|chat| chat.reasoning_echo)
+        {
+            assistant[field] = json!(self.reasoning);
         }
         if !wire.is_empty() {
             assistant["tool_calls"] = Value::Array(wire);
@@ -333,6 +344,24 @@ mod tests {
             turn.assistant["tool_calls"][0]["function"]["arguments"],
             "{}"
         );
+    }
+
+    /// Only a service that requires its reasoning back gets the field: an
+    /// unknown `reasoning_content` on the next round is a 400 elsewhere.
+    #[test]
+    fn openrouter_round_carries_no_reasoning_echo() {
+        let turn = feed(
+            LlmProvider::Openrouter,
+            &[
+                r#"{"choices":[{"delta":{"reasoning":"Look up."}}]}"#,
+                r#"{"choices":[{"delta":{"content":"Looking.","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"weather_current","arguments":"{}"}}]}}]}"#,
+                "[DONE]",
+            ],
+        );
+        assert_eq!(turn.assistant["content"], "Looking.");
+        assert_eq!(turn.tool_calls[0].name, "weather_current");
+        assert!(turn.assistant.get("reasoning_content").is_none());
+        assert!(turn.assistant.get("reasoning").is_none());
     }
 
     #[test]

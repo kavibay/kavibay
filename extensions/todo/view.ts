@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
+import { defineAsyncComponent } from "vue";
 import type { ExtensionViews } from "@sdk/contract/sdk-vue";
 import { ListTodoIcon } from "@sdk/icons";
-import TodoMenu from "./widgets/TodoMenu.vue";
-import TodoView from "./widgets/TodoView.vue";
+
+const TodoMenu = defineAsyncComponent(() => import("./widgets/TodoMenu.vue"));
+const TodoView = defineAsyncComponent(() => import("./widgets/TodoView.vue"));
 
 const views: ExtensionViews = {
   todo: { view: TodoView, icon: ListTodoIcon, menu: TodoMenu },
