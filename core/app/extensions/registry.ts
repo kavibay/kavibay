@@ -18,7 +18,5 @@ export type {
   ActionParam,
   ExtensionAction,
   ExtensionActionContext,
-  ExtensionManifest,
-  ExtensionModule,
   RegisteredExtension,
 } from "@sdk";

@@ -411,9 +411,9 @@ Same split as palette actions: metadata in the manifest, the handler in a
 
 ```ts
 // extensions/<id>/textActions.ts
-import type { ExtensionModule } from "@sdk/types";
+import type { TextActionModule } from "@sdk/types";
 
-const textActions: Pick<ExtensionModule, "textActions"> = {
+const textActions: TextActionModule = {
   textActions: {
     translate: async ({ text, signal, llm }) => rewrite(TRANSLATE_PROMPT, text, signal, llm),
   },
