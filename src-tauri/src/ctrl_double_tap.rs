@@ -58,8 +58,8 @@ use std::time::{Duration, Instant};
 /// A tap is a quick press. Holding Ctrl longer is somebody reaching for a chord
 /// that never came — not half of a double tap.
 const MAX_TAP: Duration = Duration::from_millis(300);
-/// Allowed gap between the two presses. Windows' own double-click default is
-/// 500ms; two deliberate taps land well inside this.
+/// Allowed gap between the two presses, measured press to press. Windows' own
+/// double-click default is 500ms; two deliberate taps land well inside this.
 const MAX_GAP: Duration = Duration::from_millis(400);
 
 /// The keyboard events the rule depends on — all a hook has to report.
@@ -78,13 +78,23 @@ pub enum Tap {
     Double,
 }
 
-/// Two clean Ctrl taps in a row, with nothing typed in between.
+/// A clean Ctrl tap followed by a second Ctrl press, with nothing typed in
+/// between.
+///
+/// The toggle fires on the second *press*, not its release. Waiting for the
+/// release cost a whole key hold (roughly 80–150ms) before anything happened,
+/// and that was most of what made opening feel slow. The price is a narrow
+/// false positive: a tap on Ctrl and then Ctrl+C within [`MAX_GAP`] toggles,
+/// where it used to copy. That trade was taken deliberately.
 #[derive(Default)]
 pub struct CtrlTapDetector {
-    /// When the current Ctrl press began, while it can still become a tap.
+    /// When the current Ctrl press began, while it is held.
     pressed_at: Option<Instant>,
     /// When the previous clean tap began.
     first_tap_at: Option<Instant>,
+    /// The held press already fired. Its release is not a tap, or a single
+    /// tap right after a toggle would fire a second one.
+    spent: bool,
 }
 
 impl CtrlTapDetector {
@@ -101,11 +111,19 @@ impl CtrlTapDetector {
             KeyEvent::OtherDown => {
                 self.pressed_at = None;
                 self.first_tap_at = None;
+                self.spent = false;
             }
-            // Held keys repeat their down event; the first one is the press.
             KeyEvent::CtrlDown => {
-                if self.pressed_at.is_none() {
-                    self.pressed_at = Some(now);
+                // Held keys repeat their down event; the first one is the press.
+                if self.pressed_at.is_some() {
+                    return Tap::None;
+                }
+                self.pressed_at = Some(now);
+                if let Some(first) = self.first_tap_at.take() {
+                    if now.duration_since(first) <= MAX_GAP {
+                        self.spent = true;
+                        return Tap::Double;
+                    }
                 }
             }
             KeyEvent::CtrlUp => {
@@ -114,19 +132,16 @@ impl CtrlTapDetector {
                 let Some(pressed_at) = self.pressed_at.take() else {
                     return Tap::None;
                 };
+                if std::mem::take(&mut self.spent) {
+                    return Tap::None;
+                }
                 if now.duration_since(pressed_at) > MAX_TAP {
                     // A hold, so not a tap — and it separates whatever came
                     // before it from whatever comes next.
                     self.first_tap_at = None;
-                    return Tap::None;
-                }
-                match self.first_tap_at.take() {
-                    Some(first) if pressed_at.duration_since(first) <= MAX_GAP => {
-                        return Tap::Double
-                    }
-                    // Too slow to be the partner of the last tap, but a fine
-                    // first half for the next one.
-                    _ => self.first_tap_at = Some(pressed_at),
+                } else {
+                    // A clean tap: the first half of the next pair.
+                    self.first_tap_at = Some(pressed_at);
                 }
             }
         }
@@ -187,6 +202,7 @@ thread_local! {
 fn feed(event: KeyEvent) {
     let tap = DETECTOR.with(|detector| detector.borrow_mut().observe(event, Instant::now()));
     if tap == Tap::Double {
+        crate::open_timing::mark_trigger();
         toggle_cockpit_soon();
     }
 }
@@ -361,40 +377,45 @@ mod tests {
     const UP: KeyEvent = KeyEvent::CtrlUp;
     const OTHER: KeyEvent = KeyEvent::OtherDown;
 
-    /// Replays `(event, milliseconds since the start)` pairs and reports the
-    /// verdict on the last one.
-    fn replay(events: &[(KeyEvent, u64)]) -> Tap {
+    /// Replays `(event, milliseconds since the start)` pairs and returns the
+    /// times at which the toggle fired — so a test says *when*, not just
+    /// whether, which is the whole point of firing on the press.
+    fn fires(events: &[(KeyEvent, u64)]) -> Vec<u64> {
         let start = Instant::now();
         let mut detector = CtrlTapDetector::default();
-        let mut last = Tap::None;
-        for (event, at) in events {
-            last = detector.observe(*event, start + Duration::from_millis(*at));
-        }
-        last
+        events
+            .iter()
+            .filter(|(event, at)| {
+                detector.observe(*event, start + Duration::from_millis(*at)) == Tap::Double
+            })
+            .map(|(_, at)| *at)
+            .collect()
     }
 
+    const NEVER: [u64; 0] = [];
+
     #[test]
-    fn two_quick_taps_are_the_toggle() {
-        assert_eq!(
-            replay(&[(DOWN, 0), (UP, 60), (DOWN, 180), (UP, 240)]),
-            Tap::Double
-        );
+    fn two_quick_taps_toggle_on_the_second_press() {
+        assert_eq!(fires(&[(DOWN, 0), (UP, 60), (DOWN, 180), (UP, 240)]), [180]);
     }
 
     #[test]
     fn one_tap_does_nothing() {
-        assert_eq!(replay(&[(DOWN, 0), (UP, 60)]), Tap::None);
+        assert_eq!(fires(&[(DOWN, 0), (UP, 60)]), NEVER);
+    }
+
+    #[test]
+    fn the_gap_is_measured_press_to_press() {
+        assert_eq!(fires(&[(DOWN, 0), (UP, 60), (DOWN, 400)]), [400]);
+        assert_eq!(fires(&[(DOWN, 0), (UP, 60), (DOWN, 401)]), NEVER);
     }
 
     #[test]
     fn a_slow_second_tap_starts_over_instead_of_firing() {
-        assert_eq!(
-            replay(&[(DOWN, 0), (UP, 60), (DOWN, 900), (UP, 960)]),
-            Tap::None
-        );
+        assert_eq!(fires(&[(DOWN, 0), (UP, 60), (DOWN, 900), (UP, 960)]), NEVER);
         // ...and that late tap is a valid first half for the next pair.
         assert_eq!(
-            replay(&[
+            fires(&[
                 (DOWN, 0),
                 (UP, 60),
                 (DOWN, 900),
@@ -402,15 +423,69 @@ mod tests {
                 (DOWN, 1100),
                 (UP, 1160),
             ]),
-            Tap::Double
+            [1100]
         );
     }
 
     #[test]
     fn holding_ctrl_is_not_a_tap() {
         assert_eq!(
-            replay(&[(DOWN, 0), (UP, 500), (DOWN, 600), (UP, 660)]),
-            Tap::None
+            fires(&[(DOWN, 0), (UP, 500), (DOWN, 600), (UP, 660)]),
+            NEVER
+        );
+    }
+
+    #[test]
+    fn the_press_that_fired_is_not_half_of_the_next_pair() {
+        // Without this, a single tap right after the toggle would toggle back.
+        assert_eq!(
+            fires(&[
+                (DOWN, 0),
+                (UP, 60),
+                (DOWN, 180),
+                (UP, 240),
+                (DOWN, 300),
+                (UP, 360),
+            ]),
+            [180]
+        );
+        // Two fresh taps after it are a new pair, as they should be.
+        assert_eq!(
+            fires(&[
+                (DOWN, 0),
+                (UP, 60),
+                (DOWN, 180),
+                (UP, 240),
+                (DOWN, 300),
+                (UP, 360),
+                (DOWN, 420),
+            ]),
+            [180, 420]
+        );
+    }
+
+    #[test]
+    fn holding_the_second_press_fires_once() {
+        assert_eq!(
+            fires(&[
+                (DOWN, 0),
+                (UP, 60),
+                (DOWN, 180),
+                (DOWN, 700),
+                (DOWN, 730),
+                (UP, 900),
+            ]),
+            [180]
+        );
+    }
+
+    #[test]
+    fn a_tap_then_a_chord_toggles_by_design() {
+        // The accepted cost of firing on the press: the toggle has happened
+        // before the C arrives, so Ctrl, Ctrl+C in quick succession opens.
+        assert_eq!(
+            fires(&[(DOWN, 0), (UP, 60), (DOWN, 180), (OTHER, 200), (UP, 240)]),
+            [180]
         );
     }
 
@@ -418,7 +493,7 @@ mod tests {
     fn a_chord_is_never_half_a_double_tap() {
         // Ctrl+C twice in a row is copying, not a request for the cockpit.
         assert_eq!(
-            replay(&[
+            fires(&[
                 (DOWN, 0),
                 (OTHER, 20),
                 (UP, 60),
@@ -426,15 +501,15 @@ mod tests {
                 (OTHER, 200),
                 (UP, 240),
             ]),
-            Tap::None
+            NEVER
         );
     }
 
     #[test]
     fn typing_between_two_taps_breaks_the_chain() {
         assert_eq!(
-            replay(&[(DOWN, 0), (UP, 60), (OTHER, 100), (DOWN, 180), (UP, 240)]),
-            Tap::None
+            fires(&[(DOWN, 0), (UP, 60), (OTHER, 100), (DOWN, 180), (UP, 240)]),
+            NEVER
         );
     }
 
@@ -444,7 +519,7 @@ mod tests {
         // letting go of Ctrl afterwards must not count as half a double tap —
         // twice in a row least of all.
         assert_eq!(
-            replay(&[
+            fires(&[
                 (DOWN, 0),
                 (OTHER, 40),
                 (UP, 300),
@@ -452,7 +527,7 @@ mod tests {
                 (OTHER, 440),
                 (UP, 700),
             ]),
-            Tap::None
+            NEVER
         );
     }
 
@@ -461,7 +536,7 @@ mod tests {
         // A repeating down must not reset the clock, or a long hold would end
         // up looking like a tap.
         assert_eq!(
-            replay(&[
+            fires(&[
                 (DOWN, 0),
                 (DOWN, 200),
                 (DOWN, 400),
@@ -469,13 +544,13 @@ mod tests {
                 (DOWN, 600),
                 (UP, 660),
             ]),
-            Tap::None
+            NEVER
         );
     }
 
     #[test]
     fn a_stray_release_is_ignored() {
-        assert_eq!(replay(&[(UP, 0)]), Tap::None);
+        assert_eq!(fires(&[(UP, 0)]), NEVER);
     }
 
     // The macOS flag values below are what a real Mac reported (macOS 26):
@@ -509,13 +584,13 @@ mod tests {
     fn mac_the_recorded_double_tap_toggles() {
         // A real double tap on left Control, at the offsets the probe logged.
         assert_eq!(
-            replay(&[
+            fires(&[
                 (classify_flags_changed(59, 0x40101), 0),
                 (classify_flags_changed(59, 0x100), 67),
                 (classify_flags_changed(59, 0x40101), 146),
                 (classify_flags_changed(59, 0x100), 229),
             ]),
-            Tap::Double
+            [146]
         );
     }
 
@@ -524,14 +599,14 @@ mod tests {
         // Ctrl+A. The monitor never sees the A, but the key-down counter has
         // moved by the time Control comes up, and that reads as another key.
         assert_eq!(
-            replay(&[
+            fires(&[
                 (classify_flags_changed(59, 0x40101), 0),
                 (OTHER, 67),
                 (classify_flags_changed(59, 0x100), 67),
                 (classify_flags_changed(59, 0x40101), 146),
                 (classify_flags_changed(59, 0x100), 229),
             ]),
-            Tap::None
+            NEVER
         );
     }
 }

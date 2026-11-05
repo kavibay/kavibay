@@ -877,6 +877,12 @@ const widgetSearchIndex = computed(() =>
   ),
 );
 
+/** Shared idle result: same identity every time, so `results` watchers stay quiet. */
+const IDLE_RESULT_STATE: { rows: PaletteRow[]; hasOtherResults: boolean } = {
+  rows: [],
+  hasOtherResults: false,
+};
+
 const resultState = computed<{
   rows: PaletteRow[];
   hasOtherResults: boolean;
@@ -892,6 +898,20 @@ const resultState = computed<{
   // ArrowDown starts with the recent list; a typed query still ranks globally.
   if (recentOpen.value && query.value.trim().length === 0) {
     return { rows: resolveRecentRows(recentRuns.value), hasOtherResults: false };
+  }
+
+  // Idle palette (empty query, no overview): the answer is always "no rows".
+  // Returning one shared object instead of building it matters for typing in
+  // widgets: `widgetSearchIndex` reads every note's live text, and several
+  // watchers hang on `results`, so without this every keystroke in a note
+  // rebuilt the index and fired those watchers for a list nobody can see.
+  if (
+    query.value.trim().length === 0 &&
+    !widgetsOpen.value &&
+    pathCompletionRows.value.length === 0 &&
+    !(showHiddenApps.value && hiddenAppMatches.value.length > 0)
+  ) {
+    return IDLE_RESULT_STATE;
   }
 
   const { rows: widgetRowsWithNotes, searchTextFor } = widgetSearchIndex.value;

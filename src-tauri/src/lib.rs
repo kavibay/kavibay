@@ -17,6 +17,7 @@ mod installed_apps;
 mod llm;
 mod mcp;
 mod notifications;
+mod open_timing;
 mod palette_app_icons;
 mod paths;
 mod preview_capture;
@@ -112,6 +113,10 @@ fn cockpit_reveal_gesture(gesture: tauri::State<'_, RevealGesture>) -> Option<Co
 struct PaletteHotkeyPayload {
     revealed: bool,
     trigger: CockpitTrigger,
+    /// Dev builds only: the trigger on the wall clock, so the frontend can
+    /// report its stages of the opening (see `open_timing`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timing_origin_ms: Option<f64>,
 }
 
 /// Presentation aid controlled from the command palette, off by default.
@@ -194,6 +199,10 @@ fn toggle_cockpit(app: &tauri::AppHandle, force_cursor: bool, trigger: CockpitTr
         open_monitor_target(&window)
     };
 
+    // Taken on every toggle so a recorded trigger never leaks into the next
+    // one; only an opening keeps it (the slow path worth measuring).
+    let mut timing = open_timing::begin();
+
     // If we reveal a hidden window here, tell the frontend so it does
     // not treat the hotkey as "close" (stale cockpitOpen after hide).
     let mut revealed = false;
@@ -202,14 +211,38 @@ fn toggle_cockpit(app: &tauri::AppHandle, force_cursor: bool, trigger: CockpitTr
         // Show immediately, then place — waiting on two fits before
         // show made opening feel laggy on multi-DPI setups.
         let _ = window.show();
+        mark(&mut timing, "show");
         let _ = window.set_focus();
+        mark(&mut timing, "focus");
         let _ = fit_window_to_monitor(&window, target);
+        mark(&mut timing, "fit");
+    }
+    if !revealed {
+        timing = None;
     }
 
     // Single frontend entry: open cockpit or close (pinned may remain).
-    let _ = window.emit("palette:hotkey", PaletteHotkeyPayload { revealed, trigger });
+    let _ = window.emit(
+        "palette:hotkey",
+        PaletteHotkeyPayload {
+            revealed,
+            trigger,
+            timing_origin_ms: timing.as_ref().map(open_timing::OpenTrace::origin_ms),
+        },
+    );
+    if let Some(mut trace) = timing {
+        trace.mark("emit");
+        open_timing::await_frontend(trace);
+    }
     if let Some(label) = trigger.demo_label() {
         show_demo_hotkey(app, label);
+    }
+}
+
+/// Mark a stage of a measured opening; nothing when not measuring.
+fn mark(timing: &mut Option<open_timing::OpenTrace>, stage: &str) {
+    if let Some(trace) = timing {
+        trace.mark(stage);
     }
 }
 
@@ -650,6 +683,7 @@ pub fn run() {
             ai_usage::widget_ai_usage,
             ai_usage::widget_ai_usage_enable_claude,
             notifications::widget_notification_show,
+            open_timing::open_timing_report,
             system_info::widget_system_info,
             tv_remote::tv_remote_status,
             tv_remote::tv_remote_pair_start,

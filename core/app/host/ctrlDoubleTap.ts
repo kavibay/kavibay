@@ -27,29 +27,38 @@
 
 /** A tap is a quick press — holding Ctrl is reaching for a chord, not tapping. */
 const MAX_TAP_MS = 300;
-/** Allowed gap between the two presses. */
+/** Allowed gap between the two presses, measured press to press. */
 const MAX_GAP_MS = 400;
 
 /** The keyboard events the rule depends on. */
 export type CtrlKeyEvent = "ctrl-down" | "ctrl-up" | "other-down";
 
-/** Two clean Ctrl taps in a row, with nothing typed in between. */
+/**
+ * A clean Ctrl tap followed by a second Ctrl press, with nothing typed in
+ * between. The toggle fires on the second *press*, not its release — see the
+ * Rust module for why, and for the Ctrl, Ctrl+C trade that comes with it.
+ */
 export interface CtrlTapState {
-  /** When the current Ctrl press began, while it can still become a tap. */
+  /** When the current Ctrl press began, while it is held. */
   pressedAt: number | null;
   /** When the previous clean tap began. */
   firstTapAt: number | null;
+  /**
+   * The held press already fired. Its release is not a tap, or a single tap
+   * right after a toggle would fire a second one.
+   */
+  spent: boolean;
 }
 
 /** A detector that has seen nothing yet. */
 export function emptyCtrlTapState(): CtrlTapState {
-  return { pressedAt: null, firstTapAt: null };
+  return { pressedAt: null, firstTapAt: null, spent: false };
 }
 
 /** The verdict on one event, plus the state to carry into the next one. */
 export interface CtrlTapResult {
   state: CtrlTapState;
-  /** True exactly on the second clean tap of a pair. */
+  /** True exactly on the second press of a clean pair. */
   doubleTap: boolean;
 }
 
@@ -70,10 +79,13 @@ export function observeCtrlTap(
     return { state: emptyCtrlTapState(), doubleTap: false };
   }
 
-  // Held keys repeat their down event; the first one is the press.
   if (event === "ctrl-down") {
+    // Held keys repeat their down event; the first one is the press.
     if (state.pressedAt !== null) return { state, doubleTap: false };
-    return { state: { ...state, pressedAt: now }, doubleTap: false };
+    if (state.firstTapAt !== null && now - state.firstTapAt <= MAX_GAP_MS) {
+      return { state: { pressedAt: now, firstTapAt: null, spent: true }, doubleTap: true };
+    }
+    return { state: { pressedAt: now, firstTapAt: null, spent: false }, doubleTap: false };
   }
 
   // No press on record: it was cancelled by another key, or this is the second
@@ -81,27 +93,31 @@ export function observeCtrlTap(
   const pressedAt = state.pressedAt;
   if (pressedAt === null) return { state, doubleTap: false };
 
+  if (state.spent) return { state: emptyCtrlTapState(), doubleTap: false };
+
   if (now - pressedAt > MAX_TAP_MS) {
     // A hold, so not a tap — and it separates whatever came before it from
     // whatever comes next.
     return { state: emptyCtrlTapState(), doubleTap: false };
   }
 
-  if (state.firstTapAt !== null && pressedAt - state.firstTapAt <= MAX_GAP_MS) {
-    return { state: emptyCtrlTapState(), doubleTap: true };
-  }
-
-  // Too slow to be the partner of the last tap, but a fine first half for the
-  // next one.
-  return { state: { pressedAt: null, firstTapAt: pressedAt }, doubleTap: false };
+  // A clean tap: the first half of the next pair.
+  return { state: { pressedAt: null, firstTapAt: pressedAt, spent: false }, doubleTap: false };
 }
 
 /** Classify a DOM keyboard event, or `null` for events the rule ignores. */
 export function classifyCtrlKey(
   type: "keydown" | "keyup",
   key: string,
+  repeat = false,
 ): CtrlKeyEvent | null {
-  if (key === "Control") return type === "keydown" ? "ctrl-down" : "ctrl-up";
+  if (key === "Control") {
+    // Rust fires on the press and the window takes focus while Ctrl is still
+    // down, so the auto-repeat of that press can be the first Ctrl event this
+    // side sees. A repeat is never a fresh press.
+    if (type === "keydown" && repeat) return null;
+    return type === "keydown" ? "ctrl-down" : "ctrl-up";
+  }
   // Only the fact that *something else* went down matters — never which key.
   return type === "keydown" ? "other-down" : null;
 }

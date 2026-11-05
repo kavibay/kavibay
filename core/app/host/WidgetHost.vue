@@ -160,6 +160,7 @@ import {
   observeCtrlTap,
   type CtrlTapState,
 } from "./ctrlDoubleTap";
+import { beginOpenTiming, markOpenTiming } from "./openTiming";
 import {
   matchWidgetCloseKey,
   resolveWidgetCloseTarget,
@@ -1574,7 +1575,7 @@ let ctrlTap: CtrlTapState = emptyCtrlTapState();
 /** When Rust last delivered a toggle — see the belt-and-braces check below. */
 let lastRustHotkeyAt = 0;
 function onCtrlTapKey(event: KeyboardEvent) {
-  const observed = classifyCtrlKey(event.type as "keydown" | "keyup", event.key);
+  const observed = classifyCtrlKey(event.type as "keydown" | "keyup", event.key, event.repeat);
   if (!observed) return;
   const result = observeCtrlTap(ctrlTap, observed, event.timeStamp);
   ctrlTap = result.state;
@@ -1582,8 +1583,10 @@ function onCtrlTapKey(event: KeyboardEvent) {
   // Measured behaviour says the hook is blind whenever we can see these keys, so
   // this should never be true. It is cheap insurance against the one failure it
   // would otherwise cause — a toggle counted twice, which closes and instantly
-  // reopens and reads as the hotkey being broken.
-  if (Date.now() - lastRustHotkeyAt < 600) return;
+  // reopens and reads as the hotkey being broken. Both halves fire on the same
+  // press, so a double count lands within milliseconds; the window is short so
+  // a quick close right after opening (now also on a press) is not swallowed.
+  if (Date.now() - lastRustHotkeyAt < 250) return;
   onPaletteHotkey(false);
 }
 
@@ -2407,12 +2410,19 @@ onMounted(async () => {
   // hotkey path in particular emits this right after opening, which would
   // otherwise undo the saving in `onPaletteHotkey`.
   unlistenPaletteShow = await listen("palette:show", () => {
+    markOpenTiming("palette-show");
     void openCockpit(true);
   });
-  unlistenPaletteHotkey = await listen<{ revealed?: boolean; trigger?: CockpitTrigger }>(
+  unlistenPaletteHotkey = await listen<{
+    revealed?: boolean;
+    trigger?: CockpitTrigger;
+    timingOriginMs?: number;
+  }>(
     "palette:hotkey",
     (event) => {
       lastRustHotkeyAt = Date.now();
+      // Dev builds only: Rust sends the origin when it measured this opening.
+      const timing = beginOpenTiming(event.payload?.timingOriginMs);
       const revealed = event.payload?.revealed === true;
       // The setup card asks for this very gesture to start the tour; hiding
       // the window would take the card away mid-question.
@@ -2421,6 +2431,7 @@ onMounted(async () => {
         return;
       }
       onPaletteHotkey(revealed);
+      timing.afterHostHandled();
       // The tour's hotkey step is passed here and nowhere else: this is the only
       // path on which Rust reports *which* gesture brought a hidden window back.
       onboarding.notifyCockpitRevealed(event.payload?.trigger ?? "app", revealed);
