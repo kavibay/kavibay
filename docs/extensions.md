@@ -7,12 +7,6 @@ credentials work. For a walkthrough that starts from an empty folder, read
 
 The host discovers folders automatically — do **not** register them in a barrel file.
 
-> **Stale in parts.** Sections below that mention `index.ts` / `ExtensionModule`
-> describe the legacy loader, which has been removed. Only contract extensions
-> load; `scripts/extensionManifests.assert.mjs` fails on any other manifest.
-> The live contract is [extension-host.md](extension-host.md) and
-> `sdk/extension/contract/sdk.ts`.
-
 ## Quick start (Tier S — client-only)
 
 1. Create `extensions/<id>/` with `manifest.json` (`"format": "contract"`),
@@ -22,30 +16,35 @@ The host discovers folders automatically — do **not** register them in a barre
 3. Clone `extensions/calculator/` for a minimal example.
 4. Restart / reload the app — the widget appears in the palette.
 
+Only contract extensions load; `scripts/extensionManifests.assert.mjs` fails on
+any other manifest.
+
 Agent workflow (tiers S / M / L, checklists): `.cursor/skills/kavibay-widget/`.  
-Canonical contract: `sdk/extension/types.ts` (manifest) and `sdk/extension/contract/sdk.ts` (contract packages).
+Canonical contract: `sdk/extension/contract/sdk.ts`. The manifest fields the host
+reads beside it (`ui`, keywords, actions, `replaces`, …) are parsed in
+`core/app/extension-host/bundledExtensions.ts`.
 
 ## Layout
 
 ```
-sdk/extension/         # types, createInstanceStore, instanceStorageKey, useWidgetData (@sdk)
-core/app/extensions/   # loadExtensions, registry
-core/app/host/         # WidgetHost, chrome
-extensions/<id>/       # one folder per widget
+sdk/extension/contract/          # the contract (sdk.ts) and its Vue layer (sdk-vue.ts) — @sdk/contract/*
+core/app/extension-host/         # registry, runtime, data store, bundledExtensions (discovery), cockpit
+core/app/host/                   # WidgetHost, card chrome
+extensions/<id>/                 # one folder per extension
+src-tauri/src/extensions/<name>/ # its Rust half, when it has one
 ```
 
 ```mermaid
 flowchart LR
-    m["manifest.json<br/>id · ui · commands · credentials"] --> reg["loadExtensions.ts<br/>Vite glob, build time"]
-    idx["index.ts<br/>ExtensionModule"] --> reg
-    reg --> host["WidgetHost<br/>generic, no typeId switches"]
-    host -- "props" --> w["&lt;Name&gt;Widget.vue"]
-    host -- "gear" --> s["&lt;Name&gt;Settings.vue"]
-    host -- "hooks" --> hooks["onCreate · onDuplicate<br/>onSuspend · onResume · onDispose"]
-    idx --> hooks
-    w --> store["use&lt;Name&gt;State.ts<br/>createInstanceStore"]
-    s --> store
-    store --> ls["localStorage<br/>instanceStorageKey"]
+    m["manifest.json<br/>identity · ui · keywords · actions"] --> disc["bundledExtensions.ts<br/>Vite glob, build time"]
+    ext["extension.ts<br/>defineExtension"] --> disc
+    view["view.ts<br/>widget name → view · icon"] --> disc
+    def["widgets/&lt;name&gt;.ts<br/>defineWidget"] --> ext
+    disc --> host["cockpit → WidgetHost<br/>generic, no typeId switches"]
+    host -- "ctx" --> setup["setup(ctx)<br/>returns a view model"]
+    setup -- "model prop" --> vue["&lt;Name&gt;View.vue"]
+    host -- "gear" --> form["settings form<br/>from configuration"]
+    setup --> data["ctx.data<br/>per instance, persisted"]
 ```
 
 ### Lazy views
@@ -180,58 +179,54 @@ Optional `intro.mp4` beside `manifest.json` (`extensions/<id>/intro.mp4`) includ
 
 ### Catalog icon
 
-Declare a package-relative icon for the **Widgets** menu and palette type rows:
+A widget's icon in the **Widgets** menu and on palette rows is the `icon` in
+`view.ts` — normally a component from `@sdk/icons`:
 
-```json
-"icon": "icon.svg"
+```ts
+const views: ExtensionViews = {
+  clock: { view: ClockView, icon: ClockIcon },
+};
 ```
 
-| Rule | Detail |
-|------|--------|
-| File | Prefer `icon.svg` (mono stroke, black on transparent). `icon.png` allowed. |
-| Manifest | Required path relative to the extension folder — do not embed SVG in JSON. |
-| Missing | Host shows a generic widget mark. |
-| Runtime packages | Same field; served via `kavibay-ext://<id>/<icon>` after scan. |
-
-Host resolves first-party icons at load time (`loadExtensions.ts`); unsafe paths (`..`, absolute) are ignored.
+An action-only extension has no widget view to hang it on, so it uses the
+reserved `__extension__` key (`__extension__: { icon: UnplugIcon }` in `kill-port`), or a
+top-level `"icon": "icon.svg"` in `manifest.json` — a path relative to the
+extension folder, resolved by `bundledExtensions.ts`; unsafe paths (`..`,
+absolute) are ignored. Runtime packages use the same manifest field, served via
+`kavibay-ext://<id>/<icon>`. No icon → the host shows a generic widget mark.
 
 When `ui.hugHeight: true`, height follows widget content; only `defaultSize.w` is applied on Add (`defaultSize.h` is ignored for sizing).
 
 When `ui.padding: false`, the card drops its padding so the body reaches every card edge. The title floats over the top-left corner at its usual inset, without the gradient `ui.flush` puts behind it. The body gets `--widget-title-inset` (36px, or 0px with the title hidden): start content below it, let backgrounds run under it.
 
-## Persistence (new extensions)
+## State
 
-Use the canonical key helper:
+A widget's `setup(ctx)` sees three kinds of state, and the host owns the
+storage for both persisted ones:
 
-```ts
-import { instanceStorageKey } from "@sdk/instanceStorageKey";
+| Kind | Where | Lifetime |
+|---|---|---|
+| **config** — what the user set | `configuration` schema on the definition → `ctx.config` | per instance; the host renders the settings form |
+| **data** — what the widget remembers | `ctx.data.get` / `set` / `delete` | per instance, persisted, JSON only, 256 KiB per value |
+| **ui state** | a `ref` inside `setup` | until the next mount |
 
-instanceStorageKey("my-widget", instanceId); // → kavibay:my-widget:<instanceId>
-```
+`ctx.config` is read once. Saving the settings form — or a palette action's
+`setConfig` — remounts the widget, so derive from it once in `setup` instead of
+watching it.
 
-Legacy keys (`kavibay:notes-widget:…`, `kavibay:foo-v1`, etc.) stay as-is — do not migrate unless needed.
+**Duplicate and delete are the host's job.** Duplicating an instance copies its
+configuration, and also its `ctx.data` when the definition sets
+`duplicateData: true` (optionally reshaped per cell by
+`duplicateDataTransform`). Deleting clears both. There is no `onDuplicate` or
+`onDispose` to write.
 
-For per-instance settings/state + duplicate/dispose, prefer `createInstanceStore` (see `clock` / `weather`):
+**`ctx.sharedData`** is a second store scoped to the extension rather than the
+instance — the Emoji Picker's recent list. The host resolves the scope from the
+caller, so one extension cannot read another's.
 
-```ts
-import { createInstanceStore } from "@sdk/createInstanceStore";
-
-const store = createInstanceStore<MySettings>({
-  load: loadMySettings,
-  save: saveMySettings,
-  normalize: normalizeMySettings,
-});
-
-export function useMySettings(instanceId: string) {
-  const { state: settings, update } = store.use(instanceId);
-  return { settings, update };
-}
-
-export const disposeMySettings = store.dispose;
-export const seedMySettingsFrom = store.seedFrom;
-```
-
-Wire `onDuplicate` → `seed…From`, `onDispose` → `dispose…` + `clear…` in `index.ts`.
+Persist through these stores, not `localStorage` directly: they are what
+duplicate, delete and the quota apply to — and a palette action can reach them
+before the widget has mounted ([Palette actions](#palette-actions)).
 
 ## Entry point (where the caret goes)
 
@@ -269,19 +264,25 @@ the page decides where the caret lands inside it.
 
 ## Backend data
 
-- **`backendCommand` + `useWidgetData`**: global poll, no args — fits `system-info` / `now-playing`.
-- **Instance-bound APIs** (zone id, repo): do **not** use `useWidgetData`. Put the
-  request in a Contract provider query and subscribe from the widget's effect
-  scope (see `tado`, `github`).
+A widget never calls `invoke`. Data reaches it through its context:
 
-Declare Tauri command names in manifest `commands`. Register Rust modules in `src-tauri/src/lib.rs` (still manual).
+| Need | Use | Example |
+|---|---|---|
+| A keyless public API | `capabilities.http` on the definition → `ctx.http`, plus the hosts in `src-tauri/src/extensions/<name>/mod.rs` | `calculator`, `stocks`, `weather` |
+| An account (API key, OAuth) | a provider in `provider.ts`; the widget lists it in `requires.providers` and reads `ctx.providers[id]` | `tado`, `github` |
+| OS data or a fixed native surface | a reviewed host capability (`ctx.systemInfo`, `ctx.nowPlaying`, …) | `system-info`, `now-playing` |
+
+A provider query is host-cached per connection and refreshes at its
+`staleTime` — subscribe from `setup` (`useProviderQuery` in
+`@sdk/contract/sdk-vue`) rather than polling. A new host capability is an SDK
+change, reviewed when a bundled widget needs it. Walkthrough:
+[widget-tutorial.md → Data from outside](widget-tutorial.md#data-from-outside).
 
 ## Palette actions
 
 An **action** lets the palette do something to your widget without opening it:
 find your extension, press `Tab`, type `1h`, press `Enter`. Metadata goes in the
-manifest, the handler in the extension definition. Legacy extensions keep the
-handler in `index.ts`; Contract extensions put it in the widget definition.
+manifest, the handler in the widget definition, paired by id.
 
 Your extension keeps **one** palette row — the action does not add a second one.
 It hangs off that row (`Tab`), and its title and keywords make the row findable,
@@ -289,8 +290,8 @@ so `countdown` or `set timer` also lands on Timer. Only the **first** declared
 action is reachable today; a picker for more is not built yet. `Tab` on a row
 with an action no longer jumps focus into the widget.
 
-> `manifest.actions` is unrelated to `manifest.commands` — the latter lists
-> **Tauri command names** your Rust side registers.
+The declaration sits under the widget entry, `widgets.<name>.actions` in
+`manifest.json` (top-level `actions` for an action-only extension):
 
 ```json
 "actions": [
@@ -308,20 +309,23 @@ with an action no longer jumps focus into the widget.
 ```
 
 ```ts
-const extension: ExtensionModule = {
-  component: TimerWidget,
+export const timerWidget = defineWidget({
+  name: "timer",
+  // …
   actions: {
-    "set-timer": ({ instanceId, args }) => {
+    "set-timer": async ({ ctx, args }) => {
       const ms = parseCustomDuration(args.duration ?? "");
       if (ms == null) throw new Error("unparsable duration"); // palette stays open
-      const state = useTimerState(instanceId);
-      state.reset();
-      state.setCustomDuration(ms);
-      state.start();
+      await ctx.data.set(TIMER_STATE_KEY, { /* … */ durationMs: ms, running: true });
     },
   },
-};
+  component: { setup(ctx) { /* … */ } },
+});
 ```
+
+The handler receives the instance's `ctx`, the action's `args`, and
+`setConfig(values)` for an action that changes configuration (`stocks` adds a
+symbol that way).
 
 **Parameters.** `type` is `text`, `number`, or `enum` (with `options`, matched
 case-insensitively — the handler receives the canonical option). Optional params
@@ -330,7 +334,8 @@ several chips; `Tab` cycles, `Shift+Tab` goes back, `Escape` drops them. An acti
 without `params` runs straight from `Enter`.
 
 To grow extra chips from what the user just typed (a `{name}` in a snippet
-template), export `dynamicActionParams(actionId, values)` from `index.ts`. The
+template), set `dynamicActionParams(actionId, values)` on the widget definition
+(`snippets`). The
 palette calls it on every keystroke and renders whatever param list you return;
 the manifest `params` stay the fallback and the searchable catalog shape.
 
@@ -369,19 +374,21 @@ declared that way and unreachable for as long as it has existed.
 **Which instance?** The host resolves one before calling you: a visible instance
 wins, else a hidden one is revealed, else a new widget is created. Set
 `"needsInstance": false` for an action that touches no widget — you then get an
-empty `instanceId`. Action-only extensions (`ui.widget: false`) skip the widget
-catalog entirely and show as their own palette row — `confetti` and `kill-port`.
+empty `instanceId`. Action-only extensions (no `widgets`, a top-level `actions`
+list) skip the widget catalog entirely and show as their own palette row —
+`confetti` and `kill-port`; see [Standalone palette actions](#standalone-palette-actions).
 
 **Write to the store, not the component.** Because the host may have just created
-the widget, the handler can run *before* anything mounts. Per-instance state lives
-in the module-level cache (`use*State(instanceId)` / `createInstanceStore`), which
-the component reads when it mounts — so writing there works either way. A handler
-that assumes a mounted component will silently do nothing on a fresh widget.
+the widget, the handler can run *before* anything mounts. Write through
+`ctx.data` or `setConfig`, which `setup` reads when it mounts — so the write
+lands either way. A handler that only pokes a mounted view model will silently
+do nothing on a fresh widget; `timer` uses its live model when there is one and
+falls back to `ctx.data` when there is not.
 
 **Failure.** Throwing (or returning a rejected promise) is the way to say "bad
-input": the palette logs it, stays open, and keeps the query. An action declared
-in the manifest without a matching handler is dropped with a console warning, so
-it can never appear as a dead row.
+input": the palette logs it, stays open, and keeps the query. A declaration
+without a handler, or a handler without a declaration, is a hard error at load —
+and `scripts/extensionActions.assert.ts` catches it in `pnpm run verify` first.
 
 Runtime (sandboxed) packages cannot declare actions yet — the postMessage bridge
 has no host-initiated invoke.
@@ -392,7 +399,8 @@ A **text action** transforms text the user selected in *any* application. Press
 `Ctrl+Shift+Q` with something selected, pick a row from the popup, and the answer
 replaces the selection.
 
-Same split as palette actions: metadata in the manifest, handler in `index.ts`.
+Same split as palette actions: metadata in the manifest, the handler in a
+`textActions.ts` beside it.
 
 ```json
 "textActions": [
@@ -402,12 +410,16 @@ Same split as palette actions: metadata in the manifest, handler in `index.ts`.
 ```
 
 ```ts
-const extension: ExtensionModule = {
-  component: MyWidget,
+// extensions/<id>/textActions.ts
+import type { ExtensionModule } from "@sdk/types";
+
+const textActions: Pick<ExtensionModule, "textActions"> = {
   textActions: {
-    translate: async ({ text, signal }) => rewrite(TRANSLATE_PROMPT, text, signal),
+    translate: async ({ text, signal, llm }) => rewrite(TRANSLATE_PROMPT, text, signal, llm),
   },
 };
+
+export default textActions;
 ```
 
 The handler gets the selection and an `AbortSignal`, and resolves with the
@@ -427,19 +439,21 @@ this — they get text and return text either way.
 **No instance, no widget.** The popup is its own window
 (`core/app/quickaction/`) and it mounts no widget host: there is no
 `instanceId`, and per-instance state does not exist. Anything the handler needs
-must come from the manifest, from a Tauri command, or from a constant. That is
+must come from the manifest, from the `llm` surface it is handed, or from a
+constant. That is
 why `one-purpose-llm` uses its *shipped* system prompts here rather than a
 prompt someone edited inside a widget card.
 
 **Cost of the popup being separate.** It discovers actions from manifests only
-and imports your `index.ts` lazily, when a row is picked (see
-`core/app/extensions/textActions.ts`). Keep module-level work in
-`index.ts` cheap — it is now on the path of a hotkey the user expects to be
+and imports your `textActions.ts` lazily, when a row is picked (see
+`core/app/extensions/textActions.ts`). Keep module-level work in that file and
+its imports cheap — it is on the path of a hotkey the user expects to be
 instant.
 
 **Which model?** For LLM-backed actions, read the host's quick-action model with
-the `llm_quick_model` command (declare it in `manifest.commands`) instead of
-picking one yourself. The user sets it once in **Settings → AI**.
+`llm.quickModel()` from the handler's context instead of picking one yourself,
+and stream through `llm.stream()`. The user sets the model once in
+**Settings → AI**; `one-purpose-llm/quickAction.ts` is the example.
 
 The offerable models and their provider API IDs, context windows, token prices,
 capabilities, and source links live in `src-tauri/src/llm/models.json`. Both
@@ -464,46 +478,42 @@ placeholder widget instance.
 
 ## Credentials (API keys, OAuth accounts)
 
-Extensions never store, decrypt, or receive a secret. They declare which
-**credential type** they need; the host stores the values encrypted and the
-integration's Rust module resolves them.
+Extensions never store, decrypt, or receive a secret. A widget names a
+**provider**; the provider names a **credential type**; the host stores the
+values encrypted and attaches them in Rust.
 
 1. Add a credential type to `src-tauri/src/credentials/registry.rs` — fields,
    auth kind (`Static`, `OAuth2AuthCode`, `OAuth2DeviceCode`), how the secret is
    injected, optional connection test. That is the whole setup UI: **Settings →
-   Integrations → Credentials** renders every registered type.
-2. Declare the dependency in `manifest.json`:
+   Credentials** renders every registered type.
+2. Write the provider in `extensions/<id>/provider.ts` with `defineProvider`:
+   its `credentialType`, the `hosts` the credential may be sent to, and its
+   queries and actions. Run `pnpm run build:provider-doc` — it regenerates
+   `src-tauri/src/extensions/generated.rs`, the compiled allowlist.
+3. The widget lists the provider in `requires.providers` (and every action it
+   calls in `requires.actions`) and reads through `ctx.providers[id]`.
 
-```json
-"credentials": [{ "type": "githubPat", "required": true }]
+```ts
+requires: { providers: [PROVIDER_ID], actions: { [PROVIDER_ID]: ["setTemperature"] } },
 ```
 
-3. Resolve it in Rust, never in the widget:
+The rest is the host's. The widget does not mount until every provider it
+names is connected — until then the host shows its own connect prompt. Which
+saved account (*connection*) an instance uses is host-owned state, picked in
+the widget's settings with the shared connection picker; a deleted connection
+never falls back to another account. Expired OAuth tokens are refreshed on the
+way out, so a provider never reasons about expiry.
 
-```rust
-let credential = credentials::resolve_for_type(&app, registry::GITHUB_PAT).await?;
-let request = credential.apply(client.get(url))?; // injects the declared auth
-```
-
-`resolve_for_type` refreshes expired OAuth tokens on the way out, so integrations
-never reason about expiry. It reports `not_configured` (show a setup state),
-`needs_reauth` (prompt to reconnect), or a real failure.
-
-Widget-side, only these read-only commands are available:
-
-| Command | Use |
-|---------|-----|
-| `credentials_configured` | `typeId` → bool, for the "set this up" gate |
-| `credentials_type_status` | state, account label, missing fields, pending flag |
-| `credentials_connect` / `credentials_cancel_connect` | start/stop a sign-in from the widget |
-
-Sandboxed runtime packages may **not** declare `credentials` — the manifest
-validators reject it in both FE and Rust.
+`extensions/tado/` is the reference; the schema is in
+[extension-host.md → The provider schema](extension-host.md#the-provider-schema).
+Runtime packages reach an account differently — through a `credential` on a
+declared endpoint, granted per connection ([runtime-packages.md](runtime-packages.md)).
 
 ## Verify
 
-- Pure helpers: `npx tsx path/to/file.assert.ts`
-- `npx vue-tsc --noEmit`
+- One test: `npx tsx path/to/file.assert.ts`
+- Everything CI runs: `pnpm run verify` (typecheck, lint, every assert, the repo guards)
+- Rust touched: `pnpm run verify:rust`
 - Manual: palette add, duplicate/dispose if stateful, settings if present
 
 ## Runtime packages (power users)

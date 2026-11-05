@@ -6,7 +6,7 @@ folder name **must** equal `manifest.name`.
 
 
 - **How to write one:** [../docs/widget-tutorial.md](../docs/widget-tutorial.md)
-  (hello world in three tiers)
+  (from an empty folder to the palette)
 - **Reference:** [../docs/extensions.md](../docs/extensions.md) — manifest,
   persistence, palette actions, credentials
 - **How it should look:** [../docs/DESIGN.md](../docs/DESIGN.md)
@@ -29,9 +29,9 @@ as a starting point.
 
 | Tier | Means | Backend |
 |------|-------|---------|
-| **S** | Client-only, or one declared API call | none, or `api.json` + `extension_http_call` |
-| **M** | Per-instance settings or a context menu | same as S |
-| **L** | Streaming, chained calls, OS access, credentials | its own Rust module under `src-tauri/src/` |
+| **S** | Client-only, or a keyless public API | none, or a host list in `src-tauri/src/extensions/<name>/` |
+| **M** | Per-instance settings, remembered data, palette actions, a context menu | same as S |
+| **L** | An account, streaming, OS access | a `provider.ts`, or a reviewed host capability |
 
 ## Catalog
 
@@ -60,9 +60,9 @@ as a starting point.
 | Calendar | `calendar` | Google Calendar month view with day list and quick add. | L | Needs a **Google Calendar OAuth2** credential; polls per instance, pauses on suspend |
 | GitHub Actions | `github-actions` | Spotlight workflow run with job and step progress for one repo. | L | First widget in the Contract extension **GitHub**; needs a **GitHub PAT** |
 | Spotify Playlists | `spotify` | Your Spotify playlists; a click opens one in Spotify. | L | Widget `playlists` in the extension **Spotify**; needs a **Spotify** credential |
-| Stocks | `stocks` | Watchlist with Yahoo quotes and expandable detail. | S | Declared endpoint — [`stocks/api.json`](stocks/api.json) |
+| Stocks | `stocks` | Watchlist with Yahoo quotes and expandable detail. | S | `ctx.http` to Yahoo — hosts in `src-tauri/src/extensions/stocks/` |
 | Tado | `tado` | Read-only thermostat tiles for Tado heating zones. | L | Needs a **Tado OAuth2** credential; one zone per instance |
-| Weather | `weather` | Current weather for a chosen location. | S | Declared endpoints — [`weather/api.json`](weather/api.json), Open-Meteo |
+| Weather | `weather` | Current weather for a chosen location. | S | `ctx.http` to Open-Meteo — hosts in `src-tauri/src/extensions/weather/` |
 
 ### Tools
 
@@ -135,22 +135,22 @@ learns *whether* it is connected.
 
 ## Anatomy
 
-The file names are a convention, not a requirement, but every widget here
-follows it — which is what makes them readable side by side.
+The file names are a convention, not a requirement. Most widgets here follow
+it — which is what makes them readable side by side.
 
 ```
 extensions/<id>/
-  manifest.json          # identity, catalog metadata, actions, credentials
-  extension.ts            # Contract assembly + framework-free handlers
-  view.ts                 # Contract widget name → Vue component + icon
-  icon.svg               # palette and gallery icon
-  <Name>Widget.vue       # the widget surface
-  <Name>Settings.vue     # optional — rendered in the settings popover (gear)
-  <Name>Menu.vue         # optional — rendered in the context menu
-  <name>Logic.ts         # pure functions: parsing, formatting, normalising
-  <name>Logic.assert.ts  # colocated test, plain node:assert
-  use<Name>State.ts      # instance store wiring (createInstanceStore)
-  api.json               # optional — declared HTTP endpoints (Tier S with data)
+  manifest.json          # identity, catalog metadata, action declarations
+  extension.ts           # assembly: identity from the manifest + contributes
+  view.ts                # widget name → Vue component (defineAsyncComponent) + icon
+  provider.ts            # optional — a provider, for data behind an account
+  widgets/
+    <name>.ts            # defineWidget: configuration, actions, headless setup()
+    <Name>View.vue       # the widget surface; receives the setup() model
+    <Name>Settings.vue   # optional — custom settings panel (`settings` in view.ts)
+    <Name>Menu.vue       # optional — context menu (`menu` in view.ts)
+    <name>.assert.ts     # colocated test, plain asserts
+  <name>Logic.ts         # optional — pure functions: parsing, formatting, normalising
 ```
 
 `ui` in the manifest is where the small behaviours hide: `allowDuplicate`,
@@ -165,7 +165,7 @@ per-instance value once the widget is on a desk.
 ## Verifying
 
 ```bash
-npx vue-tsc --noEmit
+pnpm run verify
 ```
 
 Run the colocated tests of the widget you touched — 30 of the 31 have one:

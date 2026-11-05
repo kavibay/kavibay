@@ -12,14 +12,14 @@ flowchart TB
         app["App.vue<br/>transparent shell"]
         pal["palette/<br/>CommandPalette, fuzzy, prefix search"]
         host["core/host/<br/>WidgetHost, WidgetCard, layout, desks"]
-        reg["core/extensions/<br/>Vite glob loader + registry"]
+        reg["core/extension-host/<br/>Vite glob discovery, registry, runtime"]
         run["core/runtime/<br/>sandboxed iframe + bridge"]
         set["settings/<br/>appearance, behavior, credentials"]
         mcpui["settings/<br/>embedded MCP controls"]
     end
 
     subgraph sdkbox["SDK — sdk/ · MIT"]
-        sdke["@sdk<br/>types, createInstanceStore, useWidgetData"]
+        sdke["@sdk<br/>contract: defineExtension, defineWidget, sdk-vue"]
         sdkr["kavibay-runtime.js<br/>postMessage client"]
     end
 
@@ -279,10 +279,10 @@ Which widget a row resolves to lives in `inlineWidgetTarget.ts`:
   first-class home for off-desk instances would need a layout-schema change.
 
 **Actions** hang off a widget row. `Tab` opens argument chips, `Enter` runs the
-handler declared in the extension's `index.ts`. The host resolves which instance
-to act on first — visible one wins, else a hidden one is revealed, else a new
-widget is created — which is why handlers must write to the **store**, not to a
-mounted component. Details in [extensions.md](extensions.md#palette-actions).
+handler in the widget definition, paired by id with its declaration in
+`manifest.json`. The host resolves which instance to act on first — visible one
+wins, else a hidden one is revealed, else a new widget is created — which is why
+handlers must write to `ctx.data` or `setConfig`, not to a mounted component. Details in [extensions.md](extensions.md#palette-actions).
 
 ## The widget host
 
@@ -306,8 +306,11 @@ stateDiagram-v2
     Deleted --> Visible: Ctrl+Z undo, max 5 (card only, content is gone)
 ```
 
-`onSuspend` / `onResume` is how a widget stops polling while the desk is away —
-a pomodoro deliberately ignores it and keeps ticking.
+The hooks in this diagram are the host's internal seam, not something a widget
+writes. For a contract widget the cockpit derives `onDuplicate` and `onDispose`
+from the definition's `configuration` and `duplicateData`; the widget's own
+teardown is `onScopeDispose` inside `setup`. No bundled widget supplies
+`onCreate`, `onSuspend` or `onResume` today.
 
 **Hide and delete are reachable from either surface.** `Ctrl+Tab` cycles focus
 through the open cards (`widgetFocusCycle.ts`), `Ctrl+Alt+S` jumps back into the
@@ -345,7 +348,8 @@ State lives in `localStorage` under `kavibay:` keys — no database, no sync:
 | `kavibay:widget-type-size-v1` | Remembered size per widget type |
 | `kavibay:appearance-v1` | Colour mode, typeface, glass, radius, spacing |
 | `kavibay:developer-v1` | Behavior toggles, incl. Developer Extensions |
-| `kavibay:<extension-id>:<instanceId>` | Per-instance widget settings (`instanceStorageKey`) |
+| `kavibay:widget-data:<instanceId>…` | Per-instance `ctx.data` (`core/app/extension-host/data-store.ts`) |
+| `kavibay:extension-data:<scope>…` | Per-extension `ctx.sharedData` |
 
 A desk is a named set of placements; the catalog of instances is shared, so the
 same widget can appear on one desk or on all of them. `Ctrl+Shift+1…9` switches.
@@ -355,9 +359,9 @@ same widget can appear on one desk or on all of them. `Ctrl+Shift+1…9` switche
 ```mermaid
 flowchart LR
     subgraph fpath["First-party — trusted"]
-        f1["extensions/&lt;id&gt;/manifest.json"] --> f2["Vite import.meta.glob<br/>loadExtensions.ts"]
-        f2 --> f3["Vue component in the<br/>main webview"]
-        f3 --> f4["invoke() any registered<br/>Tauri command"]
+        f1["extensions/&lt;id&gt;/manifest.json<br/>extension.ts · view.ts"] --> f2["Vite import.meta.glob<br/>bundledExtensions.ts"]
+        f2 --> f3["setup(ctx) + Vue view<br/>in the main webview"]
+        f3 --> f4["ctx only: data, http,<br/>providers, host capabilities"]
     end
 
     subgraph rpath["Runtime package — untrusted"]
@@ -372,13 +376,14 @@ flowchart LR
 | Lives in | `extensions/<id>/` in the repo | `{appData}/extensions/<id>/`, user-installed |
 | Written in | Vue SFC + TypeScript | Plain HTML/CSS/JS, no build step |
 | Loaded by | Vite glob at build time | Scan at runtime, `kavibay-ext://` protocol |
-| Can call | Any registered Tauri command | Only the bridge: instance storage, declared endpoints |
-| Network | Declared endpoint or a Rust module | Declared endpoints only (`connect-src 'none'`) |
-| Credentials | Resolved in its Rust module | **Never** — the validators reject the field |
+| Can call | Its `ctx`: data, declared http hosts, providers, reviewed host capabilities | Only the bridge: instance storage, declared endpoints |
+| Network | `ctx.http` to hosts listed in Rust, or a provider | Declared endpoints only (`connect-src 'none'`) |
+| Credentials | Through a provider; attached in Rust, never seen | Never seen; a declared endpoint may name one the user grants per connection |
 | Trust | Ships with the app | Assumed hostile |
 
-Folder name **must** equal `manifest.id` in both cases. There is no registry file
-to edit anywhere.
+The folder name **must** equal the manifest's identifier in both cases —
+`manifest.name` for a first-party extension, `manifest.id` for a runtime package.
+There is no registry file to edit anywhere.
 
 ## Getting data
 
@@ -386,23 +391,24 @@ Three paths, in order of how much machinery they cost:
 
 ```mermaid
 flowchart TB
-    q1{"Global, no arguments,<br/>same for every card?"}
-    q1 -- yes --> a1["backendCommand + refreshInterval<br/>host polls, result arrives as props<br/>(system-info, now-playing)"]
-    q1 -- no --> q2{"One plain HTTP call<br/>the host can describe?"}
-    q2 -- yes --> a2["api.json + extension_http_call<br/>host owns URL, escaping, cache, limits<br/>(weather, stocks)"]
-    q2 -- no --> a3["Reviewed provider or Rust module<br/>streaming, pagination, OS APIs, credentials<br/>(tado and host integrations)"]
+    q1{"Needs an account<br/>or an API key?"}
+    q1 -- yes --> a3["Provider (provider.ts)<br/>credential attached in Rust, host-cached per connection<br/>(tado, github)"]
+    q1 -- no --> q2{"A keyless public API?"}
+    q2 -- yes --> a2["capabilities.http → ctx.http<br/>hosts listed in src-tauri/src/extensions/&lt;name&gt;/<br/>(calculator, stocks, weather)"]
+    q2 -- no --> a1["Reviewed host capability<br/>OS data, streaming, native surfaces<br/>(system-info, now-playing)"]
 ```
 
-The declared-endpoint path exists so a widget that just needs JSON never touches
-the CSP or writes Rust. The host pins the vetted address, refuses redirects and
-private ranges, percent-encodes every argument, and enforces a 10 s timeout, a
-1 MiB cap and per-day quotas — see
+None of them puts an entry in the main window's CSP: a `ctx.http` request
+leaves through Rust, which checks the host against the list compiled for that
+extension. Runtime packages get the stricter declared-endpoint path instead —
+the host owns the URL, refuses redirects and private ranges, percent-encodes
+every argument and enforces a timeout, a size cap and quotas; see
 [runtime-packages.md](runtime-packages.md#network-declare-dont-fetch) and
 [extensions.md](extensions.md#declared-http-endpoints).
 
-Instance-bound data (a zone, a repo, a stream) belongs in a Contract provider
-query and is subscribed to from the widget's effect scope; `useWidgetData` is
-only for widget-owned persisted data and not a network cache.
+Provider queries are subscribed to from the widget's `setup` and refresh at
+their `staleTime`; `ctx.data` is for widget-owned persisted data and is not a
+network cache.
 
 ## Credentials
 
