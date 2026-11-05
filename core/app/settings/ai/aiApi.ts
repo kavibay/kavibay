@@ -7,7 +7,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 /** Who serves the model — and therefore which credential it needs. */
-export type LlmProviderId = "anthropic" | "openai" | "deepseek" | "cloudflare";
+export type LlmProviderId = "anthropic" | "openai" | "deepseek" | "openrouter" | "cloudflare";
 
 /** Token price metadata from the editable JSON catalog. */
 export interface LlmPricing {

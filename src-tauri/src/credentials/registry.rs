@@ -20,6 +20,7 @@ pub const CLOUDFLARE_WORKERS_AI: &str = "cloudflareWorkersAi";
 pub const ANTHROPIC_API: &str = "anthropicApi";
 pub const OPENAI_API: &str = "openaiApi";
 pub const DEEPSEEK_API: &str = "deepseekApi";
+pub const OPENROUTER_API: &str = "openrouterApi";
 pub const GOOGLE_CALENDAR_OAUTH2: &str = "googleCalendarOAuth2";
 pub const TADO_OAUTH2: &str = "tadoOAuth2";
 /// GitHub personal access token (single secret field).
@@ -415,6 +416,36 @@ const DEEPSEEK: CredentialTypeDef = CredentialTypeDef {
     instance_url_field: None,
 };
 
+/// OpenRouter: one secret key, bearer auth, for every model it routes to.
+const OPENROUTER: CredentialTypeDef = CredentialTypeDef {
+    id: OPENROUTER_API,
+    display_name: "OpenRouter API",
+    description: "An OpenRouter API key. One key reaches the models of many vendors.",
+    docs_url: Some("https://openrouter.ai/settings/keys"),
+    fields: &[FieldDef {
+        key: "apiKey",
+        label: "API Key",
+        kind: FieldKind::Password,
+        required: true,
+        placeholder: Some("sk-or-…"),
+        help: Some("Create a key under Settings → Keys. Paid models need credits on the account."),
+    }],
+    auth: AuthKind::Static,
+    inject: Injection::Bearer {
+        value: "{{apiKey}}",
+        extra_headers: &[],
+    },
+    // `/models` answers without a key, so it would accept any input. This
+    // endpoint describes the key itself and fails without a valid one.
+    test: Some(TestRequest {
+        url: "https://openrouter.ai/api/v1/key",
+        headers: &[],
+        success: "Key accepted by OpenRouter.",
+        body: None,
+    }),
+    instance_url_field: None,
+};
+
 /// Google Calendar: user-registered OAuth Desktop client + consent flow.
 const GOOGLE_CALENDAR: CredentialTypeDef = CredentialTypeDef {
     id: GOOGLE_CALENDAR_OAUTH2,
@@ -511,6 +542,7 @@ pub const ALL: &[CredentialTypeDef] = &[
     ANTHROPIC,
     OPENAI,
     DEEPSEEK,
+    OPENROUTER,
     GOOGLE_CALENDAR,
     TADO,
 ];

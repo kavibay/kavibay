@@ -58,7 +58,7 @@ export interface LlmModelOption {
   label: string;
   /** One line on what it is for. */
   note: string;
-  /** `anthropic` | `openai` | `deepseek` | `cloudflare`. */
+  /** `anthropic` | `openai` | `deepseek` | `openrouter` | `cloudflare`. */
   provider: string;
   /** Who built the model — Cloudflare serves other people's open models. */
   vendor: string;
@@ -79,6 +79,7 @@ export const PROVIDER_LABELS: Record<string, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   deepseek: "DeepSeek",
+  openrouter: "OpenRouter",
   cloudflare: "Cloudflare Workers AI",
 };
 

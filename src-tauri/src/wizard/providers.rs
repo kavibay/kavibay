@@ -13,6 +13,7 @@ use tauri::AppHandle;
 
 use crate::credentials::resolve::{resolve_for_owner, ResolveError};
 use crate::llm::catalog::{find_model, LlmProvider};
+use crate::llm::{CacheHits, ChatCompletions};
 
 /// A generation can involve real thinking; the default client timeout is far
 /// too short for it. On a model that thinks by default, a hard widget at high
@@ -23,7 +24,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// the non-streaming envelope — above roughly this, the request risks a timeout.
 const MAX_TOKENS: u32 = 16000;
 
-/// Output ceiling for Anthropic and DeepSeek. Thinking and the package share
+/// Output ceiling for Anthropic and the other Chat Completions services. Thinking and the package share
 /// it, and thinking models can spend most of 16K before the first file.
 const AUTHORING_MAX_TOKENS: u32 = 64000;
 
@@ -124,7 +125,7 @@ pub async fn complete(
     };
 
     let provider = model.provider;
-    if provider == LlmProvider::Deepseek
+    if provider.chat_completions().is_some()
         && !model.capabilities.iter().any(|cap| cap == "vision")
         && messages.iter().any(|message| !message.images.is_empty())
     {
@@ -168,7 +169,7 @@ pub async fn complete(
             let mut with_system = vec![json!({ "role": "system", "content": system })];
             with_system.extend(turns);
             (
-                "https://api.openai.com/v1/chat/completions",
+                chat_url(provider)?,
                 json!({
                     "model": model.api_id,
                     "max_completion_tokens": MAX_TOKENS,
@@ -180,10 +181,14 @@ pub async fn complete(
                 }),
             )
         }
-        LlmProvider::Deepseek => (
-            "https://api.deepseek.com/chat/completions",
-            deepseek_body(&model.api_id, system, turns),
-        ),
+        // Every other Chat Completions service: same body, the profile names
+        // the field that caps output.
+        LlmProvider::Deepseek | LlmProvider::Openrouter => {
+            let chat = provider
+                .chat_completions()
+                .ok_or("model_not_for_authoring")?;
+            (chat.url, chat_body(chat, &model.api_id, system, turns))
+        }
         // Unreachable in practice — `authoring` is false for every Workers AI
         // model — but an error beats a panic if that list ever changes.
         LlmProvider::Cloudflare => return Err("model_not_for_authoring".into()),
@@ -209,16 +214,20 @@ pub async fn complete(
             LlmProvider::Anthropic => {
                 body["output_config"] = json!({ "effort": level });
             }
-            LlmProvider::Openai | LlmProvider::Deepseek => {
-                body["reasoning_effort"] = json!(level);
+            LlmProvider::Openai | LlmProvider::Deepseek | LlmProvider::Openrouter => {
+                if let Some(chat) = provider.chat_completions() {
+                    chat.set_effort(&mut body, level);
+                }
             }
             LlmProvider::Cloudflare => {}
         }
     }
 
     let mut request = client.post(url).json(&body);
-    if provider == LlmProvider::Anthropic {
-        request = request.header("anthropic-version", "2023-06-01");
+    // The same non-secret headers the streaming path sends: Anthropic's
+    // version pin, OpenRouter's app attribution.
+    for (name, value) in provider.extra_headers() {
+        request = request.header(*name, *value);
     }
     // The key is attached exactly as the credential type declares it —
     // `x-api-key` for Anthropic, a bearer token for OpenAI — so this module
@@ -242,7 +251,9 @@ pub async fn complete(
 
     let text = match provider {
         LlmProvider::Anthropic => anthropic_text(&payload)?,
-        LlmProvider::Openai | LlmProvider::Deepseek => openai_text(&payload)?,
+        LlmProvider::Openai | LlmProvider::Deepseek | LlmProvider::Openrouter => {
+            openai_text(&payload)?
+        }
         LlmProvider::Cloudflare => return Err("model_not_for_authoring".into()),
     };
 
@@ -254,14 +265,26 @@ pub async fn complete(
     })
 }
 
-fn deepseek_body(model: &str, system: &str, turns: Vec<Value>) -> Value {
+fn chat_url(provider: LlmProvider) -> Result<&'static str, String> {
+    provider
+        .chat_completions()
+        .map(|chat| chat.url)
+        .ok_or_else(|| "model_not_for_authoring".to_string())
+}
+
+/// Wizard body for a Chat Completions service other than OpenAI, whose
+/// non-streamed cap and cache key are its own (see the `Openai` arm).
+fn chat_body(chat: &ChatCompletions, model: &str, system: &str, turns: Vec<Value>) -> Value {
     let mut messages = vec![json!({ "role": "system", "content": system })];
     messages.extend(turns);
-    json!({
+    let mut body = json!({
         "model": model,
-        "max_tokens": AUTHORING_MAX_TOKENS,
         "messages": messages,
-    })
+    });
+    if let Some(field) = chat.output_cap {
+        body[field] = json!(AUTHORING_MAX_TOKENS);
+    }
+    body
 }
 
 #[cfg(test)]
@@ -269,8 +292,32 @@ mod deepseek_tests {
     use super::*;
 
     #[test]
+    fn wizard_body_for_openrouter_uses_its_cap_and_openai_usage() {
+        let chat = LlmProvider::Openrouter.chat_completions().unwrap();
+        let mut body = chat_body(
+            chat,
+            "google/gemini-3.8-flash",
+            "Write a widget",
+            vec![json!({"role":"user","content":"Clock"})],
+        );
+        assert_eq!(body["max_tokens"], AUTHORING_MAX_TOKENS);
+        assert_eq!(body["messages"][0]["role"], "system");
+        assert!(body.get("prompt_cache_key").is_none());
+        chat.set_effort(&mut body, "high");
+        assert_eq!(body["reasoning"]["effort"], "high");
+        assert!(body.get("reasoning_effort").is_none());
+        let usage = usage_of(
+            &json!({"usage":{"prompt_tokens":1500,"prompt_tokens_details":{"cached_tokens":1000},"completion_tokens":200}}),
+            LlmProvider::Openrouter,
+        );
+        assert_eq!((usage.input, usage.cached, usage.output), (500, 1000, 200));
+    }
+
+    #[test]
     fn wizard_uses_deepseek_fields_and_reads_its_cached_usage() {
-        let body = deepseek_body(
+        let chat = LlmProvider::Deepseek.chat_completions().unwrap();
+        let body = chat_body(
+            chat,
             "deepseek-flash",
             "Write a widget",
             vec![json!({"role":"user","content":"Clock"})],
@@ -362,6 +409,11 @@ fn usage_of(payload: &Value, provider: LlmProvider) -> WizardUsage {
             .min(u32::MAX as u64) as u32
     };
 
+    // DeepSeek names its cached part differently; the rest of the Chat
+    // Completions services (and Workers AI) use OpenAI's details block.
+    let hits_by_name = provider
+        .chat_completions()
+        .is_some_and(|chat| chat.cache_hits == CacheHits::PromptCacheHitTokens);
     match provider {
         LlmProvider::Anthropic => WizardUsage {
             input: count(usage.get("input_tokens")),
@@ -369,7 +421,7 @@ fn usage_of(payload: &Value, provider: LlmProvider) -> WizardUsage {
             cache_write: count(usage.get("cache_creation_input_tokens")),
             output: count(usage.get("output_tokens")),
         },
-        LlmProvider::Deepseek => {
+        _ if hits_by_name => {
             let cached = count(usage.get("prompt_cache_hit_tokens"));
             WizardUsage {
                 input: count(usage.get("prompt_tokens")).saturating_sub(cached),
@@ -378,7 +430,10 @@ fn usage_of(payload: &Value, provider: LlmProvider) -> WizardUsage {
                 output: count(usage.get("completion_tokens")),
             }
         }
-        LlmProvider::Openai | LlmProvider::Cloudflare => {
+        LlmProvider::Openai
+        | LlmProvider::Deepseek
+        | LlmProvider::Openrouter
+        | LlmProvider::Cloudflare => {
             let details = usage.get("prompt_tokens_details");
             let cached = count(details.and_then(|d| d.get("cached_tokens")));
             let cache_write = count(details.and_then(|d| d.get("cache_write_tokens")));
@@ -493,7 +548,7 @@ fn image_content(
                     "data": image.data,
                 },
             }),
-            LlmProvider::Openai | LlmProvider::Deepseek => json!({
+            LlmProvider::Openai | LlmProvider::Deepseek | LlmProvider::Openrouter => json!({
                 "type": "image_url",
                 "image_url": {
                     "url": format!("data:{};base64,{}", image.media_type, image.data),
