@@ -84,8 +84,11 @@ mod windows_ble {
 
     const HEART_RATE_SERVICE: u32 = 0x180D;
     const HEART_RATE_MEASUREMENT: u32 = 0x2A37;
-    /// No read for this long and the thread disconnects.
-    const IDLE_STOP: Duration = Duration::from_secs(60);
+    /// No read for this long and the thread disconnects. A subscribed widget
+    /// reads every second, so this is "the widget stopped watching" (switched
+    /// off, closed) plus slack. Kept short because a connection held for
+    /// nobody costs the band's battery.
+    const IDLE_STOP: Duration = Duration::from_secs(10);
     /// How long one advertisement scan waits before trying again.
     const SCAN_WINDOW: Duration = Duration::from_secs(10);
     /// A sensor that stops notifying for this long is treated as gone even if
