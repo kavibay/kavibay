@@ -69,10 +69,14 @@ export interface BundledWidget {
    * Keeping the old id is what makes a replacement invisible: a placed tile
    * stores `typeId: "clock"` in the layout, so reusing that id resolves every
    * existing instance to the new widget with no layout migration and no lost
-   * desks. A widget without it is still a duplicate of a shipping one and
-   * stays out of a release build.
+   * desks. Without it the catalog id is the definition id.
    */
   replaces?: string;
+  /**
+   * Kept out of release builds (`manifest.widgets[name].devOnly`). Explicit, so
+   * a new widget ships by default and only an unfinished one is held back.
+   */
+  devOnly: boolean;
   catalog: ContractCatalogMetadata;
   /** Declared in the manifest, already paired with a handler in the definition. */
   actions: WidgetActionDeclaration[];
@@ -249,6 +253,7 @@ function loadAll(): BundledExtension[] {
       widgets.push({
         name,
         replaces: typeof entry.replaces === "string" ? entry.replaces : undefined,
+        devOnly: entry.devOnly === true,
         catalog: toCatalogMetadata(entry),
         actions: toActionDeclarations(
           folder,
