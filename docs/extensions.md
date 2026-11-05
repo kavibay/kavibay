@@ -7,10 +7,18 @@ credentials work. For a walkthrough that starts from an empty folder, read
 
 The host discovers folders automatically — do **not** register them in a barrel file.
 
+> **Stale in parts.** Sections below that mention `index.ts` / `ExtensionModule`
+> describe the legacy loader, which has been removed. Only contract extensions
+> load; `scripts/extensionManifests.assert.mjs` fails on any other manifest.
+> The live contract is [extension-host.md](extension-host.md) and
+> `sdk/extension/contract/sdk.ts`.
+
 ## Quick start (Tier S — client-only)
 
-1. Create `extensions/<id>/` with `manifest.json`, `index.ts`, and `<Name>Widget.vue`.
-2. Folder name **must** match `manifest.id`.
+1. Create `extensions/<id>/` with `manifest.json` (`"format": "contract"`),
+   `extension.ts`, `view.ts` and `widgets/` — the layout is in
+   [extension-host.md](extension-host.md).
+2. Folder name **must** match the extension name.
 3. Clone `extensions/calculator/` for a minimal example.
 4. Restart / reload the app — the widget appears in the palette.
 
