@@ -24,6 +24,7 @@ export const AI_PROVIDER_TABS: readonly AiProviderTab[] = [
   { id: "anthropic", label: "Anthropic" },
   { id: "openai", label: "OpenAI" },
   { id: "deepseek", label: "DeepSeek" },
+  { id: "openrouter", label: "OpenRouter" },
   { id: "cloudflare", label: "Cloudflare Workers AI" },
 ];
 

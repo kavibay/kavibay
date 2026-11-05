@@ -166,7 +166,7 @@ fn emit_parsed_items(
                     },
                 );
             }
-            SseParseItem::DeepseekDelta(delta) => {
+            SseParseItem::ChatDelta(delta) => {
                 if let Some(text) = delta["content"].as_str().filter(|text| !text.is_empty()) {
                     let _ = app.emit(
                         "llm:chunk",

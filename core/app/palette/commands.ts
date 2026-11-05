@@ -52,7 +52,7 @@ export const commands: Command[] = [
     id: "open-settings-ai",
     title: "AI",
     subtitle: "Settings",
-    keywords: ["settings", "llm", "models", "anthropic", "openai", "deepseek", "cloudflare", "claude", "gpt"],
+    keywords: ["settings", "llm", "models", "anthropic", "openai", "deepseek", "openrouter", "cloudflare", "claude", "gpt"],
   },
   {
     id: "open-settings-credentials",
