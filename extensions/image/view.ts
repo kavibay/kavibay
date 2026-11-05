@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
+import { defineAsyncComponent } from "vue";
 import type { ExtensionViews } from "@sdk/contract/sdk-vue";
 import { ImageIcon } from "@sdk/icons";
-import ImageWidget from "./ImageWidget.vue";
+
+const ImageWidget = defineAsyncComponent(() => import("./ImageWidget.vue"));
 
 const views: ExtensionViews = {
   image: { view: ImageWidget, icon: ImageIcon },

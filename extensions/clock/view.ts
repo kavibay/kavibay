@@ -1,6 +1,8 @@
+import { defineAsyncComponent } from "vue";
 import type { ExtensionViews } from "@sdk/contract/sdk-vue";
 import { ClockIcon } from "@sdk/icons";
-import ClockView from "./widgets/ClockView.vue";
+
+const ClockView = defineAsyncComponent(() => import("./widgets/ClockView.vue"));
 
 /**
  * The Vue half of this extension, keyed by the widget name `extension.ts`

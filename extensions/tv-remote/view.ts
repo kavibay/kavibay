@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
+import { defineAsyncComponent } from "vue";
 import type { ExtensionViews } from "@sdk/contract/sdk-vue";
 import { MonitorIcon } from "@sdk/icons";
-import TvRemoteView from "./TvRemoteWidget.vue";
+
+const TvRemoteView = defineAsyncComponent(() => import("./TvRemoteWidget.vue"));
 
 const views: ExtensionViews = {
   "tv-remote": { view: TvRemoteView, icon: MonitorIcon },
