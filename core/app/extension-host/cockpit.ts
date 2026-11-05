@@ -395,8 +395,8 @@ export function disposeInstanceConfig(instanceId: string): void {
  * `typeId: "clock"` in the layout, so reusing it resolves every existing
  * instance to the new widget with no layout migration and no lost desks, and
  * `addWidget("clock")` keeps working for callers that never heard of the
- * contract. A widget without one is still a duplicate of a shipping widget and
- * stays out of a release build (see `extensionHostWidgets`).
+ * contract. Whether a widget ships is a separate, explicit fact: `devOnly`
+ * (see `extensionHostWidgets`).
  */
 /**
  * Everything the manifest half of a bundled widget carries, under its definition
@@ -722,10 +722,11 @@ function withLiveActions(entry: RegisteredExtension, extensionId: string): Regis
  * carries both.
  */
 export function extensionHostWidgets(): RegisteredExtension[] {
-  // A widget that has replaced a shipping one ships too — it is the only copy
-  // now. The rest are still duplicates and stay in development.
+  // Every widget ships unless its manifest marks it `devOnly`. This used to be
+  // "ships only if it sets `replaces`", a migration-era rule that quietly kept
+  // every new widget out of releases once there was nothing left to replace.
   const definitions = Object.keys(widgetViews).filter(
-    (definitionId) => import.meta.env.DEV || Boolean(BUNDLED[definitionId as WidgetDefinitionId]?.replaces),
+    (definitionId) => import.meta.env.DEV || !BUNDLED[definitionId as WidgetDefinitionId]?.devOnly,
   );
 
   const widgets = definitions

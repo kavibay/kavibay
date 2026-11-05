@@ -71,9 +71,12 @@ those fields back out of it rather than repeating them, so the two cannot
 drift. On top of that the manifest carries what the contract deliberately does
 not model: `replaces`, keywords, categories and a pixel default size.
 
+Every widget ships in a release build unless its manifest entry sets
+`"devOnly": true` — for a widget that is not finished yet (`ai-usage`,
+`spotify`). Development builds show all of them.
+
 `extension.ts` and `view.ts` are found by their **default export**; the folder
-is found by `"format": "contract"` in its manifest, which is also what keeps the
-old host's loader from trying to read it.
+is found by `"format": "contract"` in its manifest.
 
 Standalone actions use the same discriminator but omit `widgets` and `view.ts`.
 Their metadata is an `actions` array in `manifest.json`; handlers are under

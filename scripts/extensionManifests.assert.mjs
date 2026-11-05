@@ -131,6 +131,9 @@ for (const folder of folders) {
           seenReplaces.set(entry.replaces, `extensions/${folder}`);
         }
       }
+      if (entry.devOnly !== undefined && typeof entry.devOnly !== "boolean") {
+        at(`manifest.widgets["${name}"].devOnly must be a boolean (omit it for widgets that ship)`);
+      }
       /**
        * The catalog's fresh-profile default. Checked here because the value is
        * read once at first boot and never again: a `"false"` string would be
