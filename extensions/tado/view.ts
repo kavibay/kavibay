@@ -1,5 +1,7 @@
+import { defineAsyncComponent } from "vue";
 import type { ExtensionViews } from "@sdk/contract/sdk-vue";
-import TadoTile from "./widgets/TadoTile.vue";
+
+const TadoTile = defineAsyncComponent(() => import("./widgets/TadoTile.vue"));
 
 /**
  * No `icon` yet: the host had none for this widget either, and adding one here

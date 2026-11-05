@@ -7,10 +7,18 @@ credentials work. For a walkthrough that starts from an empty folder, read
 
 The host discovers folders automatically — do **not** register them in a barrel file.
 
+> **Stale in parts.** Sections below that mention `index.ts` / `ExtensionModule`
+> describe the legacy loader, which has been removed. Only contract extensions
+> load; `scripts/extensionManifests.assert.mjs` fails on any other manifest.
+> The live contract is [extension-host.md](extension-host.md) and
+> `sdk/extension/contract/sdk.ts`.
+
 ## Quick start (Tier S — client-only)
 
-1. Create `extensions/<id>/` with `manifest.json`, `index.ts`, and `<Name>Widget.vue`.
-2. Folder name **must** match `manifest.id`.
+1. Create `extensions/<id>/` with `manifest.json` (`"format": "contract"`),
+   `extension.ts`, `view.ts` and `widgets/` — the layout is in
+   [extension-host.md](extension-host.md).
+2. Folder name **must** match the extension name.
 3. Clone `extensions/calculator/` for a minimal example.
 4. Restart / reload the app — the widget appears in the palette.
 
@@ -40,32 +48,38 @@ flowchart LR
     store --> ls["localStorage<br/>instanceStorageKey"]
 ```
 
-### Lazy views (heavy widgets)
+### Lazy views
 
-`loadExtensions.ts` globs every `index.ts` eagerly, because the palette needs all
-metadata, actions, and lifecycle hooks up front. That means anything your
-`index.ts` imports statically lands in the startup chunk and is parsed at launch
-— even for a widget the user never opens.
+`bundledExtensions.ts` globs every `extension.ts` and `view.ts` eagerly, because
+the palette needs all metadata and actions up front. Anything either file imports
+statically lands in the startup chunk and is parsed at launch — in the main window
+and in every detached widget window — even for a widget the user never opens.
 
-So import the *view* dynamically when it is heavy, and keep the rest eager:
+So `view.ts` imports its components dynamically:
 
 ```ts
-const extension: ExtensionModule = {
-  component: defineAsyncComponent(() => import("./NotesWidget.vue")),
-  menuComponent: defineAsyncComponent(() => import("./NotesMenu.vue")),
-  // Composables, logic, and hooks stay static: actions must work without a
-  // mounted widget (see "Write to the store, not the component").
-  onDispose: (instanceId) => disposeNotesState(instanceId),
+import { defineAsyncComponent } from "vue";
+
+const NotesView = defineAsyncComponent(() => import("./widgets/NotesView.vue"));
+
+const views: ExtensionViews = {
+  notes: { view: NotesView, icon: NotebookPenIcon },
 };
 ```
 
-Use it when the component pulls a third-party dependency (`notes` → TipTap is
-439 kB on its own) or renders a large tree. Skip it for small widgets — a chunk
-per trivial view just adds requests. Never make the state composable lazy.
+The definition (`extension.ts`, `widgets/*.ts`) is loaded eagerly too, so keep
+heavy data and logic that only the view needs out of its static imports — the
+Emoji Picker keeps its recent-list helpers in `emojiRecent.ts` so the catalog
+stays in the view's chunk, and the Wizard imports its logic inside `setup`.
+State that palette actions use must stay static: actions must work without a
+mounted widget (see "Write to the store, not the component").
+
+The host's entry-focus request still arrives after the real view has mounted:
+Vue forwards the gate's `@vue:mounted` to the loaded component.
 
 `hugHeight` widgets are the one exception: they measure their content to size the
-card, so a view that mounts a frame late can settle at the wrong height. Keep
-those static.
+card, so a view that mounts late can settle at the wrong height. Keep those static
+(`launcher-buttons`).
 
 ## Manifest layout and sizing
 

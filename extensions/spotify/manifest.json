@@ -8,6 +8,7 @@
   "engines": { "kavibay": "^0.1" },
   "widgets": {
     "playlists": {
+      "devOnly": true,
       "keywords": ["spotify", "playlist", "music", "playlists"],
       "categories": ["information"],
       "ui": {

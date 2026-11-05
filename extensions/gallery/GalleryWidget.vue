@@ -46,6 +46,7 @@ const manifestModules = import.meta.glob("/extensions/*/manifest.json", {
       string,
       {
         replaces?: string;
+        devOnly?: boolean;
         categories?: string[];
         keywords?: string[];
         galleryPick?: number;
@@ -71,6 +72,8 @@ const registryLite = computed((): GalleryRegistryEntry[] => {
 
     if (raw.format === "contract" && typeof raw.name === "string" && raw.widgets) {
       for (const [widgetName, widget] of Object.entries(raw.widgets)) {
+        // Same rule as the host catalog: a dev-only widget is not in a release.
+        if (widget.devOnly === true && !import.meta.env.DEV) continue;
         const id = typeof widget.replaces === "string" ? widget.replaces : widgetName;
         rows.push({
           id,
