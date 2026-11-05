@@ -22,6 +22,7 @@ pub enum LlmProvider {
     Anthropic,
     Openai,
     Deepseek,
+    Openrouter,
     Cloudflare,
 }
 
@@ -31,6 +32,7 @@ impl LlmProvider {
             LlmProvider::Anthropic => registry::ANTHROPIC_API,
             LlmProvider::Openai => registry::OPENAI_API,
             LlmProvider::Deepseek => registry::DEEPSEEK_API,
+            LlmProvider::Openrouter => registry::OPENROUTER_API,
             LlmProvider::Cloudflare => registry::CLOUDFLARE_WORKERS_AI,
         }
     }
@@ -381,6 +383,7 @@ mod tests {
             LlmProvider::Anthropic,
             LlmProvider::Openai,
             LlmProvider::Deepseek,
+            LlmProvider::Openrouter,
             LlmProvider::Cloudflare,
         ] {
             assert!(models().iter().any(|model| model.provider == provider));
@@ -399,6 +402,8 @@ mod tests {
                 LlmProvider::Anthropic => &ANTHROPIC,
                 LlmProvider::Openai => &OPENAI,
                 LlmProvider::Deepseek => &["low", "high", "max"],
+                // OpenRouter's unified `reasoning.effort`, without `none`.
+                LlmProvider::Openrouter => &["minimal", "low", "medium", "high", "xhigh"],
                 // Nothing on Workers AI takes an effort level.
                 LlmProvider::Cloudflare => &[],
             };
@@ -480,8 +485,26 @@ mod tests {
         }
     }
 
+    /// OpenRouter routes by `<vendor>/<model>`. The prefix also keeps its ids
+    /// apart from the same model listed under its own vendor, since `apiId` is
+    /// the catalog's one key.
+    #[test]
+    fn openrouter_ids_name_their_upstream_vendor() {
+        for model in models()
+            .iter()
+            .filter(|model| model.provider == LlmProvider::Openrouter)
+        {
+            let (vendor, name) = model.api_id.split_once('/').unwrap_or_default();
+            assert!(!vendor.is_empty() && !name.is_empty(), "{}", model.api_id);
+        }
+    }
+
     #[test]
     fn provider_wire_names_are_stable() {
+        assert_eq!(
+            serde_json::to_string(&LlmProvider::Openrouter).unwrap(),
+            "\"openrouter\""
+        );
         assert_eq!(
             serde_json::to_string(&LlmProvider::Deepseek).unwrap(),
             "\"deepseek\""

@@ -9,7 +9,7 @@
   "widgets": {
     "one-purpose-llm": {
       "replaces": "one-purpose-llm",
-      "keywords": ["llm", "ai", "translate", "grammar", "anthropic", "openai", "deepseek", "cloudflare"],
+      "keywords": ["llm", "ai", "translate", "grammar", "anthropic", "openai", "deepseek", "openrouter", "cloudflare"],
       "categories": ["productivity"],
       "ui": {
         "defaultOffset": { "x": 420, "y": 220 },

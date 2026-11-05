@@ -179,6 +179,7 @@ function model(id: string, provider: string, configured: boolean): LlmModelOptio
 {
   eq(providerLabel("anthropic"), "Anthropic", "known provider is labelled");
   eq(providerLabel("deepseek"), "DeepSeek", "DeepSeek is labelled");
+  eq(providerLabel("openrouter"), "OpenRouter", "OpenRouter is labelled");
   eq(providerLabel("cloudflare"), "Cloudflare Workers AI", "known provider is labelled");
   eq(providerLabel("brand-new"), "brand-new", "an unknown provider shows its id");
 }

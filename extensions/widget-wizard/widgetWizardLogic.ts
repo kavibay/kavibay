@@ -3788,6 +3788,7 @@ const PLATFORM_LABELS: Readonly<Record<string, string>> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   deepseek: "DeepSeek",
+  openrouter: "OpenRouter",
   cloudflare: "Cloudflare Workers AI",
 };
 

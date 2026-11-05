@@ -66,6 +66,13 @@ const catalog: LlmModelOption[] = [
     credentialType: "deepseekApi",
     configured: false,
   }),
+  model({
+    id: "google/gemini-3.8-flash",
+    provider: "openrouter",
+    vendor: "google",
+    credentialType: "openrouterApi",
+    configured: false,
+  }),
 ];
 
 // Every tab the panel renders must be able to find its models — a tab with a
@@ -75,13 +82,17 @@ for (const tab of AI_PROVIDER_TABS) {
   assert(credentialTypeForProvider(catalog, tab.id) !== null, `${tab.id} has no credential`);
 }
 
-assert(AI_PROVIDER_TABS.length === 4, "four provider tabs");
+assert(AI_PROVIDER_TABS.length === 5, "five provider tabs");
 assert(
-  AI_PROVIDER_TABS.map((tab) => tab.id).join() === "anthropic,openai,deepseek,cloudflare",
+  AI_PROVIDER_TABS.map((tab) => tab.id).join() === "anthropic,openai,deepseek,openrouter,cloudflare",
   "tab order is fixed",
 );
 
 assert(resolveAiProviderFocus("deepseekApi", catalog) === "deepseek", "DeepSeek credential opens AI settings");
+assert(
+  resolveAiProviderFocus("openrouterApi", catalog) === "openrouter",
+  "OpenRouter credential opens AI settings",
+);
 
 // Grouping keeps catalog order (strongest first), so the list does not reshuffle.
 assert(

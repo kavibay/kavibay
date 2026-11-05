@@ -69,9 +69,114 @@ pub enum SseParseItem {
     BlockDelta(Value),
     /// OpenAI `delta.tool_calls`: fragments of one or more calls, by index.
     ToolCallDeltas(Vec<Value>),
-    /// DeepSeek can send reasoning, answer text and tool fragments in one delta.
-    DeepseekDelta(Value),
+    /// A Chat Completions delta carrying more than plain answer text: reasoning
+    /// to echo back next round, tool fragments, or both next to text in one frame.
+    ChatDelta(Value),
 }
+
+/// How one Chat Completions service differs from another.
+///
+/// OpenAI, DeepSeek and OpenRouter share a wire format — message list, tool
+/// shape, `choices[0].delta` stream — and differ only in the handful of fields
+/// below. Keeping those differences as data means a further compatible service
+/// is a row here plus a credential type, not another arm in every `match`.
+/// What is genuinely one model's quirk (GPT-6's tool/reasoning conflict) stays
+/// keyed on the model, not on the service.
+#[derive(Debug)]
+pub struct ChatCompletions {
+    /// For error messages: "<label> reported a stream error".
+    pub label: &'static str,
+    pub url: &'static str,
+    /// Non-secret headers sent with every request. The key is the credential
+    /// type's injection, never listed here.
+    pub headers: &'static [(&'static str, &'static str)],
+    /// Field that caps output, or `None` to leave the service default. OpenAI
+    /// streams without one; DeepSeek's default is too small for thinking.
+    pub output_cap: Option<&'static str>,
+    pub effort: EffortField,
+    /// Run one-purpose transforms at `low` effort when the catalog lists it.
+    pub transform_effort: bool,
+    /// Delta field with reasoning the service requires back on the next tool
+    /// round, written into the assistant turn under the same name.
+    pub reasoning_echo: Option<&'static str>,
+    /// Where the usage block reports prompt tokens served from cache.
+    pub cache_hits: CacheHits,
+}
+
+/// Where a service reads the reasoning-effort level from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffortField {
+    /// `"reasoning_effort": "<level>"` (OpenAI, DeepSeek).
+    ReasoningEffort,
+    /// `"reasoning": { "effort": "<level>" }` (OpenRouter's unified field).
+    ReasoningObject,
+}
+
+/// How cached prompt tokens are reported. Both count them inside
+/// `prompt_tokens`; only the field naming the cached part differs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CacheHits {
+    /// `prompt_tokens_details.cached_tokens` (+ `cache_write_tokens`).
+    PromptTokensDetails,
+    /// `prompt_cache_hit_tokens` (DeepSeek).
+    PromptCacheHitTokens,
+}
+
+impl ChatCompletions {
+    /// Writes `level` where this service reads it. Added, never set to null:
+    /// an absent field and a null one are different requests.
+    pub fn set_effort(&self, body: &mut Value, level: &str) {
+        match self.effort {
+            EffortField::ReasoningEffort => body["reasoning_effort"] = json!(level),
+            EffortField::ReasoningObject => body["reasoning"] = json!({ "effort": level }),
+        }
+    }
+}
+
+const OPENAI_CHAT: ChatCompletions = ChatCompletions {
+    label: "OpenAI",
+    url: "https://api.openai.com/v1/chat/completions",
+    headers: &[],
+    output_cap: None,
+    effort: EffortField::ReasoningEffort,
+    transform_effort: false,
+    reasoning_echo: None,
+    cache_hits: CacheHits::PromptTokensDetails,
+};
+
+const DEEPSEEK_CHAT: ChatCompletions = ChatCompletions {
+    label: "DeepSeek",
+    url: "https://api.deepseek.com/chat/completions",
+    headers: &[],
+    output_cap: Some("max_tokens"),
+    effort: EffortField::ReasoningEffort,
+    transform_effort: true,
+    // Required: a tool round without the previous reasoning is a 400.
+    reasoning_echo: Some("reasoning_content"),
+    cache_hits: CacheHits::PromptCacheHitTokens,
+};
+
+/// OpenRouter forwards to many upstream vendors behind one key.
+///
+/// Its reasoning comes back as `reasoning` / `reasoning_details`; neither is
+/// echoed yet, because merging streamed `reasoning_details` fragments is
+/// unverified here. Models whose tool loops need that echo must therefore
+/// not list `functionCalling` in the catalog until it is.
+const OPENROUTER_CHAT: ChatCompletions = ChatCompletions {
+    label: "OpenRouter",
+    url: "https://openrouter.ai/api/v1/chat/completions",
+    // OpenRouter's documented app attribution. Names the app, nothing about
+    // the user.
+    headers: &[
+        ("HTTP-Referer", "https://www.kavibay.com"),
+        ("X-Title", "Kavibay"),
+    ],
+    output_cap: Some("max_tokens"),
+    effort: EffortField::ReasoningObject,
+    transform_effort: true,
+    reasoning_echo: None,
+    cache_hits: CacheHits::PromptTokensDetails,
+};
 
 /// Whether a one-purpose transform should run at `effort: "low"`.
 ///
@@ -92,12 +197,24 @@ const MAX_OUTPUT_TOKENS: u32 = 16000;
 /// The streaming half of a provider, kept next to the SSE parser that reads its
 /// replies rather than next to the catalog that lists its models.
 impl LlmProvider {
+    /// The service's Chat Completions profile, or `None` for a provider with
+    /// its own wire format (Anthropic Messages, Workers AI `/ai/run`).
+    pub fn chat_completions(self) -> Option<&'static ChatCompletions> {
+        match self {
+            LlmProvider::Openai => Some(&OPENAI_CHAT),
+            LlmProvider::Deepseek => Some(&DEEPSEEK_CHAT),
+            LlmProvider::Openrouter => Some(&OPENROUTER_CHAT),
+            LlmProvider::Anthropic | LlmProvider::Cloudflare => None,
+        }
+    }
+
     /// Chat-completion endpoint. Cloudflare puts account and model in the path.
     pub fn endpoint(self, credential: &ResolvedCredential, model: &str) -> Result<String, String> {
+        if let Some(chat) = self.chat_completions() {
+            return Ok(chat.url.to_string());
+        }
         Ok(match self {
             LlmProvider::Anthropic => "https://api.anthropic.com/v1/messages".to_string(),
-            LlmProvider::Openai => "https://api.openai.com/v1/chat/completions".to_string(),
-            LlmProvider::Deepseek => "https://api.deepseek.com/chat/completions".to_string(),
             LlmProvider::Cloudflare => format!(
                 "https://api.cloudflare.com/client/v4/accounts/{}/ai/run/{}",
                 credential
@@ -105,15 +222,20 @@ impl LlmProvider {
                     .map_err(|error: ResolveError| error.to_string())?,
                 model.trim_start_matches('/')
             ),
+            // Answered by `chat_completions` above.
+            LlmProvider::Openai | LlmProvider::Deepseek | LlmProvider::Openrouter => {
+                unreachable!("Chat Completions services have a profile")
+            }
         })
     }
 
     /// Non-secret headers the provider requires. The key itself is attached by
     /// the credential type's declared injection.
     pub fn extra_headers(self) -> &'static [(&'static str, &'static str)] {
-        match self {
-            LlmProvider::Anthropic => &[("anthropic-version", "2023-06-01")],
-            LlmProvider::Openai | LlmProvider::Deepseek | LlmProvider::Cloudflare => &[],
+        match self.chat_completions() {
+            Some(chat) => chat.headers,
+            None if self == LlmProvider::Anthropic => &[("anthropic-version", "2023-06-01")],
+            None => &[],
         }
     }
 
@@ -122,7 +244,8 @@ impl LlmProvider {
     pub fn supports_tools(self, model: &str) -> bool {
         match self {
             LlmProvider::Anthropic => true,
-            LlmProvider::Deepseek => true,
+            // Whether a model calls tools is the catalog's `functionCalling`.
+            LlmProvider::Deepseek | LlmProvider::Openrouter => true,
             LlmProvider::Openai => !matches!(model, "gpt-6-astra" | "gpt-6.1-sol"),
             LlmProvider::Cloudflare => false,
         }
@@ -141,7 +264,9 @@ impl LlmProvider {
         if !tools.is_empty() && !self.supports_tools(model) {
             return Err("tools_not_supported".into());
         }
-        if self == LlmProvider::Deepseek
+        // The catalog says which compatible models see images; sending one to
+        // a text-only model costs a round trip to learn the same thing.
+        if self.chat_completions().is_some()
             && crate::llm::catalog::find_model(model)
                 .is_some_and(|def| !def.capabilities.iter().any(|cap| cap == "vision"))
             && messages.iter().any(|message| !message.images.is_empty())
@@ -178,7 +303,7 @@ impl LlmProvider {
                 }
                 body
             }
-            LlmProvider::Openai | LlmProvider::Deepseek => json!({
+            LlmProvider::Openai | LlmProvider::Deepseek | LlmProvider::Openrouter => json!({
                 "model": model,
                 "stream": true,
                 "messages": messages
@@ -195,9 +320,13 @@ impl LlmProvider {
                     .collect::<Result<Vec<_>, _>>()?,
             }),
         };
-        if self == LlmProvider::Deepseek {
-            body["max_tokens"] = json!(MAX_OUTPUT_TOKENS);
-            body["reasoning_effort"] = json!("low");
+        if let Some(chat) = self.chat_completions() {
+            if let Some(field) = chat.output_cap {
+                body[field] = json!(MAX_OUTPUT_TOKENS);
+            }
+            if chat.transform_effort && runs_at_low_effort(model) {
+                chat.set_effort(&mut body, "low");
+            }
         }
         if tools.is_empty() {
             return Ok(body);
@@ -289,46 +418,8 @@ impl LlmProvider {
                 )),
                 _ => None,
             },
-            LlmProvider::Deepseek => {
-                if let Some(error) = value.get("error") {
-                    return Some(SseParseItem::Failure(
-                        error["message"]
-                            .as_str()
-                            .unwrap_or("DeepSeek reported a stream error")
-                            .to_string(),
-                    ));
-                }
-                match value
-                    .pointer("/choices/0/finish_reason")
-                    .and_then(Value::as_str)
-                {
-                    Some("length") => {
-                        return Some(SseParseItem::Failure("response_truncated".into()))
-                    }
-                    Some("content_filter") => {
-                        return Some(SseParseItem::Failure("model_refused".into()))
-                    }
-                    _ => {}
-                }
-                value
-                    .pointer("/choices/0/delta")
-                    .cloned()
-                    .map(SseParseItem::DeepseekDelta)
-            }
-            LlmProvider::Openai => {
-                let delta = value.pointer("/choices/0/delta")?;
-                if let Some(text) = delta
-                    .get("content")
-                    .and_then(Value::as_str)
-                    .filter(|text| !text.is_empty())
-                {
-                    return Some(SseParseItem::Text(text.to_string()));
-                }
-                delta
-                    .get("tool_calls")
-                    .and_then(Value::as_array)
-                    .filter(|calls| !calls.is_empty())
-                    .map(|calls| SseParseItem::ToolCallDeltas(calls.clone()))
+            LlmProvider::Openai | LlmProvider::Deepseek | LlmProvider::Openrouter => {
+                chat_completions_item(self.chat_completions()?, &value)
             }
             LlmProvider::Cloudflare => value
                 .get("response")
@@ -345,6 +436,57 @@ impl LlmProvider {
                         .map(|text| SseParseItem::Text(text.to_string()))
                 }),
         }
+    }
+}
+
+/// One decoded Chat Completions frame.
+///
+/// A failure is checked first: OpenRouter reports an upstream error mid-stream
+/// as a frame with `error` and `finish_reason: "error"`, and DeepSeek does the
+/// same with `error` alone. A cut-off or filtered answer still ends with
+/// `[DONE]`, so only `finish_reason` says it is not whole.
+fn chat_completions_item(chat: &ChatCompletions, value: &Value) -> Option<SseParseItem> {
+    if let Some(error) = value.get("error") {
+        return Some(SseParseItem::Failure(
+            error["message"]
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("{} reported a stream error", chat.label)),
+        ));
+    }
+    match value
+        .pointer("/choices/0/finish_reason")
+        .and_then(Value::as_str)
+    {
+        Some("length") => return Some(SseParseItem::Failure("response_truncated".into())),
+        Some("content_filter") => return Some(SseParseItem::Failure("model_refused".into())),
+        Some("error") => {
+            return Some(SseParseItem::Failure(format!(
+                "{} reported a stream error",
+                chat.label
+            )))
+        }
+        _ => {}
+    }
+    let delta = value.pointer("/choices/0/delta")?;
+    let text = delta
+        .get("content")
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty());
+    let has_calls = delta
+        .get("tool_calls")
+        .and_then(Value::as_array)
+        .is_some_and(|calls| !calls.is_empty());
+    let has_echo = chat
+        .reasoning_echo
+        .and_then(|field| delta.get(field))
+        .and_then(Value::as_str)
+        .is_some_and(|reasoning| !reasoning.is_empty());
+    match (text, has_calls, has_echo) {
+        // Role, usage and empty frames carry nothing for us.
+        (None, false, false) => None,
+        (Some(text), false, false) => Some(SseParseItem::Text(text.to_string())),
+        _ => Some(SseParseItem::ChatDelta(delta.clone())),
     }
 }
 
@@ -437,7 +579,7 @@ fn image_content(text: &str, images: &[ChatImage], provider: LlmProvider) -> Res
                     "data": image.data,
                 },
             }),
-            LlmProvider::Openai | LlmProvider::Deepseek => json!({
+            LlmProvider::Openai | LlmProvider::Deepseek | LlmProvider::Openrouter => json!({
                 "type": "image_url",
                 "image_url": {
                     "url": format!("data:{};base64,{}", image.media_type, image.data),
@@ -727,6 +869,123 @@ mod tests {
                 LlmProvider::Deepseek.parse_sse_data(frame),
                 Some(SseParseItem::Failure(_))
             ));
+        }
+    }
+
+    /// The services that speak Chat Completions are rows in one table; this
+    /// pins the rows so a new one cannot silently inherit another's quirks.
+    #[test]
+    fn chat_completions_profiles_cover_exactly_the_compatible_services() {
+        assert!(LlmProvider::Anthropic.chat_completions().is_none());
+        assert!(LlmProvider::Cloudflare.chat_completions().is_none());
+        let openrouter = LlmProvider::Openrouter.chat_completions().unwrap();
+        assert_eq!(
+            openrouter.url,
+            "https://openrouter.ai/api/v1/chat/completions"
+        );
+        assert_eq!(openrouter.reasoning_echo, None);
+        assert_eq!(
+            LlmProvider::Deepseek
+                .chat_completions()
+                .unwrap()
+                .reasoning_echo,
+            Some("reasoning_content")
+        );
+        assert!(LlmProvider::Openrouter
+            .extra_headers()
+            .iter()
+            .any(|(name, _)| *name == "X-Title"));
+        assert!(LlmProvider::Openai.extra_headers().is_empty());
+    }
+
+    #[test]
+    fn openrouter_body_caps_output_and_spells_effort_its_own_way() {
+        let body = LlmProvider::Openrouter
+            .body_with_tools(
+                "qwen/qwen3.7-flash",
+                &messages(),
+                &[weather_tool()],
+                ToolChoice::None,
+            )
+            .unwrap();
+        assert_eq!(body["model"], "qwen/qwen3.7-flash");
+        assert_eq!(body["max_tokens"], MAX_OUTPUT_TOKENS);
+        assert_eq!(body["messages"][0]["role"], "system");
+        assert_eq!(body["tools"][0]["function"]["name"], "weather_current");
+        assert_eq!(body["tool_choice"], "none");
+        // The catalog lists no effort levels for it, so none is sent.
+        assert!(body.get("reasoning").is_none());
+        assert!(body.get("reasoning_effort").is_none());
+
+        let mut body = json!({});
+        LlmProvider::Openrouter
+            .chat_completions()
+            .unwrap()
+            .set_effort(&mut body, "low");
+        assert_eq!(body, json!({ "reasoning": { "effort": "low" } }));
+    }
+
+    #[test]
+    fn openrouter_refuses_images_for_a_text_only_model() {
+        let messages = [ChatMessage {
+            role: "user".into(),
+            content: "Describe this".into(),
+            images: vec![ChatImage {
+                media_type: "image/png".into(),
+                data: "QUJD".into(),
+            }],
+            ..Default::default()
+        }];
+        assert_eq!(
+            LlmProvider::Openrouter
+                .body_with_tools("qwen/qwen3.7-flash", &messages, &[], ToolChoice::Auto)
+                .unwrap_err(),
+            "images_not_supported"
+        );
+    }
+
+    #[test]
+    fn openrouter_stream_errors_fail_and_reasoning_alone_is_skipped() {
+        assert_eq!(
+            LlmProvider::Openrouter.parse_sse_data(
+                r#"{"error":{"code":502,"message":"Provider returned error"},"choices":[{"delta":{"content":""},"finish_reason":"error"}]}"#
+            ),
+            Some(SseParseItem::Failure("Provider returned error".into()))
+        );
+        assert!(matches!(
+            LlmProvider::Openrouter
+                .parse_sse_data(r#"{"choices":[{"delta":{},"finish_reason":"error"}]}"#),
+            Some(SseParseItem::Failure(_))
+        ));
+        assert_eq!(
+            LlmProvider::Openrouter
+                .parse_sse_data(r#"{"choices":[{"delta":{"reasoning":"Hmm."}}]}"#),
+            None,
+            "reasoning is not answer text and is not echoed"
+        );
+        assert_eq!(
+            LlmProvider::Openrouter.parse_sse_data(r#"{"choices":[{"delta":{"content":"Hi"}}]}"#),
+            Some(SseParseItem::Text("Hi".into()))
+        );
+    }
+
+    /// Text and a tool call in one frame: the old OpenAI parser kept the text
+    /// and dropped the call.
+    #[test]
+    fn text_and_tool_fragments_in_one_frame_both_survive() {
+        let frame = r#"{"choices":[{"delta":{"content":"Checking.","tool_calls":[{"index":0,"id":"c","function":{"name":"x","arguments":""}}]}}]}"#;
+        for provider in [
+            LlmProvider::Openai,
+            LlmProvider::Deepseek,
+            LlmProvider::Openrouter,
+        ] {
+            assert!(
+                matches!(
+                    provider.parse_sse_data(frame),
+                    Some(SseParseItem::ChatDelta(_))
+                ),
+                "{provider:?}"
+            );
         }
     }
 
