@@ -11,7 +11,7 @@
  * So: manifests eagerly (they are data), modules lazily (they are code). Only
  * the one extension whose row was picked is ever loaded.
  */
-import type { ExtensionModule } from "@sdk/types";
+import type { TextActionModule } from "@sdk/types";
 import type { LlmCapability } from "@sdk/contract/sdk";
 import { tauriWidgetCapabilityTransport } from "../extension-host/tauriWidgetCapabilityTransport";
 import {
@@ -40,8 +40,6 @@ const manifestModules = import.meta.glob("/extensions/*/manifest.json", {
 }) as Record<string, unknown>;
 
 /** Lazy: each value is an `() => import(...)` that Vite code-splits. */
-type TextActionModule = Pick<ExtensionModule, "textActions">;
-
 const textActionModules = import.meta.glob("/extensions/*/textActions.ts", {
   import: "default",
 }) as Record<string, () => Promise<TextActionModule>>;

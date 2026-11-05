@@ -72,14 +72,14 @@ export type ActionArgs = Record<string, string>;
 
 /**
  * One text-in / text-out transform offered on text selected anywhere on the
- * desktop (Ctrl+Shift+Q). Declared in manifest.json, handled in index.ts.
+ * desktop (Ctrl+Shift+Q). Declared in manifest.json, handled in textActions.ts.
  *
  * Separate from `ExtensionAction` because the two answer different questions:
  * a palette action operates on a widget instance and returns nothing, a text
  * action has no instance at all and its whole point is the string it returns.
  */
 export interface TextAction {
-  /** Unique within the extension; key into the module’s `textActions` map. */
+  /** Unique within the extension; key into `TextActionModule.textActions`. */
   id: string;
   /** Menu row label, e.g. "Translate". */
   title: string;
@@ -121,12 +121,15 @@ export interface TextActionContext {
  */
 export type TextActionHandler = (ctx: TextActionContext) => Promise<string>;
 
-/** Handles an action whose menu metadata is generated at runtime. `undefined`
- * means the action is no longer available (for example, a deleted template). */
-export type DynamicTextActionHandler = (
-  actionId: string,
-  ctx: TextActionContext,
-) => Promise<string | undefined>;
+/**
+ * What `extensions/<id>/textActions.ts` default-exports: handlers keyed by the
+ * `TextAction.id`s its manifest declares. A file of its own, separate from the
+ * widget definition, because the quick-action popup imports it lazily and
+ * nothing else — see `core/app/extensions/textActions.ts`.
+ */
+export interface TextActionModule {
+  textActions: Record<string, TextActionHandler>;
+}
 
 /** Accent for an inline value; the host owns the actual colors. */
 export type InlineViewTone = "neutral" | "active" | "warn" | "done";
@@ -217,171 +220,6 @@ export interface ExtensionActionContext {
 export type ExtensionActionHandler = (
   ctx: ExtensionActionContext,
 ) => void | Promise<void>;
-
-/** Catalog / store-ready metadata (lives in each extension’s manifest.json). */
-export interface ExtensionManifest {
-  id: string;
-  name: string;
-  description: string;
-  version: string;
-  author: string;
-  keywords: string[];
-  categories: string[];
-  /** Optional path relative to the extension folder (e.g. icon.svg). */
-  icon?: string;
-  ui: {
-    /** False for palette actions that never create a widget card. */
-    widget?: boolean;
-    defaultOffset: WidgetPosition;
-    defaultSize: WidgetSize;
-    allowDuplicate?: boolean;
-    flush?: boolean;
-    /**
-     * False drops the card's padding so the body reaches the card edges. Unlike
-     * `flush`, the title stays above the body instead of over it. Default true.
-     */
-    padding?: boolean;
-    compact?: boolean;
-    /** Spawn the card with its title bar hidden (menu can bring it back). */
-    defaultHideTitle?: boolean;
-    /**
-     * Content zoom the card opens at — same factor Ctrl+wheel writes.
-     * 1 = unzoomed; clamped to the host's 0.5…3 range. Default 1.
-     */
-    defaultScale?: number;
-    /** When false, host uses default cursor instead of grab (e.g. text widgets). Default true. */
-    grabCursor?: boolean;
-    /**
-     * When true, pointer-down anywhere on the card (except chrome/resize/menus)
-     * starts a move drag — for cover-style widgets like Redacted.
-     */
-    fullDrag?: boolean;
-    /** When false, hide host edge-resize handles. Default true. */
-    resizable?: boolean;
-    /**
-     * Playground widgets (e.g. Snake): flush edge-to-edge content, square resize,
-     * playfield hugs the card border.
-     */
-    playground?: boolean;
-    /**
-     * Dock-style widgets (e.g. App Launcher): host owns width only;
-     * card height hugs content (no empty vertical chrome).
-     */
-    hugHeight?: boolean;
-    /**
-     * Opt this card out of the glass, whatever the appearance setting says.
-     *
-     * For a widget that is a workspace rather than a reading: the Wizard has a
-     * file editor, a transcript and a live preview of somebody else's widget in
-     * it, and three columns of dense text over a wallpaper and whatever cards
-     * are behind it is not a taste question — the preview in particular is
-     * showing a *different* widget, which has to be judged against a plain
-     * ground rather than against the desk showing through it.
-     *
-     * Unreachable from a package manifest, like every other `ui` flag: it is
-     * read out of a bundled extension's manifest only. A drop-in that could
-     * overrule the surface opacity somebody chose would be overruling a
-     * preference, not declaring a property of itself.
-     */
-    opaque?: boolean;
-    /** Keep running when hidden or on another desk; disabling/deleting ends background work. */
-    keepAliveWhenHidden?: boolean;
-    /**
-     * The card's own surface, over the shared appearance. With `editable`, each
-     * instance can change it under Appearance in its settings. Bundled
-     * extensions only, like every other `ui` flag.
-     */
-    appearance?: WidgetAppearance & { editable?: boolean };
-  };
-  /** Declared Tauri command names this extension uses (Rust split later). */
-  commands: string[];
-  /** Palette actions this extension offers; handlers live in index.ts. */
-  actions?: ExtensionAction[];
-  /**
-   * Selection quick actions offered on text selected in any application.
-   * Declared here rather than derived from code so the popup window can build
-   * its menu from manifests alone, without loading any extension module.
-   */
-  textActions?: TextAction[];
-  /**
-   * Loads user-defined text actions from the extension at runtime. The quick
-   * action popup imports only modules that opt in, keeping its normal path
-   * manifest-only and lightweight.
-   */
-  dynamicTextActions?: boolean;
-  /**
-   * Credential types this extension needs (first-party only — sandboxed
-   * runtime packages may not declare them). The host owns the secret: the
-   * extension only learns whether the credential is connected.
-   */
-  credentials?: ExtensionCredentialRequest[];
-  /** Declared permission ids (enforced later). */
-  permissions: string[];
-}
-
-/** One credential type an extension depends on. */
-export interface ExtensionCredentialRequest {
-  /** Credential type id from the host registry, e.g. `githubPat`. */
-  type: string;
-  /** When true the widget cannot work without it (renders a setup state). */
-  required: boolean;
-}
-
-/**
- * Code wiring exported from each extension’s index.ts.
- * Lifecycle hooks keep the host free of typeId switches.
- */
-export interface ExtensionModule {
-  /** Required for widgets; action-only extensions deliberately omit it. */
-  component?: Component;
-  settingsComponent?: Component;
-  menuComponent?: Component;
-  /**
-   * Inline icon component, normally one from `@sdk/icons`. Takes precedence
-   * over the manifest's `icon` file wherever the host draws this extension.
-   *
-   * Only first-party extensions can supply one — a sandboxed runtime package
-   * hands over JSON, never a Vue component — so `icon`/`iconUrl` stays the
-   * universal path and this is the upgrade. It exists because an icon drawn
-   * through `mask: url(...)` is flattened to an alpha mask with no addressable
-   * paths, which rules out per-path motion.
-   */
-  iconComponent?: Component;
-  /** Rust command for useWidgetData; omit for pure client widgets. */
-  backendCommand?: string;
-  refreshInterval?: number;
-  /** Handlers keyed by `ExtensionAction.id` from the manifest. */
-  actions?: Record<string, ExtensionActionHandler>;
-  /**
-   * Rebuilds this action's chips from the values typed so far.
-   * Used so `{name}` in a snippet template becomes a chip, without the host
-   * knowing what a snippet is.
-   */
-  dynamicActionParams?: (
-    actionId: string,
-    values: readonly string[],
-  ) => ActionParam[];
-  /** Handlers keyed by `TextAction.id` from the manifest. */
-  textActions?: Record<string, TextActionHandler>;
-  /** Runtime text-action rows, enabled by `manifest.dynamicTextActions`. */
-  dynamicTextActions?: () => TextAction[];
-  /** Resolves one runtime text-action id when the popup runs it. */
-  dynamicTextActionHandler?: DynamicTextActionHandler;
-  /** Filters static and runtime text actions whose availability is user-defined. */
-  isTextActionAvailable?: (actionId: string) => boolean;
-  /** Per-instance glance shown on that instance's palette row. */
-  inlineView?: ExtensionInlineViewFn;
-  /** Optional persisted body text used for generic palette search and previews. */
-  searchText?: ExtensionSearchTextFn;
-  /** State-dependent buttons on that instance's palette row. */
-  instanceActions?: ExtensionInstanceActionsFn;
-  /** Called when a new instance is added (and once at host boot for existing ones). */
-  onCreate?: (instanceId: string) => void;
-  onDuplicate?: (fromInstanceId: string, toInstanceId: string) => void;
-  onSuspend?: (instanceId: string) => void;
-  onResume?: (instanceId: string) => void;
-  onDispose?: (instanceId: string) => void;
-}
 
 /** Manifest + module merged for host / palette consumption. */
 export interface RegisteredExtension {
