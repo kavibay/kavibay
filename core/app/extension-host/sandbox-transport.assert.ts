@@ -3,6 +3,7 @@ import { ExtensionRegistry } from "./registry";
 import { Host } from "./runtime";
 import { JsonBridge } from "./bridge";
 import { SandboxGuestPort, SandboxHostPort, failedMessage, isMounted, readFailure } from "./sandboxTransport";
+import { initMessage, readInit } from "@sdk/contract/sandbox-guest";
 import { todoExtension } from "./fixtures/todo";
 import { tadoExtension } from "./fixtures/tado";
 import { makeFetcher, makeUi } from "./fixtures/harness";
@@ -207,6 +208,15 @@ const tadoTile = () => inst("kavibay.tado/control", "frame-1", { room: "living-r
 
   assert(readFailure({ kind: "kavibay.widget.mounted" }) === undefined, "a mount is not a failure");
   assert(isMounted(failedMessage({ kind: "provider-error", message: "x" })) === false, "and a failure is not a mount");
+}
+
+// ---- the host language rides the init, and reaches ctx --------------------
+{
+  const named = readInit(initMessage(inst(TADO, "loc", {}), [], "de"));
+  assert(named?.locale === "de", "the init carries the host locale");
+  assert(readInit(initMessage(inst(TADO, "loc", {}), []))?.locale === undefined, "an init without one stays without");
+  const ctx = new SandboxGuestPort(() => {}).context(inst(TADO, "loc", {}), [], named!.locale);
+  assert(ctx.locale === "de", "the guest puts it on ctx.locale");
 }
 
 console.log("sandbox-transport.assert.ts: ok");

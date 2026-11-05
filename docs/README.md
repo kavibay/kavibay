@@ -29,6 +29,7 @@ flowchart LR
 | [extension-host.md](extension-host.md) | The contract-based extension system: layout, boundaries, phase state |
 | [provider-schema.md](provider-schema.md) | **Generated.** What every shipping provider's queries take and return |
 | [DESIGN.md](DESIGN.md) | Colour, type, spacing, dropdowns — the house style |
+| [i18n.md](i18n.md) | Host UI strings: `t()`, adding a key, adding a language |
 
 Two more live outside this folder:
 

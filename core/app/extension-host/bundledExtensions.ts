@@ -4,6 +4,8 @@ import type { ExtensionActionDeclaration, ExtensionManifest } from "@sdk/contrac
 import { toActionDeclarations, type WidgetActionDeclaration } from "./widgetActions";
 import { isSafeExtensionIconPath } from "../extensions/extensionIcon";
 import { normalizeWidgetAppearance, type WidgetAppearance } from "../host/widgetAppearance";
+import { locale } from "../i18n/i18n";
+import { HostMessages, localizeActions, localizeDefinition } from "./localizeExtension";
 
 /**
  * Discovers bundled contract extensions under `extensions/<id>/`, the same
@@ -139,6 +141,27 @@ const readmeModules = import.meta.glob("/extensions/*/README.md", {
   import: "default",
 }) as Record<string, () => Promise<string>>;
 
+/**
+ * Each extension's translations, `i18n/<lang>.ts`. Eager: they are small, and
+ * the host keys in them are applied while this module loads (see
+ * `localizeExtension.ts`). The widget imports its own catalogs directly for the
+ * text it draws; this glob only serves what the host draws for it.
+ */
+const catalogModules = import.meta.glob("/extensions/*/i18n/*.ts", {
+  eager: true,
+  import: "default",
+}) as Record<string, Record<string, unknown>>;
+
+/** The host-key overlay for `folder` in the host locale; empty for the source. */
+function hostMessagesFor(folder: string): HostMessages {
+  const lang = locale.value;
+  const base = lang.split("-")[0];
+  return new HostMessages(
+    catalogModules[`/extensions/${folder}/i18n/${lang}.ts`] ??
+      catalogModules[`/extensions/${folder}/i18n/${base}.ts`],
+  );
+}
+
 const iconUrlModules = import.meta.glob("/extensions/**/*.{svg,png}", {
   eager: true,
   query: "?url",
@@ -253,6 +276,7 @@ function loadAll(): BundledExtension[] {
       );
     }
 
+    const messages = hostMessagesFor(folder);
     const views = viewModules[`/extensions/${folder}/view.ts`] ?? {};
     const extensionIconComponent = extensionIcon(views);
     const declared = new Set((definition.contributes.widgets ?? []).map((w) => w.name));
@@ -273,11 +297,15 @@ function loadAll(): BundledExtension[] {
         replaces: typeof entry.replaces === "string" ? entry.replaces : undefined,
         devOnly: entry.devOnly === true,
         catalog: toCatalogMetadata(entry),
-        actions: toActionDeclarations(
-          folder,
-          name,
-          entry.actions,
-          (definition.contributes.widgets ?? []).find((w) => w.name === name)?.actions,
+        actions: localizeActions(
+          toActionDeclarations(
+            folder,
+            name,
+            entry.actions,
+            (definition.contributes.widgets ?? []).find((w) => w.name === name)?.actions,
+          ),
+          `widgets.${name}.actions.`,
+          messages,
         ),
         view: widgetView(views, name)?.view,
         icon: widgetView(views, name)?.icon,
@@ -298,14 +326,15 @@ function loadAll(): BundledExtension[] {
         `Extension "${folder}": standalone actions must declare needsInstance: false`,
       );
     }
-    const standaloneActions: ExtensionActionDeclaration[] = actions.map((action) => ({
-      ...action,
-      needsInstance: false,
-    }));
+    const standaloneActions: ExtensionActionDeclaration[] = localizeActions(
+      actions.map((action) => ({ ...action, needsInstance: false as const })),
+      "actions.",
+      messages,
+    );
 
     found.push({
       folder,
-      definition,
+      definition: localizeDefinition(definition, messages),
       widgets,
       actions: standaloneActions,
       catalog: toCatalogMetadata(manifestRecord),

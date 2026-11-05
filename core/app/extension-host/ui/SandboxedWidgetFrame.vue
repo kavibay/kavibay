@@ -37,6 +37,7 @@ import WidgetSkeleton from "./WidgetSkeleton.vue";
 import WidgetError from "./WidgetError.vue";
 
 import { reportContentOverflow } from "../../host/contentOverflow";
+import { locale } from "../../i18n/i18n";
 
 const props = defineProps<{
   bridge: JsonBridge;
@@ -135,7 +136,7 @@ function onMessage(event: MessageEvent) {
     const declared =
       props.bridge.host.registry.widget(props.instance.definitionId)?.widget.requires?.providers ??
       [];
-    postToGuest(initMessage(props.instance, declared));
+    postToGuest(initMessage(props.instance, declared, locale.value));
     return;
   }
   if (isMounted(event.data)) {

@@ -8,6 +8,7 @@
  */
 
 import { fuzzyMatch } from "../palette/fuzzy";
+import { t, type SimpleMessageKey } from "../i18n/i18n";
 import type { SettingsSectionId } from "./useSettingsModal";
 
 export interface SettingsNavEntry {
@@ -27,16 +28,25 @@ export interface SettingsNavGroup {
 }
 
 /**
+ * The nav as declared: message keys instead of labels. Labels are resolved by
+ * `settingsNavGroups()` at render time so a locale change reaches them.
+ * Keywords stay English for now — they are search vocabulary, and a translated
+ * catalog will want its own list rather than a word-for-word copy.
+ */
+type NavEntryDef = Omit<SettingsNavEntry, "label"> & { label: SimpleMessageKey };
+type NavGroupDef = { label: SimpleMessageKey; items: NavEntryDef[] };
+
+/**
  * Order is the reading order of the dialog, not a ranking — see
  * `filterSettingsNav` on why search never reorders it.
  */
-export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
+const SETTINGS_NAV: NavGroupDef[] = [
   {
-    label: "General",
+    label: "settings.group.general",
     items: [
       {
         id: "appearance",
-        label: "Appearance",
+        label: "settings.nav.appearance",
         keywords: [
           "theme",
           "color mode",
@@ -53,7 +63,7 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
       },
       {
         id: "behavior",
-        label: "Behavior",
+        label: "settings.nav.behavior",
         keywords: [
           "cockpit",
           "hide on outside click",
@@ -73,22 +83,22 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
       },
       {
         id: "search",
-        label: "Search",
+        label: "settings.nav.search",
         keywords: ["palette", "search actions", "search engines", "google", "duckduckgo", "chatgpt", "claude", "ecosia", "brave", "bing", "logos", "icons", "order", "reorder", "no matches"],
       },
       {
         id: "quickActions",
-        label: "Quick Actions",
+        label: "settings.nav.quickActions",
         keywords: ["rewrite", "selection", "selected text", "templates", "hotkey", "shortcut", "model"],
       },
       {
         id: "files",
-        label: "Files and Folders",
+        label: "settings.nav.files",
         keywords: ["folders", "search scope", "paths", "downloads", "documents", "desktop"],
       },
       {
         id: "extensions",
-        label: "Extensions",
+        label: "settings.nav.extensions",
         keywords: [
           "widgets",
           "packages",
@@ -105,32 +115,40 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
       },
       {
         id: "about",
-        label: "About",
+        label: "settings.nav.about",
         keywords: ["version", "build", "github", "repository", "kavibay"],
       },
     ],
   },
   {
-    label: "Integrations",
+    label: "settings.group.integrations",
     items: [
       {
         id: "ai",
-        label: "AI",
+        label: "settings.nav.ai",
         keywords: ["providers", "models", "prompt", "openai", "anthropic", "deepseek", "openrouter", "claude"],
       },
       {
         id: "credentials",
-        label: "Credentials",
+        label: "settings.nav.credentials",
         keywords: ["api key", "token", "secret", "password", "sign in", "connect"],
       },
       {
         id: "mcp",
-        label: "MCP Server",
+        label: "settings.nav.mcp",
         keywords: ["model context protocol", "port", "connection", "clients", "authoring"],
       },
     ],
   },
 ];
+
+/** The nav in the active locale. Call it inside a `computed` to stay reactive. */
+export function settingsNavGroups(): SettingsNavGroup[] {
+  return SETTINGS_NAV.map((group) => ({
+    label: t(group.label),
+    items: group.items.map((item) => ({ ...item, label: t(item.label) })),
+  }));
+}
 
 /**
  * Label match is fuzzy — "fls" should still find Files and Folders — but

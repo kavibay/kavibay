@@ -500,6 +500,15 @@ Widget-side, only these read-only commands are available:
 Sandboxed runtime packages may **not** declare `credentials` — the manifest
 validators reject it in both FE and Rust.
 
+## Translations
+
+Text a widget draws goes through `createTranslator` from `@sdk/i18n` with
+`ctx.locale`. The catalogs live in the extension's own `i18n/<lang>.ts`, and `en.ts`
+is the source. A translation can also cover the name, settings labels and
+palette actions the host draws, with host keys such as
+`widgets.<w>.config.<field>.label`. Details and the full key list are in
+[i18n.md](i18n.md#widgets).
+
 ## Verify
 
 - Pure helpers: `npx tsx path/to/file.assert.ts`

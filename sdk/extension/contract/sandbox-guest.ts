@@ -82,11 +82,14 @@ export const isReady = (m: unknown): boolean => isRecord(m) && m.kind === READY;
 export const initMessage = (
   instance: WidgetInstance<unknown>,
   providers: readonly string[] = [],
-): unknown => ({ kind: INIT, payload: JSON.stringify({ instance, providers }) });
+  locale?: string,
+): unknown => ({ kind: INIT, payload: JSON.stringify({ instance, providers, locale }) });
 
 export interface SandboxInit {
   instance: WidgetInstance<unknown>;
   providers: string[];
+  /** The host UI language, for `ctx.locale`. Absent from an older host. */
+  locale?: string;
 }
 
 /** Returns what the host named, or undefined if this is not an init. */
@@ -100,6 +103,7 @@ export function readInit(m: unknown): SandboxInit | undefined {
       providers: Array.isArray(parsed.providers)
         ? parsed.providers.filter((id): id is string => typeof id === "string")
         : [],
+      ...(typeof parsed.locale === "string" ? { locale: parsed.locale } : {}),
     };
   } catch {
     return undefined;
@@ -500,13 +504,19 @@ export class SandboxGuestPort {
     return false;
   }
 
-  context<T>(instance: WidgetInstance<T>, providers: readonly string[] = []): WidgetContext<T> {
-    return sandboxContext(
+  context<T>(
+    instance: WidgetInstance<T>,
+    providers: readonly string[] = [],
+    locale?: string,
+  ): WidgetContext<T> {
+    const ctx = sandboxContext(
       instance,
       (requestJson) => this.send(requestJson),
       (cb) => { this.onEvent = cb; },
       providers,
     );
+    if (locale) ctx.locale = locale;
+    return ctx;
   }
 
   private send(requestJson: string): Promise<string> {

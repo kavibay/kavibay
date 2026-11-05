@@ -154,6 +154,19 @@ CI (`.github/workflows/ci.yml`) runs `verify` on Ubuntu and the Rust half on Win
   its own allowlist; that is the reason for Rust, not a reason for one shared
   table.
 
+## UI strings
+
+Host UI text goes through `t()` from `core/app/i18n/i18n.ts`, with keys declared in
+`core/app/i18n/messages/en.ts` (typed: unknown key or missing `{param}` fails
+typecheck). Only English ships; untouched surfaces still hardcode English and move
+over when edited — don't add new hardcoded strings to a file that already uses
+`t()`. Plurals are catalog objects, never `n === 1 ? "" : "s"`. `extensions/` and
+`sdk/` must not import it. Widgets translate their own text with `@sdk/i18n` (the
+same formatter, MIT) and `ctx.locale`, from `extensions/<id>/i18n/<lang>.ts`.
+English for names, settings labels and actions stays in the manifest and
+definition; other locales overlay them with host keys (`widgets.<w>.…`). Guard:
+`scripts/extensionCatalogs.assert.ts`. Guide: `docs/i18n.md`.
+
 ## Security invariants — never violate, even when a task looks easier without
 
 1. `RuntimeExtensionFrame.vue` keeps `sandbox="allow-scripts"`. Never add
