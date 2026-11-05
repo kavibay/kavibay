@@ -1,5 +1,7 @@
 import { computed, onScopeDispose, ref, type ComputedRef, type Ref } from "vue";
 import { defineWidget, type WidgetContext } from "@sdk/contract/sdk";
+import { createTranslator, type Translator } from "@sdk/i18n";
+import en from "../i18n/en";
 
 const TICK_MS = 75;
 const SESSION_STATE_KEY = "session-state";
@@ -28,6 +30,8 @@ export interface DisplayLap {
 }
 
 export interface StopwatchModel {
+  /** The widget's own strings in the host language, for the view. */
+  t: Translator<typeof en>["t"];
   running: Ref<boolean>;
   displayTime: ComputedRef<string>;
   displayLaps: ComputedRef<DisplayLap[]>;
@@ -112,6 +116,9 @@ export const stopwatchWidget = defineWidget<Record<string, never>>({
   mode: "both",
   component: {
     async setup(ctx: WidgetContext<Record<string, never>>): Promise<StopwatchModel> {
+      // English only for now; a translation is `import de from "../i18n/de"`
+      // and `{ de }` here.
+      const { t } = createTranslator(en, {}, () => ctx.locale);
       const accumulatedMs = ref(0);
       const laps = ref<LapEntry[]>([]);
       const running = ref(false);
@@ -173,9 +180,9 @@ export const stopwatchWidget = defineWidget<Record<string, never>>({
         })),
       );
       const statusText = computed(() => {
-        if (running.value) return "Running…";
-        if (accumulatedMs.value > 0 || laps.value.length > 0) return "Paused";
-        return "Ready";
+        if (running.value) return t("status.running");
+        if (accumulatedMs.value > 0 || laps.value.length > 0) return t("status.paused");
+        return t("status.ready");
       });
 
       const start = () => {
@@ -209,7 +216,7 @@ export const stopwatchWidget = defineWidget<Record<string, never>>({
         tickNow.value = Date.now();
       };
 
-      return { running, displayTime, displayLaps, statusText, toggleRun, lap, reset };
+      return { t, running, displayTime, displayLaps, statusText, toggleRun, lap, reset };
     },
   },
 });

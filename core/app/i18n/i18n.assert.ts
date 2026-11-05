@@ -1,4 +1,5 @@
-import { CATALOGS, formatMessage, resolveLocale, setLocale, t, type PluralMessage } from "./i18n";
+import { catalogProblems, formatMessage, type PluralMessage } from "@sdk/i18n";
+import { CATALOGS, resolveLocale, setLocale, t } from "./i18n";
 import { en } from "./messages/en";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -32,30 +33,12 @@ assert(resolveLocale(["xx-YY"]) === "en", "an unsupported language falls back");
 
 // --- catalog hygiene: what a translator can get wrong ----------------------
 
-const placeholders = (value: string | PluralMessage) =>
-  [...new Set(
-    (typeof value === "string" ? [value] : Object.values(value))
-      .flatMap((text) => [...(text ?? "").matchAll(/\{(\w+)\}/g)].map((m) => m[1])),
-  )].sort().join(",");
-
-for (const [key, value] of Object.entries(en) as [string, string | PluralMessage][]) {
-  if (typeof value === "string") {
-    assert(value.trim().length > 0, `en "${key}" is empty`);
-  } else {
-    assert(typeof value.other === "string" && value.other.length > 0, `en "${key}" has no "other" form`);
-  }
-}
-
+const sourceProblems = catalogProblems(en);
+assert(sourceProblems.length === 0, `en: ${sourceProblems.join("; ")}`);
 for (const [lang, catalog] of Object.entries(CATALOGS)) {
-  for (const [key, value] of Object.entries(catalog) as [string, string | PluralMessage][]) {
-    const source = (en as Record<string, string | PluralMessage>)[key];
-    assert(source !== undefined, `${lang} "${key}" is not a key in en`);
-    assert(typeof value === typeof source, `${lang} "${key}" changes plural-ness`);
-    assert(
-      placeholders(value) === placeholders(source),
-      `${lang} "${key}" uses {${placeholders(value)}} but en uses {${placeholders(source)}}`,
-    );
-  }
+  if (lang === "en") continue;
+  const problems = catalogProblems(en, catalog);
+  assert(problems.length === 0, `${lang}: ${problems.join("; ")}`);
 }
 
 console.log("i18n.assert.ts: ok");

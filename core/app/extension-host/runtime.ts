@@ -19,6 +19,7 @@ import { HttpBroker, type Fetcher } from "./http";
 import type { ProviderTransport, ProviderConnection } from "./providerTransport";
 import type { WidgetCapabilityTransport } from "./widgetCapabilityTransport";
 import { useDeveloperPrefs } from "../settings/useDeveloperPrefs";
+import { locale } from "../i18n/i18n";
 
 /**
  * Ported from docs/extension-sdk-reference/runtime.ts (Phase 1), logic
@@ -546,6 +547,7 @@ export class Host {
     const ctx: WidgetContext<T> = {
       instanceId: instance.id,
       config: instance.configuration,
+      locale: locale.value,
       data: this.data.scoped(instance.id),
       sharedData: this.data.shared(found.ext.id),
     };

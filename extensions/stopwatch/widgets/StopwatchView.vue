@@ -15,7 +15,7 @@ defineProps<{ model: StopwatchModel }>();
 
         <div class="stopwatch-actions" @pointerdown.stop>
           <button type="button" class="stopwatch-btn stopwatch-btn--primary" @click="model.toggleRun">
-            {{ model.running.value ? "Pause" : "Start" }}
+            {{ model.running.value ? model.t("action.pause") : model.t("action.start") }}
           </button>
           <div class="stopwatch-secondary-actions">
             <button
@@ -24,23 +24,23 @@ defineProps<{ model: StopwatchModel }>();
               :disabled="!model.running.value"
               @click="model.lap"
             >
-              Lap
+              {{ model.t("action.lap") }}
             </button>
             <button type="button" class="stopwatch-btn stopwatch-btn--ghost" @click="model.reset">
-              Reset
+              {{ model.t("action.reset") }}
             </button>
           </div>
         </div>
       </section>
 
       <aside class="stopwatch-lap-panel">
-        <p class="stopwatch-lap-heading">Laps</p>
+        <p class="stopwatch-lap-heading">{{ model.t("laps.heading") }}</p>
         <p v-if="model.displayLaps.value.length === 0" class="stopwatch-empty">
-          Record a lap while running.
+          {{ model.t("laps.empty") }}
         </p>
-        <ul v-else class="stopwatch-laps" aria-label="Lap times">
+        <ul v-else class="stopwatch-laps" :aria-label="model.t('laps.label')">
           <li v-for="entry in model.displayLaps.value" :key="entry.id" class="stopwatch-lap">
-            <span class="stopwatch-lap-label">Lap {{ entry.lapNumber }}</span>
+            <span class="stopwatch-lap-label">{{ model.t("laps.entry", { number: entry.lapNumber }) }}</span>
             <span class="stopwatch-lap-split">{{ entry.split }}</span>
             <span class="stopwatch-lap-total">{{ entry.total }}</span>
           </li>

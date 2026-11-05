@@ -215,6 +215,8 @@ let registered: GuestWidget<any, any> | undefined;
 let instance: WidgetInstance<unknown> | undefined;
 /** Declared provider ids, from the same init that names the instance. */
 let declaredProviders: readonly string[] = [];
+/** The host UI language, from the same init. */
+let hostLocale: string | undefined;
 let started = false;
 
 const fail = (error: ProviderError) => window.parent.postMessage(failedMessage(error), "*");
@@ -241,7 +243,7 @@ async function startIfReady() {
   }
 
   try {
-    const ctx = port.context(instance, declaredProviders) as never;
+    const ctx = port.context(instance, declaredProviders, hostLocale) as never;
     /**
      * After ctx exists, before render. An `<a href>` the package writes is
      * otherwise a dead control: the frame cannot navigate, and a link that
@@ -286,6 +288,7 @@ window.addEventListener("message", (event: MessageEvent) => {
   if (named && !instance) {
     instance = named.instance;
     declaredProviders = named.providers;
+    hostLocale = named.locale;
     void startIfReady();
   }
 });

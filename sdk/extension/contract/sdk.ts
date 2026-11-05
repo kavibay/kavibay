@@ -979,6 +979,18 @@ export interface WidgetDataStore {
 export interface WidgetContext<TConfig = Record<string, unknown>> {
   instanceId: WidgetInstanceId;
   config: Readonly<TConfig>;
+  /**
+   * The language the host UI is shown in, as a BCP 47 tag (`"en"`). Pass it to
+   * `createTranslator` from `@sdk/i18n` for the widget's own strings.
+   *
+   * The UI language, not a formatting preference: it is one of the locales the
+   * host ships, so a widget never shows a language the rest of the app does
+   * not. Dates and numbers that should follow the OS region use `undefined` as
+   * the `Intl` locale instead. Absent (an older host, a test) means English.
+   *
+   * Fixed for the life of the mount: the host picks it once at startup.
+   */
+  locale?: string;
   data: WidgetDataStore;
   /** Extension-scoped persistence for intentionally shared widget state. */
   sharedData?: WidgetDataStore;
