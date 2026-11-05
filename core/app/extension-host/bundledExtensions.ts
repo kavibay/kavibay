@@ -80,6 +80,13 @@ export interface BundledWidget {
   icon?: Component;
   menu?: Component;
   settings?: Component;
+  /**
+   * The extension's `README.md`, loaded on demand. A fact about the folder, not
+   * the widget — every widget of one extension gets the same loader. It sits
+   * here because `cockpit.ts` maps widgets one at a time and never sees the
+   * folder.
+   */
+  loadReadme?: () => Promise<string>;
 }
 
 export interface BundledExtension {
@@ -117,6 +124,17 @@ const viewModules = import.meta.glob("/extensions/*/view.ts", {
   eager: true,
   import: "default",
 }) as Record<string, ExtensionViews>;
+
+/**
+ * The README the widget About dialog shows. The only lazy glob here, on
+ * purpose: nobody reads it at start-up, and eagerly it put one request per
+ * extension (~30) on the boot path. Lazily it is one fetch when the dialog
+ * opens.
+ */
+const readmeModules = import.meta.glob("/extensions/*/README.md", {
+  query: "?raw",
+  import: "default",
+}) as Record<string, () => Promise<string>>;
 
 const iconUrlModules = import.meta.glob("/extensions/**/*.{svg,png}", {
   eager: true,
@@ -261,6 +279,7 @@ function loadAll(): BundledExtension[] {
         icon: widgetView(views, name)?.icon,
         menu: widgetView(views, name)?.menu,
         settings: widgetView(views, name)?.settings,
+        loadReadme: readmeModules[`/extensions/${folder}/README.md`],
       });
     }
 

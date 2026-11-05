@@ -503,6 +503,7 @@ function toRegistered(definitionId: string): RegisteredExtension | undefined {
     // The internal definition id still distinguishes dev-only duplicates.
     title: widget.displayName,
     description: widget.description ?? ext.manifest.displayName,
+    ...(bundled?.loadReadme ? { loadReadme: bundled.loadReadme } : {}),
     version: ext.version,
     author: ext.manifest.author ?? "Kavibay",
     keywords: [...(metadata.keywords ?? [])],
