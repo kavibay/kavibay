@@ -307,6 +307,115 @@
       "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-5.4-nano"
     },
     {
+      "provider": "chatgpt",
+      "vendor": "openai",
+      "model": "GPT-6 Astra (ChatGPT plan)",
+      "apiId": "chatgpt/gpt-6-astra",
+      "note": "Most capable model for complex end-to-end work",
+      "description": "OpenAI's most capable model for complex reasoning, coding, computer use, and research.",
+      "context": {
+        "windowTokens": 1050000,
+        "maxOutputTokens": 128000
+      },
+      "pricing": {
+        "currency": "USD",
+        "unitTokens": 1000000,
+        "input": 0,
+        "output": 0,
+        "note": "Included in your ChatGPT plan"
+      },
+      "capabilities": [
+        "text",
+        "vision",
+        "reasoning",
+        "streaming",
+        "functionCalling",
+        "structuredOutput"
+      ],
+      "authoring": true,
+      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+      "effortLevels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
+    },
+    {
+      "provider": "chatgpt",
+      "vendor": "openai",
+      "model": "GPT-6 Sol (ChatGPT plan)",
+      "apiId": "chatgpt/gpt-6-sol",
+      "note": "Strong model for coding and agentic workflows",
+      "description": "Built to power complex coding and agentic workflows.",
+      "context": {
+        "windowTokens": 1050000,
+        "maxOutputTokens": 128000
+      },
+      "pricing": {
+        "currency": "USD",
+        "unitTokens": 1000000,
+        "input": 0,
+        "output": 0,
+        "note": "Included in your ChatGPT plan"
+      },
+      "capabilities": [
+        "text",
+        "vision",
+        "reasoning",
+        "streaming",
+        "functionCalling",
+        "structuredOutput"
+      ],
+      "authoring": true,
+      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+      "effortLevels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
+    },
+    {
+      "provider": "chatgpt",
+      "vendor": "openai",
+      "model": "GPT-6 Luna (ChatGPT plan)",
+      "apiId": "chatgpt/gpt-6-luna",
+      "note": "Optimized for cost-sensitive, high-volume work",
+      "description": "OpenAI's most efficient model for focused, high-volume tasks.",
+      "context": {
+        "windowTokens": 1050000,
+        "maxOutputTokens": 128000
+      },
+      "pricing": {
+        "currency": "USD",
+        "unitTokens": 1000000,
+        "input": 0,
+        "output": 0,
+        "note": "Included in your ChatGPT plan"
+      },
+      "capabilities": [
+        "text",
+        "vision",
+        "reasoning",
+        "streaming",
+        "functionCalling",
+        "structuredOutput"
+      ],
+      "authoring": true,
+      "authoringDefault": true,
+      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+      "effortLevels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
+    },
+    {
       "provider": "deepseek",
       "vendor": "deepseek",
       "model": "DeepSeek V4 Pro",

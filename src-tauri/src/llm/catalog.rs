@@ -164,6 +164,12 @@ fn parse_catalog(json: &str) -> Result<Vec<LlmModelDef>, String> {
         if id.is_empty() {
             return Err("LLM model catalog contains an empty apiId".to_string());
         }
+        // A plan model shares its slug with the API-key twin; the prefix keeps
+        // the two apart wherever a model id is stored (prefs, quick model,
+        // widget settings), and `LlmProvider::wire_model` strips it again.
+        if (model.provider == LlmProvider::Chatgpt) != id.starts_with("chatgpt/") {
+            return Err(format!("{id}: chatgpt models are named chatgpt/<slug>"));
+        }
         if !ids.insert(id) {
             return Err(format!("LLM model catalog contains duplicate apiId: {id}"));
         }
@@ -391,6 +397,7 @@ mod tests {
             LlmProvider::Deepseek,
             LlmProvider::Openrouter,
             LlmProvider::Cloudflare,
+            LlmProvider::Chatgpt,
         ] {
             assert!(models().iter().any(|model| model.provider == provider));
         }
@@ -527,5 +534,43 @@ mod tests {
             serde_json::to_string(&LlmProvider::Cloudflare).unwrap(),
             "\"cloudflare\""
         );
+    }
+
+    /// Plan models share their slug with the API-key twin; the prefix is what
+    /// keeps the two apart everywhere a model id is stored.
+    #[test]
+    fn chatgpt_ids_carry_their_prefix_and_nobody_else_does() {
+        for model in models() {
+            assert_eq!(
+                model.provider == LlmProvider::Chatgpt,
+                model.api_id.starts_with("chatgpt/"),
+                "{}",
+                model.api_id
+            );
+        }
+        let unprefixed = CATALOG_JSON.replace("\"chatgpt/gpt-6-luna\"", "\"luna-plain\"");
+        assert!(parse_catalog(&unprefixed)
+            .unwrap_err()
+            .contains("chatgpt models are named chatgpt/<slug>"));
+        let squatter = CATALOG_JSON.replace("\"gpt-5.4-nano-2026-03-17\"", "\"chatgpt/nano\"");
+        assert!(parse_catalog(&squatter)
+            .unwrap_err()
+            .contains("chatgpt models are named chatgpt/<slug>"));
+    }
+
+    /// The plan is paid for already; a price would make the picker lie.
+    #[test]
+    fn chatgpt_models_cost_nothing_per_token() {
+        for model in models()
+            .iter()
+            .filter(|m| m.provider == LlmProvider::Chatgpt)
+        {
+            assert_eq!(
+                (model.pricing.input, model.pricing.output),
+                (0.0, 0.0),
+                "{}",
+                model.api_id
+            );
+        }
     }
 }
