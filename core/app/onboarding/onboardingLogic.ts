@@ -7,9 +7,10 @@
  * the only readers are `shouldAutoStartOnboarding`, which needs a *missing* key
  * to mean "never toured", and the coach itself. An existing install has
  * `first-open-done` set, so a missing v3 key does not restart their tour; see
- * the assertions.
+ * the assertions. v4 appends the ask-AI lesson as step 6, which moves the
+ * ending from 6 to 7 — same reasoning, same move.
  */
-export const ONBOARDING_STORAGE_KEY = "kavibay:onboarding-v3";
+export const ONBOARDING_STORAGE_KEY = "kavibay:onboarding-v4";
 
 /**
  * Keys earlier versions of the tour wrote.
@@ -18,12 +19,15 @@ export const ONBOARDING_STORAGE_KEY = "kavibay:onboarding-v3";
  * only evidence that this install has toured before, which `setupSession` uses
  * to keep an existing user out of the first-run setup card.
  */
-export const ONBOARDING_LEGACY_STORAGE_KEYS = ["kavibay:onboarding-v2"] as const;
+export const ONBOARDING_LEGACY_STORAGE_KEYS = [
+  "kavibay:onboarding-v2",
+  "kavibay:onboarding-v3",
+] as const;
 
 /**
  * Welcome card before teaching starts.
  *
- * # Four lessons and an ending
+ * # Four lessons (five with AI connected) and an ending
  *
  * The tour teaches what makes Kavibay worth keeping — reach it with the
  * keyboard, launch something, put a widget on the desk — and then stops. It
@@ -55,14 +59,31 @@ export const ONBOARDING_HOTKEY_STEP = 2;
  */
 export const ONBOARDING_GALLERY_STEP = 4;
 
+/**
+ * Ask the palette a question — only for someone with an AI provider connected.
+ *
+ * Last of the lessons rather than next to "Launch anything": steps 3–5 are
+ * named by number in the coach and in `useOnboarding`, and appending leaves
+ * every one of them meaning what it meant. Without a provider the step is
+ * jumped over in both directions (`aiReady` below), so the tour is exactly the
+ * four-lesson one it was.
+ */
+export const ONBOARDING_AI_STEP = 6;
+
 /** The card that ends the tour. */
-export const ONBOARDING_DONE_STEP = 6;
+export const ONBOARDING_DONE_STEP = 7;
 
-/** 1 intro · 2 hotkey · 3 app · 4 gallery · 5 add · 6 done */
-export type OnboardingStep = 1 | 2 | 3 | 4 | 5 | 6;
+/** 1 intro · 2 hotkey · 3 app · 4 gallery · 5 add · 6 ask AI · 7 done */
+export type OnboardingStep = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
-/** Lessons between the two cards: hotkey, app, gallery, add. */
-export const ONBOARDING_LESSONS = ONBOARDING_DONE_STEP - ONBOARDING_INTRO_STEP - 1;
+/**
+ * Lessons between the two cards: hotkey, app, gallery, add — and ask AI when a
+ * provider is connected.
+ */
+export function lessonCount(aiReady: boolean): number {
+  const all = ONBOARDING_DONE_STEP - ONBOARDING_INTRO_STEP - 1;
+  return aiReady ? all : all - 1;
+}
 
 /** True for the four lessons, false for the intro and the ending card. */
 export function isLessonStep(step: OnboardingStep): boolean {
@@ -138,21 +159,30 @@ export function shouldAutoStartOnboarding(opts: {
   return opts.firstOpenConsumed && opts.storedRaw == null;
 }
 
-/** Advance one step, or finish after the completion card. Idempotent when completed. */
-export function advanceStep(state: OnboardingState): OnboardingState {
+/**
+ * Advance one step, or finish after the completion card. Idempotent when completed.
+ *
+ * `aiReady` is required on purpose: a caller that forgot it would silently skip
+ * the ask-AI lesson for everyone, and a missing argument is a typecheck error.
+ */
+export function advanceStep(state: OnboardingState, aiReady: boolean): OnboardingState {
   if (state.status !== "active") return state;
   if (state.step === ONBOARDING_DONE_STEP) {
     return { status: "completed", step: ONBOARDING_DONE_STEP };
   }
-  return { status: "active", step: (state.step + 1) as OnboardingStep };
+  let next = state.step + 1;
+  if (next === ONBOARDING_AI_STEP && !aiReady) next += 1;
+  return { status: "active", step: next as OnboardingStep };
 }
 
 /** Go back one step. No-op on the intro or when already completed. */
-export function retreatStep(state: OnboardingState): OnboardingState {
+export function retreatStep(state: OnboardingState, aiReady: boolean): OnboardingState {
   if (state.status !== "active" || state.step === ONBOARDING_INTRO_STEP) {
     return state;
   }
-  return { status: "active", step: (state.step - 1) as OnboardingStep };
+  let prev = state.step - 1;
+  if (prev === ONBOARDING_AI_STEP && !aiReady) prev -= 1;
+  return { status: "active", step: prev as OnboardingStep };
 }
 
 /** Dismiss the whole tour (skips the completion card). */
@@ -195,11 +225,11 @@ export function teachingProgressIndex(step: OnboardingStep): number | null {
 }
 
 /** Status-bar label while the tour is active. */
-export function onboardingStatusLabel(state: OnboardingState): string | null {
+export function onboardingStatusLabel(state: OnboardingState, aiReady: boolean): string | null {
   if (state.status !== "active") return null;
   if (state.step === ONBOARDING_DONE_STEP) return "Tour done";
   const index = teachingProgressIndex(state.step);
-  return index == null ? "Tour" : `Tour ${index}/${ONBOARDING_LESSONS}`;
+  return index == null ? "Tour" : `Tour ${index}/${lessonCount(aiReady)}`;
 }
 
 /** Arc + label model for the palette status control. */
@@ -213,12 +243,14 @@ export type OnboardingProgress = {
 };
 
 /** Progress for the status-bar arc; null when the tour is not active. */
-export function onboardingProgress(state: OnboardingState): OnboardingProgress | null {
-  const label = onboardingStatusLabel(state);
+export function onboardingProgress(
+  state: OnboardingState,
+  aiReady: boolean,
+): OnboardingProgress | null {
+  const label = onboardingStatusLabel(state, aiReady);
   if (label == null) return null;
+  const total = lessonCount(aiReady);
   const current =
-    state.step === ONBOARDING_DONE_STEP
-      ? ONBOARDING_LESSONS
-      : (teachingProgressIndex(state.step) ?? 0);
-  return { current, total: ONBOARDING_LESSONS, ratio: current / ONBOARDING_LESSONS, label };
+    state.step === ONBOARDING_DONE_STEP ? total : (teachingProgressIndex(state.step) ?? 0);
+  return { current, total, ratio: current / total, label };
 }

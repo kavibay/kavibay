@@ -1,6 +1,6 @@
 import type { RevealGesture } from "../host/revealGesture";
 import { doubleTapKeyLabel, type KeyPlatform } from "../host/shortcutHints";
-import type { OnboardingStep } from "./onboardingLogic";
+import { ONBOARDING_DONE_STEP, ONBOARDING_HOTKEY_STEP, type OnboardingStep } from "./onboardingLogic";
 
 /** One body fragment; `typed` marks the command the user should type. */
 export type OnboardingBodySegment = { text: string; typed?: boolean };
@@ -22,7 +22,7 @@ export type OnboardingCopy = {
  * keystroke the host reports (`onboardingHotkeyCopy`), and the ending card
  * (`onboardingDoneCopy`).
  */
-const fixedCopy: Record<Exclude<OnboardingStep, 2 | 6>, OnboardingCopy> = {
+const fixedCopy: Record<Exclude<OnboardingStep, 2 | 7>, OnboardingCopy> = {
   1: {
     title: "Welcome to Kavibay",
     segments: [
@@ -50,6 +50,14 @@ const fixedCopy: Record<Exclude<OnboardingStep, 2 | 6>, OnboardingCopy> = {
   5: {
     title: "Add one",
     segments: [{ text: "Pick a widget you like and click Add. It goes on your desk." }],
+  },
+  6: {
+    title: "Ask anything",
+    segments: [
+      { text: "Kavibay can answer right here. Type a question like " },
+      { text: "what is a widget", typed: true },
+      { text: ", then pick Ask AI." },
+    ],
   },
 };
 
@@ -252,9 +260,9 @@ export function onboardingCopyForStep(
   platform: KeyPlatform,
   opts?: { revealGesture?: RevealGesture | null; afterSetupGesture?: boolean },
 ): OnboardingCopy {
-  if (step === 2) {
+  if (step === ONBOARDING_HOTKEY_STEP) {
     return onboardingHotkeyCopy(opts?.revealGesture ?? null, platform, opts?.afterSetupGesture);
   }
-  if (step === 6) return onboardingDoneCopy();
+  if (step === ONBOARDING_DONE_STEP) return onboardingDoneCopy();
   return fixedCopy[step];
 }
