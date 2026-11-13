@@ -1315,7 +1315,7 @@ mod tests {
             .body_with_tools(
                 "chatgpt/gpt-6-sol",
                 &messages(),
-                &[tool.clone()],
+                std::slice::from_ref(&tool),
                 ToolChoice::None,
             )
             .unwrap();
