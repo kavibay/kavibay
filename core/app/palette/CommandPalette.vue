@@ -6233,22 +6233,11 @@ onUnmounted(() => {
  * on while pointing at another one: stronger fill, and full-strength text
  * against the muted rest state.
  */
+/* Outlined rather than filled. */
 .palette-desk-tab--active {
-  gap: 7px;
   background: rgba(var(--fg-rgb), 0.035);
   box-shadow: inset 0 0 0 1px var(--border);
   color: var(--text);
-}
-
-/* Outlined rather than filled, with the accent as a small "you are here" dot. */
-.palette-desk-tab--active::before {
-  content: "";
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: rgb(var(--accent-rgb, 110, 117, 245));
-  box-shadow: 0 0 6px rgba(var(--accent-rgb, 110, 117, 245), 0.6);
 }
 
 .palette-desk-tab--drop {
