@@ -309,6 +309,43 @@
     {
       "provider": "chatgpt",
       "vendor": "openai",
+      "model": "GPT-6.1 Terra (ChatGPT plan)",
+      "apiId": "chatgpt/gpt-6.1-terra",
+      "note": "Best price-performance for everyday work",
+      "description": "A fast, efficient model for visual reasoning, precise computer use, and clear, natural writing.",
+      "context": {
+        "windowTokens": 1050000,
+        "maxOutputTokens": 128000
+      },
+      "pricing": {
+        "currency": "USD",
+        "unitTokens": 1000000,
+        "input": 0,
+        "output": 0,
+        "note": "Included in your ChatGPT plan"
+      },
+      "capabilities": [
+        "text",
+        "vision",
+        "reasoning",
+        "streaming",
+        "functionCalling",
+        "structuredOutput"
+      ],
+      "authoring": true,
+      "authoringDefault": true,
+      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-6.1-terra",
+      "effortLevels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
+    },
+    {
+      "provider": "chatgpt",
+      "vendor": "openai",
       "model": "GPT-6 Astra (ChatGPT plan)",
       "apiId": "chatgpt/gpt-6-astra",
       "note": "Most capable model for complex end-to-end work",
@@ -405,7 +442,6 @@
         "structuredOutput"
       ],
       "authoring": true,
-      "authoringDefault": true,
       "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-6-luna",
       "effortLevels": [
         "low",

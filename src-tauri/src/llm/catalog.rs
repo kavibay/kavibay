@@ -573,4 +573,17 @@ mod tests {
             );
         }
     }
+
+    /// Alex's call: GPT-6.1 Terra is the plan model new users start on, for
+    /// its price-performance. The setup card preselects a provider's
+    /// authoring default, so this flag is that decision.
+    #[test]
+    fn the_chatgpt_plan_recommends_terra() {
+        let defaults: Vec<&str> = models()
+            .iter()
+            .filter(|m| m.provider == LlmProvider::Chatgpt && m.authoring_default)
+            .map(|m| m.api_id.as_str())
+            .collect();
+        assert_eq!(defaults, ["chatgpt/gpt-6.1-terra"]);
+    }
 }
