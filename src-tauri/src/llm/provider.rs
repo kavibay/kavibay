@@ -69,6 +69,9 @@ pub enum SseParseItem {
     BlockDelta(Value),
     /// OpenAI `delta.tool_calls`: fragments of one or more calls, by index.
     ToolCallDeltas(Vec<Value>),
+    /// Responses API: one finished output item (reasoning, function call,
+    /// message), kept verbatim for the next tool round.
+    OutputItem(Value),
     /// A Chat Completions delta carrying more than plain answer text: reasoning
     /// to echo back next round, tool fragments, or both next to text in one frame.
     ChatDelta(Value),
@@ -479,8 +482,61 @@ impl LlmProvider {
                         .filter(|text| !text.is_empty())
                         .map(|text| SseParseItem::Text(text.to_string()))
                 }),
-            LlmProvider::Chatgpt => None,
+            LlmProvider::Chatgpt => responses_item(&value),
         }
+    }
+
+    /// The message for a failed HTTP response. A ChatGPT plan problem gets its
+    /// sentence; everything else stays exactly the `HTTP <status>: <body>` it
+    /// always was.
+    pub fn http_error(self, status: reqwest::StatusCode, body: &str) -> String {
+        if self == LlmProvider::Chatgpt {
+            let sentence = serde_json::from_str::<Value>(body)
+                .ok()
+                .and_then(|value| value.pointer("/error/code")?.as_str().map(str::to_string))
+                .and_then(|code| chatgpt_error_sentence(&code));
+            if let Some(sentence) = sentence {
+                return sentence.to_string();
+            }
+        }
+        format!("HTTP {status}: {body}")
+    }
+}
+
+/// One decoded Responses API event.
+///
+/// Only `response.completed` means the answer is whole: an incomplete or failed
+/// response still closes the stream, and read as done a quick action would
+/// paste a partial answer over the selection.
+fn responses_item(value: &Value) -> Option<SseParseItem> {
+    match value.get("type")?.as_str()? {
+        "response.output_text.delta" => value
+            .get("delta")
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+            .map(|text| SseParseItem::Text(text.to_string())),
+        "response.output_item.done" => value.get("item").cloned().map(SseParseItem::OutputItem),
+        "response.completed" => Some(SseParseItem::Done),
+        "response.incomplete" => Some(SseParseItem::Failure("response_truncated".into())),
+        "response.failed" | "error" => {
+            let error = value.pointer("/response/error").unwrap_or(value);
+            let code = error
+                .get("code")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            Some(SseParseItem::Failure(
+                chatgpt_error_sentence(code)
+                    .map(str::to_string)
+                    .or_else(|| {
+                        error
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                    })
+                    .unwrap_or_else(|| "OpenAI reported a stream error".to_string()),
+            ))
+        }
+        _ => None,
     }
 }
 
@@ -1448,5 +1504,72 @@ mod tests {
                 "{field} leaked into Chat Completions"
             );
         }
+    }
+
+    #[test]
+    fn chatgpt_stream_events_decode_to_items() {
+        let p = LlmProvider::Chatgpt;
+        assert!(matches!(
+            p.parse_sse_data(r#"{"type":"response.output_text.delta","delta":"Hi"}"#),
+            Some(SseParseItem::Text(text)) if text == "Hi"
+        ));
+        assert!(p
+            .parse_sse_data(r#"{"type":"response.output_text.delta","delta":""}"#)
+            .is_none());
+        let item =
+            json!({ "type": "function_call", "call_id": "c1", "name": "f", "arguments": "{}" });
+        assert!(matches!(
+            p.parse_sse_data(&json!({ "type": "response.output_item.done", "item": item }).to_string()),
+            Some(SseParseItem::OutputItem(value)) if value == item
+        ));
+        assert!(matches!(
+            p.parse_sse_data(r#"{"type":"response.completed","response":{}}"#),
+            Some(SseParseItem::Done)
+        ));
+        assert!(matches!(
+            p.parse_sse_data(r#"{"type":"response.incomplete","response":{}}"#),
+            Some(SseParseItem::Failure(code)) if code == "response_truncated"
+        ));
+        assert!(p
+            .parse_sse_data(r#"{"type":"response.created","response":{}}"#)
+            .is_none());
+    }
+
+    #[test]
+    fn chatgpt_stream_failures_speak_the_plan_language() {
+        let p = LlmProvider::Chatgpt;
+        let limit = r#"{"type":"response.failed","response":{"error":{"code":"subscription_sharing_usage_limit_exceeded","message":"raw"}}}"#;
+        assert!(matches!(
+            p.parse_sse_data(limit),
+            Some(SseParseItem::Failure(text)) if text.contains("usage limit")
+        ));
+        let other = r#"{"type":"response.failed","response":{"error":{"code":"server_error","message":"Boom"}}}"#;
+        assert!(matches!(
+            p.parse_sse_data(other),
+            Some(SseParseItem::Failure(text)) if text == "Boom"
+        ));
+        let bare =
+            r#"{"type":"error","code":"subscription_sharing_usage_unavailable","message":"raw"}"#;
+        assert!(matches!(
+            p.parse_sse_data(bare),
+            Some(SseParseItem::Failure(text)) if text.contains("temporarily unavailable")
+        ));
+    }
+
+    #[test]
+    fn http_errors_name_plan_problems_and_leave_others_alone() {
+        let limit =
+            r#"{"error":{"code":"subscription_sharing_usage_limit_exceeded","message":"raw"}}"#;
+        assert!(LlmProvider::Chatgpt
+            .http_error(reqwest::StatusCode::TOO_MANY_REQUESTS, limit)
+            .contains("usage limit"));
+        assert_eq!(
+            LlmProvider::Chatgpt.http_error(reqwest::StatusCode::BAD_GATEWAY, "x"),
+            "HTTP 502 Bad Gateway: x"
+        );
+        assert_eq!(
+            LlmProvider::Openai.http_error(reqwest::StatusCode::TOO_MANY_REQUESTS, limit),
+            format!("HTTP 429 Too Many Requests: {limit}")
+        );
     }
 }

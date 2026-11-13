@@ -85,7 +85,7 @@ pub async fn stream_chat(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(format!("HTTP {status}: {body}"));
+        return Err(provider.http_error(status, &body));
     }
 
     // A chat round (tools passed, even none) also returns the assembled turn.
@@ -191,7 +191,8 @@ fn emit_parsed_items(
             }
             SseParseItem::BlockStart(_)
             | SseParseItem::BlockDelta(_)
-            | SseParseItem::ToolCallDeltas(_) => {}
+            | SseParseItem::ToolCallDeltas(_)
+            | SseParseItem::OutputItem(_) => {}
         }
     }
     Ok(false)
