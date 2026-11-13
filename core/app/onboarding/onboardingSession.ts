@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ref, type Ref } from "vue";
+import { getQuickActionModel } from "../settings/ai/aiApi";
 import {
   ONBOARDING_STORAGE_KEY,
   parseOnboardingState,
@@ -40,6 +41,26 @@ export const onboardingState: Ref<OnboardingState | null> = ref(
   parseOnboardingState(loadStoredRaw()),
 );
 
+/**
+ * Whether the tour includes the ask-AI lesson.
+ *
+ * Read when a tour starts (or resumes after a restart), not watched: a key
+ * added or removed mid-tour would otherwise renumber the lessons under the
+ * user's feet. A stale `true` is harmless — the palette names the missing
+ * provider itself, and the lesson always offers Skip.
+ */
+export const tourAiReady = ref(false);
+
+/** Ask the backend whether the palette's AI would answer right now. */
+export async function refreshTourAiReady(): Promise<void> {
+  if (!hasTauri()) return;
+  try {
+    tourAiReady.value = (await getQuickActionModel()).resolved !== "";
+  } catch {
+    tourAiReady.value = false;
+  }
+}
+
 /** Becomes true once AppData has won over the WebView cache. */
 export const onboardingHydrated = ref(!hasTauri());
 
@@ -76,6 +97,7 @@ export const onboardingReady: Promise<void> = hasTauri()
       .catch(() => {})
       .finally(() => {
         onboardingHydrated.value = true;
+        if (onboardingState.value?.status === "active") void refreshTourAiReady();
       })
   : Promise.resolve();
 

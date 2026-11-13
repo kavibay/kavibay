@@ -57,6 +57,10 @@ pub enum ClientSource {
     },
     /// The provider publishes a fixed public client id (Tado).
     BuiltIn { client_id: &'static str },
+    /// The provider issues a client id during the first sign-in and returns it
+    /// on the redirect (ChatGPT). `placeholder` is sent until one is saved;
+    /// afterwards the issued id lives in `SecretData::issued_client_id`.
+    Dynamic { placeholder: &'static str },
 }
 
 /// Post-login request that names the connected account for the UI.
@@ -88,6 +92,35 @@ pub struct AuthCodeDef {
     pub loopback_port: Option<u16>,
     /// Path on the loopback URI (`/callback` for Spotify). `None` is `/`.
     pub loopback_path: Option<&'static str>,
+    pub extras: AuthCodeExtras,
+}
+
+/// What an OpenID agent sign-in (ChatGPT) adds to a plain auth-code flow.
+/// Every other type uses [`AuthCodeExtras::NONE`], which keeps its requests
+/// exactly as they were.
+#[derive(Debug, Clone, Copy)]
+pub struct AuthCodeExtras {
+    /// RFC 8707 resource indicator, sent on authorize, exchange and refresh.
+    pub resource: Option<&'static str>,
+    /// Send this installation's host id as `ext_agent_host_id`.
+    pub send_host_id: bool,
+    /// `agent_name_hint` on the first sign-in, before a client id is issued.
+    pub name_hint: Option<&'static str>,
+    /// Send a fresh `nonce` (OpenID Connect).
+    pub send_nonce: bool,
+    /// A scope the token response must grant, or the login fails without
+    /// saving anything. ChatGPT grants plan usage only through it.
+    pub required_scope: Option<&'static str>,
+}
+
+impl AuthCodeExtras {
+    pub const NONE: AuthCodeExtras = AuthCodeExtras {
+        resource: None,
+        send_host_id: false,
+        name_hint: None,
+        send_nonce: false,
+        required_scope: None,
+    };
 }
 
 /// OAuth 2.0 device-authorization flow (RFC 8628).

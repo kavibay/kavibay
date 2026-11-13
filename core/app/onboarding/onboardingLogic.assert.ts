@@ -9,9 +9,11 @@ import {
   isCardStep,
   isCoachVisible,
   isLessonStep,
+  lessonCount,
+  ONBOARDING_AI_STEP,
   ONBOARDING_DONE_STEP,
   ONBOARDING_HOTKEY_STEP,
-  ONBOARDING_LESSONS,
+  ONBOARDING_LEGACY_STORAGE_KEYS,
   onboardingProgress,
   onboardingStatusLabel,
   parseOnboardingState,
@@ -35,17 +37,26 @@ assertEq(defaultActiveState(), { status: "active", step: 1 }, "defaultActiveStat
 
 // The shape of the sequence, so a renumbering has to update this file too.
 assert(ONBOARDING_HOTKEY_STEP === 2, "hotkey is the first thing taught");
-assert(ONBOARDING_DONE_STEP === 6, "the tour ends on step 6");
-assert(ONBOARDING_LESSONS === 4, "four lessons between the two cards");
-assert(isLessonStep(ONBOARDING_HOTKEY_STEP) && isLessonStep(5), "hotkey through add are lessons");
+assert(ONBOARDING_DONE_STEP === 7, "the tour ends on step 7");
+assert(ONBOARDING_AI_STEP === 6, "ask AI is the last lesson");
+assert(lessonCount(true) === 5 && lessonCount(false) === 4, "lesson count follows aiReady");
+assert(
+  (ONBOARDING_LEGACY_STORAGE_KEYS as readonly string[]).includes("kavibay:onboarding-v3"),
+  "v3 counts as toured",
+);
+assert(
+  isLessonStep(ONBOARDING_HOTKEY_STEP) && isLessonStep(ONBOARDING_AI_STEP),
+  "hotkey through ask AI are lessons",
+);
 assert(!isLessonStep(1) && !isLessonStep(ONBOARDING_DONE_STEP), "the two cards are not lessons");
 
 assert(parseOnboardingState(null) === null, "parse null");
 assertEq(
-  parseOnboardingState(JSON.stringify({ status: "active", step: 6 })),
-  { status: "active", step: 6 },
+  parseOnboardingState(JSON.stringify({ status: "active", step: 7 })),
+  { status: "active", step: 7 },
   "parse the ending",
 );
+assert(parseOnboardingState(JSON.stringify({ status: "active", step: 8 })) === null, "step 8 does not parse");
 // Steps 7–13 were the chrome lessons, now tips. A record from back then is
 // unreadable rather than resumed on whatever step now carries that number.
 assert(
@@ -61,25 +72,29 @@ assert(
   "a retired record still keeps the tour from auto-starting",
 );
 
-assertEq(advanceStep({ status: "active", step: 1 }), { status: "active", step: 2 }, "intro→hotkey");
-assertEq(advanceStep({ status: "active", step: 2 }), { status: "active", step: 3 }, "hotkey→search");
-assertEq(advanceStep({ status: "active", step: 5 }), { status: "active", step: 6 }, "add→ending");
-assertEq(
-  advanceStep({ status: "active", step: 6 }),
-  { status: "completed", step: 6 },
-  "ending→completed",
-);
-assertEq(
-  retreatStep({ status: "active", step: 2 }),
-  { status: "active", step: 1 },
-  "retreat hotkey→intro",
-);
+for (const ai of [true, false]) {
+  assertEq(advanceStep({ status: "active", step: 1 }, ai), { status: "active", step: 2 }, "intro→hotkey");
+  assertEq(advanceStep({ status: "active", step: 2 }, ai), { status: "active", step: 3 }, "hotkey→search");
+  assertEq(
+    advanceStep({ status: "active", step: 7 }, ai),
+    { status: "completed", step: 7 },
+    "ending→completed",
+  );
+  assertEq(retreatStep({ status: "active", step: 2 }, ai), { status: "active", step: 1 }, "retreat hotkey→intro");
+}
+assertEq(advanceStep({ status: "active", step: 5 }, true), { status: "active", step: 6 }, "add→ask AI");
+assertEq(advanceStep({ status: "active", step: 5 }, false), { status: "active", step: 7 }, "add→ending without AI");
+assertEq(advanceStep({ status: "active", step: 6 }, true), { status: "active", step: 7 }, "ask AI→ending");
+assertEq(retreatStep({ status: "active", step: 7 }, false), { status: "active", step: 5 }, "back over ask AI");
+assertEq(retreatStep({ status: "active", step: 7 }, true), { status: "active", step: 6 }, "back into ask AI");
 
-assertEq(onboardingStatusLabel({ status: "active", step: 1 }), "Tour", "status intro");
-assertEq(onboardingStatusLabel({ status: "active", step: 2 }), "Tour 1/4", "status hotkey");
-assertEq(onboardingStatusLabel({ status: "active", step: 5 }), "Tour 4/4", "status last lesson");
-assertEq(onboardingStatusLabel({ status: "active", step: 6 }), "Tour done", "status ending");
-assert(onboardingStatusLabel({ status: "completed", step: 6 }) === null, "no label when done");
+assertEq(onboardingStatusLabel({ status: "active", step: 1 }, false), "Tour", "status intro");
+assertEq(onboardingStatusLabel({ status: "active", step: 2 }, false), "Tour 1/4", "status hotkey");
+assertEq(onboardingStatusLabel({ status: "active", step: 5 }, false), "Tour 4/4", "no AI: four lessons");
+assertEq(onboardingStatusLabel({ status: "active", step: 2 }, true), "Tour 1/5", "AI: five lessons");
+assertEq(onboardingStatusLabel({ status: "active", step: 6 }, true), "Tour 5/5", "AI lesson is 5/5");
+assertEq(onboardingStatusLabel({ status: "active", step: 7 }, true), "Tour done", "status ending");
+assert(onboardingStatusLabel({ status: "completed", step: 7 }, true) === null, "no label when done");
 
 assert(isCardStep(1), "intro is card");
 // The hotkey step has no on-screen target, so it is drawn centered like the
@@ -92,24 +107,29 @@ assert(teachingProgressIndex(1) === null, "intro has no progress index");
 assert(teachingProgressIndex(ONBOARDING_DONE_STEP) === null, "ending has no progress index");
 
 assert(isCoachVisible({ status: "active", step: 1 }), "coach on intro");
-assert(!isCoachVisible({ status: "completed", step: 6 }), "coach off when done");
+assert(!isCoachVisible({ status: "completed", step: 7 }), "coach off when done");
 
 assertEq(
-  onboardingProgress({ status: "active", step: 1 }),
+  onboardingProgress({ status: "active", step: 1 }, false),
   { current: 0, total: 4, ratio: 0, label: "Tour" },
   "progress intro is empty",
 );
 assertEq(
-  onboardingProgress({ status: "active", step: 4 }),
+  onboardingProgress({ status: "active", step: 4 }, false),
   { current: 3, total: 4, ratio: 3 / 4, label: "Tour 3/4" },
   "progress gallery = 3",
 );
 assertEq(
-  onboardingProgress({ status: "active", step: 6 }),
+  onboardingProgress({ status: "active", step: 7 }, false),
   { current: 4, total: 4, ratio: 1, label: "Tour done" },
-  "progress ending is full",
+  "ending fills the arc without AI",
 );
-assert(onboardingProgress({ status: "completed", step: 6 }) === null, "progress null when completed");
+assertEq(
+  onboardingProgress({ status: "active", step: 7 }, true),
+  { current: 5, total: 5, ratio: 1, label: "Tour done" },
+  "ending fills the arc with AI",
+);
+assert(onboardingProgress({ status: "completed", step: 7 }, true) === null, "progress null when completed");
 assertEq(replayOnboarding(), { status: "active", step: 1 }, "replay");
 assertEq(skipTour({ status: "active", step: 4 }), { status: "completed", step: 4 }, "skipTour");
 

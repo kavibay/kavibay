@@ -14,6 +14,7 @@
 
 pub mod auth_code;
 pub mod device_code;
+mod host_id;
 
 use std::collections::HashMap;
 use std::ops::ControlFlow;
@@ -41,6 +42,12 @@ pub(crate) struct TokenResponse {
     #[serde(default)]
     pub refresh_token: Option<String>,
     pub expires_in: i64,
+    /// Granted scopes, space separated (checked against `required_scope`).
+    #[serde(default)]
+    pub scope: Option<String>,
+    /// OpenID id token; only its `email` is read, as the account label.
+    #[serde(default)]
+    pub id_token: Option<String>,
 }
 
 /// Handle to the currently-running login task for one credential, kept so it
@@ -316,6 +323,13 @@ pub(crate) fn client_credentials(
     };
     match client {
         ClientSource::BuiltIn { client_id } => Ok((client_id.to_string(), None)),
+        ClientSource::Dynamic { placeholder } => Ok((
+            secret
+                .issued_client_id
+                .clone()
+                .unwrap_or_else(|| placeholder.to_string()),
+            None,
+        )),
         ClientSource::Fields { id_key, secret_key } => {
             let client_id = field_value(secret, id_key).ok_or_else(|| {
                 format!(
@@ -343,6 +357,25 @@ pub(crate) fn client_form(
     let mut form = vec![("client_id".to_string(), client_id)];
     if let Some(secret) = client_secret {
         form.push(("client_secret".to_string(), secret));
+    }
+    form
+}
+
+/// Form for a refresh-token grant. `resource` is the type's RFC 8707 resource
+/// indicator; types without one send exactly what they always sent.
+pub(crate) fn refresh_form(
+    resource: Option<&str>,
+    refresh_token: &str,
+    client_id: String,
+    client_secret: Option<String>,
+) -> Vec<(String, String)> {
+    let mut form: Vec<(String, String)> = vec![
+        ("grant_type".into(), "refresh_token".into()),
+        ("refresh_token".into(), refresh_token.to_string()),
+    ];
+    form.extend(client_form(client_id, client_secret));
+    if let Some(resource) = resource {
+        form.push(("resource".into(), resource.to_string()));
     }
     form
 }
@@ -412,6 +445,7 @@ pub(crate) fn save_login(
     generation: u64,
     tokens: OAuthTokens,
     identity: (Option<String>, Map<String, Value>),
+    issued_client_id: Option<String>,
 ) -> Result<(), String> {
     let slot = slot(app, credential_id);
     // Everything before this point awaited at least once (network calls), so a
@@ -423,6 +457,9 @@ pub(crate) fn save_login(
         let conn = db::open_db(app)?;
         let mut secret = db::load_secret(&conn, credential_id)?.unwrap_or_default();
         secret.oauth = Some(tokens);
+        if issued_client_id.is_some() {
+            secret.issued_client_id = issued_client_id;
+        }
         db::save_secret(&conn, credential_id, &secret)?;
 
         let now = now_secs();
@@ -566,17 +603,13 @@ async fn refresh(
 ) -> Result<SecretData, String> {
     let tokens = secret.oauth.clone().ok_or("Not connected")?;
     let (client_id, client_secret) = client_credentials(type_def, &secret)?;
-    let token_url = match type_def.auth {
-        AuthKind::OAuth2AuthCode(auth) => auth.token_url,
-        AuthKind::OAuth2DeviceCode(device) => device.token_url,
+    let (token_url, resource) = match type_def.auth {
+        AuthKind::OAuth2AuthCode(auth) => (auth.token_url, auth.extras.resource),
+        AuthKind::OAuth2DeviceCode(device) => (device.token_url, None),
         AuthKind::Static => return Err("not an OAuth credential".into()),
     };
 
-    let mut form: Vec<(String, String)> = vec![
-        ("grant_type".into(), "refresh_token".into()),
-        ("refresh_token".into(), tokens.refresh_token.clone()),
-    ];
-    form.extend(client_form(client_id, client_secret));
+    let form = refresh_form(resource, &tokens.refresh_token, client_id, client_secret);
 
     let client = http_client(app);
     let response = client
@@ -1111,6 +1144,8 @@ mod tests {
             access_token: "new-access".into(),
             refresh_token: None,
             expires_in: 3600,
+            scope: None,
+            id_token: None,
         };
         let tokens = tokens_from_response(response, Some("old-refresh"), 1_000).unwrap();
         assert_eq!(tokens.access_token, "new-access");
@@ -1124,6 +1159,8 @@ mod tests {
             access_token: "a".into(),
             refresh_token: Some("new-refresh".into()),
             expires_in: 60,
+            scope: None,
+            id_token: None,
         };
         let tokens = tokens_from_response(response, Some("old-refresh"), 0).unwrap();
         assert_eq!(tokens.refresh_token, "new-refresh");
@@ -1135,8 +1172,50 @@ mod tests {
             access_token: "a".into(),
             refresh_token: None,
             expires_in: 60,
+            scope: None,
+            id_token: None,
         };
         assert!(tokens_from_response(response, None, 0).is_err());
+    }
+
+    #[test]
+    fn dynamic_client_uses_issued_id_once_saved() {
+        let chatgpt = registry::require(registry::OPENAI_CHATGPT).unwrap();
+        assert_eq!(
+            client_credentials(chatgpt, &SecretData::default()).unwrap(),
+            ("dynamic_agent_client".to_string(), None)
+        );
+        let saved = SecretData {
+            issued_client_id: Some("app_123".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            client_credentials(chatgpt, &saved).unwrap(),
+            ("app_123".to_string(), None)
+        );
+    }
+
+    #[test]
+    fn refresh_form_adds_the_resource_only_where_declared() {
+        let chatgpt = refresh_form(
+            Some("https://api.openai.com/v1"),
+            "rt",
+            "app_123".into(),
+            None,
+        );
+        assert!(chatgpt.contains(&("resource".into(), "https://api.openai.com/v1".into())));
+        assert!(chatgpt.contains(&("client_id".into(), "app_123".into())));
+        assert!(chatgpt.contains(&("grant_type".into(), "refresh_token".into())));
+
+        let tado = refresh_form(None, "rt", "cid".into(), None);
+        assert_eq!(
+            tado,
+            vec![
+                ("grant_type".to_string(), "refresh_token".to_string()),
+                ("refresh_token".to_string(), "rt".to_string()),
+                ("client_id".to_string(), "cid".to_string()),
+            ]
+        );
     }
 
     #[test]

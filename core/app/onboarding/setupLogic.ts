@@ -78,12 +78,50 @@ export function isSetupVisible(state: SetupState | null): boolean {
 }
 
 /**
- * Whether to offer the display choice.
+ * The card's pages, in order: the machine questions, which AI to use, and the
+ * keystroke that starts the tour.
  *
- * One monitor makes "which screen should this cover" a question with one
- * answer, and asking it costs the card its claim to be short. The preference
- * still exists in Settings for the day a second screen arrives.
+ * Three topics, three pages. The AI page is the one a user may leave
+ * unanswered; the keystroke page closes the card, so the gesture it asks for
+ * has to be on the last one.
  */
-export function shouldOfferDisplayChoice(monitorCount: number): boolean {
-  return monitorCount > 1;
+export const SETUP_PAGES = ["machine", "ai", "start"] as const;
+export type SetupPage = (typeof SETUP_PAGES)[number];
+
+/**
+ * The page after `page`, or "finish" after the last one.
+ *
+ * Also what the reveal gesture does while the card is up: before the last
+ * page it turns the page instead of closing the card, so someone pressing ahead
+ * out of habit does not skip the questions unseen.
+ */
+export function nextSetupPage(page: SetupPage): SetupPage | "finish" {
+  return SETUP_PAGES[SETUP_PAGES.indexOf(page) + 1] ?? "finish";
+}
+
+/** The page before `page`, or null on the first one. */
+export function previousSetupPage(page: SetupPage): SetupPage | null {
+  return SETUP_PAGES[SETUP_PAGES.indexOf(page) - 1] ?? null;
+}
+
+/**
+ * Keeps a dragged setup card on screen.
+ *
+ * The card is draggable because the browser sign-in for an AI provider opens
+ * behind Kavibay's always-on-top window, right where the card sits. It may move
+ * anywhere, but never off screen: a card nobody can reach is a setup nobody can
+ * finish. `card` is the card's rect *without* the offset applied.
+ */
+export function clampCardOffset(
+  offset: { x: number; y: number },
+  card: { left: number; top: number; width: number; height: number },
+  screen: { width: number; height: number },
+  margin = 8,
+): { x: number; y: number } {
+  const clamp = (value: number, min: number, max: number) =>
+    Math.min(Math.max(value, min), Math.max(min, max));
+  return {
+    x: clamp(offset.x, margin - card.left, screen.width - margin - card.left - card.width),
+    y: clamp(offset.y, margin - card.top, screen.height - margin - card.top - card.height),
+  };
 }

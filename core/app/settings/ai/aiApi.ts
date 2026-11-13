@@ -7,7 +7,13 @@
 import { invoke } from "@tauri-apps/api/core";
 
 /** Who serves the model — and therefore which credential it needs. */
-export type LlmProviderId = "anthropic" | "openai" | "deepseek" | "openrouter" | "cloudflare";
+export type LlmProviderId =
+  | "anthropic"
+  | "openai"
+  | "deepseek"
+  | "openrouter"
+  | "cloudflare"
+  | "chatgpt";
 
 /** Token price metadata from the editable JSON catalog. */
 export interface LlmPricing {
@@ -39,6 +45,8 @@ export interface LlmModelOption {
   configured: boolean;
   /** The user has this model switched on. */
   enabled: boolean;
+  /** The catalog's recommended model of its provider (the Wizard's default too). */
+  authoringDefault?: boolean;
 }
 
 /** Every catalog model, including the ones the user switched off. */

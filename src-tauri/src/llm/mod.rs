@@ -18,5 +18,5 @@ pub(crate) use prefs::{
     disabled_quick_actions, quick_shortcut, set_disabled_quick_actions, set_quick_shortcut,
 };
 /// The wizard's non-streamed requests read the same service profiles.
-pub(crate) use provider::{CacheHits, ChatCompletions};
+pub(crate) use provider::{chatgpt_error_sentence, CacheHits, ChatCompletions};
 pub use state::LlmState;

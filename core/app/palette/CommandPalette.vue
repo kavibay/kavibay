@@ -269,6 +269,7 @@ const {
   statusLabel: onboardingLabel,
   progress: onboardingProgress,
   notifyPaletteQuery,
+  notifyAiAnswered,
   replay,
   continueTour,
   skipTourAction,
@@ -362,6 +363,15 @@ const paletteAi = usePaletteAnswer({
   cancel: (requestId) => tauriWidgetCapabilityTransport.llmCancel(requestId),
 });
 const { model: searchAiModel, answer: aiAnswer, messages: aiMessages, busy: aiBusy } = paletteAi;
+
+// The tour's ask-AI lesson is passed by a finished answer; the composable
+// ignores this on every other step.
+watch(
+  () => aiAnswer.value?.phase,
+  (phase) => {
+    if (phase === "done") notifyAiAnswered();
+  },
+);
 
 /** Model discovery reads configuration only; it never sends the search text. */
 function refreshSearchAiModel() {

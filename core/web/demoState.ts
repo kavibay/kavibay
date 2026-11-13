@@ -94,7 +94,7 @@ const todo = (id: string, text: string, done: boolean, order: number) => ({
 const SETTLED = {
   "kavibay:first-open-done": "1",
   "kavibay:setup-v1": JSON.stringify({ status: "done" }),
-  "kavibay:onboarding-v3": JSON.stringify({ status: "completed", step: 1 }),
+  "kavibay:onboarding-v4": JSON.stringify({ status: "completed", step: 1 }),
   "kavibay:palette-widgets-v1": JSON.stringify([]),
 };
 

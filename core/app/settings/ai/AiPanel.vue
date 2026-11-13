@@ -18,7 +18,7 @@
  */
 import { nextTick, onMounted, ref, watch, type ComponentPublicInstance } from "vue";
 import { BrandMark } from "@sdk/brand";
-import CredentialAccounts from "../credentials/CredentialAccounts.vue";
+import ProviderConnections from "./ProviderConnections.vue";
 import {
   listCredentials,
   listCredentialTypes,
@@ -29,9 +29,9 @@ import { listLlmCatalog, setLlmModelEnabled, type LlmModelOption } from "./aiApi
 import {
   AI_PROVIDER_TABS,
   credentialTypeForProvider,
-  modelsForProvider,
-  providerHasKey,
-  providerStatusLine,
+  tabHasKey,
+  tabModels,
+  tabStatusLine,
   resolveAiProviderFocus,
   withModelEnabled,
   type AiProviderTab,
@@ -191,9 +191,9 @@ onMounted(() => {
           </span>
           <span class="settings-row-copy provider-copy">
             <span class="settings-row-title">{{ tab.label }}</span>
-            <span class="settings-row-hint">{{ providerStatusLine(models, tab.id) }}</span>
+            <span class="settings-row-hint">{{ tabStatusLine(models, tab) }}</span>
           </span>
-          <span v-if="providerHasKey(models, tab.id)" class="provider-connected">Connected</span>
+          <span v-if="tabHasKey(models, tab)" class="provider-connected">Connected</span>
           <span v-else-if="openProvider !== tab.id" class="provider-setup">Set up</span>
           <svg class="provider-chevron" viewBox="0 0 24 24" aria-hidden="true">
             <path d="m6 9 6 6 6-6" />
@@ -203,21 +203,22 @@ onMounted(() => {
         <div v-if="openProvider === tab.id" class="provider-body">
           <div v-if="credentialTypeOf(tab.id)" :ref="setKeyEditor">
             <h4 class="provider-sub">Connection</h4>
-            <CredentialAccounts
-              :key="credentialTypeOf(tab.id)!.id"
-              :type="credentialTypeOf(tab.id)!"
+            <ProviderConnections
+              :tab="tab"
+              :models="models"
+              :types="types"
               :credentials="credentials"
               @changed="reload"
             />
           </div>
 
-          <template v-if="providerHasKey(models, tab.id)">
+          <template v-if="tabHasKey(models, tab)">
             <h4 class="provider-sub">Models</h4>
             <p class="settings-section-hint">
               Switched-off models are hidden from every picker. Nothing is deleted.
             </p>
             <label
-              v-for="model in modelsForProvider(models, tab.id)"
+              v-for="model in tabModels(models, tab)"
               :key="model.id"
               class="settings-row"
             >

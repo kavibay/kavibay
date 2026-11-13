@@ -15,6 +15,7 @@ import {
   waitingPlace,
 } from "./onboardingCopy";
 import {
+  ONBOARDING_AI_STEP,
   ONBOARDING_DONE_STEP,
   ONBOARDING_HOTKEY_STEP,
   type OnboardingStep,
@@ -36,6 +37,15 @@ for (let step = 1; step <= ONBOARDING_DONE_STEP; step += 1) {
   assert(copy.title.length > 0, `step ${step} has a title`);
   assert(text(copy).length > 0, `step ${step} has a body`);
 }
+
+// The ask-AI lesson gives the user something to type, like the other lessons.
+const ai = onboardingCopyForStep(ONBOARDING_AI_STEP, "pc");
+assert(ai.title === "Ask anything", "ask AI title");
+assert(ai.segments.some((s) => s.typed), "ask AI shows something to type");
+assert(
+  onboardingCopyForStep(ONBOARDING_DONE_STEP, "pc").title === "You've got the basics",
+  "the ending moved to 7 with its copy",
+);
 
 // The hotkey step teaches whichever keystroke exists here — and only that one.
 const doubleTap = onboardingHotkeyCopy("ctrlDoubleTap", "pc");

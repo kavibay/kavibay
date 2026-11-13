@@ -7,6 +7,7 @@ import {
   declinedState,
   defaultActiveState,
   stateAfterSetup,
+  ONBOARDING_AI_STEP,
   ONBOARDING_DONE_STEP,
   ONBOARDING_HOTKEY_STEP,
   ONBOARDING_INTRO_STEP,
@@ -26,13 +27,15 @@ import {
   onboardingReady,
   onboardingState,
   persistOnboardingState,
+  refreshTourAiReady,
+  tourAiReady,
 } from "./onboardingSession";
 
 /** Advance when the active step matches `step`. */
 function advanceIfStep(step: OnboardingStep) {
   const s = onboardingState.value;
   if (s?.status === "active" && s.step === step) {
-    onboardingState.value = advanceStep(s);
+    onboardingState.value = advanceStep(s, tourAiReady.value);
     persistOnboardingState();
   }
 }
@@ -61,13 +64,13 @@ export function useOnboarding() {
 
   const statusLabel: ComputedRef<string | null> = computed(() => {
     const s = onboardingState.value;
-    return s != null ? onboardingStatusLabel(s) : null;
+    return s != null ? onboardingStatusLabel(s, tourAiReady.value) : null;
   });
 
   /** Arc progress for the palette status control (null when inactive). */
   const progress: ComputedRef<OnboardingProgress | null> = computed(() => {
     const s = onboardingState.value;
-    return s != null ? onboardingProgress(s) : null;
+    return s != null ? onboardingProgress(s, tourAiReady.value) : null;
   });
 
   /**
@@ -86,6 +89,7 @@ export function useOnboarding() {
       onboardingState.value = defaultActiveState();
       persistOnboardingState();
       bumpCoachReveal();
+      void refreshTourAiReady();
     }
   }
 
@@ -109,7 +113,7 @@ export function useOnboarding() {
     if (!revealed || revealGesture.value == null || trigger !== revealGesture.value) return;
     const s = onboardingState.value;
     if (s?.status !== "active" || s.step !== ONBOARDING_HOTKEY_STEP) return;
-    onboardingState.value = advanceStep(s);
+    onboardingState.value = advanceStep(s, tourAiReady.value);
     persistOnboardingState();
     // The window was hidden a moment ago; the coach has to measure again before
     // it can place the next bubble.
@@ -130,7 +134,7 @@ export function useOnboarding() {
   function skipHotkeyStep() {
     const s = onboardingState.value;
     if (s?.status !== "active" || s.step !== ONBOARDING_HOTKEY_STEP) return;
-    onboardingState.value = advanceStep(s);
+    onboardingState.value = advanceStep(s, tourAiReady.value);
     persistOnboardingState();
     bumpCoachReveal();
   }
@@ -147,6 +151,7 @@ export function useOnboarding() {
     onboardingState.value = stateAfterSetup();
     persistOnboardingState();
     bumpCoachReveal();
+    void refreshTourAiReady();
   }
 
   /**
@@ -170,7 +175,7 @@ export function useOnboarding() {
     const s = onboardingState.value;
     if (s?.status !== "active" || s.step !== 3) return false;
     if (query.trim().toLowerCase() !== "notepad") return false;
-    onboardingState.value = advanceStep(s);
+    onboardingState.value = advanceStep(s, tourAiReady.value);
     persistOnboardingState();
     return true;
   }
@@ -197,11 +202,28 @@ export function useOnboarding() {
     if (isGalleryWidget(typeId)) notifyGalleryVisible();
   }
 
+  /** Ask-AI lesson: the palette finished an answer. */
+  function notifyAiAnswered() {
+    advanceIfStep(ONBOARDING_AI_STEP);
+  }
+
+  /**
+   * Leave the ask-AI lesson without an answer — a refused key, a provider
+   * outage. The palette already says what went wrong; this is the way on.
+   */
+  function skipAiStep() {
+    const s = onboardingState.value;
+    if (s?.status !== "active" || s.step !== ONBOARDING_AI_STEP) return;
+    onboardingState.value = advanceStep(s, tourAiReady.value);
+    persistOnboardingState();
+    bumpCoachReveal();
+  }
+
   /** Leave the welcome intro and start teaching step 1. */
   function acknowledgeIntro() {
     const s = onboardingState.value;
     if (s?.status !== "active" || s.step !== ONBOARDING_INTRO_STEP) return;
-    onboardingState.value = advanceStep(s);
+    onboardingState.value = advanceStep(s, tourAiReady.value);
     persistOnboardingState();
     bumpCoachReveal();
   }
@@ -210,7 +232,7 @@ export function useOnboarding() {
   function acknowledgeDone() {
     const s = onboardingState.value;
     if (s?.status !== "active" || s.step !== ONBOARDING_DONE_STEP) return;
-    onboardingState.value = advanceStep(s);
+    onboardingState.value = advanceStep(s, tourAiReady.value);
     persistOnboardingState();
   }
 
@@ -218,7 +240,7 @@ export function useOnboarding() {
   function stepBack() {
     const s = onboardingState.value;
     if (s == null) return;
-    onboardingState.value = retreatStep(s);
+    onboardingState.value = retreatStep(s, tourAiReady.value);
     persistOnboardingState();
     bumpCoachReveal();
   }
@@ -237,6 +259,7 @@ export function useOnboarding() {
     persistOnboardingState();
     kavibayCockpitOpen.value = true;
     bumpCoachReveal();
+    void refreshTourAiReady();
   }
 
   /**
@@ -264,6 +287,8 @@ export function useOnboarding() {
     notifyGalleryVisible,
     notifyWidgetAdded,
     notifyWidgetVisible,
+    notifyAiAnswered,
+    skipAiStep,
     acknowledgeIntro,
     acknowledgeDone,
     stepBack,
