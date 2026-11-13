@@ -32,6 +32,24 @@ const formatted = formatClock(new Date("2026-01-02T03:04:05.000Z"), normalized);
 assert(formatted.time.length > 0, "clock formatting returns a time");
 assert(formatted.date === null, "dateStyle=none omits the date line");
 
+// The seconds are dimmed in the view, so the formatter says where they are in
+// the locale's own string: only the separator and the seconds, never AM/PM.
+{
+  const at = new Date(2026, 10, 13, 14, 59, 1);
+  const base = { locale: "de-DE", hour12: false, showSeconds: true, dateStyle: "none", timeZone: "system" } as const;
+  const de = formatClock(at, normalizeClockConfig(base));
+  assert(de.time === "14:59:01", `de time: ${de.time}`);
+  assert(de.secondsRange != null && de.time.slice(...de.secondsRange) === ":01", "de seconds range");
+
+  const us = formatClock(at, normalizeClockConfig({ ...base, locale: "en-US", hour12: true }));
+  assert(us.secondsRange != null, "us has a seconds range");
+  assert(us.time.slice(...us.secondsRange!) === ":01", `us seconds: ${us.time}`);
+  assert(/PM$/.test(us.time.slice(us.secondsRange![1])), "the day period stays outside the range");
+
+  const off = formatClock(at, normalizeClockConfig({ ...base, showSeconds: false }));
+  assert(off.secondsRange === null && off.time === "14:59", "no seconds, no range");
+}
+
 const originalSetInterval = globalThis.setInterval;
 const originalClearInterval = globalThis.clearInterval;
 let cleared = false;

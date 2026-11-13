@@ -37,6 +37,7 @@ assert(
 );
 assert(surfaceStyle({ blur: 0 })["--surface-backdrop-filter"] === "none", "blur 0 turns the filter off");
 assert(surfaceStyle({ shadow: false })["--surface-box-shadow"] === "0 0 transparent", "shadow off drops the drop shadow");
+assert(surfaceStyle({ shadow: false })["--surface-top-edge"] === "transparent", "shadow off drops the lit top edge too");
 assert(!("--surface-box-shadow" in surfaceStyle({ shadow: true })), "shadow on keeps the shared one");
 assert(normalizeWidgetAppearance({ shadow: false })?.shadow === false, "shadow off is stored");
 assert(normalizeWidgetAppearance({ shadow: "no" }) === undefined, "a non-boolean shadow is not stored");
