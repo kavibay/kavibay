@@ -717,11 +717,9 @@ fn responses_payload_from_events(raw: &str) -> Result<Value, String> {
                     .unwrap_or(Value::Null);
             }
             Some("response.failed") | Some("error") => {
-                let error = event
-                    .pointer("/response/error")
-                    .or_else(|| event.get("error"))
-                    .cloned()
-                    .unwrap_or(Value::Null);
+                // `response.failed` nests the error; a bare `error` event *is*
+                // one, with `code` and `message` at the top level.
+                let error = event.pointer("/response/error").unwrap_or(&event).clone();
                 return Err(provider_error(500, &json!({ "error": error })));
             }
             _ => {}
@@ -1317,7 +1315,12 @@ mod tests {
         let error = responses_payload_from_events(limit).unwrap_err();
         assert!(error.contains("usage limit"), "{error}");
 
-        let cut = "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hal\"}\ndata: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\"}}\n";
+        // A bare `error` event carries `code` at the top level, not under `error`.
+        let bare = "data: {\"type\":\"error\",\"code\":\"subscription_sharing_usage_unavailable\",\"message\":\"x\"}\n";
+        let error = responses_payload_from_events(bare).unwrap_err();
+        assert!(error.contains("temporarily unavailable"), "{error}");
+
+        let cut ="data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hal\"}\ndata: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\"}}\n";
         let payload = responses_payload_from_events(cut).unwrap();
         assert_eq!(responses_text(&payload).unwrap_err(), "response_truncated");
     }

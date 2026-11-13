@@ -2798,6 +2798,13 @@ assert(
   );
 
   assert(wizardPlatforms([]).length === 0, "no models, no platforms");
+  assertEq(
+    wizardPlatforms([
+      model({ id: "chatgpt/gpt-6-luna", provider: "chatgpt", credentialType: "openaiChatgpt" }),
+    ])[0].label,
+    "ChatGPT plan",
+    "ChatGPT plan models get a display name, not the provider id",
+  );
   assert(wizardHasAnyKey([]) === false, "an empty catalog has no key");
   assert(wizardHasAnyKey(catalog) === false, "nothing configured means no key");
   assert(

@@ -81,6 +81,7 @@ export const PROVIDER_LABELS: Record<string, string> = {
   deepseek: "DeepSeek",
   openrouter: "OpenRouter",
   cloudflare: "Cloudflare Workers AI",
+  chatgpt: "ChatGPT plan",
 };
 
 export function providerLabel(provider: string): string {
