@@ -26,6 +26,7 @@ import FitbitMark from "./FitbitMark.vue";
 import NotionMark from "./NotionMark.vue";
 import OpenAiMark from "./OpenAiMark.vue";
 import OpenMeteoMark from "./OpenMeteoMark.vue";
+import OpenRouterMark from "./OpenRouterMark.vue";
 import TadoMark from "./TadoMark.vue";
 import TmdbMark from "./TmdbMark.vue";
 
@@ -70,6 +71,8 @@ const mark = computed(() => {
       return OpenAiMark;
     case "deepseek":
       return DeepSeekMark;
+    case "openrouter":
+      return OpenRouterMark;
     case "cloudflare":
       return CloudflareMark;
     default:

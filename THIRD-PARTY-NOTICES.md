@@ -108,6 +108,7 @@ of them is used as this app's own identity.
 - Spotify — Spotify AB — https://developer.spotify.com/documentation/design
 - Fitbit — Google LLC — https://dev.fitbit.com
 - OpenAI — OpenAI, Inc. — https://openai.com
+- OpenRouter — user-supplied SVG — https://openrouter.ai
 - Open-Meteo — https://open-meteo.com
 - tado° — tado GmbH — https://www.tado.com/
 - TMDB (The Movie Database) — user-supplied SVG — https://www.themoviedb.org/about/logos-attribution

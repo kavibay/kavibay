@@ -29,6 +29,7 @@ export type BrandId =
   | "anthropic"
   | "openai"
   | "deepseek"
+  | "openrouter"
   | "cloudflare";
 
 const MARKS: Readonly<Record<string, BrandId>> = {
@@ -59,6 +60,7 @@ const MARKS: Readonly<Record<string, BrandId>> = {
   anthropicapi: "anthropic",
   openaiapi: "openai",
   deepseekapi: "deepseek",
+  openrouterapi: "openrouter",
   cloudflareworkersai: "cloudflare",
 
   // LLM provider ids (settings/ai): the AI panel names a provider before, or
@@ -66,6 +68,7 @@ const MARKS: Readonly<Record<string, BrandId>> = {
   anthropic: "anthropic",
   openai: "openai",
   deepseek: "deepseek",
+  openrouter: "openrouter",
   cloudflare: "cloudflare",
 };
 
