@@ -49,6 +49,16 @@ html {
     rgba(255, 255, 255, 0) 55%
   );
   --surface-border: rgba(var(--fg-rgb), 0.1);
+  /* Polish (lines, edges): the outer half of the double edge — a dark line
+     that keeps a card crisp on any wallpaper — and the lit top edge,
+     brightest in the middle. */
+  --surface-edge-outer: 0 0 0 1px rgba(0, 0, 0, 0.55);
+  --surface-top-edge: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14) 50%, transparent);
+  /* Footer as a recessed tray: sunk a little further, with a soft inner top. */
+  --bar-tray: linear-gradient(180deg, rgba(var(--inset-rgb), 0.16), rgba(var(--inset-rgb), 0.22));
+  --bar-tray-shadow: inset 0 1px 2px rgba(var(--inset-rgb), 0.25);
+  /* The one accent, used sparingly: the caret and the active desk's dot. */
+  --accent-rgb: 110, 117, 245;
   --surface-inner-highlight:
     inset 0 1px 0 rgba(255, 255, 255, 0.09), inset 0 0 0 1px rgba(255, 255, 255, 0.035);
   --surface-box-shadow: 1.95px 1.95px 2.6px
@@ -84,6 +94,16 @@ html[data-color-mode="dark"] {
     rgba(255, 255, 255, 0) 55%
   );
   --surface-border: rgba(var(--fg-rgb), 0.1);
+  /* Polish (lines, edges): the outer half of the double edge — a dark line
+     that keeps a card crisp on any wallpaper — and the lit top edge,
+     brightest in the middle. */
+  --surface-edge-outer: 0 0 0 1px rgba(0, 0, 0, 0.55);
+  --surface-top-edge: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14) 50%, transparent);
+  /* Footer as a recessed tray: sunk a little further, with a soft inner top. */
+  --bar-tray: linear-gradient(180deg, rgba(var(--inset-rgb), 0.16), rgba(var(--inset-rgb), 0.22));
+  --bar-tray-shadow: inset 0 1px 2px rgba(var(--inset-rgb), 0.25);
+  /* The one accent, used sparingly: the caret and the active desk's dot. */
+  --accent-rgb: 110, 117, 245;
   --surface-inner-highlight:
     inset 0 1px 0 rgba(255, 255, 255, 0.09), inset 0 0 0 1px rgba(255, 255, 255, 0.035);
   --bar-bg: rgba(var(--inset-rgb), 0.15);
@@ -161,6 +181,15 @@ html[data-color-mode="light"] {
    * made the old light mode look like a grey box cut out of the wallpaper.
    */
   --surface-border: rgba(255, 255, 255, 0.7);
+  /* Light mode translates the polish rather than copying it: the outer edge is
+     a faint shadow tint (a dark stroke is what made the old light mode look like
+     a grey box), and the footer stays lighter, recessed only by a soft inner
+     shadow under its hairline. */
+  --surface-edge-outer: 0 0 0 1px rgba(var(--shadow-rgb), 0.06);
+  --surface-top-edge: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.95) 50%, transparent);
+  --bar-tray: var(--bar-bg);
+  --bar-tray-shadow: inset 0 1px 2px rgba(var(--shadow-rgb), 0.07);
+  --accent-rgb: 94, 102, 235;
   --surface-inner-highlight:
     inset 0 1px 0 rgba(255, 255, 255, 0.98), inset 0 0 0 1px rgba(255, 255, 255, 0.45);
   /*
