@@ -78,17 +78,6 @@ export function isSetupVisible(state: SetupState | null): boolean {
 }
 
 /**
- * Whether to offer the display choice.
- *
- * One monitor makes "which screen should this cover" a question with one
- * answer, and asking it costs the card its claim to be short. The preference
- * still exists in Settings for the day a second screen arrives.
- */
-export function shouldOfferDisplayChoice(monitorCount: number): boolean {
-  return monitorCount > 1;
-}
-
-/**
  * The card's pages, in order: the machine questions, which AI to use, and the
  * keystroke that starts the tour.
  *
@@ -110,7 +99,29 @@ export function nextSetupPage(page: SetupPage): SetupPage | "finish" {
   return SETUP_PAGES[SETUP_PAGES.indexOf(page) + 1] ?? "finish";
 }
 
-/** Questions the card asks on this machine, for the lead. The AI one is always asked. */
-export function setupQuestionCount(opts: { autostart: boolean; displayChoice: boolean }): number {
-  return 1 + (opts.autostart ? 1 : 0) + (opts.displayChoice ? 1 : 0);
+/** The page before `page`, or null on the first one. */
+export function previousSetupPage(page: SetupPage): SetupPage | null {
+  return SETUP_PAGES[SETUP_PAGES.indexOf(page) - 1] ?? null;
+}
+
+/**
+ * Keeps a dragged setup card on screen.
+ *
+ * The card is draggable because the browser sign-in for an AI provider opens
+ * behind Kavibay's always-on-top window, right where the card sits. It may move
+ * anywhere, but never off screen: a card nobody can reach is a setup nobody can
+ * finish. `card` is the card's rect *without* the offset applied.
+ */
+export function clampCardOffset(
+  offset: { x: number; y: number },
+  card: { left: number; top: number; width: number; height: number },
+  screen: { width: number; height: number },
+  margin = 8,
+): { x: number; y: number } {
+  const clamp = (value: number, min: number, max: number) =>
+    Math.min(Math.max(value, min), Math.max(min, max));
+  return {
+    x: clamp(offset.x, margin - card.left, screen.width - margin - card.left - card.width),
+    y: clamp(offset.y, margin - card.top, screen.height - margin - card.top - card.height),
+  };
 }

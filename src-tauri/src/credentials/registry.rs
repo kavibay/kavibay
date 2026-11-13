@@ -4,8 +4,8 @@
 //! module that uses it. No new database, no new commands, no new settings UI.
 
 use super::types::{
-    AuthCodeDef, AuthKind, ClientSource, CredentialTypeDef, DeviceCodeDef, FieldDef, FieldKind,
-    IdentityProbe, Injection, TestRequest,
+    AuthCodeDef, AuthCodeExtras, AuthKind, ClientSource, CredentialTypeDef, DeviceCodeDef,
+    FieldDef, FieldKind, IdentityProbe, Injection, TestRequest,
 };
 
 /// Type id constants — used by API modules and (later) extension manifests.
@@ -19,6 +19,7 @@ pub const FITBIT_OAUTH2: &str = "fitbitOAuth2";
 pub const CLOUDFLARE_WORKERS_AI: &str = "cloudflareWorkersAi";
 pub const ANTHROPIC_API: &str = "anthropicApi";
 pub const OPENAI_API: &str = "openaiApi";
+pub const OPENAI_CHATGPT: &str = "openaiChatgpt";
 pub const DEEPSEEK_API: &str = "deepseekApi";
 pub const OPENROUTER_API: &str = "openrouterApi";
 pub const GOOGLE_CALENDAR_OAUTH2: &str = "googleCalendarOAuth2";
@@ -225,6 +226,7 @@ const SPOTIFY: CredentialTypeDef = CredentialTypeDef {
         extra_auth_params: &[],
         loopback_port: Some(17444),
         loopback_path: Some("/callback"),
+        extras: AuthCodeExtras::NONE,
     }),
     inject: Injection::Bearer {
         value: "{{accessToken}}",
@@ -284,6 +286,7 @@ const FITBIT: CredentialTypeDef = CredentialTypeDef {
         extra_auth_params: &[("access_type", "offline"), ("prompt", "consent")],
         loopback_port: None,
         loopback_path: None,
+        extras: AuthCodeExtras::NONE,
     }),
     inject: Injection::Bearer {
         value: "{{accessToken}}",
@@ -385,6 +388,44 @@ const OPENAI: CredentialTypeDef = CredentialTypeDef {
         success: "Key accepted by OpenAI.",
         body: None,
     }),
+    instance_url_field: None,
+};
+
+/// ChatGPT plan sign-in ("Sign in with ChatGPT"): OpenAI's agent auth-code
+/// flow. No fields: OpenAI registers the client during the first sign-in and
+/// returns its id on the redirect. Requests carry the plan's access token.
+/// Protocol: OpenAI's sign-in-with-chatgpt DevKit (`packages/local/src/oauth.ts`).
+const OPENAI_CHATGPT_DEF: CredentialTypeDef = CredentialTypeDef {
+    id: OPENAI_CHATGPT,
+    display_name: "ChatGPT (sign in)",
+    description: "Sign in with your ChatGPT Plus or Pro plan. No API key needed.",
+    docs_url: Some("https://developers.openai.com/cookbook/articles/sign-in-with-chatgpt"),
+    fields: &[],
+    auth: AuthKind::OAuth2AuthCode(AuthCodeDef {
+        auth_url: "https://auth.openai.com/api/accounts/authorize",
+        token_url: "https://auth.openai.com/api/accounts/oauth/token",
+        scopes: "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct",
+        client: ClientSource::Dynamic {
+            placeholder: "dynamic_agent_client",
+        },
+        // The account label comes from the id token's email (see auth_code).
+        identity: None,
+        extra_auth_params: &[],
+        loopback_port: None,
+        loopback_path: Some("/auth/callback"),
+        extras: AuthCodeExtras {
+            resource: Some("https://api.openai.com/v1"),
+            send_host_id: true,
+            name_hint: Some("Kavibay"),
+            send_nonce: true,
+            required_scope: Some("chatgpt.tokens.use.direct"),
+        },
+    }),
+    inject: Injection::Bearer {
+        value: "{{accessToken}}",
+        extra_headers: &[],
+    },
+    test: None,
     instance_url_field: None,
 };
 
@@ -491,6 +532,7 @@ const GOOGLE_CALENDAR: CredentialTypeDef = CredentialTypeDef {
         extra_auth_params: &[("access_type", "offline"), ("prompt", "consent")],
         loopback_port: None,
         loopback_path: None,
+        extras: AuthCodeExtras::NONE,
     }),
     inject: Injection::Bearer {
         value: "{{accessToken}}",
@@ -541,6 +583,7 @@ pub const ALL: &[CredentialTypeDef] = &[
     CLOUDFLARE,
     ANTHROPIC,
     OPENAI,
+    OPENAI_CHATGPT_DEF,
     DEEPSEEK,
     OPENROUTER,
     GOOGLE_CALENDAR,

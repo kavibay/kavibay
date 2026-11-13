@@ -3594,6 +3594,17 @@ provide("kavibayPaletteMovePointerdown", (event: PointerEvent) => {
   z-index: 320;
 }
 
+/*
+ * A card showing its controls (header hover, open ⋯, rename…) wins over
+ * everything, the front palette included. The controls sit above the card's
+ * top edge, so they overlap whatever is placed above it; each anchor is its own
+ * stacking context, so raising the controls alone could not lift them past a
+ * neighbour. Last on purpose: same specificity as the focused rule above.
+ */
+.widget-anchor:has(.widget-card-chrome.card-chrome-reveal) {
+  z-index: 340;
+}
+
 .widget-anchor:active {
   cursor: default;
 }

@@ -72,24 +72,37 @@ export const en = {
 
   // First-run setup card (core/app/onboarding/OnboardingSetup.vue)
   "onboarding.setup.ariaLabel": "Set up Kavibay",
-  "onboarding.setup.title": "Welcome to Kavibay",
-  "onboarding.setup.lead": {
-    one: "Your launcher and your widgets, one keystroke away. One question, then a short tour of about a minute.",
-    other:
-      "Your launcher and your widgets, one keystroke away. {count} questions, then a short tour of about a minute.",
-  },
   "onboarding.setup.pages": "Step {current} of {total}",
-  "onboarding.setup.autostart.title": "Start Kavibay when I log in",
-  "onboarding.setup.autostart.hint": "Waits in {place}, out of the way.",
-  "onboarding.setup.autostart.error": "Could not change the startup entry: {error}",
-  "onboarding.setup.display.title": "Open on",
-  "onboarding.setup.display.hint":
-    "You have more than one screen. Which one should a double tap on {key} cover?",
   "onboarding.setup.continue": "Continue",
+  "onboarding.setup.back": "Back",
+  "onboarding.setup.welcome.headline": "Your launcher and your widgets, one keystroke away.",
+  "onboarding.setup.welcome.continue": "Continue setup",
+  "onboarding.setup.welcome.autostart":
+    "Kavibay starts when you log in and waits in {place}. You can change this in Settings.",
+  "onboarding.setup.feature.launch.title": "Launch anything",
+  "onboarding.setup.feature.launch.body":
+    "Apps, files and folders from one search field, without reaching for the mouse.",
+  "onboarding.setup.feature.widgets.title": "Widgets on your desk",
+  "onboarding.setup.feature.widgets.body":
+    "Weather, music, calendars and more: there when you need them, gone when you don't.",
+  "onboarding.setup.feature.ai.title": "AI with your own account",
+  "onboarding.setup.feature.ai.body":
+    "Ask questions and rewrite text with your AI provider. Sign in with ChatGPT or use your own key.",
+  "onboarding.setup.feature.build.title": "Build your own widgets",
+  "onboarding.setup.feature.build.body": "Describe a widget and Kavibay writes it for you.",
+  "onboarding.setup.ai.skip": "Skip for now",
+  "onboarding.setup.ai.connectedTo": "Connected to {name}",
+  "onboarding.setup.ai.using": "Using",
+  "onboarding.setup.ai.usingHint":
+    "Kavibay answers with this model in the palette and in quick actions. You can change it any time in Settings → AI.",
+  "onboarding.setup.ai.manage": "Change connection",
+  "onboarding.setup.done.title": "You're all set",
+  "onboarding.setup.done.autostart": "Starts when you log in",
+  "onboarding.setup.done.ai": "AI: {model}",
+  "onboarding.setup.done.noAi": "No AI yet. Add one any time in Settings → AI.",
   "onboarding.setup.ai.title": "Which AI should Kavibay use?",
   "onboarding.setup.ai.hint":
     "Optional. It answers questions in the palette and builds widgets for you. You can change it later in Settings → AI.",
-  "onboarding.setup.ai.back": "Back",
   "onboarding.setup.ai.connected": "Connected",
   "onboarding.setup.ai.loadError":
     "Could not load the providers. You can connect one later in Settings → AI.",
@@ -99,4 +112,10 @@ export const en = {
   "onboarding.setup.skipTour": "Skip the tour",
   "onboarding.setup.orClick": "Or click here",
   "onboarding.setup.showMeAround": "Show me around",
+
+  // Settings → AI and setup page 2: connecting a provider row
+  "ai.connect.chatgptTitle": "Sign in with ChatGPT",
+  "ai.connect.chatgptHint": "Uses your ChatGPT Plus or Pro plan. No API key, no extra cost.",
+  "ai.connect.useApiKey": "Use an API key instead",
+  "ai.connect.chatgptName": "ChatGPT plan",
 } as const;

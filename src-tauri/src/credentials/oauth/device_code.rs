@@ -199,7 +199,7 @@ async fn poll_for_tokens(
                 None => (None, serde_json::Map::new()),
             };
 
-            return save_login(app, credential_id, generation, tokens, identity);
+            return save_login(app, credential_id, generation, tokens, identity, None);
         }
 
         let error: TokenErrorResponse = response.json().await.map_err(|e| e.to_string())?;

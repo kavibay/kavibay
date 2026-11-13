@@ -6,6 +6,7 @@
  * credential a provider needs and which models it serves are both read off the
  * catalog, so adding a model in Rust needs no edit on this side.
  */
+import type { SimpleMessageKey } from "../../i18n/i18n";
 import type { LlmModelOption, LlmProviderId } from "./aiApi";
 
 /** One provider row, under the name the provider calls itself. */
@@ -13,16 +14,30 @@ export interface AiProviderTab {
   id: LlmProviderId;
   /** Row title — the credential card repeats the long name. */
   label: string;
+  /**
+   * Providers shown inside this row, before its own: ChatGPT sign-in is a
+   * provider of its own in the catalog (one provider, one credential type) but
+   * belongs under OpenAI for the person choosing.
+   */
+  alsoProviders?: readonly LlmProviderId[];
+  /** Heading and hint over the first grouped provider's connection. */
+  signIn?: { title: SimpleMessageKey; hint: SimpleMessageKey };
 }
 
 /**
  * Row order. Fixed rather than derived from the catalog: the catalog is ordered
  * by model strength, and a list that reshuffles when a model is added is a
- * list the user has to re-read every time.
+ * list the user has to re-read every time. OpenAI leads because it is the one
+ * row a ChatGPT subscriber can connect without creating an API key.
  */
 export const AI_PROVIDER_TABS: readonly AiProviderTab[] = [
+  {
+    id: "openai",
+    label: "OpenAI",
+    alsoProviders: ["chatgpt"],
+    signIn: { title: "ai.connect.chatgptTitle", hint: "ai.connect.chatgptHint" },
+  },
   { id: "anthropic", label: "Anthropic" },
-  { id: "openai", label: "OpenAI" },
   { id: "deepseek", label: "DeepSeek" },
   { id: "openrouter", label: "OpenRouter" },
   { id: "cloudflare", label: "Cloudflare Workers AI" },
@@ -62,6 +77,21 @@ export function enabledSummary(
   };
 }
 
+/** The providers a row shows, grouped ones first. */
+export function tabProviders(tab: AiProviderTab): LlmProviderId[] {
+  return [...(tab.alsoProviders ?? []), tab.id];
+}
+
+/** Every catalog model a row covers, in `tabProviders` order. */
+export function tabModels(models: readonly LlmModelOption[], tab: AiProviderTab): LlmModelOption[] {
+  return tabProviders(tab).flatMap((provider) => modelsForProvider(models, provider));
+}
+
+/** Whether any of a row's providers is connected. */
+export function tabHasKey(models: readonly LlmModelOption[], tab: AiProviderTab): boolean {
+  return tabProviders(tab).some((provider) => providerHasKey(models, provider));
+}
+
 /**
  * Which AI tab a deep-link should open.
  *
@@ -77,7 +107,10 @@ export function resolveAiProviderFocus(
   if (AI_PROVIDER_TABS.some((tab) => tab.id === requested)) {
     return requested as LlmProviderId;
   }
-  return models.find((model) => model.credentialType === requested)?.provider ?? null;
+  const provider = models.find((model) => model.credentialType === requested)?.provider;
+  if (!provider) return null;
+  // A grouped provider (ChatGPT sign-in) opens the row it is shown in.
+  return AI_PROVIDER_TABS.find((tab) => tabProviders(tab).includes(provider))?.id ?? null;
 }
 
 /**
@@ -86,15 +119,13 @@ export function resolveAiProviderFocus(
  * would give you — read off the catalog, so it never names a model the app
  * does not offer.
  */
-export function providerStatusLine(
-  models: readonly LlmModelOption[],
-  provider: LlmProviderId,
-): string {
-  if (providerHasKey(models, provider)) {
-    const { enabled, total } = enabledSummary(models, provider);
-    return `${enabled} of ${total} models on`;
+export function tabStatusLine(models: readonly LlmModelOption[], tab: AiProviderTab): string {
+  const rows = tabModels(models, tab);
+  if (tabHasKey(models, tab)) {
+    const enabled = rows.filter((model) => model.enabled).length;
+    return `${enabled} of ${rows.length} models on`;
   }
-  const labels = modelsForProvider(models, provider).map((model) => model.label);
+  const labels = rows.map((model) => model.label);
   const shown = labels.slice(0, 2).join(", ");
   return labels.length > 2 ? `${shown} and ${labels.length - 2} more` : shown;
 }
@@ -216,4 +247,34 @@ export function withModelEnabled(
   enabled: boolean,
 ): LlmModelOption[] {
   return models.map((model) => (model.id === modelId ? { ...model, enabled } : model));
+}
+
+/** The first of a row's providers that is connected, or null. */
+export function connectedProvider(
+  models: readonly LlmModelOption[],
+  tab: AiProviderTab,
+): LlmProviderId | null {
+  return tabProviders(tab).find((provider) => providerHasKey(models, provider)) ?? null;
+}
+
+/**
+ * The model the setup card preselects for a provider that just connected.
+ *
+ * The user's own quick-model pick when it is a usable model of this provider;
+ * otherwise the catalog's recommended one (its authoring default, GPT-6.1 Terra
+ * for the ChatGPT plan); otherwise the first usable. Null when the provider has
+ * nothing usable.
+ */
+export function preferredQuickModel(
+  models: readonly LlmModelOption[],
+  provider: LlmProviderId,
+  selected: string,
+): string | null {
+  const usable = quickModelChoices(models).filter((model) => model.provider === provider);
+  return (
+    usable.find((model) => model.id === selected)?.id ??
+    usable.find((model) => model.authoringDefault)?.id ??
+    usable[0]?.id ??
+    null
+  );
 }

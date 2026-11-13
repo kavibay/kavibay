@@ -35,6 +35,8 @@ assert(brandMarkFor("googleCalendarOAuth2") === "google", "google credential typ
 assert(brandMarkFor("kavibay.weather/weather") === "open-meteo", "weather mark");
 assert(brandMarkFor("anthropicApi") === "anthropic", "anthropic credential type");
 assert(brandMarkFor("openaiApi") === "openai", "openai credential type");
+assert(brandMarkFor("openaiChatgpt") === "openai", "ChatGPT sign-in wears the OpenAI mark");
+assert(brandMarkFor("chatgpt") === "openai", "chatgpt provider id");
 assert(brandMarkFor("deepseekApi") === "deepseek", "deepseek credential type");
 assert(brandMarkFor("openrouterApi") === "openrouter", "openrouter credential type");
 assert(brandMarkFor("cloudflareWorkersAi") === "cloudflare", "cloudflare credential type");

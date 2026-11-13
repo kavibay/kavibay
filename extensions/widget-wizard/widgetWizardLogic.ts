@@ -3790,6 +3790,7 @@ const PLATFORM_LABELS: Readonly<Record<string, string>> = {
   deepseek: "DeepSeek",
   openrouter: "OpenRouter",
   cloudflare: "Cloudflare Workers AI",
+  chatgpt: "ChatGPT plan",
 };
 
 /**

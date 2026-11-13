@@ -46,6 +46,10 @@ pub struct TurnAssembler {
     reasoning: String,
     /// OpenAI: calls by stream index.
     calls: Vec<OpenAiCall>,
+    /// Responses API (ChatGPT plan): finished output items in stream order.
+    /// The turn *is* this list; reasoning items carry encrypted content that
+    /// only works sent back unchanged.
+    items: Vec<Value>,
 }
 
 impl TurnAssembler {
@@ -57,6 +61,7 @@ impl TurnAssembler {
             text: String::new(),
             reasoning: String::new(),
             calls: Vec::new(),
+            items: Vec::new(),
         }
     }
 
@@ -129,11 +134,30 @@ impl TurnAssembler {
                     }
                 }
             }
+            SseParseItem::OutputItem(item) => self.items.push(item.clone()),
             SseParseItem::Failure(_) | SseParseItem::Done => {}
         }
     }
 
     pub fn finish(self) -> Result<Turn, String> {
+        if self.provider == LlmProvider::Chatgpt {
+            let mut tool_calls = Vec::new();
+            for item in self
+                .items
+                .iter()
+                .filter(|item| item["type"] == "function_call")
+            {
+                tool_calls.push(ToolCall {
+                    id: item["call_id"].as_str().unwrap_or_default().to_string(),
+                    name: item["name"].as_str().unwrap_or_default().to_string(),
+                    input: parse_arguments(item["arguments"].as_str().unwrap_or_default())?,
+                });
+            }
+            return Ok(Turn {
+                assistant: Value::Array(self.items),
+                tool_calls,
+            });
+        }
         if self.provider == LlmProvider::Anthropic {
             let mut blocks = self.blocks;
             let mut tool_calls = Vec::new();
@@ -384,5 +408,39 @@ mod tests {
             json!({ "type": "input_json_delta", "partial_json": "{\"a\":" }),
         ));
         assert_eq!(assembler.finish(), Err("tool_arguments_not_json".into()));
+    }
+
+    #[test]
+    fn chatgpt_round_keeps_every_output_item_and_reads_its_calls() {
+        let reasoning =
+            json!({ "type": "reasoning", "id": "rs_1", "encrypted_content": "enc", "summary": [] });
+        let call_a = json!({ "type": "function_call", "id": "fc_a", "call_id": "c_a", "name": "weather_current", "arguments": "{\"city\":\"Berlin\"}" });
+        let call_b = json!({ "type": "function_call", "id": "fc_b", "call_id": "c_b", "name": "weather_current", "arguments": "{}" });
+        let done =
+            |item: &Value| json!({ "type": "response.output_item.done", "item": item }).to_string();
+        let frames = [
+            r#"{"type":"response.output_text.delta","delta":"ignored here"}"#.to_string(),
+            done(&reasoning),
+            done(&call_a),
+            done(&call_b),
+            r#"{"type":"response.completed","response":{}}"#.to_string(),
+        ];
+        let frames: Vec<&str> = frames.iter().map(String::as_str).collect();
+        let turn = feed(LlmProvider::Chatgpt, &frames);
+        assert_eq!(turn.assistant, json!([reasoning, call_a, call_b]));
+        assert_eq!(turn.tool_calls.len(), 2);
+        assert_eq!(turn.tool_calls[0].id, "c_a");
+        assert_eq!(turn.tool_calls[0].name, "weather_current");
+        assert_eq!(turn.tool_calls[0].input, json!({ "city": "Berlin" }));
+        assert_eq!(turn.tool_calls[1].id, "c_b");
+    }
+
+    #[test]
+    fn chatgpt_broken_call_arguments_fail_the_round() {
+        let mut assembler = TurnAssembler::new(LlmProvider::Chatgpt);
+        assembler.push(&SseParseItem::OutputItem(json!({
+            "type": "function_call", "call_id": "c", "name": "f", "arguments": "{nope",
+        })));
+        assert!(assembler.finish().is_err());
     }
 }

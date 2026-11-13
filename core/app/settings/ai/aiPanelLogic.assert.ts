@@ -10,7 +10,12 @@ import {
   enabledSummary,
   modelsForProvider,
   providerHasKey,
-  providerStatusLine,
+  connectedProvider,
+  preferredQuickModel,
+  tabHasKey,
+  tabModels,
+  tabProviders,
+  tabStatusLine,
   resolveAiProviderFocus,
   quickModelChoices,
   quickModelSelection,
@@ -84,9 +89,9 @@ for (const tab of AI_PROVIDER_TABS) {
 
 assert(AI_PROVIDER_TABS.length === 5, "five provider tabs");
 assert(
-  AI_PROVIDER_TABS.map((tab) => tab.id).join() === "anthropic,openai,deepseek,openrouter,cloudflare",
-  "tab order is fixed",
-);
+  AI_PROVIDER_TABS.map((tab) => tab.id).join() === "openai,anthropic,deepseek,openrouter,cloudflare",
+  "OpenAI first: it is the one row a ChatGPT subscriber can connect without a key",
+)
 
 assert(resolveAiProviderFocus("deepseekApi", catalog) === "deepseek", "DeepSeek credential opens AI settings");
 assert(
@@ -224,21 +229,74 @@ assert(
   "a bare key is not a shortcut",
 );
 
+// ChatGPT sign-in is its own provider, shown inside the OpenAI row: one row,
+// sign-in first, and either connection makes the row connected.
+{
+  const openaiTab = AI_PROVIDER_TABS.find((tab) => tab.id === "openai")!;
+  assert(AI_PROVIDER_TABS.length === 5, "still five rows");
+  assert(
+    JSON.stringify(tabProviders(openaiTab)) === JSON.stringify(["chatgpt", "openai"]),
+    "the OpenAI row offers ChatGPT sign-in first",
+  );
+  const anthropicTab = AI_PROVIDER_TABS.find((tab) => tab.id === "anthropic")!;
+  assert(
+    JSON.stringify(tabProviders(anthropicTab)) === JSON.stringify(["anthropic"]),
+    "an ungrouped row is just its provider",
+  );
+  const planOnly = [
+    model({ id: "chatgpt/gpt-6-luna", provider: "chatgpt", vendor: "openai", credentialType: "openaiChatgpt" }),
+    model({ id: "gpt-6-luna", provider: "openai", vendor: "openai", credentialType: "openaiApi", configured: false }),
+  ];
+  assert(tabHasKey(planOnly, openaiTab), "a ChatGPT sign-in connects the OpenAI row");
+  assert(!providerHasKey(planOnly, "openai"), "the API key itself is still missing");
+  assert(tabModels(planOnly, openaiTab).length === 2, "the row lists the models of both");
+  assert(tabStatusLine(planOnly, openaiTab) === "2 of 2 models on", "the row counts both");
+  assert(
+    resolveAiProviderFocus("openaiChatgpt", planOnly) === "openai",
+    "a deep link to the ChatGPT credential opens the OpenAI row",
+  );
+  assert(openaiTab.signIn != null && anthropicTab.signIn == null, "only the OpenAI row has a sign-in heading");
+}
+
+// After connecting, the setup card names the provider that connected and
+// preselects a model of it: the user's pick if it is one, else the catalog's
+// recommended one (the authoring default), else the first usable.
+{
+  const openaiTab = AI_PROVIDER_TABS.find((tab) => tab.id === "openai")!;
+  const rows = [
+    model({ id: "chatgpt/gpt-6-sol", provider: "chatgpt", credentialType: "openaiChatgpt" }),
+    model({ id: "chatgpt/gpt-6.1-terra", provider: "chatgpt", credentialType: "openaiChatgpt", authoringDefault: true }),
+    model({ id: "chatgpt/gpt-6-luna", provider: "chatgpt", credentialType: "openaiChatgpt", enabled: false }),
+    model({ id: "gpt-6-luna", provider: "openai", credentialType: "openaiApi", configured: false }),
+  ];
+  assert(connectedProvider(rows, openaiTab) === "chatgpt", "the plan is what connected");
+  assert(connectedProvider([], openaiTab) === null, "nothing connected");
+  assert(preferredQuickModel(rows, "chatgpt", "") === "chatgpt/gpt-6.1-terra", "the recommended model by default");
+  assert(preferredQuickModel(rows, "chatgpt", "chatgpt/gpt-6-sol") === "chatgpt/gpt-6-sol", "the user's own pick wins");
+  assert(preferredQuickModel(rows, "chatgpt", "claude-opus-5") === "chatgpt/gpt-6.1-terra", "a pick of another provider does not");
+  assert(preferredQuickModel(rows, "chatgpt", "chatgpt/gpt-6-luna") === "chatgpt/gpt-6.1-terra", "a switched-off pick does not");
+  assert(
+    preferredQuickModel(rows.filter((row) => !row.authoringDefault), "chatgpt", "") === "chatgpt/gpt-6-sol",
+    "without a recommendation, the first usable",
+  );
+  assert(preferredQuickModel(rows, "openai", "") === null, "an unconnected provider has nothing to pick");
+}
+
 console.log("aiPanelLogic.assert.ts: ok");
 
 // The provider list's second line: progress once connected, the offer before.
 assert(
-  providerStatusLine(catalog, "anthropic") === "1 of 2 models on",
+  tabStatusLine(catalog, { id: "anthropic", label: "Anthropic" }) === "1 of 2 models on",
   "a connected provider reports how many of its models are on",
 );
 assert(
-  providerStatusLine(catalog, "openai") === "gpt-6-luna",
+  tabStatusLine(catalog, { id: "openai", label: "OpenAI" }) === "gpt-6-luna",
   "an unconnected provider names what it offers",
 );
 assert(
-  providerStatusLine(
+  tabStatusLine(
     [1, 2, 3, 4].map((n) => model({ id: `m${n}`, provider: "openai", configured: false })),
-    "openai",
+    { id: "openai", label: "OpenAI" },
   ) === "m1, m2 and 2 more",
   "a long offer is cut to two names and a count",
 );
