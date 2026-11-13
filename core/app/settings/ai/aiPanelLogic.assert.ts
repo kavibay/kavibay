@@ -10,7 +10,10 @@ import {
   enabledSummary,
   modelsForProvider,
   providerHasKey,
-  providerStatusLine,
+  tabHasKey,
+  tabModels,
+  tabProviders,
+  tabStatusLine,
   resolveAiProviderFocus,
   quickModelChoices,
   quickModelSelection,
@@ -224,21 +227,50 @@ assert(
   "a bare key is not a shortcut",
 );
 
+// ChatGPT sign-in is its own provider, shown inside the OpenAI row: one row,
+// sign-in first, and either connection makes the row connected.
+{
+  const openaiTab = AI_PROVIDER_TABS.find((tab) => tab.id === "openai")!;
+  assert(AI_PROVIDER_TABS.length === 5, "still five rows");
+  assert(
+    JSON.stringify(tabProviders(openaiTab)) === JSON.stringify(["chatgpt", "openai"]),
+    "the OpenAI row offers ChatGPT sign-in first",
+  );
+  const anthropicTab = AI_PROVIDER_TABS.find((tab) => tab.id === "anthropic")!;
+  assert(
+    JSON.stringify(tabProviders(anthropicTab)) === JSON.stringify(["anthropic"]),
+    "an ungrouped row is just its provider",
+  );
+  const planOnly = [
+    model({ id: "chatgpt/gpt-6-luna", provider: "chatgpt", vendor: "openai", credentialType: "openaiChatgpt" }),
+    model({ id: "gpt-6-luna", provider: "openai", vendor: "openai", credentialType: "openaiApi", configured: false }),
+  ];
+  assert(tabHasKey(planOnly, openaiTab), "a ChatGPT sign-in connects the OpenAI row");
+  assert(!providerHasKey(planOnly, "openai"), "the API key itself is still missing");
+  assert(tabModels(planOnly, openaiTab).length === 2, "the row lists the models of both");
+  assert(tabStatusLine(planOnly, openaiTab) === "2 of 2 models on", "the row counts both");
+  assert(
+    resolveAiProviderFocus("openaiChatgpt", planOnly) === "openai",
+    "a deep link to the ChatGPT credential opens the OpenAI row",
+  );
+  assert(openaiTab.signIn != null && anthropicTab.signIn == null, "only the OpenAI row has a sign-in heading");
+}
+
 console.log("aiPanelLogic.assert.ts: ok");
 
 // The provider list's second line: progress once connected, the offer before.
 assert(
-  providerStatusLine(catalog, "anthropic") === "1 of 2 models on",
+  tabStatusLine(catalog, { id: "anthropic", label: "Anthropic" }) === "1 of 2 models on",
   "a connected provider reports how many of its models are on",
 );
 assert(
-  providerStatusLine(catalog, "openai") === "gpt-6-luna",
+  tabStatusLine(catalog, { id: "openai", label: "OpenAI" }) === "gpt-6-luna",
   "an unconnected provider names what it offers",
 );
 assert(
-  providerStatusLine(
+  tabStatusLine(
     [1, 2, 3, 4].map((n) => model({ id: `m${n}`, provider: "openai", configured: false })),
-    "openai",
+    { id: "openai", label: "OpenAI" },
   ) === "m1, m2 and 2 more",
   "a long offer is cut to two names and a count",
 );

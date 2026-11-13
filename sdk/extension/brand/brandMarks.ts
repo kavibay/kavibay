@@ -59,6 +59,7 @@ const MARKS: Readonly<Record<string, BrandId>> = {
   googlecalendaroauth2: "google",
   anthropicapi: "anthropic",
   openaiapi: "openai",
+  openaichatgpt: "openai",
   deepseekapi: "deepseek",
   openrouterapi: "openrouter",
   cloudflareworkersai: "cloudflare",
@@ -67,6 +68,7 @@ const MARKS: Readonly<Record<string, BrandId>> = {
   // without, the model catalog that links it to a credential type.
   anthropic: "anthropic",
   openai: "openai",
+  chatgpt: "openai",
   deepseek: "deepseek",
   openrouter: "openrouter",
   cloudflare: "cloudflare",

@@ -99,4 +99,9 @@ export const en = {
   "onboarding.setup.skipTour": "Skip the tour",
   "onboarding.setup.orClick": "Or click here",
   "onboarding.setup.showMeAround": "Show me around",
+
+  // Settings → AI and setup page 2: connecting a provider row
+  "ai.connect.chatgptTitle": "Sign in with ChatGPT",
+  "ai.connect.chatgptHint": "Uses your ChatGPT Plus or Pro plan. No API key, no extra cost.",
+  "ai.connect.useApiKey": "Use an API key instead",
 } as const;

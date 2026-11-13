@@ -38,10 +38,10 @@ import { listLlmCatalog, type LlmModelOption } from "../settings/ai/aiApi";
 import {
   AI_PROVIDER_TABS,
   credentialTypeForProvider,
-  providerHasKey,
+  tabHasKey,
   type AiProviderTab,
 } from "../settings/ai/aiPanelLogic";
-import CredentialAccounts from "../settings/credentials/CredentialAccounts.vue";
+import ProviderConnections from "../settings/ai/ProviderConnections.vue";
 import {
   listCredentials,
   listCredentialTypes,
@@ -178,14 +178,10 @@ async function loadAi() {
 /** The connection form reported a change; back to the list once it worked. */
 async function onConnectionChanged() {
   await loadAi();
-  if (connecting.value && providerHasKey(models.value, connecting.value)) {
+  const tab = connectingTab.value;
+  if (tab && tabHasKey(models.value, tab)) {
     connecting.value = null;
   }
-}
-
-function credentialTypeOf(provider: ProviderId): CredentialTypeSchema | null {
-  const typeId = credentialTypeForProvider(models.value, provider);
-  return types.value.find((type) => type.id === typeId) ?? null;
 }
 
 const connectingTab = computed(
@@ -354,10 +350,10 @@ async function commit(opts: { tour?: boolean } = {}) {
           />
           <p class="setup-connect-title">{{ connectingTab.label }}</p>
         </div>
-        <CredentialAccounts
-          v-if="credentialTypeOf(connectingTab.id)"
-          :key="credentialTypeOf(connectingTab.id)!.id"
-          :type="credentialTypeOf(connectingTab.id)!"
+        <ProviderConnections
+          :tab="connectingTab"
+          :models="models"
+          :types="types"
           :credentials="credentials"
           @changed="onConnectionChanged"
         />
@@ -378,7 +374,7 @@ async function commit(opts: { tour?: boolean } = {}) {
           >
             <BrandMark :provider="credentialTypeForProvider(models, tab.id) ?? tab.id" :size="18" />
             <span class="setup-provider-label">{{ tab.label }}</span>
-            <span v-if="providerHasKey(models, tab.id)" class="setup-provider-status">
+            <span v-if="tabHasKey(models, tab)" class="setup-provider-status">
               {{ t("onboarding.setup.ai.connected") }}
             </span>
             <span class="setup-provider-chevron" aria-hidden="true">›</span>
