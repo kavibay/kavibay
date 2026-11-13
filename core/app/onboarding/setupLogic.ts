@@ -103,3 +103,25 @@ export function nextSetupPage(page: SetupPage): SetupPage | "finish" {
 export function previousSetupPage(page: SetupPage): SetupPage | null {
   return SETUP_PAGES[SETUP_PAGES.indexOf(page) - 1] ?? null;
 }
+
+/**
+ * Keeps a dragged setup card on screen.
+ *
+ * The card is draggable because the browser sign-in for an AI provider opens
+ * behind Kavibay's always-on-top window, right where the card sits. It may move
+ * anywhere, but never off screen: a card nobody can reach is a setup nobody can
+ * finish. `card` is the card's rect *without* the offset applied.
+ */
+export function clampCardOffset(
+  offset: { x: number; y: number },
+  card: { left: number; top: number; width: number; height: number },
+  screen: { width: number; height: number },
+  margin = 8,
+): { x: number; y: number } {
+  const clamp = (value: number, min: number, max: number) =>
+    Math.min(Math.max(value, min), Math.max(min, max));
+  return {
+    x: clamp(offset.x, margin - card.left, screen.width - margin - card.left - card.width),
+    y: clamp(offset.y, margin - card.top, screen.height - margin - card.top - card.height),
+  };
+}

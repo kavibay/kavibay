@@ -4,6 +4,7 @@
 import {
   completedSetupState,
   isSetupVisible,
+  clampCardOffset,
   nextSetupPage,
   previousSetupPage,
   SETUP_PAGES,
@@ -32,6 +33,18 @@ assertEq(SETUP_PAGES, ["machine", "ai", "start"], "three pages in this order");
 assert(previousSetupPage("machine") === null, "nothing before the first page");
 assert(previousSetupPage("ai") === "machine", "back from the AI page");
 assert(previousSetupPage("start") === "ai", "back from the last page");
+
+// The card can be dragged out of the way (a browser sign-in opens behind it),
+// but never off screen: a card nobody can reach is a setup nobody can finish.
+{
+  const card = { left: 400, top: 200, width: 440, height: 560 };
+  const screen = { width: 1240, height: 960 };
+  assertEq(clampCardOffset({ x: 100, y: -50 }, card, screen), { x: 100, y: -50 }, "inside stays put");
+  assertEq(clampCardOffset({ x: -1000, y: 0 }, card, screen), { x: -392, y: 0 }, "stops 8px from the left edge");
+  assertEq(clampCardOffset({ x: 1000, y: 0 }, card, screen), { x: 392, y: 0 }, "stops 8px from the right edge");
+  assertEq(clampCardOffset({ x: 0, y: -1000 }, card, screen), { x: 0, y: -192 }, "stops 8px from the top");
+  assertEq(clampCardOffset({ x: 0, y: 1000 }, card, screen), { x: 0, y: 192 }, "stops 8px from the bottom");
+}
 
 assertEq(completedSetupState(), { status: "done" }, "completedSetupState");
 

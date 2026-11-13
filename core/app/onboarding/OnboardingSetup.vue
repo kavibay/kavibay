@@ -16,6 +16,11 @@
  * with, preselected to the catalog's recommendation. Not connecting anything is
  * an answer: the page can be skipped.
  *
+ * The card can be dragged by any part that is not a control: the browser
+ * sign-in for an AI provider opens behind Kavibay's always-on-top window,
+ * exactly where the card sits, and a card that cannot move hides the page it
+ * just sent the user to.
+ *
  * Page 3 is the double tap that starts the tour: a topic of its own, and the
  * page that closes the card. Pressed earlier, the gesture only turns the page
  * (`nextSetupPage`), so nobody skips a page unseen.
@@ -25,7 +30,7 @@ import { holdHostDismiss } from "@sdk";
 import { BrandMark } from "@sdk/brand";
 import logo from "../../../src-tauri/icons/icon.svg";
 import { t, type SimpleMessageKey } from "../i18n/i18n";
-import { syncInteractiveRegions } from "../system/clickThrough";
+import { setClickThroughPaused, syncInteractiveRegions } from "../system/clickThrough";
 import {
   getQuickActionModel,
   listLlmCatalog,
@@ -52,6 +57,7 @@ import { revealGesture } from "../host/revealGesture";
 import { doubleTapKeyLabel, keyPlatform } from "../host/shortcutHints";
 import { onboardingRevealHintCopy, waitingPlace } from "./onboardingCopy";
 import {
+  clampCardOffset,
   isSetupVisible,
   nextSetupPage,
   previousSetupPage,
@@ -236,6 +242,55 @@ onMounted(() => {
   void syncInteractiveRegions();
 });
 
+// Dragging the card out of the way (see the top of the file).
+const cardEl = ref<HTMLElement | null>(null);
+const offset = ref({ x: 0, y: 0 });
+let drag: { pointerId: number; x: number; y: number; from: { x: number; y: number } } | null = null;
+const dragging = ref(false);
+
+/** A press on one of these does its own thing; anywhere else on the card drags it. */
+const NOT_A_HANDLE = "button, input, select, textarea, a, label, kbd, [contenteditable]";
+
+function onCardPointerDown(event: PointerEvent) {
+  const target = event.target as Element | null;
+  if (event.button !== 0 || !cardEl.value || target?.closest(NOT_A_HANDLE)) return;
+  // A press on a scrollbar scrolls; it is the only part of a plain element
+  // that sits outside its client width.
+  if (target instanceof HTMLElement && event.offsetX > target.clientWidth) return;
+  drag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, from: offset.value };
+  dragging.value = true;
+  cardEl.value.setPointerCapture(event.pointerId);
+  // The cursor leaves the reported card rect while it moves; without the pause
+  // the window turns click-through under it and the drag stops dead.
+  setClickThroughPaused(true);
+  event.preventDefault();
+}
+
+function onCardPointerMove(event: PointerEvent) {
+  if (!drag || event.pointerId !== drag.pointerId || !cardEl.value) return;
+  const rect = cardEl.value.getBoundingClientRect();
+  const unshifted = {
+    left: rect.left - offset.value.x,
+    top: rect.top - offset.value.y,
+    width: rect.width,
+    height: rect.height,
+  };
+  offset.value = clampCardOffset(
+    { x: drag.from.x + event.clientX - drag.x, y: drag.from.y + event.clientY - drag.y },
+    unshifted,
+    { width: window.innerWidth, height: window.innerHeight },
+  );
+}
+
+function endDrag(event?: PointerEvent) {
+  if (!drag || (event && event.pointerId !== drag.pointerId)) return;
+  drag = null;
+  dragging.value = false;
+  setClickThroughPaused(false);
+  void syncInteractiveRegions();
+}
+onScopeDispose(() => endDrag());
+
 // Fixed size, so only a page switch can move what the host must keep clickable.
 watch(page, () => void syncInteractiveRegions(), { flush: "post" });
 
@@ -300,10 +355,17 @@ async function commit(opts: { tour?: boolean } = {}) {
 <template>
   <div v-if="visible" class="setup" aria-live="polite">
     <div
+      ref="cardEl"
       class="setup-card"
+      :class="{ 'setup-card--dragging': dragging }"
+      :style="{ transform: `translate(${offset.x}px, ${offset.y}px)` }"
       data-interactive
       role="dialog"
       :aria-label="t('onboarding.setup.ariaLabel')"
+      @pointerdown="onCardPointerDown"
+      @pointermove="onCardPointerMove"
+      @pointerup="endDrag"
+      @pointercancel="endDrag"
     >
       <div
         class="setup-dots"
@@ -509,6 +571,12 @@ async function commit(opts: { tour?: boolean } = {}) {
   box-shadow: var(--surface-box-shadow);
   backdrop-filter: var(--surface-backdrop-filter, blur(16px));
   pointer-events: auto;
+  cursor: grab;
+}
+
+.setup-card--dragging {
+  cursor: grabbing;
+  user-select: none;
 }
 
 .setup-body {
