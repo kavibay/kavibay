@@ -21,8 +21,9 @@
  * exactly where the card sits, and a card that cannot move hides the page it
  * just sent the user to.
  *
- * Page 3 is the double tap that starts the tour: a topic of its own, and the
- * page that closes the card. Pressed earlier, the gesture only turns the page
+ * Page 3 closes the setup: what pages 1 and 2 set up (the login entry, the
+ * model Kavibay answers with, or where to add one), then the double tap that
+ * starts the tour, as the page's one big thing. Pressed earlier, the gesture only turns the page
  * (`nextSetupPage`), so nobody skips a page unseen.
  */
 import { computed, onMounted, onScopeDispose, ref, watch } from "vue";
@@ -232,6 +233,15 @@ function toggleTab(id: ProviderId) {
   openTab.value = openTab.value === id ? null : id;
   managing.value = null;
 }
+
+/** The model the summary on page 3 names: the first connected row's pick. */
+const summaryModel = computed(() => {
+  for (const tab of AI_PROVIDER_TABS) {
+    const pick = pickFor(tab);
+    if (pick) return models.value.find((model) => model.id === pick)?.label ?? null;
+  }
+  return null;
+});
 
 function noteOf(modelId: string | null): string {
   return models.value.find((model) => model.id === modelId)?.note ?? "";
@@ -489,6 +499,28 @@ async function commit(opts: { tour?: boolean } = {}) {
 
       <template v-else>
         <div class="setup-body setup-body--center">
+          <p class="setup-title setup-title--center">{{ t("onboarding.setup.done.title") }}</p>
+          <ul class="setup-summary">
+            <li v-if="autostartSupported" class="setup-summary-row">
+              <svg class="setup-summary-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m5 12.5 4.5 4.5L19 7.5" />
+              </svg>
+              {{ t("onboarding.setup.done.autostart") }}
+            </li>
+            <li v-if="summaryModel" class="setup-summary-row">
+              <svg class="setup-summary-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m5 12.5 4.5 4.5L19 7.5" />
+              </svg>
+              {{ t("onboarding.setup.done.ai", { model: summaryModel }) }}
+            </li>
+            <li v-else class="setup-summary-row setup-summary-row--open">
+              <svg class="setup-summary-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+              {{ t("onboarding.setup.done.noAi") }}
+            </li>
+          </ul>
+
           <section v-if="asksForDoubleTap" class="setup-gesture">
             <div class="setup-keys" aria-hidden="true">
               <kbd class="setup-keycap">{{ doubleTapKey }}</kbd>
@@ -861,35 +893,76 @@ async function commit(opts: { tour?: boolean } = {}) {
 
 /* Page 3 */
 
-/* The card's centre of gravity: a panel, not a third setting. */
+/* Without a gesture to ask for, the way back in is a panel to read. */
 .setup-hint {
+  margin-top: 32px;
   padding: 13px 15px;
   border-radius: 14px;
   background: rgba(var(--fg-rgb), 0.06);
   box-shadow: inset 0 0 0 1px rgba(var(--fg-rgb), 0.09);
 }
 
-/* The one gesture worth remembering, asked for rather than described. */
+.setup-title--center {
+  text-align: center;
+}
+
+/* What the earlier pages set up, read at a glance. */
+.setup-summary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.setup-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: rgba(var(--fg-rgb), 0.8);
+}
+
+.setup-summary-row--open {
+  color: rgba(var(--fg-rgb), 0.55);
+}
+
+.setup-summary-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: rgba(120, 200, 140, 0.95);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.setup-summary-row--open .setup-summary-icon {
+  fill: rgba(var(--fg-rgb), 0.4);
+  stroke: none;
+}
+
+/* The one gesture worth remembering, asked for rather than described: the
+   page's centrepiece, so no panel around it. */
 .setup-gesture {
-  padding: 24px 16px 22px;
-  border-radius: 20px;
-  corner-shape: var(--surface-corner-shape, round);
-  background: rgba(var(--fg-rgb), 0.06);
-  box-shadow: inset 0 0 0 1px rgba(var(--fg-rgb), 0.1);
+  margin-top: 40px;
   text-align: center;
 }
 
 .setup-keys {
   display: flex;
   justify-content: center;
-  gap: 10px;
+  gap: 14px;
 }
 
 .setup-keycap {
-  min-width: 64px;
-  padding: 10px 14px 12px;
+  min-width: 88px;
+  padding: 16px 20px 18px;
   font: inherit;
-  font-size: 15px;
+  font-size: 20px;
   font-weight: 700;
   color: rgb(var(--fg-rgb));
   background: rgba(var(--fg-rgb), 0.1);
@@ -924,7 +997,7 @@ async function commit(opts: { tour?: boolean } = {}) {
 }
 
 .setup-gesture-title {
-  margin: 14px 0 0;
+  margin: 20px 0 0;
   font-size: 16px;
   font-weight: 700;
 }

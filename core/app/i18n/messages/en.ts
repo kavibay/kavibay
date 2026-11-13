@@ -96,6 +96,10 @@ export const en = {
   "onboarding.setup.ai.usingHint":
     "Kavibay answers with this model in the palette and in quick actions. You can change it any time in Settings → AI.",
   "onboarding.setup.ai.manage": "Change connection",
+  "onboarding.setup.done.title": "You're all set",
+  "onboarding.setup.done.autostart": "Starts when you log in",
+  "onboarding.setup.done.ai": "AI: {model}",
+  "onboarding.setup.done.noAi": "No AI yet. Add one any time in Settings → AI.",
   "onboarding.setup.ai.title": "Which AI should Kavibay use?",
   "onboarding.setup.ai.hint":
     "Optional. It answers questions in the palette and builds widgets for you. You can change it later in Settings → AI.",
