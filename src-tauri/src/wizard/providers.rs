@@ -13,7 +13,7 @@ use tauri::AppHandle;
 
 use crate::credentials::resolve::{resolve_for_owner, ResolveError};
 use crate::llm::catalog::{find_model, LlmProvider};
-use crate::llm::{CacheHits, ChatCompletions};
+use crate::llm::{chatgpt_error_sentence, CacheHits, ChatCompletions};
 
 /// A generation can involve real thinking; the default client timeout is far
 /// too short for it. On a model that thinks by default, a hard widget at high
@@ -189,6 +189,10 @@ pub async fn complete(
                 .ok_or("model_not_for_authoring")?;
             (chat.url, chat_body(chat, &model.api_id, system, turns))
         }
+        LlmProvider::Chatgpt => (
+            "https://api.openai.com/v1/responses",
+            responses_body(&model.api_id, system, turns),
+        ),
         // Unreachable in practice — `authoring` is false for every Workers AI
         // model — but an error beats a panic if that list ever changes.
         LlmProvider::Cloudflare => return Err("model_not_for_authoring".into()),
@@ -219,6 +223,9 @@ pub async fn complete(
                     chat.set_effort(&mut body, level);
                 }
             }
+            LlmProvider::Chatgpt => {
+                body["reasoning"] = json!({ "effort": level });
+            }
             LlmProvider::Cloudflare => {}
         }
     }
@@ -241,6 +248,8 @@ pub async fn complete(
     // else, error bodies included, is one JSON document.
     let payload: Value = if provider == LlmProvider::Anthropic && status.is_success() {
         anthropic_payload_from_events(&raw)?
+    } else if provider == LlmProvider::Chatgpt && status.is_success() {
+        responses_payload_from_events(&raw)?
     } else {
         serde_json::from_str(&raw).map_err(|_| format!("provider_returned_non_json:{status}"))?
     };
@@ -254,6 +263,7 @@ pub async fn complete(
         LlmProvider::Openai | LlmProvider::Deepseek | LlmProvider::Openrouter => {
             openai_text(&payload)?
         }
+        LlmProvider::Chatgpt => responses_text(&payload)?,
         LlmProvider::Cloudflare => return Err("model_not_for_authoring".into()),
     };
 
@@ -415,6 +425,17 @@ fn usage_of(payload: &Value, provider: LlmProvider) -> WizardUsage {
         .chat_completions()
         .is_some_and(|chat| chat.cache_hits == CacheHits::PromptCacheHitTokens);
     match provider {
+        // Responses counts cached tokens inside `input_tokens`, like Chat
+        // Completions does inside `prompt_tokens`.
+        LlmProvider::Chatgpt => {
+            let cached = count(usage.pointer("/input_tokens_details/cached_tokens"));
+            WizardUsage {
+                input: count(usage.get("input_tokens")).saturating_sub(cached),
+                cached,
+                cache_write: 0,
+                output: count(usage.get("output_tokens")),
+            }
+        }
         LlmProvider::Anthropic => WizardUsage {
             input: count(usage.get("input_tokens")),
             cached: count(usage.get("cache_read_input_tokens")),
@@ -512,6 +533,17 @@ fn normalize_turns(
             // A plain string when nothing is attached: the array form is equally
             // valid but noisier everywhere it is read back.
             if message.images.is_empty() {
+                if provider == LlmProvider::Chatgpt {
+                    let kind = if message.role == "assistant" {
+                        "output_text"
+                    } else {
+                        "input_text"
+                    };
+                    return Ok(json!({
+                        "role": message.role,
+                        "content": [{ "type": kind, "text": message.content }],
+                    }));
+                }
                 return Ok(json!({ "role": message.role, "content": message.content }));
             }
             Ok(json!({
@@ -554,13 +586,22 @@ fn image_content(
                     "url": format!("data:{};base64,{}", image.media_type, image.data),
                 },
             }),
+            LlmProvider::Chatgpt => json!({
+                "type": "input_image",
+                "image_url": format!("data:{};base64,{}", image.media_type, image.data),
+            }),
             LlmProvider::Cloudflare => return Err("model_not_for_authoring".into()),
         });
     }
 
     // Picture first, then the words about it: a prompt that says "this
     // screenshot" reads better when the screenshot precedes it.
-    blocks.push(json!({ "type": "text", "text": text }));
+    let text_type = if provider == LlmProvider::Chatgpt {
+        "input_text"
+    } else {
+        "text"
+    };
+    blocks.push(json!({ "type": text_type, "text": text }));
     Ok(Value::Array(blocks))
 }
 
@@ -634,6 +675,71 @@ fn anthropic_payload_from_events(raw: &str) -> Result<Value, String> {
         "stop_reason": stop_reason,
         "usage": usage,
     }))
+}
+
+/// Wizard body for the ChatGPT plan: the Responses API, stateless and
+/// streamed, which OpenAI requires for every request made with a plan token.
+fn responses_body(model_id: &str, system: &str, turns: Vec<Value>) -> Value {
+    json!({
+        "model": LlmProvider::Chatgpt.wire_model(model_id),
+        "stream": true,
+        "store": false,
+        "instructions": system,
+        "input": turns,
+    })
+}
+
+/// Folds a Responses event stream into `{ text, status, usage }`, the way
+/// `anthropic_payload_from_events` does for Anthropic. A `response.failed`
+/// is an error here, in the plan's own words when it has some.
+fn responses_payload_from_events(raw: &str) -> Result<Value, String> {
+    let mut text = String::new();
+    let mut status = Value::Null;
+    let mut usage = Value::Null;
+    for data in raw.lines().filter_map(|line| line.strip_prefix("data:")) {
+        let Ok(event) = serde_json::from_str::<Value>(data.trim()) else {
+            continue;
+        };
+        match event.get("type").and_then(Value::as_str) {
+            Some("response.output_text.delta") => {
+                if let Some(delta) = event.get("delta").and_then(Value::as_str) {
+                    text.push_str(delta);
+                }
+            }
+            Some("response.completed") | Some("response.incomplete") => {
+                status = event
+                    .pointer("/response/status")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                usage = event
+                    .pointer("/response/usage")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+            }
+            Some("response.failed") | Some("error") => {
+                let error = event
+                    .pointer("/response/error")
+                    .or_else(|| event.get("error"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                return Err(provider_error(500, &json!({ "error": error })));
+            }
+            _ => {}
+        }
+    }
+    Ok(json!({ "text": text, "status": status, "usage": usage }))
+}
+
+/// Text of a folded Responses stream.
+fn responses_text(payload: &Value) -> Result<String, String> {
+    if payload["status"] == "incomplete" {
+        return Err("response_truncated".into());
+    }
+    let text = payload["text"].as_str().unwrap_or_default();
+    if text.trim().is_empty() {
+        return Err("empty_response".into());
+    }
+    Ok(text.to_string())
 }
 
 /// Text of an Anthropic response.
@@ -721,6 +827,15 @@ fn openai_text(payload: &Value) -> Result<String, String> {
 /// The provider's own message is kept for anything unrecognised — a wizard that
 /// says only "request failed" leaves the user with nothing to try.
 fn provider_error(status: u16, payload: &Value) -> String {
+    // A ChatGPT plan problem (limit, eligibility) is not a bad API key or a
+    // generic rate limit, and the generic codes would send the user the wrong way.
+    if let Some(sentence) = payload
+        .pointer("/error/code")
+        .and_then(Value::as_str)
+        .and_then(chatgpt_error_sentence)
+    {
+        return format!("provider_error:{status}:{sentence}");
+    }
     let message = payload
         .get("error")
         .and_then(|error| error.get("message"))
@@ -1139,5 +1254,81 @@ mod tests {
         let open_weight = find_model("@cf/meta/llama-3.2-3b-instruct")
             .expect("the shared catalog offers Workers AI models");
         assert!(!open_weight.authoring);
+    }
+
+    #[test]
+    fn chatgpt_wizard_body_is_a_stateless_responses_request() {
+        let turns = normalize_turns(&[message("user", "A clock")], LlmProvider::Chatgpt).unwrap();
+        let body = responses_body("chatgpt/gpt-6-sol", "Rules.", turns);
+        assert_eq!(body["model"], "gpt-6-sol");
+        assert_eq!(body["store"], false);
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["instructions"], "Rules.");
+        assert_eq!(
+            body["input"],
+            json!([{ "role": "user", "content": [{ "type": "input_text", "text": "A clock" }] }])
+        );
+    }
+
+    #[test]
+    fn chatgpt_wizard_turns_use_responses_content_types() {
+        let turns = normalize_turns(
+            &[
+                WizardMessage {
+                    role: "user".into(),
+                    content: "Like this".into(),
+                    images: vec![image("image/png", "aGk=")],
+                },
+                message("assistant", "Done."),
+            ],
+            LlmProvider::Chatgpt,
+        )
+        .unwrap();
+        assert_eq!(
+            turns[0]["content"],
+            json!([
+                { "type": "input_image", "image_url": "data:image/png;base64,aGk=" },
+                { "type": "input_text", "text": "Like this" },
+            ])
+        );
+        assert_eq!(
+            turns[1]["content"],
+            json!([{ "type": "output_text", "text": "Done." }])
+        );
+    }
+
+    #[test]
+    fn responses_events_fold_into_text_and_usage() {
+        let raw = concat!(
+            "event: response.output_text.delta\n",
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hel\"}\n\n",
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"lo\"}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":100,\"input_tokens_details\":{\"cached_tokens\":40},\"output_tokens\":7}}}\n\n",
+        );
+        let payload = responses_payload_from_events(raw).unwrap();
+        assert_eq!(responses_text(&payload).unwrap(), "Hello");
+        let usage = usage_of(&payload, LlmProvider::Chatgpt);
+        assert_eq!((usage.input, usage.cached, usage.output), (60, 40, 7));
+    }
+
+    #[test]
+    fn responses_failures_and_cut_offs_are_not_answers() {
+        let limit = "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"subscription_sharing_usage_limit_exceeded\",\"message\":\"x\"}}}\n";
+        let error = responses_payload_from_events(limit).unwrap_err();
+        assert!(error.contains("usage limit"), "{error}");
+
+        let cut = "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hal\"}\ndata: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\"}}\n";
+        let payload = responses_payload_from_events(cut).unwrap();
+        assert_eq!(responses_text(&payload).unwrap_err(), "response_truncated");
+    }
+
+    #[test]
+    fn chatgpt_http_errors_keep_the_plan_sentence() {
+        let payload = json!({ "error": { "code": "subscription_sharing_usage_limit_exceeded", "message": "raw" } });
+        let error = provider_error(429, &payload);
+        assert!(error.starts_with("provider_error:429:"), "{error}");
+        assert!(error.contains("usage limit"), "{error}");
+        // Unchanged for everything else.
+        assert_eq!(provider_error(429, &json!({})), "rate_limited");
     }
 }

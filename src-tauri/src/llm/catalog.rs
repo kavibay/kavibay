@@ -24,6 +24,11 @@ pub enum LlmProvider {
     Deepseek,
     Openrouter,
     Cloudflare,
+    /// OpenAI models on the user's ChatGPT plan ("Sign in with ChatGPT"),
+    /// through the Responses API. A provider of its own because the catalog
+    /// pairs every provider with exactly one credential type; the UI shows it
+    /// under the OpenAI row.
+    Chatgpt,
 }
 
 impl LlmProvider {
@@ -34,6 +39,7 @@ impl LlmProvider {
             LlmProvider::Deepseek => registry::DEEPSEEK_API,
             LlmProvider::Openrouter => registry::OPENROUTER_API,
             LlmProvider::Cloudflare => registry::CLOUDFLARE_WORKERS_AI,
+            LlmProvider::Chatgpt => registry::OPENAI_CHATGPT,
         }
     }
 }
@@ -400,7 +406,7 @@ mod tests {
         for model in models() {
             let allowed: &[&str] = match model.provider {
                 LlmProvider::Anthropic => &ANTHROPIC,
-                LlmProvider::Openai => &OPENAI,
+                LlmProvider::Openai | LlmProvider::Chatgpt => &OPENAI,
                 LlmProvider::Deepseek => &["low", "high", "max"],
                 // OpenRouter's unified `reasoning.effort`, without `none`.
                 LlmProvider::Openrouter => &["minimal", "low", "medium", "high", "xhigh"],

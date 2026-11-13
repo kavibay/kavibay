@@ -204,7 +204,17 @@ impl LlmProvider {
             LlmProvider::Openai => Some(&OPENAI_CHAT),
             LlmProvider::Deepseek => Some(&DEEPSEEK_CHAT),
             LlmProvider::Openrouter => Some(&OPENROUTER_CHAT),
-            LlmProvider::Anthropic | LlmProvider::Cloudflare => None,
+            LlmProvider::Anthropic | LlmProvider::Cloudflare | LlmProvider::Chatgpt => None,
+        }
+    }
+
+    /// The model name the service expects. ChatGPT plan models are listed as
+    /// `chatgpt/<slug>` because catalog ids are unique and the plain slug is
+    /// the API-key twin's; the service only knows the slug.
+    pub fn wire_model(self, id: &str) -> &str {
+        match self {
+            LlmProvider::Chatgpt => id.strip_prefix("chatgpt/").unwrap_or(id),
+            _ => id,
         }
     }
 
@@ -215,6 +225,7 @@ impl LlmProvider {
         }
         Ok(match self {
             LlmProvider::Anthropic => "https://api.anthropic.com/v1/messages".to_string(),
+            LlmProvider::Chatgpt => "https://api.openai.com/v1/responses".to_string(),
             LlmProvider::Cloudflare => format!(
                 "https://api.cloudflare.com/client/v4/accounts/{}/ai/run/{}",
                 credential
@@ -248,6 +259,7 @@ impl LlmProvider {
             LlmProvider::Deepseek | LlmProvider::Openrouter => true,
             LlmProvider::Openai => !matches!(model, "gpt-6-astra" | "gpt-6.1-sol"),
             LlmProvider::Cloudflare => false,
+            LlmProvider::Chatgpt => true,
         }
     }
 
@@ -266,7 +278,7 @@ impl LlmProvider {
         }
         // The catalog says which compatible models see images; sending one to
         // a text-only model costs a round trip to learn the same thing.
-        if self.chat_completions().is_some()
+        if (self.chat_completions().is_some() || self == LlmProvider::Chatgpt)
             && crate::llm::catalog::find_model(model)
                 .is_some_and(|def| !def.capabilities.iter().any(|cap| cap == "vision"))
             && messages.iter().any(|message| !message.images.is_empty())
@@ -311,6 +323,22 @@ impl LlmProvider {
                     .map(|message| message_value(message, self))
                     .collect::<Result<Vec<_>, _>>()?,
             }),
+            // Responses API, stateless: nothing is stored at OpenAI, so the
+            // encrypted reasoning has to travel with each tool round instead.
+            LlmProvider::Chatgpt => {
+                let (instructions, input) = responses_input(messages)?;
+                let mut body = json!({
+                    "model": self.wire_model(model),
+                    "stream": true,
+                    "store": false,
+                    "include": ["reasoning.encrypted_content"],
+                    "input": input,
+                });
+                if !instructions.is_empty() {
+                    body["instructions"] = json!(instructions);
+                }
+                body
+            }
             // Workers AI takes the model in the URL, not the body.
             LlmProvider::Cloudflare => json!({
                 "stream": true,
@@ -344,6 +372,22 @@ impl LlmProvider {
                 .collect();
             if tool_choice == ToolChoice::None {
                 body["tool_choice"] = json!({ "type": "none" });
+            }
+        } else if self == LlmProvider::Chatgpt {
+            // Responses flattens the Chat Completions `function` wrapper.
+            body["tools"] = tools
+                .iter()
+                .map(|tool| {
+                    json!({
+                        "type": "function",
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.input_schema,
+                    })
+                })
+                .collect();
+            if tool_choice == ToolChoice::None {
+                body["tool_choice"] = json!("none");
             }
         } else {
             // GPT-6 Sol/Luna reject Chat Completions tools with default reasoning.
@@ -435,6 +479,7 @@ impl LlmProvider {
                         .filter(|text| !text.is_empty())
                         .map(|text| SseParseItem::Text(text.to_string()))
                 }),
+            LlmProvider::Chatgpt => None,
         }
     }
 }
@@ -518,6 +563,72 @@ fn message_value(message: &ChatMessage, provider: LlmProvider) -> Result<Value, 
     }))
 }
 
+/// What a ChatGPT plan error code means, in words a user can act on.
+///
+/// OpenAI reports plan problems as codes in an otherwise ordinary error body or
+/// `response.failed` event; shown raw they read as a broken app. Codes not
+/// listed here keep the provider's own message.
+pub(crate) fn chatgpt_error_sentence(code: &str) -> Option<&'static str> {
+    Some(match code {
+        "subscription_sharing_usage_limit_exceeded" => {
+            "You've reached your ChatGPT plan's usage limit for now. Check your usage in ChatGPT → Settings → Usage."
+        }
+        "subscription_sharing_user_not_eligible" => {
+            "ChatGPT plan usage isn't available for this account or workspace. Use an API key instead."
+        }
+        "subscription_sharing_invalid_user" => {
+            "Your ChatGPT sign-in is no longer valid. Sign in again in Settings → AI."
+        }
+        "subscription_sharing_usage_unavailable" => {
+            "ChatGPT plan usage is temporarily unavailable. Try again in a moment."
+        }
+        _ => return None,
+    })
+}
+
+/// The Responses API's `instructions` and `input` items.
+///
+/// System messages become the instructions. An assistant turn the host got
+/// back from `llm:turn` is the round's list of output items (reasoning,
+/// function calls, message) and goes back verbatim — the encrypted reasoning
+/// only works unchanged. Tool results are `function_call_output` items.
+fn responses_input(messages: &[ChatMessage]) -> Result<(String, Vec<Value>), String> {
+    let instructions = messages
+        .iter()
+        .filter(|message| message.role == "system")
+        .map(|message| message.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let mut input = Vec::new();
+    for message in messages.iter().filter(|message| message.role != "system") {
+        if let Some(native) = &message.native {
+            let items = native.as_array().ok_or("invalid_native_turn")?;
+            input.extend(items.iter().cloned());
+            continue;
+        }
+        if message.role == "tool" {
+            input.push(json!({
+                "type": "function_call_output",
+                "call_id": message.tool_call_id.as_deref().ok_or("tool_result_without_id")?,
+                "output": message.content,
+            }));
+            continue;
+        }
+        let content = if message.images.is_empty() {
+            let kind = if message.role == "assistant" {
+                "output_text"
+            } else {
+                "input_text"
+            };
+            json!([{ "type": kind, "text": message.content }])
+        } else {
+            image_content(&message.content, &message.images, LlmProvider::Chatgpt)?
+        };
+        input.push(json!({ "role": message.role, "content": content }));
+    }
+    Ok((instructions, input))
+}
+
 /// Anthropic's turn list without `system`, with consecutive tool results
 /// merged into one `user` message: sent apart they are a 400, and split
 /// results teach the model to stop calling tools in parallel.
@@ -585,10 +696,19 @@ fn image_content(text: &str, images: &[ChatImage], provider: LlmProvider) -> Res
                     "url": format!("data:{};base64,{}", image.media_type, image.data),
                 },
             }),
+            LlmProvider::Chatgpt => json!({
+                "type": "input_image",
+                "image_url": format!("data:{};base64,{}", image.media_type, image.data),
+            }),
             LlmProvider::Cloudflare => unreachable!(),
         });
     }
-    blocks.push(json!({ "type": "text", "text": text }));
+    let text_type = if provider == LlmProvider::Chatgpt {
+        "input_text"
+    } else {
+        "text"
+    };
+    blocks.push(json!({ "type": text_type, "text": text }));
     Ok(Value::Array(blocks))
 }
 
@@ -1156,5 +1276,177 @@ mod tests {
         assert_eq!(messages[1]["tool_calls"][1]["id"], "call_b");
         assert_eq!(messages[2]["role"], "tool");
         assert_eq!(messages[3]["tool_call_id"], "call_b");
+    }
+
+    #[test]
+    fn chatgpt_body_is_a_stateless_responses_request() {
+        let body = LlmProvider::Chatgpt
+            .body_with_tools("chatgpt/gpt-6-sol", &messages(), &[], ToolChoice::Auto)
+            .unwrap();
+        assert_eq!(body["model"], "gpt-6-sol");
+        assert_eq!(body["store"], false);
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["include"], json!(["reasoning.encrypted_content"]));
+        assert!(body.get("messages").is_none());
+        assert!(body.get("tools").is_none());
+        assert_eq!(
+            body["input"],
+            json!([{ "role": "user", "content": [{ "type": "input_text", "text": "Hallo" }] }])
+        );
+    }
+
+    #[test]
+    fn chatgpt_system_messages_become_instructions() {
+        let body = LlmProvider::Chatgpt
+            .body_with_tools("chatgpt/gpt-6-sol", &messages(), &[], ToolChoice::Auto)
+            .unwrap();
+        assert_eq!(body["instructions"], "Translate.");
+        let only_user = &messages()[1..];
+        let body = LlmProvider::Chatgpt
+            .body_with_tools("chatgpt/gpt-6-sol", only_user, &[], ToolChoice::Auto)
+            .unwrap();
+        assert!(body.get("instructions").is_none());
+    }
+
+    #[test]
+    fn chatgpt_tools_use_the_flat_function_shape() {
+        let tool = weather_tool();
+        let body = LlmProvider::Chatgpt
+            .body_with_tools(
+                "chatgpt/gpt-6-sol",
+                &messages(),
+                &[tool.clone()],
+                ToolChoice::None,
+            )
+            .unwrap();
+        assert_eq!(
+            body["tools"][0],
+            json!({
+                "type": "function",
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.input_schema,
+            })
+        );
+        assert_eq!(body["tool_choice"], "none");
+    }
+
+    #[test]
+    fn chatgpt_tool_round_echoes_items_then_outputs() {
+        let reasoning =
+            json!({ "type": "reasoning", "id": "rs_1", "encrypted_content": "enc", "summary": [] });
+        let call = json!({ "type": "function_call", "id": "fc_1", "call_id": "c1", "name": "weather_current", "arguments": "{}" });
+        let round = vec![
+            ChatMessage {
+                role: "user".into(),
+                content: "Weather?".into(),
+                ..Default::default()
+            },
+            ChatMessage {
+                role: "assistant".into(),
+                native: Some(json!([reasoning.clone(), call.clone()])),
+                ..Default::default()
+            },
+            ChatMessage {
+                role: "tool".into(),
+                content: "{\"t\":12}".into(),
+                tool_call_id: Some("c1".into()),
+                ..Default::default()
+            },
+        ];
+        let body = LlmProvider::Chatgpt
+            .body_with_tools(
+                "chatgpt/gpt-6-sol",
+                &round,
+                &[weather_tool()],
+                ToolChoice::Auto,
+            )
+            .unwrap();
+        let input = body["input"].as_array().unwrap();
+        assert_eq!(input.len(), 4);
+        assert_eq!(input[1], reasoning);
+        assert_eq!(input[2], call);
+        assert_eq!(
+            input[3],
+            json!({ "type": "function_call_output", "call_id": "c1", "output": "{\"t\":12}" })
+        );
+    }
+
+    #[test]
+    fn chatgpt_rejects_a_native_turn_that_is_not_an_item_list() {
+        let round = vec![ChatMessage {
+            role: "assistant".into(),
+            native: Some(json!({ "role": "assistant" })),
+            ..Default::default()
+        }];
+        assert_eq!(
+            LlmProvider::Chatgpt
+                .body_with_tools("chatgpt/gpt-6-sol", &round, &[], ToolChoice::Auto)
+                .unwrap_err(),
+            "invalid_native_turn"
+        );
+    }
+
+    #[test]
+    fn chatgpt_plain_history_and_images_use_responses_content_types() {
+        let history = vec![
+            ChatMessage {
+                role: "user".into(),
+                content: "What is this?".into(),
+                images: vec![ChatImage {
+                    media_type: "image/png".into(),
+                    data: "aGk=".into(),
+                }],
+                ..Default::default()
+            },
+            ChatMessage {
+                role: "assistant".into(),
+                content: "A cat.".into(),
+                ..Default::default()
+            },
+        ];
+        let body = LlmProvider::Chatgpt
+            .body_with_tools("chatgpt/gpt-6-sol", &history, &[], ToolChoice::Auto)
+            .unwrap();
+        assert_eq!(
+            body["input"][0]["content"],
+            json!([
+                { "type": "input_image", "image_url": "data:image/png;base64,aGk=" },
+                { "type": "input_text", "text": "What is this?" },
+            ])
+        );
+        assert_eq!(
+            body["input"][1],
+            json!({ "role": "assistant", "content": [{ "type": "output_text", "text": "A cat." }] })
+        );
+    }
+
+    #[test]
+    fn chatgpt_endpoint_and_wire_model() {
+        assert_eq!(
+            LlmProvider::Chatgpt.wire_model("chatgpt/gpt-6-sol"),
+            "gpt-6-sol"
+        );
+        assert_eq!(
+            LlmProvider::Openrouter.wire_model("openai/gpt-x"),
+            "openai/gpt-x"
+        );
+        assert!(LlmProvider::Chatgpt.chat_completions().is_none());
+        assert!(LlmProvider::Chatgpt.supports_tools("chatgpt/gpt-6-sol"));
+        assert!(LlmProvider::Chatgpt.extra_headers().is_empty());
+    }
+
+    #[test]
+    fn openai_api_key_body_is_unchanged_by_the_new_provider() {
+        let body = LlmProvider::Openai
+            .body_with_tools("gpt-6-luna", &messages(), &[], ToolChoice::Auto)
+            .unwrap();
+        assert!(body.get("messages").is_some());
+        for field in ["store", "input", "include", "instructions"] {
+            assert!(
+                body.get(field).is_none(),
+                "{field} leaked into Chat Completions"
+            );
+        }
     }
 }
