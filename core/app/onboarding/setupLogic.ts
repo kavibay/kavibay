@@ -78,17 +78,6 @@ export function isSetupVisible(state: SetupState | null): boolean {
 }
 
 /**
- * Whether to offer the display choice.
- *
- * One monitor makes "which screen should this cover" a question with one
- * answer, and asking it costs the card its claim to be short. The preference
- * still exists in Settings for the day a second screen arrives.
- */
-export function shouldOfferDisplayChoice(monitorCount: number): boolean {
-  return monitorCount > 1;
-}
-
-/**
  * The card's pages, in order: the machine questions, which AI to use, and the
  * keystroke that starts the tour.
  *
@@ -110,7 +99,7 @@ export function nextSetupPage(page: SetupPage): SetupPage | "finish" {
   return SETUP_PAGES[SETUP_PAGES.indexOf(page) + 1] ?? "finish";
 }
 
-/** Questions the card asks on this machine, for the lead. The AI one is always asked. */
-export function setupQuestionCount(opts: { autostart: boolean; displayChoice: boolean }): number {
-  return 1 + (opts.autostart ? 1 : 0) + (opts.displayChoice ? 1 : 0);
+/** The page before `page`, or null on the first one. */
+export function previousSetupPage(page: SetupPage): SetupPage | null {
+  return SETUP_PAGES[SETUP_PAGES.indexOf(page) - 1] ?? null;
 }

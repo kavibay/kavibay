@@ -45,6 +45,8 @@ export interface LlmModelOption {
   configured: boolean;
   /** The user has this model switched on. */
   enabled: boolean;
+  /** The catalog's recommended model of its provider (the Wizard's default too). */
+  authoringDefault?: boolean;
 }
 
 /** Every catalog model, including the ones the user switched off. */

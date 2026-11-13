@@ -27,16 +27,17 @@ export interface AiProviderTab {
 /**
  * Row order. Fixed rather than derived from the catalog: the catalog is ordered
  * by model strength, and a list that reshuffles when a model is added is a
- * list the user has to re-read every time.
+ * list the user has to re-read every time. OpenAI leads because it is the one
+ * row a ChatGPT subscriber can connect without creating an API key.
  */
 export const AI_PROVIDER_TABS: readonly AiProviderTab[] = [
-  { id: "anthropic", label: "Anthropic" },
   {
     id: "openai",
     label: "OpenAI",
     alsoProviders: ["chatgpt"],
     signIn: { title: "ai.connect.chatgptTitle", hint: "ai.connect.chatgptHint" },
   },
+  { id: "anthropic", label: "Anthropic" },
   { id: "deepseek", label: "DeepSeek" },
   { id: "openrouter", label: "OpenRouter" },
   { id: "cloudflare", label: "Cloudflare Workers AI" },
@@ -246,4 +247,34 @@ export function withModelEnabled(
   enabled: boolean,
 ): LlmModelOption[] {
   return models.map((model) => (model.id === modelId ? { ...model, enabled } : model));
+}
+
+/** The first of a row's providers that is connected, or null. */
+export function connectedProvider(
+  models: readonly LlmModelOption[],
+  tab: AiProviderTab,
+): LlmProviderId | null {
+  return tabProviders(tab).find((provider) => providerHasKey(models, provider)) ?? null;
+}
+
+/**
+ * The model the setup card preselects for a provider that just connected.
+ *
+ * The user's own quick-model pick when it is a usable model of this provider;
+ * otherwise the catalog's recommended one (its authoring default, GPT-6.1 Terra
+ * for the ChatGPT plan); otherwise the first usable. Null when the provider has
+ * nothing usable.
+ */
+export function preferredQuickModel(
+  models: readonly LlmModelOption[],
+  provider: LlmProviderId,
+  selected: string,
+): string | null {
+  const usable = quickModelChoices(models).filter((model) => model.provider === provider);
+  return (
+    usable.find((model) => model.id === selected)?.id ??
+    usable.find((model) => model.authoringDefault)?.id ??
+    usable[0]?.id ??
+    null
+  );
 }

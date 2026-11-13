@@ -5,12 +5,11 @@ import {
   completedSetupState,
   isSetupVisible,
   nextSetupPage,
+  previousSetupPage,
   SETUP_PAGES,
   parseSetupState,
-  setupQuestionCount,
   pendingSetupState,
   serializeSetupState,
-  shouldOfferDisplayChoice,
   shouldShowSetup,
 } from "./setupLogic";
 
@@ -30,11 +29,10 @@ assert(nextSetupPage("machine") === "ai", "gesture on page 1 goes to page 2");
 assert(nextSetupPage("ai") === "start", "gesture on page 2 goes to the last page");
 assert(nextSetupPage("start") === "finish", "gesture on the last page starts the tour");
 assertEq(SETUP_PAGES, ["machine", "ai", "start"], "three pages in this order");
+assert(previousSetupPage("machine") === null, "nothing before the first page");
+assert(previousSetupPage("ai") === "machine", "back from the AI page");
+assert(previousSetupPage("start") === "ai", "back from the last page");
 
-// The AI question is always asked, so the lead never says "no questions".
-assert(setupQuestionCount({ autostart: false, displayChoice: false }) === 1, "AI question always counts");
-assert(setupQuestionCount({ autostart: true, displayChoice: false }) === 2, "autostart and AI");
-assert(setupQuestionCount({ autostart: true, displayChoice: true }) === 3, "all three");
 assertEq(completedSetupState(), { status: "done" }, "completedSetupState");
 
 assert(parseSetupState(null) === null, "parse null");
@@ -84,8 +82,5 @@ assert(
   "a user who already ran the tour is left alone",
 );
 
-assert(shouldOfferDisplayChoice(1) === false, "one monitor asks nothing");
-assert(shouldOfferDisplayChoice(0) === false, "no monitor reported asks nothing");
-assert(shouldOfferDisplayChoice(2), "two monitors ask");
 
 console.log("setupLogic.assert.ts: ok");
