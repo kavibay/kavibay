@@ -84,6 +84,10 @@ pub struct SecretData {
     /// Present once an OAuth type has been connected.
     #[serde(default)]
     pub oauth: Option<OAuthTokens>,
+    /// Client id the provider issued during sign-in (`ClientSource::Dynamic`).
+    /// Refresh must use the same one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issued_client_id: Option<String>,
 }
 
 impl SecretData {

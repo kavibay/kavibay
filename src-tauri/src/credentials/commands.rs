@@ -135,7 +135,7 @@ fn client_field_keys(type_def: &super::types::CredentialTypeDef) -> Vec<&'static
             keys.extend(secret_key);
             keys
         }
-        ClientSource::BuiltIn { .. } => Vec::new(),
+        ClientSource::BuiltIn { .. } | ClientSource::Dynamic { .. } => Vec::new(),
     }
 }
 

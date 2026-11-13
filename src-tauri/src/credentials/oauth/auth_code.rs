@@ -20,8 +20,9 @@ use tokio::net::TcpListener;
 use crate::credentials::db;
 use crate::credentials::now_secs;
 use crate::credentials::registry;
-use crate::credentials::types::{AuthCodeDef, AuthKind};
+use crate::credentials::types::{AuthCodeDef, AuthKind, ClientSource};
 
+use super::host_id::host_id;
 use super::{
     claim_generation_locked, client_credentials, client_form, finish_pending, http_client,
     probe_identity, save_login, set_last_error, slot, tokens_from_response, PendingAuth,
@@ -42,6 +43,8 @@ struct FlowParams {
     redirect_uri: String,
     code_verifier: String,
     state_token: String,
+    /// The client id issued by an earlier sign-in (`ClientSource::Dynamic`).
+    saved_client_id: Option<String>,
     /// This flow's id, checked against the credential's `active_generation`
     /// right before persisting tokens.
     generation: u64,
@@ -86,6 +89,16 @@ fn loopback_redirect_uri(auth: &AuthCodeDef, port: u16) -> String {
     format!("http://127.0.0.1:{port}{path}")
 }
 
+/// Per-attempt values for the type's `AuthCodeExtras`: all empty for every
+/// type that does not declare them.
+#[derive(Debug, Default)]
+pub(super) struct AuthExtras {
+    pub nonce: Option<String>,
+    pub host_id: Option<String>,
+    /// No client id has been issued yet, so the name hint is sent.
+    pub first_login: bool,
+}
+
 /// Builds the consent-screen URL with PKCE plus the type's extra params.
 fn build_auth_url(
     auth: &AuthCodeDef,
@@ -93,6 +106,7 @@ fn build_auth_url(
     redirect_uri: &str,
     code_challenge: &str,
     state: &str,
+    extras: &AuthExtras,
 ) -> Result<String, String> {
     let mut url = url::Url::parse(auth.auth_url)
         .map_err(|error| format!("invalid authorization url: {error}"))?;
@@ -108,6 +122,18 @@ fn build_auth_url(
             .append_pair("state", state);
         for (key, value) in auth.extra_auth_params {
             query.append_pair(key, value);
+        }
+        if let Some(resource) = auth.extras.resource {
+            query.append_pair("resource", resource);
+        }
+        if let Some(nonce) = &extras.nonce {
+            query.append_pair("nonce", nonce);
+        }
+        if let Some(host_id) = &extras.host_id {
+            query.append_pair("ext_agent_host_id", host_id);
+        }
+        if let (Some(hint), true) = (auth.extras.name_hint, extras.first_login) {
+            query.append_pair("agent_name_hint", hint);
         }
     }
     Ok(url.to_string())
@@ -145,7 +171,24 @@ pub async fn start(app: &AppHandle, credential_id: &str) -> Result<(), String> {
     let challenge = code_challenge(&code_verifier);
     let state_token = generate_state();
 
-    let auth_url = build_auth_url(&auth, &client_id, &redirect_uri, &challenge, &state_token)?;
+    let extras = AuthExtras {
+        // Same shape as `state`; OpenID only needs it unguessable.
+        nonce: auth.extras.send_nonce.then(generate_state),
+        host_id: if auth.extras.send_host_id {
+            Some(host_id(app)?)
+        } else {
+            None
+        },
+        first_login: secret.issued_client_id.is_none(),
+    };
+    let auth_url = build_auth_url(
+        &auth,
+        &client_id,
+        &redirect_uri,
+        &challenge,
+        &state_token,
+        &extras,
+    )?;
     open::that(&auth_url).map_err(|e| format!("could not open the browser: {e}"))?;
 
     // A fresh start supersedes whatever was running before. Claim a new
@@ -166,6 +209,7 @@ pub async fn start(app: &AppHandle, credential_id: &str) -> Result<(), String> {
         redirect_uri,
         code_verifier,
         state_token,
+        saved_client_id: secret.issued_client_id.clone(),
         generation,
     };
 
@@ -201,10 +245,20 @@ async fn run_flow(
     listener: TcpListener,
     params: FlowParams,
 ) -> Result<(), String> {
-    let code = wait_for_callback(listener, &params.state_token).await?;
+    let callback = wait_for_callback(listener, &params.state_token).await?;
+    let issued_client_id = accept_issued_client_id(
+        &params.auth,
+        callback.client_id.as_deref(),
+        params.saved_client_id.as_deref(),
+    )?;
+    let client_id = issued_client_id
+        .clone()
+        .unwrap_or_else(|| params.client_id.clone());
     let client = http_client(app);
 
-    let token = exchange_code(&client, &params, &code).await?;
+    let token = exchange_code(&client, &params, &client_id, &callback.code).await?;
+    check_required_scope(params.auth.extras.required_scope, token.scope.as_deref())?;
+    let email = token.id_token.as_deref().and_then(id_token_email);
 
     // The provider may only return a refresh token on first consent; fall back
     // to the stored one when it does not.
@@ -219,7 +273,7 @@ async fn run_flow(
 
     let identity = match params.auth.identity {
         Some(probe) => probe_identity(&client, &probe, &tokens.access_token).await?,
-        None => (None, serde_json::Map::new()),
+        None => (email, serde_json::Map::new()),
     };
 
     save_login(
@@ -228,7 +282,68 @@ async fn run_flow(
         params.generation,
         tokens,
         identity,
+        issued_client_id,
     )
+}
+
+/// The client id a dynamic-client provider issued on the redirect.
+///
+/// Fail closed: a dynamic type must end the flow with a usable id, it must not
+/// be the placeholder, and a connection that already has one keeps it — a
+/// redirect naming another client is not this sign-in. Other types never take
+/// a client id from the redirect.
+fn accept_issued_client_id(
+    auth: &AuthCodeDef,
+    received: Option<&str>,
+    saved: Option<&str>,
+) -> Result<Option<String>, String> {
+    let ClientSource::Dynamic { placeholder } = auth.client else {
+        return Ok(None);
+    };
+    let Some(received) = received else {
+        return saved
+            .map(|id| Some(id.to_string()))
+            .ok_or_else(|| "the sign-in redirect carried no client id".to_string());
+    };
+    let well_formed = (1..=200).contains(&received.len())
+        && received
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    if !well_formed || received == placeholder {
+        return Err("the sign-in redirect carried an invalid client id".into());
+    }
+    if saved.is_some_and(|saved| saved != received) {
+        return Err("the sign-in redirect named a different client than this connection".into());
+    }
+    Ok(Some(received.to_string()))
+}
+
+/// Refuses a login that did not grant the type's required scope. ChatGPT only
+/// shares a plan through `chatgpt.tokens.use.direct`; without it the tokens
+/// would fail on the first request, so nothing is saved.
+fn check_required_scope(required: Option<&str>, granted: Option<&str>) -> Result<(), String> {
+    let Some(required) = required else {
+        return Ok(());
+    };
+    if granted.is_some_and(|granted| granted.split_whitespace().any(|scope| scope == required)) {
+        return Ok(());
+    }
+    Err(
+        "ChatGPT plan usage isn't available for this account or workspace. Use an API key instead."
+            .into(),
+    )
+}
+
+/// The `email` claim of an id token, for the account label only.
+///
+/// The signature is not checked: the token came straight from the token
+/// endpoint over TLS in this process, which OpenID Connect Core §3.1.3.7
+/// accepts in place of it, and nothing is decided on the value — it is shown.
+fn id_token_email(id_token: &str) -> Option<String> {
+    let payload = id_token.split('.').nth(1)?;
+    let bytes = URL_SAFE_NO_PAD.decode(payload).ok()?;
+    let claims: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    claims["email"].as_str().map(str::to_string)
 }
 
 /// Accepts loopback connections until one carries our `state` token (or the
@@ -238,7 +353,17 @@ async fn run_flow(
 /// Looping (rather than failing on the first connection) tolerates stray or
 /// malformed requests hitting the ephemeral port without aborting a login that
 /// is still legitimately in flight.
-async fn wait_for_callback(listener: TcpListener, expected_state: &str) -> Result<String, String> {
+/// What the redirect carried: the code, and the client id a dynamic-client
+/// provider (ChatGPT) issued during this sign-in.
+struct Callback {
+    code: String,
+    client_id: Option<String>,
+}
+
+async fn wait_for_callback(
+    listener: TcpListener,
+    expected_state: &str,
+) -> Result<Callback, String> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(LOOPBACK_TIMEOUT_SECS);
 
     loop {
@@ -301,10 +426,14 @@ async fn wait_for_callback(listener: TcpListener, expected_state: &str) -> Resul
         if let Some(error) = params.get("error") {
             return Err(format!("sign-in was cancelled or denied: {error}"));
         }
-        return params
+        let code = params
             .get("code")
             .cloned()
-            .ok_or_else(|| "missing authorization code in redirect".to_string());
+            .ok_or_else(|| "missing authorization code in redirect".to_string())?;
+        return Ok(Callback {
+            code,
+            client_id: params.get("client_id").cloned(),
+        });
     }
 }
 
@@ -312,6 +441,7 @@ async fn wait_for_callback(listener: TcpListener, expected_state: &str) -> Resul
 async fn exchange_code(
     client: &Client,
     params: &FlowParams,
+    client_id: &str,
     code: &str,
 ) -> Result<TokenResponse, String> {
     let mut form: Vec<(String, String)> = vec![
@@ -321,9 +451,12 @@ async fn exchange_code(
         ("code_verifier".into(), params.code_verifier.clone()),
     ];
     form.extend(client_form(
-        params.client_id.clone(),
+        client_id.to_string(),
         params.client_secret.clone(),
     ));
+    if let Some(resource) = params.auth.extras.resource {
+        form.push(("resource".into(), resource.to_string()));
+    }
 
     let response = client
         .post(params.auth.token_url)
@@ -358,6 +491,13 @@ mod tests {
         match registry::require(registry::SPOTIFY_OAUTH2).unwrap().auth {
             AuthKind::OAuth2AuthCode(auth) => auth,
             _ => panic!("spotify must use the authorization-code flow"),
+        }
+    }
+
+    fn chatgpt_auth() -> AuthCodeDef {
+        match registry::require(registry::OPENAI_CHATGPT).unwrap().auth {
+            AuthKind::OAuth2AuthCode(auth) => auth,
+            _ => panic!("ChatGPT must use the authorization-code flow"),
         }
     }
 
@@ -412,6 +552,7 @@ mod tests {
             "http://127.0.0.1:1234/",
             "challenge123",
             "state456",
+            &AuthExtras::default(),
         )
         .unwrap();
         assert!(url.contains("client_id=cid"));
@@ -432,6 +573,7 @@ mod tests {
             "http://127.0.0.1:1234/",
             "challenge123",
             "state456",
+            &AuthExtras::default(),
         )
         .unwrap();
         assert!(url.starts_with("https://accounts.spotify.com/authorize?"));
@@ -462,5 +604,143 @@ mod tests {
             loopback_redirect_uri(&spotify_auth(), 17444),
             "http://127.0.0.1:17444/callback"
         );
+    }
+
+    #[test]
+    fn chatgpt_auth_url_carries_resource_nonce_host_and_hint_on_first_login() {
+        let url = build_auth_url(
+            &chatgpt_auth(),
+            "dynamic_agent_client",
+            "http://127.0.0.1:5555/auth/callback",
+            "ch",
+            "st",
+            &AuthExtras {
+                nonce: Some("n1".into()),
+                host_id: Some("urn:uuid:abc".into()),
+                first_login: true,
+            },
+        )
+        .unwrap();
+        assert!(url.starts_with("https://auth.openai.com/api/accounts/authorize?"));
+        for part in [
+            "client_id=dynamic_agent_client",
+            "resource=https%3A%2F%2Fapi.openai.com%2Fv1",
+            "scope=openid+profile+email+offline_access+resource.invoke+chatgpt.tokens.use.direct",
+            "nonce=n1",
+            "ext_agent_host_id=urn%3Auuid%3Aabc",
+            "agent_name_hint=Kavibay",
+            "code_challenge_method=S256",
+            "redirect_uri=http%3A%2F%2F127.0.0.1%3A5555%2Fauth%2Fcallback",
+        ] {
+            assert!(url.contains(part), "missing {part} in {url}");
+        }
+    }
+
+    #[test]
+    fn chatgpt_relogin_sends_no_name_hint() {
+        let url = build_auth_url(
+            &chatgpt_auth(),
+            "app_123",
+            "http://127.0.0.1:5555/auth/callback",
+            "ch",
+            "st",
+            &AuthExtras {
+                nonce: Some("n1".into()),
+                host_id: Some("urn:uuid:abc".into()),
+                first_login: false,
+            },
+        )
+        .unwrap();
+        assert!(url.contains("client_id=app_123"));
+        assert!(!url.contains("agent_name_hint"));
+    }
+
+    #[test]
+    fn other_types_auth_urls_gain_no_new_params() {
+        for auth in [google_auth(), spotify_auth(), fitbit_auth()] {
+            let url = build_auth_url(
+                &auth,
+                "cid",
+                "http://127.0.0.1:1234/",
+                "ch",
+                "st",
+                &AuthExtras::default(),
+            )
+            .unwrap();
+            for param in [
+                "resource=",
+                "nonce=",
+                "ext_agent_host_id=",
+                "agent_name_hint=",
+            ] {
+                assert!(!url.contains(param), "{param} leaked into {url}");
+            }
+        }
+    }
+
+    #[test]
+    fn chatgpt_redirects_to_its_callback_path_on_any_port() {
+        assert_eq!(loopback_bind_addr(&chatgpt_auth()), "127.0.0.1:0");
+        assert_eq!(
+            loopback_redirect_uri(&chatgpt_auth(), 5555),
+            "http://127.0.0.1:5555/auth/callback"
+        );
+    }
+
+    #[test]
+    fn issued_client_id_is_validated_for_dynamic_types() {
+        let chatgpt = chatgpt_auth();
+        assert!(accept_issued_client_id(&chatgpt, Some("dynamic_agent_client"), None).is_err());
+        assert!(accept_issued_client_id(&chatgpt, Some("bad id!"), None).is_err());
+        assert!(accept_issued_client_id(&chatgpt, Some(&"a".repeat(201)), None).is_err());
+        assert_eq!(
+            accept_issued_client_id(&chatgpt, Some("app_1"), None).unwrap(),
+            Some("app_1".to_string())
+        );
+        assert!(
+            accept_issued_client_id(&chatgpt, Some("app_2"), Some("app_1")).is_err(),
+            "a different client id than the saved one is refused"
+        );
+        assert_eq!(
+            accept_issued_client_id(&chatgpt, None, Some("app_1")).unwrap(),
+            Some("app_1".to_string())
+        );
+        assert!(accept_issued_client_id(&chatgpt, None, None).is_err());
+        // Other types never take a client id from the redirect.
+        assert_eq!(
+            accept_issued_client_id(&google_auth(), Some("app_1"), None).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn a_login_without_plan_sharing_fails_with_a_sentence() {
+        let error = check_required_scope(
+            Some("chatgpt.tokens.use.direct"),
+            Some("openid profile email offline_access"),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error,
+            "ChatGPT plan usage isn't available for this account or workspace. Use an API key instead."
+        );
+        assert!(check_required_scope(Some("chatgpt.tokens.use.direct"), None).is_err());
+        assert!(check_required_scope(
+            Some("chatgpt.tokens.use.direct"),
+            Some("openid resource.invoke chatgpt.tokens.use.direct")
+        )
+        .is_ok());
+        assert!(check_required_scope(None, None).is_ok());
+    }
+
+    #[test]
+    fn id_token_email_reads_the_payload_claim() {
+        let payload = URL_SAFE_NO_PAD.encode(br#"{"sub":"u1","email":"a@b.c"}"#);
+        assert_eq!(
+            id_token_email(&format!("e30.{payload}.sig")),
+            Some("a@b.c".to_string())
+        );
+        assert_eq!(id_token_email("garbage"), None);
+        assert_eq!(id_token_email("a.!!!.c"), None);
     }
 }
