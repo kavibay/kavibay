@@ -69,4 +69,34 @@ export const en = {
     one: "Added {count} widget.",
     other: "Added {count} widgets.",
   },
+
+  // First-run setup card (core/app/onboarding/OnboardingSetup.vue)
+  "onboarding.setup.ariaLabel": "Set up Kavibay",
+  "onboarding.setup.title": "Welcome to Kavibay",
+  "onboarding.setup.lead": {
+    one: "Your launcher and your widgets, one keystroke away. One question, then a short tour of about a minute.",
+    other:
+      "Your launcher and your widgets, one keystroke away. {count} questions, then a short tour of about a minute.",
+  },
+  "onboarding.setup.pages": "Step {current} of {total}",
+  "onboarding.setup.autostart.title": "Start Kavibay when I log in",
+  "onboarding.setup.autostart.hint": "Waits in {place}, out of the way.",
+  "onboarding.setup.autostart.error": "Could not change the startup entry: {error}",
+  "onboarding.setup.display.title": "Open on",
+  "onboarding.setup.display.hint":
+    "You have more than one screen. Which one should a double tap on {key} cover?",
+  "onboarding.setup.continue": "Continue",
+  "onboarding.setup.ai.title": "Which AI should Kavibay use?",
+  "onboarding.setup.ai.hint":
+    "Optional. It answers questions in the palette and builds widgets for you. You can change it later in Settings → AI.",
+  "onboarding.setup.ai.back": "Back",
+  "onboarding.setup.ai.connected": "Connected",
+  "onboarding.setup.ai.loadError":
+    "Could not load the providers. You can connect one later in Settings → AI.",
+  "onboarding.setup.gesture.title": "Tap {key} twice to start the tour",
+  "onboarding.setup.gesture.body":
+    "Remember this one: it brings Kavibay up from any app, and tapping it twice again puts everything out of the way.",
+  "onboarding.setup.skipTour": "Skip the tour",
+  "onboarding.setup.orClick": "Or click here",
+  "onboarding.setup.showMeAround": "Show me around",
 } as const;

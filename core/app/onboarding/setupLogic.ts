@@ -87,3 +87,27 @@ export function isSetupVisible(state: SetupState | null): boolean {
 export function shouldOfferDisplayChoice(monitorCount: number): boolean {
   return monitorCount > 1;
 }
+
+/**
+ * The card's two pages: the machine questions, then which AI to use.
+ *
+ * The AI page comes last because it is the one a user may want to leave
+ * unanswered, and it ends with the double tap that starts the tour — the
+ * gesture has to sit on the page that closes the card.
+ */
+export type SetupPage = "machine" | "ai";
+
+/**
+ * What the reveal gesture does while the card is up.
+ *
+ * On the first page it turns the page instead of closing the card: someone
+ * pressing ahead out of habit would otherwise skip the AI question unseen.
+ */
+export function nextSetupPageOnGesture(page: SetupPage): SetupPage | "finish" {
+  return page === "machine" ? "ai" : "finish";
+}
+
+/** Questions the card asks on this machine, for the lead. The AI one is always asked. */
+export function setupQuestionCount(opts: { autostart: boolean; displayChoice: boolean }): number {
+  return 1 + (opts.autostart ? 1 : 0) + (opts.displayChoice ? 1 : 0);
+}

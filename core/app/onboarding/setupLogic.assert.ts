@@ -4,7 +4,9 @@
 import {
   completedSetupState,
   isSetupVisible,
+  nextSetupPageOnGesture,
   parseSetupState,
+  setupQuestionCount,
   pendingSetupState,
   serializeSetupState,
   shouldOfferDisplayChoice,
@@ -20,6 +22,16 @@ function assertEq(actual: unknown, expected: unknown, msg: string): void {
 }
 
 assertEq(pendingSetupState(), { status: "pending" }, "pendingSetupState");
+
+// The double tap is the card's way forward on every page, but it only starts
+// the tour from the last one: on page 1 it would otherwise skip the AI question.
+assert(nextSetupPageOnGesture("machine") === "ai", "gesture on page 1 goes to page 2");
+assert(nextSetupPageOnGesture("ai") === "finish", "gesture on page 2 starts the tour");
+
+// The AI question is always asked, so the lead never says "no questions".
+assert(setupQuestionCount({ autostart: false, displayChoice: false }) === 1, "AI question always counts");
+assert(setupQuestionCount({ autostart: true, displayChoice: false }) === 2, "autostart and AI");
+assert(setupQuestionCount({ autostart: true, displayChoice: true }) === 3, "all three");
 assertEq(completedSetupState(), { status: "done" }, "completedSetupState");
 
 assert(parseSetupState(null) === null, "parse null");

@@ -25,6 +25,7 @@ import { onboardingCopyForStep, onboardingHotkeyFallbackCopy } from "./onboardin
 import {
   isCardStep,
   isCoachVisible,
+  ONBOARDING_AI_STEP,
   ONBOARDING_DONE_STEP,
   ONBOARDING_HOTKEY_STEP,
   ONBOARDING_INTRO_STEP,
@@ -44,6 +45,7 @@ const {
   stepBack,
   skipTourAction,
   skipHotkeyStep,
+  skipAiStep,
 } = useOnboarding();
 
 /**
@@ -104,6 +106,7 @@ const hotkeyStepHasNothingToPress = computed(
 const isHotkeyStep = computed(() => state.value?.step === ONBOARDING_HOTKEY_STEP);
 const isIntroStep = computed(() => state.value?.step === ONBOARDING_INTRO_STEP);
 const isDoneStep = computed(() => state.value?.step === ONBOARDING_DONE_STEP);
+const isAiStep = computed(() => state.value?.step === ONBOARDING_AI_STEP);
 const isCenteredCard = computed(
   () => state.value != null && isCardStep(state.value.step),
 );
@@ -125,11 +128,16 @@ function preferredPlacement(step: number | undefined): BubblePlacement {
   return step === 5 ? "left-of" : "above-left";
 }
 
+/** Steps whose arrow points at the palette's search field. */
+function targetsPaletteSearch(step: number | undefined): boolean {
+  return step === 3 || step === 4 || step === ONBOARDING_AI_STEP;
+}
+
 /** Resolve the element highlighted by the current onboarding step. */
 function resolveTarget(): Element | null {
   const step = state.value?.step;
   if (step == null || isCardStep(step)) return null;
-  if (step === 3 || step === 4) {
+  if (targetsPaletteSearch(step)) {
     return document.querySelector('[data-onboarding-target="palette-search"]');
   }
   if (step === 5) {
@@ -275,7 +283,7 @@ watch(
     }
     // One more frame so palette-search exists after replay → palette:show.
     const step = state.value?.step;
-    if (!resolveTarget() && (step === 3 || step === 4)) {
+    if (!resolveTarget() && targetsPaletteSearch(step)) {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     }
     reconnectResizeObserver();
@@ -429,6 +437,11 @@ onUnmounted(() => {
             @click="skipHotkeyStep"
           >
             Carry on
+          </button>
+          <!-- Quiet, and always there: the palette already says why an answer
+               failed, and a bad key must not hold the rest of the tour. -->
+          <button v-if="isAiStep" type="button" class="onboarding-link" @click="skipAiStep">
+            Skip this step
           </button>
           <button
             v-if="isIntroStep"

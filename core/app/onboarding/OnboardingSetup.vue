@@ -1,39 +1,62 @@
 <script setup lang="ts">
 /**
- * The first thing anybody ever sees: the greeting and the two setup questions,
- * on one card.
+ * The first thing anybody ever sees: the greeting, the setup questions, and
+ * which AI to use — two pages of one card.
  *
- * They were two screens — a welcome bubble, then a form — which is one click
- * and one full redraw to say a thing that fits in a paragraph. Worse, the
+ * They were once two screens — a welcome bubble, then a form — which is one
+ * click and one full redraw to say a thing that fits in a paragraph. Worse, the
  * welcome arrived over an open search field and a desk of cards, so the moment
  * meant to introduce the app was also its busiest. Now nothing else is on
  * screen until this is answered: no palette, no widgets, no coach.
  *
- * Two decisions, both about the machine rather than about Kavibay, and both
- * with a sensible default — so the card is readable in a few seconds and
- * answered by one button. Everything else a user might want to configure is in
- * Settings, where they will look for it anyway; see `setupLogic.ts` for why
- * this is a form and not a tour step.
+ * Page 1 asks about the machine: autostart, and which display when there is a
+ * choice. Page 2 asks which AI provider to use, with the same connection form
+ * Settings → AI shows (`CredentialAccounts`), and is optional — not connecting
+ * anything is an answer. The double tap that starts the tour lives on page 2,
+ * because it closes the card; pressed on page 1 it only turns the page
+ * (`nextSetupPageOnGesture`), so nobody skips the AI question unseen.
  *
- * The two answers commit differently, on purpose. The display choice is an
+ * The answers commit differently, on purpose. The display choice is an
  * ordinary preference and is written the moment it is clicked, exactly as the
  * same control does in Settings. Autostart writes *outside* the app — a
  * registry entry, a file in the user's config directory — so it is presented
- * pre-selected and written on Continue: the user sees what will happen before
- * anything happens, and closing the card without pressing it leaves the machine
- * untouched.
+ * pre-selected and written when page 1 is left: the user sees what will happen
+ * before anything happens. A connection is saved by its own form, as in
+ * Settings.
  */
 import { computed, onMounted, onScopeDispose, ref, watch } from "vue";
 import { availableMonitors } from "@tauri-apps/api/window";
 import { holdHostDismiss } from "@sdk";
+import { BrandMark } from "@sdk/brand";
 import logo from "../../../src-tauri/icons/icon.svg";
+import { t } from "../i18n/i18n";
 import { syncInteractiveRegions } from "../system/clickThrough";
 import { openMonitorOptions, type OpenMonitor } from "../settings/appearanceLogic";
 import { useAppearance } from "../settings/useAppearance";
+import { listLlmCatalog, type LlmModelOption } from "../settings/ai/aiApi";
+import {
+  AI_PROVIDER_TABS,
+  credentialTypeForProvider,
+  providerHasKey,
+  type AiProviderTab,
+} from "../settings/ai/aiPanelLogic";
+import CredentialAccounts from "../settings/credentials/CredentialAccounts.vue";
+import {
+  listCredentials,
+  listCredentialTypes,
+  type CredentialSummary,
+  type CredentialTypeSchema,
+} from "../settings/credentials/credentialsApi";
 import { revealGesture } from "../host/revealGesture";
 import { doubleTapKeyLabel, keyPlatform } from "../host/shortcutHints";
 import { onboardingRevealHintCopy, waitingPlace } from "./onboardingCopy";
-import { isSetupVisible, shouldOfferDisplayChoice } from "./setupLogic";
+import {
+  isSetupVisible,
+  nextSetupPageOnGesture,
+  setupQuestionCount,
+  shouldOfferDisplayChoice,
+  type SetupPage,
+} from "./setupLogic";
 import {
   finishSetup,
   setupAnsweredByGesture,
@@ -43,14 +66,21 @@ import {
 import { useAutostart } from "./useAutostart";
 import { useOnboarding } from "./useOnboarding";
 
+type ProviderId = AiProviderTab["id"];
+
 const { openMonitor, setOpenMonitor } = useAppearance();
 const { supported: autostartSupported, error: autostartError, setEnabled } = useAutostart();
 const { declineTour } = useOnboarding();
 
 const visible = computed(() => isSetupVisible(setupState.value));
 
+/** Session-only: a restart while the card is pending starts again on page 1. */
+const page = ref<SetupPage>("machine");
+/** The provider whose connection form replaces the list, or null for the list. */
+const connecting = ref<ProviderId | null>(null);
+
 /**
- * What Continue will write. Starts on because a launcher the user has to
+ * What leaving page 1 will write. Starts on because a launcher the user has to
  * remember to start is one they stop using after the first reboot — but it is a
  * visible default they can decline, not a decision made for them.
  */
@@ -93,19 +123,69 @@ onScopeDispose(() => releaseDismiss?.());
 // The host hands over the reveal gesture while the card is up; see `setupGestureCount`.
 watch(setupGestureCount, () => {
   if (!visible.value) return;
+  if (nextSetupPageOnGesture(page.value) === "ai") {
+    void leaveMachinePage();
+    return;
+  }
   setupAnsweredByGesture.value = true;
   void onContinue();
 });
 
-/** Counts what the card actually asks on this machine; a fixed "two" was wrong on one screen. */
-const lead = computed(() => {
-  const questions = (autostartSupported.value ? 1 : 0) + (offerDisplayChoice.value ? 1 : 0);
-  const asks =
-    questions === 0 ? "One thing to remember" : questions === 1 ? "One question" : "Two questions";
-  return `Your launcher and your widgets, one keystroke away. ${asks}, then a short tour of about a minute.`;
-});
+/** Counts what the card actually asks on this machine. */
+const lead = computed(() =>
+  t("onboarding.setup.lead", {
+    count: setupQuestionCount({
+      autostart: autostartSupported.value,
+      displayChoice: offerDisplayChoice.value,
+    }),
+  }),
+);
 
 const busy = ref(false);
+
+// AI page data: loaded once the page is reached, reloaded after every change a
+// connection form reports — the same three lists Settings → AI reads.
+const models = ref<LlmModelOption[]>([]);
+const types = ref<CredentialTypeSchema[]>([]);
+const credentials = ref<CredentialSummary[]>([]);
+const aiLoaded = ref(false);
+const aiLoadError = ref(false);
+
+async function loadAi() {
+  try {
+    const [loadedModels, loadedTypes, loadedCredentials] = await Promise.all([
+      listLlmCatalog(),
+      listCredentialTypes(),
+      listCredentials(),
+    ]);
+    models.value = loadedModels;
+    types.value = loadedTypes;
+    credentials.value = loadedCredentials;
+    aiLoadError.value = false;
+  } catch {
+    // Not a reason to hold anybody here: the tour runs without AI, and
+    // Settings → AI is where a connection can be made later.
+    aiLoadError.value = true;
+  }
+  aiLoaded.value = true;
+}
+
+/** The connection form reported a change; back to the list once it worked. */
+async function onConnectionChanged() {
+  await loadAi();
+  if (connecting.value && providerHasKey(models.value, connecting.value)) {
+    connecting.value = null;
+  }
+}
+
+function credentialTypeOf(provider: ProviderId): CredentialTypeSchema | null {
+  const typeId = credentialTypeForProvider(models.value, provider);
+  return types.value.find((type) => type.id === typeId) ?? null;
+}
+
+const connectingTab = computed(
+  () => AI_PROVIDER_TABS.find((tab) => tab.id === connecting.value) ?? null,
+);
 
 onMounted(async () => {
   // The card is click-through until the host is told which pixels are ours.
@@ -120,21 +200,38 @@ onMounted(async () => {
   void syncInteractiveRegions();
 });
 
+// Every page or view switch changes the card's height.
+watch([page, connecting, aiLoaded], () => void syncInteractiveRegions(), { flush: "post" });
+
 /** Pick which display the double tap covers. Persists immediately. */
 function onOpenMonitor(target: OpenMonitor) {
   setOpenMonitor(target);
 }
 
 /**
- * Commit the autostart choice and close the card.
- *
- * What happens next — the desk, the palette, the tour — is the host's to
- * sequence: it watches `setupState` and reveals them in one place. This card is
- * a form and stops at being one.
+ * Commit the autostart choice and turn to the AI page.
  *
  * A refused write is not a reason to keep the user here: `useAutostart` puts
  * the reason next to the switch in Settings, and the entry is not something the
  * rest of onboarding depends on.
+ */
+async function leaveMachinePage() {
+  if (busy.value || page.value !== "machine") return;
+  busy.value = true;
+  if (autostartSupported.value) {
+    await setEnabled(wantsAutostart.value);
+  }
+  busy.value = false;
+  page.value = "ai";
+  void loadAi();
+}
+
+/**
+ * Close the card and start the tour.
+ *
+ * What happens next — the desk, the palette, the tour — is the host's to
+ * sequence: it watches `setupState` and reveals them in one place. This card is
+ * a form and stops at being one.
  */
 async function onContinue() {
   await commit();
@@ -148,9 +245,6 @@ async function onSkipTour() {
 async function commit(opts: { tour?: boolean } = {}) {
   if (busy.value) return;
   busy.value = true;
-  if (autostartSupported.value) {
-    await setEnabled(wantsAutostart.value);
-  }
   // Recorded before the card closes: the host watches `setupState` and reveals
   // the desk when it flips, so anything that must be decided first — including
   // whether there is a tour to reveal into — belongs on this side of it.
@@ -162,89 +256,159 @@ async function commit(opts: { tour?: boolean } = {}) {
 
 <template>
   <div v-if="visible" class="setup" aria-live="polite">
-    <div class="setup-card" data-interactive role="dialog" aria-label="Set up Kavibay">
-      <div class="setup-head">
-        <img class="setup-logo" :src="logo" alt="" width="40" height="40" />
-        <p class="setup-title">Welcome to Kavibay</p>
+    <div
+      class="setup-card"
+      data-interactive
+      role="dialog"
+      :aria-label="t('onboarding.setup.ariaLabel')"
+    >
+      <div
+        class="setup-dots"
+        role="img"
+        :aria-label="t('onboarding.setup.pages', { current: page === 'machine' ? 1 : 2, total: 2 })"
+      >
+        <span class="setup-dot" :class="{ 'setup-dot--active': page === 'machine' }" />
+        <span class="setup-dot" :class="{ 'setup-dot--active': page === 'ai' }" />
       </div>
-      <p class="setup-lead">{{ lead }}</p>
 
-      <section v-if="asksForDoubleTap" class="setup-gesture">
-        <div class="setup-keys" aria-hidden="true">
-          <kbd class="setup-keycap">{{ doubleTapKey }}</kbd>
-          <kbd class="setup-keycap">{{ doubleTapKey }}</kbd>
+      <template v-if="page === 'machine'">
+        <div class="setup-head">
+          <img class="setup-logo" :src="logo" alt="" width="40" height="40" />
+          <p class="setup-title">{{ t("onboarding.setup.title") }}</p>
         </div>
-        <p class="setup-gesture-title">Tap {{ doubleTapKey }} twice to start the tour</p>
-        <p class="setup-gesture-body">
-          Remember this one: it brings Kavibay up from any app, and tapping it
-          twice again puts everything out of the way.
-        </p>
-      </section>
+        <p class="setup-lead">{{ lead }}</p>
 
-      <section v-else class="setup-hint">
-        <p class="setup-hint-title">{{ revealHint.title }}</p>
-        <p class="setup-hint-body">
-          <template v-for="(seg, i) in revealHint.segments" :key="i">
-            <kbd v-if="seg.typed" class="setup-key">{{ seg.text }}</kbd>
-            <template v-else>{{ seg.text }}</template>
-          </template>
-        </p>
-      </section>
+        <label v-if="autostartSupported" class="toggle">
+          <span class="toggle-copy">
+            <span class="toggle-title">{{ t("onboarding.setup.autostart.title") }}</span>
+            <span class="toggle-hint">
+              {{ t("onboarding.setup.autostart.hint", { place: waitingPlace(platform) }) }}
+            </span>
+          </span>
+          <span class="switch">
+            <input type="checkbox" v-model="wantsAutostart" />
+            <span class="switch-ui" />
+          </span>
+        </label>
 
-      <label v-if="autostartSupported" class="toggle">
-        <span class="toggle-copy">
-          <span class="toggle-title">Start Kavibay when I log in</span>
-          <span class="toggle-hint">Waits in {{ waitingPlace(platform) }}, out of the way.</span>
-        </span>
-        <span class="switch">
-          <input type="checkbox" v-model="wantsAutostart" />
-          <span class="switch-ui" />
-        </span>
-      </label>
-
-      <section v-if="offerDisplayChoice" class="setup-block">
-        <p class="setup-block-title">Open on</p>
-        <p class="setup-block-hint">
-          You have more than one screen. Which one should a double tap on
-          {{ doubleTapKey }} cover?
-        </p>
-        <div class="choice-row" role="listbox" aria-label="Open on">
-          <button
-            v-for="opt in openMonitors"
-            :key="opt.id"
-            type="button"
-            class="choice"
-            role="option"
-            :aria-selected="openMonitor === opt.id"
-            :class="{ 'choice--active': openMonitor === opt.id }"
-            @click="onOpenMonitor(opt.id)"
+        <section v-if="offerDisplayChoice" class="setup-block">
+          <p class="setup-block-title">{{ t("onboarding.setup.display.title") }}</p>
+          <p class="setup-block-hint">
+            {{ t("onboarding.setup.display.hint", { key: doubleTapKey }) }}
+          </p>
+          <div
+            class="choice-row"
+            role="listbox"
+            :aria-label="t('onboarding.setup.display.title')"
           >
-            {{ opt.name }}
+            <button
+              v-for="opt in openMonitors"
+              :key="opt.id"
+              type="button"
+              class="choice"
+              role="option"
+              :aria-selected="openMonitor === opt.id"
+              :class="{ 'choice--active': openMonitor === opt.id }"
+              @click="onOpenMonitor(opt.id)"
+            >
+              {{ opt.name }}
+            </button>
+          </div>
+        </section>
+
+        <p v-if="autostartError" class="setup-error">
+          {{ t("onboarding.setup.autostart.error", { error: autostartError }) }}
+        </p>
+
+        <div class="setup-actions">
+          <button type="button" class="setup-continue" :disabled="busy" @click="leaveMachinePage">
+            {{ t("onboarding.setup.continue") }}
           </button>
         </div>
-      </section>
+      </template>
 
-      <p v-if="autostartError" class="setup-error">
-        Could not change the startup entry: {{ autostartError }}
-      </p>
+      <template v-else-if="connectingTab">
+        <div class="setup-connect-head">
+          <button type="button" class="setup-back" @click="connecting = null">
+            <span aria-hidden="true">‹</span> {{ t("onboarding.setup.ai.back") }}
+          </button>
+          <BrandMark
+            :provider="credentialTypeForProvider(models, connectingTab.id) ?? connectingTab.id"
+            :size="18"
+          />
+          <p class="setup-connect-title">{{ connectingTab.label }}</p>
+        </div>
+        <CredentialAccounts
+          v-if="credentialTypeOf(connectingTab.id)"
+          :key="credentialTypeOf(connectingTab.id)!.id"
+          :type="credentialTypeOf(connectingTab.id)!"
+          :credentials="credentials"
+          @changed="onConnectionChanged"
+        />
+      </template>
 
-      <div class="setup-actions">
-        <!-- Both buttons commit the autostart choice; only the tour differs.
-             Somebody who does not want to be shown around still answered the
-             question, and their answer has to stick. -->
-        <button type="button" class="setup-skip" :disabled="busy" @click="onSkipTour">
-          Skip the tour
-        </button>
-        <button
-          type="button"
-          class="setup-continue"
-          :class="{ 'setup-continue--quiet': asksForDoubleTap }"
-          :disabled="busy"
-          @click="onContinue"
-        >
-          {{ asksForDoubleTap ? "Or click here" : "Show me around" }}
-        </button>
-      </div>
+      <template v-else>
+        <p class="setup-title">{{ t("onboarding.setup.ai.title") }}</p>
+        <p class="setup-lead">{{ t("onboarding.setup.ai.hint") }}</p>
+
+        <p v-if="aiLoadError" class="setup-error">{{ t("onboarding.setup.ai.loadError") }}</p>
+        <div v-else-if="aiLoaded" class="setup-providers">
+          <button
+            v-for="tab in AI_PROVIDER_TABS"
+            :key="tab.id"
+            type="button"
+            class="setup-provider"
+            @click="connecting = tab.id"
+          >
+            <BrandMark :provider="credentialTypeForProvider(models, tab.id) ?? tab.id" :size="18" />
+            <span class="setup-provider-label">{{ tab.label }}</span>
+            <span v-if="providerHasKey(models, tab.id)" class="setup-provider-status">
+              {{ t("onboarding.setup.ai.connected") }}
+            </span>
+            <span class="setup-provider-chevron" aria-hidden="true">›</span>
+          </button>
+        </div>
+
+        <section v-if="asksForDoubleTap" class="setup-gesture">
+          <div class="setup-keys" aria-hidden="true">
+            <kbd class="setup-keycap">{{ doubleTapKey }}</kbd>
+            <kbd class="setup-keycap">{{ doubleTapKey }}</kbd>
+          </div>
+          <p class="setup-gesture-title">
+            {{ t("onboarding.setup.gesture.title", { key: doubleTapKey }) }}
+          </p>
+          <p class="setup-gesture-body">{{ t("onboarding.setup.gesture.body") }}</p>
+        </section>
+
+        <section v-else class="setup-hint">
+          <p class="setup-hint-title">{{ revealHint.title }}</p>
+          <p class="setup-hint-body">
+            <template v-for="(seg, i) in revealHint.segments" :key="i">
+              <kbd v-if="seg.typed" class="setup-key">{{ seg.text }}</kbd>
+              <template v-else>{{ seg.text }}</template>
+            </template>
+          </p>
+        </section>
+
+        <div class="setup-actions">
+          <!-- Only the tour differs between the two; the answers on page 1 are
+               already committed, and a connection saves itself. -->
+          <button type="button" class="setup-skip" :disabled="busy" @click="onSkipTour">
+            {{ t("onboarding.setup.skipTour") }}
+          </button>
+          <button
+            type="button"
+            class="setup-continue"
+            :class="{ 'setup-continue--quiet': asksForDoubleTap }"
+            :disabled="busy"
+            @click="onContinue"
+          >
+            {{
+              asksForDoubleTap ? t("onboarding.setup.orClick") : t("onboarding.setup.showMeAround")
+            }}
+          </button>
+        </div>
+      </template>
     </div>
   </div>
 </template>
@@ -544,6 +708,98 @@ async function commit(opts: { tour?: boolean } = {}) {
 .setup-continue:disabled {
   cursor: default;
   opacity: 0.6;
+}
+
+.setup-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.setup-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.2);
+  transition: width 160ms ease;
+}
+
+.setup-dot--active {
+  width: 18px;
+  background: rgba(var(--fg-rgb), 0.7);
+}
+
+.setup-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 14px;
+}
+
+.setup-provider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(var(--fg-rgb), 0.04);
+  color: rgba(var(--fg-rgb), 0.92);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.setup-provider:hover,
+.setup-provider:focus-visible {
+  background: rgba(var(--fg-rgb), 0.08);
+  outline: none;
+}
+
+.setup-provider-label {
+  flex: 1;
+  font-weight: 500;
+}
+
+.setup-provider-status {
+  font-size: 12px;
+  color: rgba(120, 200, 140, 0.95);
+}
+
+.setup-provider-chevron {
+  color: rgba(var(--fg-rgb), 0.4);
+}
+
+.setup-connect-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.setup-connect-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.setup-back {
+  padding: 0;
+  margin-right: 4px;
+  border: 0;
+  background: none;
+  color: rgba(var(--fg-rgb), 0.65);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.setup-back:hover,
+.setup-back:focus-visible {
+  color: rgba(var(--fg-rgb), 0.9);
+  outline: none;
 }
 
 @media (max-width: 560px) {
