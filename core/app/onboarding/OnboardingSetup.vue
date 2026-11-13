@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * The first thing anybody ever sees: the greeting, the setup questions, and
- * which AI to use — two pages of one card.
+ * The first thing anybody ever sees: the greeting, the setup questions,
+ * which AI to use, and how to start the tour — three pages of one card.
  *
  * They were once two screens — a welcome bubble, then a form — which is one
  * click and one full redraw to say a thing that fits in a paragraph. Worse, the
@@ -12,9 +12,10 @@
  * Page 1 asks about the machine: autostart, and which display when there is a
  * choice. Page 2 asks which AI provider to use, with the same connection form
  * Settings → AI shows (`CredentialAccounts`), and is optional — not connecting
- * anything is an answer. The double tap that starts the tour lives on page 2,
- * because it closes the card; pressed on page 1 it only turns the page
- * (`nextSetupPageOnGesture`), so nobody skips the AI question unseen.
+ * anything is an answer. Page 3 is the double tap that starts the tour: a
+ * topic of its own, and the page that closes the card. Pressed earlier, the
+ * gesture only turns the page (`nextSetupPage`), so nobody skips a question
+ * unseen.
  *
  * The answers commit differently, on purpose. The display choice is an
  * ordinary preference and is written the moment it is clicked, exactly as the
@@ -52,7 +53,8 @@ import { doubleTapKeyLabel, keyPlatform } from "../host/shortcutHints";
 import { onboardingRevealHintCopy, waitingPlace } from "./onboardingCopy";
 import {
   isSetupVisible,
-  nextSetupPageOnGesture,
+  nextSetupPage,
+  SETUP_PAGES,
   setupQuestionCount,
   shouldOfferDisplayChoice,
   type SetupPage,
@@ -123,12 +125,12 @@ onScopeDispose(() => releaseDismiss?.());
 // The host hands over the reveal gesture while the card is up; see `setupGestureCount`.
 watch(setupGestureCount, () => {
   if (!visible.value) return;
-  if (nextSetupPageOnGesture(page.value) === "ai") {
-    void leaveMachinePage();
-    return;
+  if (page.value === "machine") void leaveMachinePage();
+  else if (page.value === "ai") leaveAiPage();
+  else {
+    setupAnsweredByGesture.value = true;
+    void onContinue();
   }
-  setupAnsweredByGesture.value = true;
-  void onContinue();
 });
 
 /** Counts what the card actually asks on this machine. */
@@ -142,6 +144,9 @@ const lead = computed(() =>
 );
 
 const busy = ref(false);
+
+/** 1-based position for the dots' label. */
+const pageNumber = computed(() => SETUP_PAGES.indexOf(page.value) + 1);
 
 // AI page data: loaded once the page is reached, reloaded after every change a
 // connection form reports — the same three lists Settings → AI reads.
@@ -226,6 +231,13 @@ async function leaveMachinePage() {
   void loadAi();
 }
 
+/** On to the last page; a half-filled connection form is left behind unsaved. */
+function leaveAiPage() {
+  connecting.value = null;
+  const next = nextSetupPage(page.value);
+  if (next !== "finish") page.value = next;
+}
+
 /**
  * Close the card and start the tour.
  *
@@ -265,10 +277,14 @@ async function commit(opts: { tour?: boolean } = {}) {
       <div
         class="setup-dots"
         role="img"
-        :aria-label="t('onboarding.setup.pages', { current: page === 'machine' ? 1 : 2, total: 2 })"
+        :aria-label="t('onboarding.setup.pages', { current: pageNumber, total: SETUP_PAGES.length })"
       >
-        <span class="setup-dot" :class="{ 'setup-dot--active': page === 'machine' }" />
-        <span class="setup-dot" :class="{ 'setup-dot--active': page === 'ai' }" />
+        <span
+          v-for="p in SETUP_PAGES"
+          :key="p"
+          class="setup-dot"
+          :class="{ 'setup-dot--active': page === p }"
+        />
       </div>
 
       <template v-if="page === 'machine'">
@@ -327,7 +343,7 @@ async function commit(opts: { tour?: boolean } = {}) {
         </div>
       </template>
 
-      <template v-else-if="connectingTab">
+      <template v-else-if="page === 'ai' && connectingTab">
         <div class="setup-connect-head">
           <button type="button" class="setup-back" @click="connecting = null">
             <span aria-hidden="true">‹</span> {{ t("onboarding.setup.ai.back") }}
@@ -347,7 +363,7 @@ async function commit(opts: { tour?: boolean } = {}) {
         />
       </template>
 
-      <template v-else>
+      <template v-else-if="page === 'ai'">
         <p class="setup-title">{{ t("onboarding.setup.ai.title") }}</p>
         <p class="setup-lead">{{ t("onboarding.setup.ai.hint") }}</p>
 
@@ -369,7 +385,15 @@ async function commit(opts: { tour?: boolean } = {}) {
           </button>
         </div>
 
-        <section v-if="asksForDoubleTap" class="setup-gesture">
+        <div class="setup-actions">
+          <button type="button" class="setup-continue" @click="leaveAiPage">
+            {{ t("onboarding.setup.continue") }}
+          </button>
+        </div>
+      </template>
+
+      <template v-else>
+        <section v-if="asksForDoubleTap" class="setup-gesture setup-gesture--first">
           <div class="setup-keys" aria-hidden="true">
             <kbd class="setup-keycap">{{ doubleTapKey }}</kbd>
             <kbd class="setup-keycap">{{ doubleTapKey }}</kbd>
@@ -380,7 +404,7 @@ async function commit(opts: { tour?: boolean } = {}) {
           <p class="setup-gesture-body">{{ t("onboarding.setup.gesture.body") }}</p>
         </section>
 
-        <section v-else class="setup-hint">
+        <section v-else class="setup-hint setup-gesture--first">
           <p class="setup-hint-title">{{ revealHint.title }}</p>
           <p class="setup-hint-body">
             <template v-for="(seg, i) in revealHint.segments" :key="i">
@@ -391,8 +415,8 @@ async function commit(opts: { tour?: boolean } = {}) {
         </section>
 
         <div class="setup-actions">
-          <!-- Only the tour differs between the two; the answers on page 1 are
-               already committed, and a connection saves itself. -->
+          <!-- Only the tour differs between the two; the answers on the earlier
+               pages are already committed, and a connection saves itself. -->
           <button type="button" class="setup-skip" :disabled="busy" @click="onSkipTour">
             {{ t("onboarding.setup.skipTour") }}
           </button>
@@ -708,6 +732,11 @@ async function commit(opts: { tour?: boolean } = {}) {
 .setup-continue:disabled {
   cursor: default;
   opacity: 0.6;
+}
+
+/* The dots already sit above it; the block's own top margin would double the gap. */
+.setup-gesture--first {
+  margin-top: 0;
 }
 
 .setup-dots {

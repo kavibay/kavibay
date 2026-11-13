@@ -89,22 +89,25 @@ export function shouldOfferDisplayChoice(monitorCount: number): boolean {
 }
 
 /**
- * The card's two pages: the machine questions, then which AI to use.
+ * The card's pages, in order: the machine questions, which AI to use, and the
+ * keystroke that starts the tour.
  *
- * The AI page comes last because it is the one a user may want to leave
- * unanswered, and it ends with the double tap that starts the tour — the
- * gesture has to sit on the page that closes the card.
+ * Three topics, three pages. The AI page is the one a user may leave
+ * unanswered; the keystroke page closes the card, so the gesture it asks for
+ * has to be on the last one.
  */
-export type SetupPage = "machine" | "ai";
+export const SETUP_PAGES = ["machine", "ai", "start"] as const;
+export type SetupPage = (typeof SETUP_PAGES)[number];
 
 /**
- * What the reveal gesture does while the card is up.
+ * The page after `page`, or "finish" after the last one.
  *
- * On the first page it turns the page instead of closing the card: someone
- * pressing ahead out of habit would otherwise skip the AI question unseen.
+ * Also what the reveal gesture does while the card is up: before the last
+ * page it turns the page instead of closing the card, so someone pressing ahead
+ * out of habit does not skip the questions unseen.
  */
-export function nextSetupPageOnGesture(page: SetupPage): SetupPage | "finish" {
-  return page === "machine" ? "ai" : "finish";
+export function nextSetupPage(page: SetupPage): SetupPage | "finish" {
+  return SETUP_PAGES[SETUP_PAGES.indexOf(page) + 1] ?? "finish";
 }
 
 /** Questions the card asks on this machine, for the lead. The AI one is always asked. */
