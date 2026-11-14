@@ -66,6 +66,7 @@ import {
 import {
   ensureAppIcons,
   ensureInstalledAppsIndex,
+  hydrateAppIconsFromCache,
   installedAppIcons,
   installedAppsIndex,
   prewarmAppIcons,
@@ -412,12 +413,18 @@ async function searchWeb(id: WebSearchActionId) {
   }
 }
 const listEl = ref<HTMLUListElement | null>(null);
-/** Custom overlay scrollbar (paints on top of rows; no layout gutter). */
+/**
+ * Custom overlay scrollbar (paints on top of rows; no layout gutter).
+ *
+ * Only whether it shows is reactive. The thumb's size and position are written
+ * to the element in `syncListOverlay`: they change with every scroll event, and
+ * as reactive state each change re-rendered the whole palette — measured, 40
+ * scroll steps were 44 renders, and typing rendered twice per changed list.
+ */
 const listOverlay = reactive({
   needed: false,
-  thumbH: 0,
-  thumbY: 0,
 });
+const listThumbEl = ref<HTMLElement | null>(null);
 let listOverlayRo: ResizeObserver | undefined;
 const paletteMenuOpen = ref(false);
 /** Where a right-click opened the menu, relative to the palette; null for the ⋯ button. */
@@ -1748,15 +1755,24 @@ watch(showSearchActions, (visible) => {
 /** Keep host preview scale in sync with the selected palette row. */
 watch([selectedIndex, results], syncPreviewFromSelection, { immediate: true });
 
-/** Warm shell icons for visible app hits (debounced so typing isn't fighting IPC). */
+/**
+ * Shell icons for the app rows on screen, in two steps.
+ *
+ * An icon that was drawn before sits in the disk cache, and reading the cache
+ * is one call for all rows: that is asked for at once, so a known app does not
+ * show an empty slot for the length of the debounce. Extracting one is shell
+ * work per icon, for rows the next keystroke may drop again — that waits for a
+ * pause in typing, and for the cache's answer, so it only runs for the misses.
+ */
 let iconWarmTimer: ReturnType<typeof setTimeout> | undefined;
 watch(results, (rows) => {
   if (iconWarmTimer) clearTimeout(iconWarmTimer);
+  const paths = rows
+    .filter((row): row is Extract<PaletteRow, { kind: "app" }> => row.kind === "app")
+    .map((row) => row.path);
+  const cached = hydrateAppIconsFromCache(paths);
   iconWarmTimer = setTimeout(() => {
-    const paths = rows
-      .filter((row): row is Extract<PaletteRow, { kind: "app" }> => row.kind === "app")
-      .map((row) => row.path);
-    if (paths.length > 0) ensureAppIcons(paths);
+    if (paths.length > 0) void cached.then(() => ensureAppIcons(paths));
     // File rows want one icon per extension, so a folder full of PDFs asks once.
     const typeKeys = rows.map((row) => rowFileTypeKey(row));
     void ensureFileTypeIcons(typeKeys);
@@ -2212,9 +2228,12 @@ function syncListOverlay() {
   const maxScroll = sh - ch;
   const maxY = Math.max(0, track - thumbH);
   listOverlay.needed = true;
-  listOverlay.thumbH = thumbH;
-  listOverlay.thumbY =
-    trackPad + (maxScroll > 0 ? (el.scrollTop / maxScroll) * maxY : 0);
+  const thumbY = trackPad + (maxScroll > 0 ? (el.scrollTop / maxScroll) * maxY : 0);
+  // Straight to the element, not through the template — see `listOverlay`.
+  const thumb = listThumbEl.value;
+  if (!thumb) return;
+  thumb.style.height = `${thumbH}px`;
+  thumb.style.transform = `translateY(${thumbY}px)`;
 }
 
 function moveSelection(delta: number) {
@@ -3460,6 +3479,7 @@ onMounted(async () => {
   inputEl.value?.focus();
   refreshSearchAiModel();
   window.addEventListener("kavibay:focus-palette", onFocusPaletteEvent);
+  window.addEventListener("kavibay:palette-show", onPaletteShow);
   window.addEventListener("resize", syncViewportListHeight);
   document.addEventListener("keydown", onDocumentShiftTab, true);
   document.addEventListener("keydown", syncModHeld, true);
@@ -3482,24 +3502,43 @@ onMounted(async () => {
     .catch(() => {
       homePath.value = null;
     });
-  unlistenShow = await listen("palette:show", () => {
-    refreshSearchAiModel();
-    paletteMenuOpen.value = false;
-    onboardingMenuOpen.value = false;
-    deskCtxMenu.value = null;
-    endDeskRename();
-    leftSearchViaTab = false;
-    clearWidgetFocus?.();
+  unlistenShow = await listen("palette:show", onPaletteShow);
+});
+
+/**
+ * The palette was (re)opened: close what was left open and take the keyboard.
+ *
+ * Reached two ways. `palette:show` is the Tauri event, for openers that start
+ * in Rust or in another component. `kavibay:palette-show` is the host's own
+ * hotkey path, a plain window event because a round trip through Rust only
+ * delayed the focus (see `showPaletteSearch` in WidgetHost).
+ */
+function onPaletteShow() {
+  refreshSearchAiModel();
+  // The index was only ever loaded on mount, so an app installed while Kavibay
+  // ran stayed unfindable until a restart. This returns the cached list at
+  // once and refetches behind it when the list is older than its TTL.
+  void ensureInstalledAppsIndex();
+  paletteMenuOpen.value = false;
+  onboardingMenuOpen.value = false;
+  deskCtxMenu.value = null;
+  endDeskRename();
+  leftSearchViaTab = false;
+  clearWidgetFocus?.();
+  // On the host's path the palette is still `display: none` in this tick, and
+  // an element that is not rendered cannot take focus.
+  void nextTick(() => {
     inputEl.value?.focus();
     // Spotlight-style reopen: keep the last query visible, but make fresh
     // typing replace it without requiring Backspace or a mouse selection.
     inputEl.value?.select();
   });
-});
+}
 
 onUnmounted(() => {
   paletteAi.reset();
   window.removeEventListener("kavibay:focus-palette", onFocusPaletteEvent);
+  window.removeEventListener("kavibay:palette-show", onPaletteShow);
   window.removeEventListener("resize", syncViewportListHeight);
   listOverlayRo?.disconnect();
   listOverlayRo = undefined;
@@ -4517,12 +4556,21 @@ onUnmounted(() => {
           <span v-if="rowMetaLabel(row)" class="palette-item-meta">{{
             rowMetaLabel(row)
           }}</span>
+          <!--
+            The action bars below keep their container on every row and fill
+            it only on the selected one. The buttons are invisible anywhere
+            else (hovering selects), yet they were half of the list's elements
+            and a KbdHint component each: measured, the first keystroke mounted
+            670 elements for 39 rows. The empty container still holds the
+            row's height (see `.palette-item-actions`), not its width.
+          -->
           <div
             v-if="row.kind === 'app'"
             class="palette-item-actions"
             @click.stop
             @pointerdown.stop
           >
+            <template v-if="index === selectedIndex">
             <button
               type="button"
               class="palette-item-action"
@@ -4549,6 +4597,7 @@ onUnmounted(() => {
             >
               <span>Hide</span>
             </button>
+            </template>
           </div>
           <div
             v-else-if="row.kind === 'folder' || row.kind === 'path'"
@@ -4556,6 +4605,7 @@ onUnmounted(() => {
             @click.stop
             @pointerdown.stop
           >
+            <template v-if="index === selectedIndex">
             <button
               type="button"
               class="palette-item-action"
@@ -4597,6 +4647,7 @@ onUnmounted(() => {
               <KbdHint :keys="['tab']" />
               <span>Browse</span>
             </button>
+            </template>
           </div>
           <div
             v-else-if="row.kind === 'type'"
@@ -4605,6 +4656,7 @@ onUnmounted(() => {
             @click.stop
             @pointerdown.stop
           >
+            <template v-if="index === selectedIndex">
             <KbdHint class="palette-item-mod" :keys="[modKeyLabel]" />
             <button
               type="button"
@@ -4649,6 +4701,7 @@ onUnmounted(() => {
                 row.smart !== "create" && row.targetInstanceId ? "Focus" : typePrimaryLabel(row)
               }}</span>
             </button>
+            </template>
           </div>
           <div
             v-else-if="row.kind === 'widget' && !row.snippet"
@@ -4664,7 +4717,7 @@ onUnmounted(() => {
               v-if="deleteRequest?.instanceId === row.instanceId"
               :request="deleteRequest"
             />
-            <template v-else>
+            <template v-else-if="index === selectedIndex">
               <KbdHint class="palette-item-mod" :keys="[modKeyLabel]" />
               <button
                 type="button"
@@ -4714,6 +4767,7 @@ onUnmounted(() => {
             @pointerdown.stop
           >
             <button
+              v-if="index === selectedIndex"
               type="button"
               class="palette-item-action"
               v-tip="'Enter arguments'"
@@ -4772,13 +4826,8 @@ onUnmounted(() => {
         class="palette-list-overlay-scroll"
         aria-hidden="true"
       >
-        <div
-          class="palette-list-overlay-thumb"
-          :style="{
-            height: `${listOverlay.thumbH}px`,
-            transform: `translateY(${listOverlay.thumbY}px)`,
-          }"
-        />
+        <!-- Sized and placed by `syncListOverlay`, not by a binding. -->
+        <div ref="listThumbEl" class="palette-list-overlay-thumb" />
       </div>
       </div>
     </div>
@@ -5771,6 +5820,12 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  /*
+   * A button's height: the 18px keycap plus its 4px padding twice. Only the
+   * selected row has buttons, and a one-line row is shorter than they are —
+   * without this it would grow by 7px each time the selection reached it.
+   */
+  min-height: 26px;
   visibility: hidden;
 }
 

@@ -75,7 +75,8 @@ pub fn write_cached_app_icon(app: &AppHandle, path: &str, png_bytes: &[u8]) -> R
 }
 
 /// Batch-read cached icons; only returns paths with disk hits (no shell extract).
-#[tauri::command]
+/// Off the main thread like `extract_app_icon`: this reads up to 24 files.
+#[tauri::command(async)]
 pub fn get_cached_app_icons(
     app: AppHandle,
     paths: Vec<String>,

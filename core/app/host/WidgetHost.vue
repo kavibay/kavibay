@@ -1538,13 +1538,12 @@ function onPaletteHotkey(revealedByRust = false) {
   if (peeking.value) {
     peeking.value = false;
     void openCockpit(true);
-    void emit("palette:show");
+    showPaletteSearch();
     return;
   }
   if (paletteHidden.value) {
     void openCockpit(revealedByRust);
-    // Focus search field (CommandPalette listens; host open is idempotent).
-    void emit("palette:show");
+    showPaletteSearch();
     return;
   }
   if (cockpitOpen.value && !revealedByRust) {
@@ -1553,8 +1552,24 @@ function onPaletteHotkey(revealedByRust = false) {
   }
 
   void openCockpit(revealedByRust);
-  // Focus search field (CommandPalette listens; host open is idempotent).
-  void emit("palette:show");
+  showPaletteSearch();
+}
+
+/**
+ * Put the palette back into its just-opened state: menus closed, search field
+ * focused and selected.
+ *
+ * A window event rather than the Tauri `palette:show` the hotkey used to emit.
+ * That one went to Rust and came back before the palette heard it — measured,
+ * the search field took the focus about 14ms after the cockpit's first frame —
+ * and its echo ran `openCockpit` a second time on the way. Nothing here needs
+ * another process: host and palette share a document. `palette:show` remains
+ * for the openers that start in Rust (tray) or have no cockpit to open first.
+ */
+function showPaletteSearch() {
+  window.dispatchEvent(new CustomEvent("kavibay:palette-show"));
+  // The palette focuses on the next tick, once it is rendered; queued behind it.
+  void nextTick(() => markOpenTiming("search-focus"));
 }
 
 /**
@@ -2404,13 +2419,11 @@ onMounted(async () => {
   // Constant for the process lifetime — the display backend cannot change under it.
   domGapCatcher.value = await needsDomGapCatcher();
   // Focus search after open (also idempotent cockpit open).
-  // Every emitter of `palette:show` — tray Open/Settings in Rust, the hotkey
-  // handler, the last-card-closed nudge — has a visible, focused window by the
+  // Every emitter of `palette:show` — tray Open/Settings in Rust, the
+  // last-card-closed nudge, the tour — has a visible, focused window by the
   // time it fires, so the host must not repeat show/focus over IPC here. The
-  // hotkey path in particular emits this right after opening, which would
-  // otherwise undo the saving in `onPaletteHotkey`.
+  // hotkey does not come this way: see `showPaletteSearch`.
   unlistenPaletteShow = await listen("palette:show", () => {
-    markOpenTiming("palette-show");
     void openCockpit(true);
   });
   unlistenPaletteHotkey = await listen<{

@@ -17,8 +17,25 @@ export interface FuzzyMatch {
  */
 const SEPARATOR = /[\s\-_]/;
 
+/**
+ * `SEPARATOR.test(ch)`, answered by comparison for ASCII.
+ *
+ * The alignment asks this for every target character that is not the one it
+ * is looking for, and a note's whole text is a target: measured, the regex was
+ * half the cost of walking one. The regex stays for the Unicode spaces `\s`
+ * also covers, so the answer is the same for every character.
+ */
+function isSeparator(ch: string): boolean {
+  const code = ch.charCodeAt(0);
+  if (code < 128) {
+    // Space, hyphen, underscore, and tab to carriage return — ASCII's `\s`.
+    return code === 32 || code === 45 || code === 95 || (code >= 9 && code <= 13);
+  }
+  return SEPARATOR.test(ch);
+}
+
 const sameChar = (a: string, b: string) =>
-  a === b || (SEPARATOR.test(a) && SEPARATOR.test(b));
+  a === b || (isSeparator(a) && isSeparator(b));
 
 /**
  * One way of laying the query over the target, plus everything the accept rules
@@ -224,6 +241,17 @@ export function fuzzyMatch(query: string, target: string): FuzzyMatch {
 
   const q = query.toLowerCase();
   const t = target.toLowerCase();
+
+  // A letter the target does not contain settles it, and `includes` finds that
+  // out natively instead of `alignLeft` walking the target in script. Most rows
+  // leave here. It matters for note text: a query with a character no note has
+  // ("7", "ö") walked every note to its end — measured over 1.8 MB of notes,
+  // 50 ms per keystroke, now 0.5. Separators are exempt: a typed space may
+  // match a hyphen.
+  for (let i = 0; i < q.length; i++) {
+    const ch = q[i]!;
+    if (!isSeparator(ch) && !t.includes(ch)) return { matched: false, score: 0 };
+  }
 
   const left = alignLeft(q, t);
   // Not a subsequence in either direction: the right-hand pass reuses the end

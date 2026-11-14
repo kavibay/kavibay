@@ -8,8 +8,13 @@
 //! gesture was recognised:
 //!
 //! ```text
-//! [open-timing] main 0.4 | show 38.1 | focus 38.9 | fit 52.0 | emit 52.3 | event 61.7 | frame 70.2 | resumed 88.5 | palette-show 64.0 | painted 104.9 (ms since trigger)
+//! [open-timing] main 0.4 | fit 0.5 | emit 0.7 | show 60.1 | focus 60.2 | refit 60.3 | event 2.1 | search-focus 9.8 | frame 70.2 | resumed 71.0 | painted 86.9 (ms since trigger)
 //! ```
+//!
+//! The stages are listed Rust first, then frontend, each side in the order it
+//! ran — not sorted by time. The event goes out before `show()`, so `event`
+//! and `search-focus` are expected to be smaller than `show`: that overlap is
+//! the point of sending it first.
 //!
 //! Debug builds only (`pnpm run tauri dev`). A release build records nothing,
 //! sends nothing to the frontend and the report command returns at once.

@@ -59,6 +59,9 @@ assert(fuzzyMatch("hello-world", "hello world").matched, "and the other way roun
 assert(fuzzyMatch("air quality", "air_quality").matched, "underscores too");
 assert(fuzzyMatch("helloworld", "hello-world").matched, "leaving it out still works");
 assert(fuzzyMatch("hello world", "Hello World").matched, "and so does typing it exactly");
+// A space outside ASCII is still a space: notes pasted from the web carry them.
+assert(fuzzyMatch("hello world", "hello\u00a0world").matched, "a no-break space is a separator");
+assert(fuzzyMatch("hello world", "hello\tworld").matched, "and so is a tab");
 
 // Only separators widen. A letter must still be that letter, or every query
 // would start matching things it has no business matching.

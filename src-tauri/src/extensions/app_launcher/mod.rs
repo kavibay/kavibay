@@ -78,7 +78,12 @@ pub fn open_windows_search(query: String) -> Result<(), String> {
 
 /// Extract the shell icon for a path and return a PNG data URL.
 /// Returns a disk cache hit when available; writes PNG to cache after extract.
-#[tauri::command]
+///
+/// `async` keeps it off the main thread: a plain command runs there, and that
+/// is the thread that shows the window. Resolving a shortcut and rendering its
+/// icon is shell work of no fixed length, asked for a dozen rows at a time
+/// while someone is typing.
+#[tauri::command(async)]
 pub fn extract_app_icon(app: AppHandle, path: String) -> Result<String, String> {
     if let Some(cached) = crate::palette_app_icons::read_cached_app_icon(&app, &path) {
         return Ok(cached);

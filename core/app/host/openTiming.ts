@@ -7,10 +7,14 @@
  * line to the `pnpm run tauri dev` terminal:
  *
  *   event         the `palette:hotkey` listener runs
+ *   search-focus  the palette is rendered and the search field has the focus
  *   frame         first animation frame after it — the first chance to paint
  *   resumed       the same frame, after the host's own callback (widget onResume)
- *   palette-show  the `palette:show` echo is back and the search field takes focus
  *   painted       the frame after that, i.e. the opening is on screen
+ *
+ * Rust sends the event before it shows the window, so `event` and
+ * `search-focus` normally land while the window is still hidden; the frames
+ * cannot, because a hidden page gets no animation frames.
  */
 import { invoke } from "@tauri-apps/api/core";
 
@@ -53,7 +57,7 @@ export function beginOpenTiming(originMs: number | undefined): { afterHostHandle
 
   trace = {
     marks: [],
-    waiting: new Set(["frame", "resumed", "palette-show", "painted"]),
+    waiting: new Set(["search-focus", "frame", "resumed", "painted"]),
     timer: setTimeout(report, REPORT_TIMEOUT_MS),
   };
   markOpenTiming("event");

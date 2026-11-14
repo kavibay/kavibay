@@ -205,23 +205,26 @@ fn toggle_cockpit(app: &tauri::AppHandle, force_cursor: bool, trigger: CockpitTr
 
     // If we reveal a hidden window here, tell the frontend so it does
     // not treat the hotkey as "close" (stale cockpitOpen after hide).
-    let mut revealed = false;
-    if !window.is_visible().unwrap_or(false) {
-        revealed = true;
-        // Show immediately, then place — waiting on two fits before
-        // show made opening feel laggy on multi-DPI setups.
-        let _ = window.show();
-        mark(&mut timing, "show");
-        let _ = window.set_focus();
-        mark(&mut timing, "focus");
-        let _ = fit_window_to_monitor(&window, target);
-        mark(&mut timing, "fit");
-    }
+    let revealed = !window.is_visible().unwrap_or(false);
     if !revealed {
         timing = None;
     }
+    if revealed {
+        // Place while still hidden. Reopening on the same monitor returns
+        // before any SetWindowPos, so this is free in the common case. On a
+        // monitor change it has to happen before the event below: the frontend
+        // draws the cockpit as soon as it hears it, and a window shown first
+        // would flash that cockpit on the screen it is about to leave.
+        let _ = fit_window_to_monitor(&window, target);
+        mark(&mut timing, "fit");
+    }
 
     // Single frontend entry: open cockpit or close (pinned may remain).
+    //
+    // Sent before `show()`, not after. Measured over 14 openings, show + focus
+    // block this thread for about 60ms, and the frontend then needed another
+    // 20ms to its first frame. The webview is a separate process: told first,
+    // it builds the cockpit while this thread is busy showing the window.
     let _ = window.emit(
         "palette:hotkey",
         PaletteHotkeyPayload {
@@ -230,8 +233,21 @@ fn toggle_cockpit(app: &tauri::AppHandle, force_cursor: bool, trigger: CockpitTr
             timing_origin_ms: timing.as_ref().map(open_timing::OpenTrace::origin_ms),
         },
     );
-    if let Some(mut trace) = timing {
-        trace.mark("emit");
+    mark(&mut timing, "emit");
+
+    if revealed {
+        let _ = window.show();
+        mark(&mut timing, "show");
+        let _ = window.set_focus();
+        mark(&mut timing, "focus");
+        // Again, now that the window is on screen: a move across monitors with
+        // different DPI can leave a hidden window short of the edge, and this
+        // is the placement every opening used to rely on. It returns at once
+        // when the first one already covered the monitor.
+        let _ = fit_window_to_monitor(&window, target);
+        mark(&mut timing, "refit");
+    }
+    if let Some(trace) = timing {
         open_timing::await_frontend(trace);
     }
     if let Some(label) = trigger.demo_label() {
@@ -268,19 +284,25 @@ fn peek_cockpit(app: &tauri::AppHandle, active: bool) {
     };
 
     let mut revealed = false;
+    let target = open_monitor_target(&window);
     if active {
         // Same reason as in `toggle_cockpit`: a stuck ignore_cursor_events makes a
         // visible window look closed, and the peek would show nothing.
         make_interactive(&window);
-        if !window.is_visible().unwrap_or(false) {
-            revealed = true;
-            let _ = window.show();
-            let _ = window.set_focus();
-            let _ = fit_window_to_monitor(&window, open_monitor_target(&window));
+        revealed = !window.is_visible().unwrap_or(false);
+        if revealed {
+            // Placed while hidden, then the event, then show — the order and
+            // the reasons are `toggle_cockpit`'s.
+            let _ = fit_window_to_monitor(&window, target);
         }
     }
 
     let _ = window.emit("cockpit:peek", CockpitPeekPayload { active, revealed });
+    if revealed {
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = fit_window_to_monitor(&window, target);
+    }
     if active {
         show_demo_hotkey(app, "CTRL+SPACE");
     }
