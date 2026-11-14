@@ -23,6 +23,7 @@ export type WidgetLayoutMode = "freehand" | "grid";
  */
 export type ShadowStyleId =
   | "default"
+  | "layered"
   | "s0"
   | "s1"
   | "s2"
@@ -123,7 +124,12 @@ export const DEFAULT_DESKTOP_FILL_OPACITY = 0.35;
 export const MIN_DESKTOP_FILL_OPACITY = 0.05;
 export const MAX_DESKTOP_FILL_OPACITY = 0.95;
 
-export const DEFAULT_SHADOW_STYLE: ShadowStyleId = "s2";
+/**
+ * Layered for new profiles: an outer edge line plus a close, a middle and a far
+ * shadow, the depth that makes a card float rather than lie. A profile that
+ * saved another preset keeps it.
+ */
+export const DEFAULT_SHADOW_STYLE: ShadowStyleId = "layered";
 
 /** Default matches historic behavior (cover monitor under the mouse). */
 export const DEFAULT_OPEN_MONITOR: OpenMonitor = "cursor";
@@ -148,6 +154,14 @@ export const SHADOW_STYLE_OPTIONS: ShadowStyleOption[] = [
     name: "Default",
     hint: "Kavibay glass",
     css: `0 8px 24px ${sa(0.35)}`,
+  },
+  {
+    id: "layered",
+    name: "Layered",
+    hint: "Edge line, close, middle and far shadow",
+    // The outer edge is per colour mode (styles.css): a dark line in dark mode,
+    // a shadow tint in light mode, where a dark stroke looks like a cut-out.
+    css: `var(--surface-edge-outer, 0 0 transparent), 0 1px 2px ${sa(0.25)}, 0 8px 24px -6px ${sa(0.45)}, 0 24px 60px -20px ${sa(0.5)}`,
   },
   {
     id: "s0",

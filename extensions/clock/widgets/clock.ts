@@ -23,7 +23,7 @@ export interface ClockSettings {
 
 export interface ClockModel {
   now: Ref<Date>;
-  formatted: ComputedRef<{ time: string; date: string | null }>;
+  formatted: ComputedRef<{ time: string; date: string | null; secondsRange: [number, number] | null }>;
 }
 
 const CURATED_TIMEZONES = [
@@ -73,10 +73,27 @@ export function normalizeClockConfig(raw: unknown): ClockSettings {
   };
 }
 
+/**
+ * Where the separator and the seconds sit in a formatted time, so the view can
+ * dim them without rebuilding the locale's order: `14:59:01` → `:01`, and in
+ * `02:59:01 PM` only `:01`, never the day period after it.
+ */
+function secondsRangeOf(parts: Intl.DateTimeFormatPart[]): [number, number] | null {
+  let offset = 0;
+  for (let i = 0; i < parts.length; i += 1) {
+    if (parts[i].type === "second") {
+      const before = i > 0 && parts[i - 1].type === "literal" ? parts[i - 1].value.length : 0;
+      return [offset - before, offset + parts[i].value.length];
+    }
+    offset += parts[i].value.length;
+  }
+  return null;
+}
+
 export function formatClock(
   date: Date,
   settings: ClockSettings,
-): { time: string; date: string | null } {
+): { time: string; date: string | null; secondsRange: [number, number] | null } {
   const timeOptions: Intl.DateTimeFormatOptions = {
     hour: "2-digit",
     minute: "2-digit",
@@ -85,8 +102,10 @@ export function formatClock(
   if (settings.showSeconds) timeOptions.second = "2-digit";
   if (settings.timeZone !== "system") timeOptions.timeZone = settings.timeZone;
 
-  const time = new Intl.DateTimeFormat(settings.locale, timeOptions).format(date);
-  if (settings.dateStyle === "none") return { time, date: null };
+  const parts = new Intl.DateTimeFormat(settings.locale, timeOptions).formatToParts(date);
+  const time = parts.map((part) => part.value).join("");
+  const secondsRange = secondsRangeOf(parts);
+  if (settings.dateStyle === "none") return { time, date: null, secondsRange };
 
   const dateOptions: Intl.DateTimeFormatOptions =
     settings.dateStyle === "short"
@@ -97,6 +116,7 @@ export function formatClock(
   return {
     time,
     date: new Intl.DateTimeFormat(settings.locale, dateOptions).format(date),
+    secondsRange,
   };
 }
 

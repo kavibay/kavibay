@@ -84,6 +84,8 @@ export function surfaceStyle(appearance: WidgetAppearance): Record<string, strin
   // comma-separated list with the inner highlight, which `none` would invalidate.
   if (appearance.shadow === false) {
     style["--surface-box-shadow"] = "0 0 transparent";
+    // The lit top edge belongs to the same depth; alone it reads as a stray line.
+    style["--surface-top-edge"] = "transparent";
   }
   return style;
 }

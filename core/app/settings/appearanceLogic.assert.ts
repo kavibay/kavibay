@@ -11,6 +11,7 @@ import {
   normalizeWidgetLayoutMode,
   openMonitorOptions,
   toggleColorModeValue,
+  SHADOW_STYLE_OPTIONS,
 } from "./appearanceLogic";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -39,17 +40,29 @@ assert(normalizeAppearance({ iconStyle: "monochrome" }).iconStyle === "monochrom
 assert(normalizeAppearance({ iconStyle: "invalid" }).iconStyle === "colorful", "invalid icon style → colorful");
 
 assert(
-  normalizeAppearance({}).surfaceShadowStyle === "s2",
-  "missing shadow style → s2",
+  normalizeAppearance({}).surfaceShadowStyle === "layered",
+  "missing shadow style → layered",
 );
 assert(
   normalizeAppearance({ surfaceShadowStyle: "s15" }).surfaceShadowStyle === "s15",
   "preserve stripe shadow",
 );
 assert(
-  normalizeAppearance({ surfaceShadowStyle: "nope" }).surfaceShadowStyle === "s2",
-  "bad shadow style → s2",
+  normalizeAppearance({ surfaceShadowStyle: "nope" }).surfaceShadowStyle === "layered",
+  "bad shadow style → layered",
 );
+assert(
+  normalizeAppearance({ surfaceShadowStyle: "s2" }).surfaceShadowStyle === "s2",
+  "a saved preset survives the new default",
+);
+{
+  // Layered: the double edge's outer line (per mode, from styles.css) plus a
+  // close, a middle and a far shadow — the depth Linear-style surfaces have.
+  const layered = SHADOW_STYLE_OPTIONS.find((option) => option.id === "layered");
+  assert(layered != null && layered.name === "Layered", "layered preset exists");
+  assert(layered.css.startsWith("var(--surface-edge-outer"), "layered starts with the outer edge");
+  assert((layered.css.match(/--surface-shadow/g) ?? []).length === 3, "three shadow layers scale with strength");
+}
 
 assert(normalizeWidgetLayoutMode("freehand") === "freehand", "accept freehand");
 assert(normalizeWidgetLayoutMode("grid") === "grid", "accept grid");

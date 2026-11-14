@@ -1386,6 +1386,15 @@ watch(
   backdrop-filter: var(--surface-backdrop-filter, blur(16px));
 }
 
+/* Light falling on the top edge, brightest in the middle (styles.css per mode). */
+.widget-card-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0 22% auto;
+  height: 1px;
+  background: var(--surface-top-edge, transparent);
+}
+
 /*
   Opaque widgets: the same surface, with the glass taken out of it.
 
@@ -1675,7 +1684,11 @@ watch(
 .widget-card-title {
   position: relative;
   z-index: 1;
-  margin: 0 0 6px;
+  margin: 0 0 8px;
+  padding-bottom: 8px;
+  /* A hairline under the label that fades out to the right. */
+  border-bottom: 1px solid transparent;
+  border-image: linear-gradient(90deg, var(--border), transparent) 1;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;

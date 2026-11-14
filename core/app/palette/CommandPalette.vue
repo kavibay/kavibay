@@ -3678,6 +3678,10 @@ onUnmounted(() => {
         'palette-input-row--search-actions': showSearchActions,
       }"
     >
+      <svg class="palette-search-glyph" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="10.5" cy="10.5" r="6.5" />
+        <path d="M20 20l-4.6-4.6" />
+      </svg>
       <!-- With chips present the input hugs its text (field-sizing), so the
            first chip sits right after what was typed instead of screen-far. -->
       <input
@@ -4872,6 +4876,15 @@ onUnmounted(() => {
   backdrop-filter: var(--surface-backdrop-filter, blur(16px));
 }
 
+/* Light falling on the top edge, brightest in the middle (styles.css per mode). */
+.palette-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0 22% auto;
+  height: 1px;
+  background: var(--surface-top-edge, transparent);
+}
+
 /* 12px strip (6px outside + 6px inside) — invisible hit target, grab cursor only. */
 .palette-drag {
   position: absolute;
@@ -5051,9 +5064,37 @@ onUnmounted(() => {
   width: 100%;
   padding: 0 20px;
   box-shadow: rgba(0, 0, 0, 0.02) 1px 1px 3px 1px inset;
-  border-bottom: 1px solid var(--border);
   border-radius: var(--surface-radius, 16px) var(--surface-radius, 16px) 0 0;
   corner-shape: var(--surface-corner-shape, round);
+}
+
+/* The divider fades out at both ends instead of meeting the rim as a hard line. */
+.palette-input-row::after {
+  content: "";
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 0;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--border) 15%,
+    var(--border) 85%,
+    transparent
+  );
+}
+
+.palette-search-glyph {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-right: 4px;
+  fill: none;
+  stroke: var(--text-faint);
+  stroke-width: 1.8;
+  stroke-linecap: round;
 }
 
 /* Search actions can wrap while keeping the query field usable. */
@@ -5074,6 +5115,8 @@ onUnmounted(() => {
   font-size: 15px;
   font-family: inherit;
   outline: none;
+  /* The accent's one place in the field. */
+  caret-color: rgb(var(--accent-rgb, 110, 117, 245));
 }
 
 .palette-input::placeholder {
@@ -5966,9 +6009,10 @@ onUnmounted(() => {
   border-radius: 0 0 var(--surface-radius, 16px) var(--surface-radius, 16px);
   corner-shape: var(--surface-corner-shape, round);
   /* Direction of the tint is itself mode-dependent, not just its strength —
-     light mode lifts the footer, dark mode sinks it (see styles.css). */
-  background: var(--bar-bg);
-  box-shadow: var(--bar-top-highlight, 0 0 transparent);
+     light mode lifts the footer, dark mode sinks it (see styles.css). The tray
+     tokens recess it a touch further with a soft inner top shadow. */
+  background: var(--bar-tray, var(--bar-bg));
+  box-shadow: var(--bar-tray-shadow, 0 0 transparent), var(--bar-top-highlight, 0 0 transparent);
 }
 
 .palette-statusbar-left {
@@ -6199,8 +6243,10 @@ onUnmounted(() => {
  * on while pointing at another one: stronger fill, and full-strength text
  * against the muted rest state.
  */
+/* Outlined rather than filled. */
 .palette-desk-tab--active {
-  background: var(--fill-hover);
+  background: rgba(var(--fg-rgb), 0.035);
+  box-shadow: inset 0 0 0 1px var(--border);
   color: var(--text);
 }
 
