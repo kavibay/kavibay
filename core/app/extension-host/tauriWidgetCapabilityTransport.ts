@@ -25,7 +25,7 @@ import type {
 import { playSessionEndBeep } from "../audio/sessionEndBeep";
 import { keyPlatform } from "../host/shortcutHints";
 import { withRealPathSeparators } from "../runtime/manifestValidate";
-import type { WidgetCapabilityTransport } from "./widgetCapabilityTransport";
+import type { LlmWebCitation, LlmWebSearch, WidgetCapabilityTransport } from "./widgetCapabilityTransport";
 
 /**
  * Native dialogs cover the fullscreen transparent window, so their buttons
@@ -221,6 +221,7 @@ export const tauriWidgetCapabilityTransport: WidgetCapabilityTransport = {
     request: LlmChatRequest,
     onEvent: (event: LlmStreamEvent) => void,
     owner?: string,
+    webSearch?: LlmWebSearch,
   ) => {
     let unlisteners: Array<() => void> = [];
     let stopped = false;
@@ -253,6 +254,11 @@ export const tauriWidgetCapabilityTransport: WidgetCapabilityTransport = {
           onEvent({ type: "error", message: event.payload.message });
           stop();
         }),
+        ...(webSearch ? [listen<{ instanceId: string; requestId: string; citations: LlmWebCitation[] }>(
+          "llm:web-citations", ({ payload }) => {
+            if (matches(payload)) webSearch.onCitations(payload.citations);
+          },
+        )] : []),
       ]);
       unlisteners = listeners;
       await invoke("llm_chat_stream", {
@@ -261,6 +267,7 @@ export const tauriWidgetCapabilityTransport: WidgetCapabilityTransport = {
         requestId: request.requestId,
         model: request.model,
         messages: request.messages,
+        ...(webSearch ? { webSearch: true } : {}),
       });
     } catch (error) {
       stop();

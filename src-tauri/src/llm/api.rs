@@ -2,7 +2,9 @@
 
 use crate::credentials::ResolvedCredential;
 use crate::llm::catalog::LlmProvider;
-use crate::llm::provider::{ChatMessage, SseParseItem, ToolChoice, ToolDef};
+use crate::llm::provider::{
+    web_search_body, ChatMessage, SseParseItem, ToolChoice, ToolDef, RESPONSES_URL,
+};
 use crate::llm::sse::push_sse_bytes;
 use crate::llm::state::LlmState;
 use crate::llm::turn::{ToolCall, TurnAssembler};
@@ -36,8 +38,24 @@ struct LlmLifecyclePayload {
     request_id: String,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WebCitation {
+    end_index: usize,
+    url: String,
+    title: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WebCitationsPayload {
+    instance_id: String,
+    request_id: String,
+    citations: Vec<WebCitation>,
+}
+
 /// Streams a chat completion and emits chunk / done / cancelled events.
-// Ten parameters, none of which travel together elsewhere: bundling them into
+// The parameters do not travel together elsewhere: bundling them into
 // a struct would exist only to satisfy the lint. Same call as
 // `credentials::oauth::device_code`.
 #[allow(clippy::too_many_arguments)]
@@ -52,6 +70,7 @@ pub async fn stream_chat(
     messages: &[ChatMessage],
     tools: Option<&[ToolDef]>,
     tool_choice: ToolChoice,
+    web_search: bool,
 ) -> Result<(), String> {
     let model = model.trim();
     if model.is_empty() {
@@ -60,18 +79,26 @@ pub async fn stream_chat(
 
     state.clear_cancel(request_id);
 
+    let (endpoint, body, stream_provider) = if web_search {
+        (
+            RESPONSES_URL.to_string(),
+            web_search_body(model, messages)?,
+            LlmProvider::Chatgpt,
+        )
+    } else {
+        (
+            provider.endpoint(credential, model)?,
+            provider.body_with_tools(model, messages, tools.unwrap_or_default(), tool_choice)?,
+            provider,
+        )
+    };
     let mut request = streaming_http_client()?
-        .post(provider.endpoint(credential, model)?)
+        .post(endpoint)
         // Providers otherwise gzip the whole SSE body as one member, so every
         // token would sit in the decoder until the response ends.
         .header("Accept", "text/event-stream")
         .header("Accept-Encoding", "identity")
-        .json(&provider.body_with_tools(
-            model,
-            messages,
-            tools.unwrap_or_default(),
-            tool_choice,
-        )?);
+        .json(&body);
     for (name, value) in provider.extra_headers() {
         request = request.header(*name, *value);
     }
@@ -90,6 +117,7 @@ pub async fn stream_chat(
 
     // A chat round (tools passed, even none) also returns the assembled turn.
     let mut turn = tools.map(|_| TurnAssembler::new(provider));
+    let mut citation_offset = web_search.then_some(0);
     let mut stream = response.bytes_stream();
     let mut buffer = Vec::new();
     while let Some(item) = stream.next().await {
@@ -104,8 +132,9 @@ pub async fn stream_chat(
             state,
             instance_id,
             request_id,
-            push_sse_bytes(&mut buffer, &bytes, provider)?,
+            push_sse_bytes(&mut buffer, &bytes, stream_provider)?,
             &mut turn,
+            &mut citation_offset,
         )? {
             return Ok(());
         }
@@ -119,8 +148,9 @@ pub async fn stream_chat(
             state,
             instance_id,
             request_id,
-            push_sse_bytes(&mut buffer, &[], provider)?,
+            push_sse_bytes(&mut buffer, &[], stream_provider)?,
             &mut turn,
+            &mut citation_offset,
         )? {
             return Ok(());
         }
@@ -147,6 +177,7 @@ fn emit_parsed_items(
     request_id: &str,
     items: Vec<SseParseItem>,
     turn: &mut Option<TurnAssembler>,
+    citation_offset: &mut Option<usize>,
 ) -> Result<bool, String> {
     for parsed in items {
         if emit_if_cancelled(app, state, instance_id, request_id) {
@@ -189,13 +220,71 @@ fn emit_parsed_items(
                 emit_lifecycle(app, "llm:done", instance_id, request_id);
                 return Ok(true);
             }
+            SseParseItem::OutputItem(item) => {
+                if let Some(offset) = citation_offset {
+                    let citations = web_citations(&item, offset);
+                    if !citations.is_empty() {
+                        let _ = app.emit(
+                            "llm:web-citations",
+                            WebCitationsPayload {
+                                instance_id: instance_id.to_string(),
+                                request_id: request_id.to_string(),
+                                citations,
+                            },
+                        );
+                    }
+                }
+            }
             SseParseItem::BlockStart(_)
             | SseParseItem::BlockDelta(_)
-            | SseParseItem::ToolCallDeltas(_)
-            | SseParseItem::OutputItem(_) => {}
+            | SseParseItem::ToolCallDeltas(_) => {}
         }
     }
     Ok(false)
+}
+
+/// Responses reports character offsets within each completed text block.
+fn web_citations(item: &Value, offset: &mut usize) -> Vec<WebCitation> {
+    let mut citations = Vec::new();
+    let Some(blocks) = item["content"]
+        .as_array()
+        .filter(|_| item["type"] == "message")
+    else {
+        return citations;
+    };
+    for block in blocks.iter().filter(|block| block["type"] == "output_text") {
+        let Some(text) = block["text"].as_str() else {
+            continue;
+        };
+        let length = text.chars().count();
+        citations.extend(
+            block["annotations"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|annotation| {
+                    if annotation["type"] != "url_citation" {
+                        return None;
+                    }
+                    let end = usize::try_from(annotation["end_index"].as_u64()?).ok()?;
+                    let url = reqwest::Url::parse(annotation["url"].as_str()?).ok()?;
+                    if end == 0
+                        || end > length
+                        || url.scheme() != "https"
+                        || url.host_str().is_none()
+                    {
+                        return None;
+                    }
+                    Some(WebCitation {
+                        end_index: *offset + end,
+                        title: annotation["title"].as_str().unwrap_or_default().to_string(),
+                        url: url.to_string(),
+                    })
+                }),
+        );
+        *offset += length;
+    }
+    citations
 }
 
 /// Emits a chat round's assembled turn; a no-op for requests without tools.
@@ -253,4 +342,29 @@ fn emit_lifecycle(app: &AppHandle, event: &str, instance_id: &str, request_id: &
             request_id: request_id.to_string(),
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn web_citations_follow_the_streamed_text_and_filter_unsafe_urls() {
+        let item = json!({ "type": "message", "content": [
+            { "type": "output_text", "text": "🗺 Potsdam." },
+            { "type": "output_text", "text": "Berlin.", "annotations": [
+                { "type": "url_citation", "end_index": 7, "url": "https://example.com/berlin", "title": "Berlin" },
+                { "type": "url_citation", "end_index": 3, "url": "javascript:alert(1)" },
+                { "type": "url_citation", "end_index": 42, "url": "https://example.com" }
+            ] }
+        ] });
+        let mut offset = 2;
+        let citations = web_citations(&item, &mut offset);
+        assert_eq!(offset, 19);
+        assert_eq!(citations.len(), 1);
+        assert_eq!(citations[0].end_index, 19);
+        assert_eq!(citations[0].url, "https://example.com/berlin");
+        assert_eq!(citations[0].title, "Berlin");
+    }
 }

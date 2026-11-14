@@ -12,6 +12,7 @@ function label(id: SearchActionId) {
   return searchActionTitle(id, props.model?.label);
 }
 function tip(id: SearchActionId, index: number) {
+  if (id === "ai") return "Ask Chatgpt";
   return `${label(id)} · ${Array(index + 1).fill('Tab').join(', ')}, Enter`;
 }
 

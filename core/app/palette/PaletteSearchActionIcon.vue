@@ -23,11 +23,9 @@ const imageMarks: Partial<Record<SearchActionId, string>> = { ecosia: ecosiaMark
     <OpenAiMark v-else-if="action === 'chatgpt'" :size="size" />
     <ClaudeMark v-else-if="action === 'claude'" :size="size" />
     <img v-else-if="imageMarks[action]" :src="imageMarks[action]" :width="size" :height="size" alt="" :draggable="false" />
-    <span v-if="action === 'ai'" class="api-badge">API</span>
   </span>
 </template>
 
 <style scoped>
-.search-action-icon { position: relative; display: inline-flex; flex: 0 0 auto; }
-.api-badge { position: absolute; right: -6px; bottom: -4px; padding: 1px 2px; border: 1px solid rgba(var(--fg-rgb), 0.3); border-radius: 3px; background: rgb(var(--surface-bg-rgb)); color: var(--text); font-family: sans-serif; font-size: 7px; font-weight: 700; line-height: 1; }
+.search-action-icon { display: inline-flex; flex: 0 0 auto; }
 </style>
