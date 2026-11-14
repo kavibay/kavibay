@@ -7,6 +7,8 @@ use crate::llm::catalog::LlmProvider;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+pub const RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatImage {
@@ -228,7 +230,7 @@ impl LlmProvider {
         }
         Ok(match self {
             LlmProvider::Anthropic => "https://api.anthropic.com/v1/messages".to_string(),
-            LlmProvider::Chatgpt => "https://api.openai.com/v1/responses".to_string(),
+            LlmProvider::Chatgpt => RESPONSES_URL.to_string(),
             LlmProvider::Cloudflare => format!(
                 "https://api.cloudflare.com/client/v4/accounts/{}/ai/run/{}",
                 credential
@@ -328,20 +330,7 @@ impl LlmProvider {
             }),
             // Responses API, stateless: nothing is stored at OpenAI, so the
             // encrypted reasoning has to travel with each tool round instead.
-            LlmProvider::Chatgpt => {
-                let (instructions, input) = responses_input(messages)?;
-                let mut body = json!({
-                    "model": self.wire_model(model),
-                    "stream": true,
-                    "store": false,
-                    "include": ["reasoning.encrypted_content"],
-                    "input": input,
-                });
-                if !instructions.is_empty() {
-                    body["instructions"] = json!(instructions);
-                }
-                body
-            }
+            LlmProvider::Chatgpt => responses_body(self.wire_model(model), messages)?,
             // Workers AI takes the model in the URL, not the body.
             LlmProvider::Cloudflare => json!({
                 "stream": true,
@@ -501,6 +490,28 @@ impl LlmProvider {
         }
         format!("HTTP {status}: {body}")
     }
+}
+
+pub fn web_search_body(model: &str, messages: &[ChatMessage]) -> Result<Value, String> {
+    let mut body = responses_body(LlmProvider::Chatgpt.wire_model(model), messages)?;
+    body["tools"] = json!([{ "type": "web_search" }]);
+    body["tool_choice"] = json!("required");
+    Ok(body)
+}
+
+fn responses_body(model: &str, messages: &[ChatMessage]) -> Result<Value, String> {
+    let (instructions, input) = responses_input(messages)?;
+    let mut body = json!({
+        "model": model,
+        "stream": true,
+        "store": false,
+        "include": ["reasoning.encrypted_content"],
+        "input": input,
+    });
+    if !instructions.is_empty() {
+        body["instructions"] = json!(instructions);
+    }
+    Ok(body)
 }
 
 /// One decoded Responses API event.
@@ -1332,6 +1343,19 @@ mod tests {
         assert_eq!(messages[1]["tool_calls"][1]["id"], "call_b");
         assert_eq!(messages[2]["role"], "tool");
         assert_eq!(messages[3]["tool_call_id"], "call_b");
+    }
+
+    #[test]
+    fn web_search_uses_responses_for_both_openai_credentials() {
+        for model in ["gpt-6-astra", "chatgpt/gpt-6-astra"] {
+            let body = web_search_body(model, &messages()).unwrap();
+            assert_eq!(body["model"], "gpt-6-astra");
+            assert_eq!(body["store"], false);
+            assert_eq!(body["stream"], true);
+            assert_eq!(body["tools"], json!([{ "type": "web_search" }]));
+            assert_eq!(body["tool_choice"], "required");
+            assert!(body["input"].is_array());
+        }
     }
 
     #[test]

@@ -20,6 +20,17 @@ import type {
   WidgetInstanceId,
 } from "@sdk/contract/sdk";
 
+export interface LlmWebCitation {
+  endIndex: number;
+  title: string;
+  url: string;
+}
+
+/** Host-only options for the command palette's web search. */
+export interface LlmWebSearch {
+  onCitations(citations: LlmWebCitation[]): void;
+}
+
 /**
  * The last hop for reviewed host capabilities.
  *
@@ -91,6 +102,7 @@ export interface WidgetCapabilityTransport {
     request: LlmChatRequest,
     onEvent: (event: LlmStreamEvent) => void,
     owner?: string,
+    webSearch?: LlmWebSearch,
   ): Promise<void>;
   llmCancel(requestId: string): Promise<void>;
   wizardModels(instanceId?: string): Promise<unknown>;

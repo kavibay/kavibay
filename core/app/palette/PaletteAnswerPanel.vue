@@ -1,15 +1,59 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import type { PaletteAnswer, PaletteMessage } from "./usePaletteAnswer";
+import { BrandMark } from "@sdk/brand";
+import KavibaySelect from "@sdk/KavibaySelect.vue";
+import { SearchIcon } from "@sdk/icons";
+import type { PaletteAiModel, PaletteAnswer, PaletteMessage } from "./usePaletteAnswer";
 import PaletteAnswerText from "./PaletteAnswerText.vue";
 
-const props = defineProps<{ answer: PaletteAnswer; messages: PaletteMessage[]; busy: boolean }>();
-const emit = defineEmits<{ back: []; stop: []; retry: []; settings: []; followUp: [text: string] }>();
+const props = defineProps<{
+  answer: PaletteAnswer;
+  messages: PaletteMessage[];
+  model: PaletteAiModel | null;
+  models: PaletteAiModel[];
+  busy: boolean;
+  webSearch: boolean;
+  webSearchAvailable: boolean;
+}>();
+const emit = defineEmits<{
+  back: [];
+  stop: [];
+  retry: [];
+  settings: [];
+  followUp: [text: string];
+  selectModel: [id: string | number];
+  toggleWebSearch: [];
+}>();
 const draft = ref("");
 const inputEl = ref<HTMLTextAreaElement | null>(null);
 const bodyEl = ref<HTMLElement | null>(null);
-const canSend = computed(() => draft.value.trim().length > 0 && !props.busy && !props.answer.needsSetup);
+const canSend = computed(() => draft.value.trim().length > 0 && !props.busy && !!props.model);
+const modelOptions = computed(() => {
+  const labels = props.models.map((model) => modelName(model.label));
+  return props.models.map((model, index) => {
+    const label = labels[index];
+    const source = model.credentialType === "openaiChatgpt" ? "Subscription" : "API";
+    return {
+      value: model.id,
+      label,
+      note: labels.indexOf(label) !== labels.lastIndexOf(label)
+        ? [source, model.note].filter(Boolean).join(" · ")
+        : model.note,
+    };
+  });
+});
 let followLatest = true;
+
+function modelName(label: string) {
+  return label.replace(/ \(ChatGPT plan\)$/, "");
+}
+
+function onEscape(event: KeyboardEvent) {
+  event.stopPropagation();
+  if (event.defaultPrevented) return;
+  event.preventDefault();
+  emit("back");
+}
 
 function focusComposer() {
   inputEl.value?.focus();
@@ -42,11 +86,22 @@ defineExpose({ focusComposer });
 </script>
 
 <template>
-  <section class="palette-answer" aria-label="AI answer" :aria-busy="busy" @keydown.esc.stop.prevent="$emit('back')">
+  <section class="palette-answer" aria-label="AI answer" :aria-busy="busy" @keydown.esc="onEscape">
     <header class="palette-answer-header">
-      <button type="button" aria-label="Back to search" @click="$emit('back')">←</button>
-      <span>{{ answer.modelLabel || 'AI answer' }}</span>
-      <button v-if="busy" type="button" class="palette-answer-stop" @click="$emit('stop')">Stop</button>
+      <button type="button" class="palette-answer-back" aria-label="Back to search" @click="$emit('back')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m12 19-7-7 7-7" />
+          <path d="M19 12H5" />
+        </svg>
+      </button>
+      <span>Ask Chatgpt</span>
+      <button v-if="busy" type="button" class="palette-answer-action" @click="$emit('stop')">Stop</button>
+      <button
+        v-else-if="webSearch && webSearchAvailable && !answer.webSearch && (answer.phase === 'done' || answer.phase === 'stopped')"
+        type="button"
+        class="palette-answer-action"
+        @click="$emit('retry')"
+      >Search last question</button>
     </header>
     <div ref="bodyEl" class="palette-answer-body" @scroll="onScroll">
       <!-- The first question already appears in the search field above. -->
@@ -56,13 +111,13 @@ defineExpose({ focusComposer });
         class="palette-answer-text"
         :class="{ 'palette-answer-question': message.role === 'user' }"
         :aria-label="message.role === 'user' ? 'You' : 'AI answer'"
-      ><PaletteAnswerText v-if="message.role === 'assistant'" :text="message.content" /><template v-else>{{ message.content }}</template></p>
-      <p v-if="answer.text" class="palette-answer-text"><PaletteAnswerText :text="answer.text" /></p>
-      <p v-if="busy" class="palette-answer-status" role="status">{{ answer.text ? 'Answering…' : 'Thinking…' }}</p>
+      ><PaletteAnswerText v-if="message.role === 'assistant'" :text="message.content" :citations="message.citations" /><template v-else>{{ message.content }}</template></p>
+      <p v-if="answer.text" class="palette-answer-text"><PaletteAnswerText :text="answer.text" :citations="answer.citations" /></p>
+      <p v-if="busy" class="palette-answer-status" role="status">{{ answer.text ? 'Answering…' : answer.webSearch ? 'Searching the web…' : 'Thinking…' }}</p>
       <p v-else-if="answer.phase === 'stopped'" class="palette-answer-status" role="status">Stopped</p>
       <template v-if="answer.phase === 'error'">
         <p role="alert">{{ answer.error }}</p>
-        <button v-if="answer.needsSetup" type="button" @click="$emit('settings')">Open AI settings</button>
+        <button v-if="answer.needsSetup && !models.length" type="button" @click="$emit('settings')">Open AI settings</button>
         <button v-else type="button" @click="$emit('retry')">Try again</button>
       </template>
     </div>
@@ -76,7 +131,37 @@ defineExpose({ focusComposer });
         @keydown="onKeydown"
       />
       <div class="palette-answer-composer-footer">
-        <span>Enter to send · Shift+Enter for a new line</span>
+        <span class="palette-answer-composer-hint">Enter to send · Shift+Enter for a new line</span>
+        <span
+          v-tip:above="webSearchAvailable ? 'Web search' : 'Web search is unavailable for this model'"
+          class="palette-answer-search"
+        >
+          <button
+            type="button"
+            aria-label="Web search"
+            :aria-pressed="webSearch && webSearchAvailable"
+            :disabled="busy || !webSearchAvailable"
+            @click="$emit('toggleWebSearch')"
+          ><SearchIcon :size="15" /></button>
+        </span>
+        <KavibaySelect
+          class="palette-answer-model"
+          size="sm"
+          align="right"
+          aria-label="AI model"
+          placeholder="Choose a model"
+          :options="modelOptions"
+          :model-value="model?.id"
+          :disabled="busy || !models.length"
+          @update:model-value="$emit('selectModel', $event)"
+        >
+          <template #value="{ option }">
+            <span class="palette-answer-model-value">
+              <BrandMark v-if="model" :provider="model.credentialType" :size="14" />
+              <span>{{ option?.label ?? 'Choose a model' }}</span>
+            </span>
+          </template>
+        </KavibaySelect>
         <button type="submit" class="palette-answer-send" aria-label="Send message" :disabled="!canSend">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M12 19V5m-6 6 6-6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
@@ -91,6 +176,7 @@ defineExpose({ focusComposer });
 .palette-answer {
   display: flex;
   flex-direction: column;
+  container-type: size;
   overflow: auto;
   color: rgba(var(--fg-rgb), 0.9);
 }
@@ -98,13 +184,25 @@ defineExpose({ focusComposer });
   display: flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 12px 0 15px;
   border-bottom: 1px solid rgba(var(--fg-rgb), 0.08);
-  color: rgba(var(--fg-rgb), 0.6);
-  font-size: 12px;
+  color: rgba(var(--fg-rgb), 0.82);
+  font-size: 13px;
+  font-weight: 600;
 }
-.palette-answer-stop { margin-left: auto; }
+.palette-answer-back {
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+  background: transparent;
+}
+.palette-answer-back:hover { background: rgba(var(--fg-rgb), 0.1); }
+.palette-answer-action { margin-left: auto; }
 .palette-answer-body {
   flex: 1;
   min-height: 64px;
@@ -152,11 +250,58 @@ defineExpose({ focusComposer });
 .palette-answer-composer-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   margin-top: 6px;
   color: rgba(var(--fg-rgb), 0.4);
   font-size: 11px;
+}
+.palette-answer-composer-hint {
+  flex: 1;
+}
+@container (max-width: 420px) {
+  .palette-answer-composer-hint { display: none; }
+  .palette-answer-search { margin-left: auto; }
+}
+.palette-answer-search button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  color: rgba(var(--fg-rgb), 0.82);
+}
+.palette-answer-search button[aria-pressed="true"] {
+  background: rgba(var(--fg-rgb), 0.2);
+  box-shadow: inset 0 0 0 1px rgba(var(--fg-rgb), 0.35);
+}
+.palette-answer-search button:disabled { opacity: 0.35; cursor: default; }
+.palette-answer-model {
+  min-width: 0;
+  max-width: 60%;
+}
+.palette-answer-model :deep(.ssel-trigger) {
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.06);
+}
+.palette-answer-model :deep(.ssel-trigger:hover:not(:disabled)) {
+  background: rgba(var(--fg-rgb), 0.1);
+}
+.palette-answer-model :deep(.ssel-panel) {
+  top: auto;
+  bottom: calc(100% + 4px);
+  width: max-content;
+  max-width: min(260px, calc(100cqw - 76px));
+  max-height: min(220px, calc(100cqh - 78px));
+}
+.palette-answer-model-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.palette-answer-model-value > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 button {
   padding: 4px 8px;

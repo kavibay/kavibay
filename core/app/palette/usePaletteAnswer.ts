@@ -1,16 +1,20 @@
 import { computed, shallowRef } from "vue";
 import type { LlmChatRequest, LlmStreamEvent } from "@sdk/contract/sdk";
+import type { LlmWebCitation, LlmWebSearch } from "../extension-host/widgetCapabilityTransport";
 
 export interface PaletteAiModel {
   id: string;
   label: string;
   credentialType: string;
+  note?: string;
+  capabilities?: readonly string[];
 }
 
 export interface PaletteAnswer {
   phase: "loading" | "streaming" | "done" | "stopped" | "error";
   text: string;
-  modelLabel: string;
+  webSearch?: boolean;
+  citations?: LlmWebCitation[];
   error?: string;
   needsSetup?: boolean;
 }
@@ -18,20 +22,35 @@ export interface PaletteAnswer {
 export interface PaletteMessage {
   role: "user" | "assistant";
   content: string;
+  citations?: LlmWebCitation[];
+}
+
+interface PaletteAiModels {
+  defaultId: string;
+  choices: PaletteAiModel[];
 }
 
 interface PaletteAi {
-  loadModel(): Promise<PaletteAiModel | null>;
-  stream(request: LlmChatRequest, onEvent: (event: LlmStreamEvent) => void): Promise<void>;
+  loadModels(): Promise<PaletteAiModels>;
+  stream(request: LlmChatRequest, onEvent: (event: LlmStreamEvent) => void, webSearch?: LlmWebSearch): Promise<void>;
   cancel(requestId: string): Promise<void>;
 }
 
 /** One transient conversation; replacing the query invalidates older callbacks. */
 export function usePaletteAnswer(ai: PaletteAi) {
-  const model = shallowRef<PaletteAiModel | null>(null);
+  const models = shallowRef<PaletteAiModels>({ defaultId: "", choices: [] });
+  const selectedModelId = shallowRef("");
+  const model = computed(() => models.value.choices.find((item) => item.id === models.value.defaultId) ?? null);
+  const modelChoices = computed(() => models.value.choices);
+  const chatModel = computed(() => selectedModelId.value
+    ? modelChoices.value.find((item) => item.id === selectedModelId.value) ?? null
+    : model.value);
   const answer = shallowRef<PaletteAnswer | null>(null);
   const messages = shallowRef<PaletteMessage[]>([]);
   const busy = computed(() => answer.value?.phase === "loading" || answer.value?.phase === "streaming");
+  const webSearchAvailable = computed(() => chatModel.value?.capabilities?.includes("webSearch") ?? false);
+  const webSearchEnabled = shallowRef(true);
+  const webSearch = computed(() => webSearchEnabled.value && webSearchAvailable.value);
   let modelLoad = 0;
   let active: { id: string; started: boolean; cancelled: boolean } | null = null;
 
@@ -39,13 +58,24 @@ export function usePaletteAnswer(ai: PaletteAi) {
   async function refreshModel() {
     const version = ++modelLoad;
     try {
-      const next = await ai.loadModel();
-      if (version === modelLoad) model.value = next;
+      const next = await ai.loadModels();
+      if (version === modelLoad) models.value = next;
       return next;
     } catch (error) {
-      if (version === modelLoad) model.value = null;
+      if (version === modelLoad) models.value = { defaultId: "", choices: [] };
       throw error;
     }
+  }
+
+  function selectModel(modelId: string | number) {
+    if (!answer.value || busy.value) return;
+    const selected = modelChoices.value.find((item) => item.id === modelId);
+    if (!selected) return;
+    selectedModelId.value = selected.id;
+  }
+
+  function toggleWebSearch() {
+    if (answer.value && !busy.value && webSearchAvailable.value) webSearchEnabled.value = !webSearchEnabled.value;
   }
 
   /** Detach the view first: even a late cancellation/error cannot revive it. */
@@ -61,6 +91,8 @@ export function usePaletteAnswer(ai: PaletteAi) {
     stop();
     answer.value = null;
     messages.value = [];
+    selectedModelId.value = "";
+    webSearchEnabled.value = true;
   }
 
   /** Only an explicit action starts a paid request, never typing or model discovery. */
@@ -74,9 +106,9 @@ export function usePaletteAnswer(ai: PaletteAi) {
 
   async function followUp(query: string) {
     const term = query.trim();
-    if (!term || busy.value || !answer.value || answer.value.needsSetup) return;
+    if (!term || busy.value || !answer.value || !chatModel.value) return;
     const previous: PaletteMessage[] = answer.value.text.trim()
-      ? [{ role: "assistant", content: answer.value.text }]
+      ? [{ role: "assistant", content: answer.value.text, citations: answer.value.citations }]
       : [];
     messages.value = [...messages.value, ...previous, { role: "user", content: term }];
     await requestAnswer();
@@ -92,26 +124,34 @@ export function usePaletteAnswer(ai: PaletteAi) {
     stop();
     const run = { id: crypto.randomUUID(), started: false, cancelled: false };
     active = run;
-    answer.value = { phase: "loading", text: "", modelLabel: "" };
+    answer.value = { phase: "loading", text: "" };
     try {
-      const selected = await refreshModel();
+      const { defaultId, choices } = await refreshModel();
       if (active !== run) return;
+      const selected = choices.find((item) => item.id === (selectedModelId.value || defaultId));
       if (!selected) {
         active = null;
+        const needsSetup = choices.length === 0;
         answer.value = {
-          phase: "error", text: "", modelLabel: "", needsSetup: true,
-          error: "Choose an AI model in Settings to ask a question.",
+          phase: "error", text: "", needsSetup,
+          error: needsSetup
+            ? "Choose an AI model in Settings to ask a question."
+            : "This model is no longer available. Choose a model to try again.",
         };
         return;
       }
-      answer.value = { phase: "loading", text: "", modelLabel: selected.label };
+      selectedModelId.value = selected.id;
+      const search = webSearchEnabled.value && (selected.capabilities?.includes("webSearch") ?? false);
+      answer.value = { phase: "loading", text: "", webSearch: search };
       run.started = true;
       await ai.stream({
         requestId: run.id,
         model: selected.id,
         messages: [
-          { role: "system", content: "Answer the user's question concisely in their language. Use plain text. Be clear about uncertainty; do not claim to have searched the web or verified current facts." },
-          ...messages.value,
+          { role: "system", content: "Answer the user's question concisely in their language. Use plain text and be clear about uncertainty. " + (search
+            ? "Search the web for this question and cite the sources you use."
+            : "Do not claim to have searched the web or verified current facts.") },
+          ...messages.value.map(({ role, content }) => ({ role, content })),
         ],
       }, (event) => {
         if (active !== run || !answer.value) return;
@@ -127,7 +167,12 @@ export function usePaletteAnswer(ai: PaletteAi) {
           ...(event.type === "error" ? { error: event.message } : {}),
           ...(empty ? { error: "The provider returned an empty answer. Try again." } : {}),
         };
-      });
+      }, search ? {
+        onCitations(citations) {
+          if (active !== run || !answer.value) return;
+          answer.value = { ...answer.value, citations: [...(answer.value.citations ?? []), ...citations] };
+        },
+      } : undefined);
       // Closing while the transport is installing its listeners must still
       // cancel once the request has actually been submitted.
       if (run.cancelled) {
@@ -143,5 +188,5 @@ export function usePaletteAnswer(ai: PaletteAi) {
     }
   }
 
-  return { model, answer, messages, busy, refreshModel, ask, followUp, retry, stop, reset };
+  return { model, modelChoices, chatModel, answer, messages, busy, webSearch, webSearchAvailable, toggleWebSearch, refreshModel, selectModel, ask, followUp, retry, stop, reset };
 }
