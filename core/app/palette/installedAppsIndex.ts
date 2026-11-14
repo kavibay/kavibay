@@ -171,17 +171,33 @@ export function ensureAppIcons(paths: string[]): void {
   );
 }
 
+/** True when no icon is held or on its way for this path, and it has not failed. */
+function iconMissing(path: string): boolean {
+  return (
+    !installedAppIcons.value[path] &&
+    !iconBatch[path] &&
+    !iconFailed.has(path) &&
+    !iconPending.has(path)
+  );
+}
+
 /**
  * Merge disk-cached palette icons (Rust `get_cached_app_icons`) into memory.
  * No extraction — misses are left for `ensureAppIcons` / `prewarmAppIcons`.
+ *
+ * One call for all paths, and only for the ones not in memory yet: the palette
+ * asks on every change of its results, and an icon it already holds would
+ * otherwise be read from disk and sent across again each time.
  */
 export async function hydrateAppIconsFromCache(paths: string[]): Promise<void> {
   const unique = [...new Set(paths.filter(Boolean))];
   if (unique.length === 0) return;
   touchIcons(unique);
+  const wanted = unique.filter(iconMissing);
+  if (wanted.length === 0) return;
   try {
     const hit = await invoke<Record<string, string>>("get_cached_app_icons", {
-      paths: unique,
+      paths: wanted,
     });
     if (!hit || typeof hit !== "object") return;
     const next = { ...installedAppIcons.value };
@@ -241,13 +257,7 @@ export function prewarmAppIcons(
 
   void (async () => {
     await hydrateAppIconsFromCache(paths);
-    const missing = paths.filter(
-      (path) =>
-        !installedAppIcons.value[path] &&
-        !iconBatch[path] &&
-        !iconFailed.has(path) &&
-        !iconPending.has(path),
-    );
+    const missing = paths.filter(iconMissing);
     if (missing.length > 0) ensureAppIcons(missing);
   })();
 }
