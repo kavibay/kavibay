@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref, type CSSProperties } from "vue";
-import { CirclePlayIcon, MessageSquareIcon, Trash2Icon } from "@sdk/icons";
+import { CirclePlayIcon, MessageSquareIcon, PinIcon, Trash2Icon } from "@sdk/icons";
 
-const props = defineProps<{ x: number; y: number; canRun: boolean; canCreate: boolean; busy: boolean }>();
-const emit = defineEmits<{ run: []; create: []; delete: []; close: [restoreFocus?: boolean] }>();
+const props = defineProps<{
+  x: number; y: number; canRun: boolean; canCreate: boolean; canPin: boolean; pinned: boolean; busy: boolean;
+}>();
+const emit = defineEmits<{ pin: []; run: []; create: []; delete: []; close: [restoreFocus?: boolean] }>();
 const panel = ref<HTMLElement | null>(null);
 const position = ref<CSSProperties>({ left: `${props.x}px`, top: `${props.y}px`, visibility: "hidden" });
 const confirming = ref(false);
@@ -54,6 +56,9 @@ onUnmounted(() => {
 <template>
   <Teleport to="body">
     <div ref="panel" class="sidebar-menu" :style="position" role="menu" aria-label="Sidebar actions" @contextmenu.stop.prevent>
+      <button v-if="canPin" type="button" role="menuitem" @click="emit('pin')">
+        <PinIcon :size="16" /> {{ pinned ? 'Unpin' : 'Pin to top' }}
+      </button>
       <button type="button" role="menuitem" :disabled="busy || !canRun" @click="emit('run')">
         <CirclePlayIcon :size="16" /> Run on desk
       </button>

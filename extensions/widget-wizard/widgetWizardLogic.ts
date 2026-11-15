@@ -3369,6 +3369,24 @@ export function orderProjects(rows: ProjectRow[], order: string[]): ProjectRow[]
 }
 
 /**
+ * Pinned projects first, each group keeping the order it already had.
+ *
+ * Applied after `orderProjects`. The list writes back the order it shows, so a
+ * project unpinned later stays where it is — first among the unpinned — and is
+ * moved from there like any other.
+ */
+export function pinnedFirst(rows: ProjectRow[], pinned: readonly string[]): ProjectRow[] {
+  if (pinned.length === 0) return rows;
+  const set = new Set(pinned);
+  return [...rows.filter((row) => set.has(row.key)), ...rows.filter((row) => !set.has(row.key))];
+}
+
+/** Pin or unpin one project; pinning appends, so the newest pin sorts last among the pins. */
+export function togglePinned(pinned: readonly string[], key: string): string[] {
+  return pinned.includes(key) ? pinned.filter((item) => item !== key) : [...pinned, key];
+}
+
+/**
  * The order to store, after the world changed underneath it.
  *
  * Written back on every rebuild rather than only when somebody drags: a new

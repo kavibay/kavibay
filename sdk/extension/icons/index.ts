@@ -49,6 +49,7 @@ export { default as MousePointerClickIcon } from "./MousePointerClickIcon.vue";
 export { default as NotebookPenIcon } from "./NotebookPenIcon.vue";
 export { default as PaletteIcon } from "./PaletteIcon.vue";
 export { default as PanelLeftIcon } from "./PanelLeftIcon.vue";
+export { default as PinIcon } from "./PinIcon.vue";
 export { default as PipetteIcon } from "./PipetteIcon.vue";
 export { default as PlugIcon } from "./PlugIcon.vue";
 export { default as RotateCwFadingClockIcon } from "./RotateCwFadingClockIcon.vue";
