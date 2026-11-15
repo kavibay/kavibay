@@ -86,4 +86,17 @@ assert(
 assert(!fuzzyMatch("wzi", "Widget Wizard").matched, "order still decides");
 assert(!fuzzyMatch("wiz", "Windows Explorer").matched, "a missing letter is still missing");
 
+// A word a long note contains is found even when its letters also sit,
+// scattered, in earlier words: both alignments start from the earliest fit and
+// never reached the real word, so the row was dropped as too sparse.
+{
+  const filler = "x ".repeat(20);
+  const note = `Projekt ${filler} love ${filler} Video ${filler} Jovo (2017-2025): Mitgründer`;
+  const jovo = fuzzyMatch("jovo", note);
+  assert(jovo.matched, "the literal word is found past scattered letters");
+  assert(jovo.score >= fuzzyMatch("jovo", "Jovo").score - 1, "and scores like the word itself");
+  assert(fuzzyMatch("jov", note).matched, "so is its prefix");
+  assert(!fuzzyMatch("jovx", note).matched, "a word the note does not contain still is not");
+}
+
 console.log("fuzzy.assert: ok");

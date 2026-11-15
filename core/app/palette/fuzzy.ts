@@ -221,6 +221,27 @@ function judge(q: string, a: Alignment): FuzzyMatch {
 }
 
 /**
+ * Where the query occurs literally, preferring an occurrence on a word start;
+ * -1 when it does not occur at all.
+ *
+ * The two alignments above both start from the *earliest* place the query fits
+ * as a subsequence. In a long note that place can be letters scattered over
+ * earlier words ("Projekt … love … Video" for "jovo"), the real word sits
+ * further on, and neither pass ever reaches it — so a word the note contains
+ * was rejected as too sparse. A literal hit is checked on its own for that.
+ */
+function literalOccurrence(q: string, t: string): number {
+  const first = t.indexOf(q);
+  if (first <= 0) return first;
+  // Bounded: a common fragment in a huge note is not worth an unbounded scan,
+  // and the first hit is still a contiguous match if no word start turns up.
+  for (let at = first, tries = 0; at >= 0 && tries < 64; at = t.indexOf(q, at + 1), tries++) {
+    if (at === 0 || isSeparator(t[at - 1]!)) return at;
+  }
+  return first;
+}
+
+/**
  * Subsequence fuzzy matcher: query chars must appear in order in the target
  * ("gta" → "Grand Theft Auto"), but sparse accidental hits are rejected.
  *
@@ -260,6 +281,14 @@ export function fuzzyMatch(query: string, target: string): FuzzyMatch {
 
   const fromLeft = judge(q, left);
   const fromRight = judge(q, alignRight(q, t, left.lastMatchAt));
+  // A literal occurrence elsewhere can beat both — see `literalOccurrence`.
+  // Read leftwards from its last character, the alignment is exactly that hit.
+  const at = literalOccurrence(q, t);
+  if (at >= 0 && at + q.length - 1 !== left.lastMatchAt) {
+    const literal = judge(q, alignRight(q, t, at + q.length - 1));
+    const best = [fromLeft, fromRight].filter((m) => m.matched);
+    if (literal.matched && best.every((m) => literal.score >= m.score)) return literal;
+  }
   // No shortcut for "the left pass was already contiguous": "cat" finds one
   // inside *concat* before it finds the word *Cat*, and the second is the one
   // the person meant. Both passes are linear over a title, and the expensive
