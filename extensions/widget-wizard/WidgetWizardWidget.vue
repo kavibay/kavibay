@@ -170,6 +170,7 @@ import {
   describeDraftAuthor,
   describeDraftClient,
   describeDraftPresence,
+  describeEditingFor,
   draftAuthorOf,
   draftAuthorWithClientName,
   presenceForWidget,
@@ -647,6 +648,13 @@ function widgetPresence(id: string | null | undefined): WizardDraftPresence | nu
 }
 
 const activePresence = computed(() => widgetPresence(session.value.packageId));
+
+/**
+ * Another agent has said it is working on this widget. Sending now would put
+ * two writers on one draft, so the composer waits and the preview shows the
+ * same "working" state the Wizard's own generation does.
+ */
+const mcpEditing = computed(() => activePresence.value?.editing === true);
 
 function presenceAuthor(presence: WizardDraftPresence | null): DraftAuthor {
   if (!presence) return null;
@@ -2087,6 +2095,7 @@ async function applyExternalSnapshot(
     text: label,
     author,
     clientName,
+    changeSummary: snapshot.lastSummary ?? null,
     version: session.value.currentVersion,
   });
   previewNonce.value += 1;
@@ -2328,6 +2337,7 @@ const effort = computed({
 const canSend = computed(
   () =>
     !busy.value &&
+    !mcpEditing.value &&
     (session.value.draft.trim().length > 0 || session.value.attachments.length > 0),
 );
 const suggestions = computed(() =>
@@ -4617,7 +4627,7 @@ async function enablePackage(
                     <span
                       v-if="widgetPresence(row.packageId)"
                       class="wiz-side-presence"
-                      :class="{ 'wiz-side-presence--active': widgetPresence(row.packageId)?.active }"
+                      :class="{ 'wiz-side-presence--active': widgetPresence(row.packageId)?.active || widgetPresence(row.packageId)?.editing }"
                       v-tip="presenceTitle(widgetPresence(row.packageId))"
                       :aria-label="presenceTitle(widgetPresence(row.packageId))"
                     >
@@ -4834,22 +4844,6 @@ async function enablePackage(
         </div>
       </header>
 
-      <div
-        v-if="activePresence"
-        class="wiz-presence"
-        :class="{ 'wiz-presence--active': activePresence.active }"
-        role="status"
-        :title="presenceTitle(activePresence)"
-      >
-        <McpClientMark
-          v-if="presenceAuthor(activePresence) === 'codex' || presenceAuthor(activePresence) === 'claude'"
-          :client="presenceMark(activePresence)"
-          :size="14"
-          class="wiz-presence-mark"
-        />
-        <span v-else class="wiz-presence-dot" aria-hidden="true"></span>
-        <span>{{ describeDraftPresence(activePresence) }}</span>
-      </div>
 
       <!--
         Named after whoever actually wrote it. "Changed via MCP" was hard-coded,
@@ -5349,6 +5343,8 @@ async function enablePackage(
                 </span>
               </template>
             </span>
+            <!-- What the agent said it changed: under its byline, in its words. -->
+            <span v-if="bubble.changeSummary" class="wiz-bubble-change-summary">{{ bubble.changeSummary }}</span>
           </template>
 
           <!--
@@ -5578,10 +5574,36 @@ async function enablePackage(
         />
       </div>
 
+      <!-- Beside the field it locks, so the reason is where the person types. -->
+      <div
+        v-if="activePresence"
+        v-show="middleTab === 'chat'"
+        class="wiz-presence"
+        :class="{
+          'wiz-presence--active': activePresence.active || activePresence.editing,
+          'wiz-presence--editing': activePresence.editing,
+        }"
+        role="status"
+        :title="presenceTitle(activePresence)"
+      >
+        <McpClientMark
+          v-if="presenceAuthor(activePresence) === 'codex' || presenceAuthor(activePresence) === 'claude'"
+          :client="presenceMark(activePresence)"
+          :size="14"
+          class="wiz-presence-mark"
+        />
+        <span v-else class="wiz-presence-dot" aria-hidden="true"></span>
+        <span>{{ describeDraftPresence(activePresence) }}</span>
+        <template v-if="activePresence.editing && activePresence.editingSince">
+          <span class="wiz-presence-meta">· {{ describeEditingFor(activePresence.editingSince, presenceNow) }}</span>
+          <span v-if="activePresence.plan" class="wiz-presence-plan">· {{ activePresence.plan }}</span>
+        </template>
+      </div>
       <!-- Part of the conversation, so it goes with it. -->
       <div
         v-show="middleTab === 'chat'"
         class="wiz-compose"
+        :class="{ 'wiz-compose--locked': mcpEditing }"
         @dragover.prevent
         @drop.prevent="attach($event.dataTransfer?.files ?? null)"
       >
@@ -5603,7 +5625,8 @@ async function enablePackage(
           role="textbox"
           aria-multiline="true"
           data-placeholder="Describe the widget, drop a screenshot, or ask for a change…"
-          contenteditable="true"
+          :contenteditable="mcpEditing ? 'false' : 'true'"
+          :aria-disabled="mcpEditing"
           @input="onComposerInput"
           @keydown="onComposerKeydown"
           @keyup="updateIntegrationMenu"
@@ -5911,7 +5934,7 @@ async function enablePackage(
           :share-feedback="shareFeedback"
           :picking="pickingElement"
           :debug-target="previewDebugTarget"
-          :working="busy"
+          :working="busy || mcpEditing"
           @selected="selectPreviewElement"
           @cancel-pick="finishPreviewPick"
           @close-share="sharing = false"
@@ -6748,6 +6771,11 @@ async function enablePackage(
   background: rgba(var(--fg-rgb), 0.055);
   font-size: 11px;
   opacity: 0.78;
+  /* Above the composer now: the plan may be long, the column is not. */
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .wiz-presence--active {
@@ -6758,6 +6786,36 @@ async function enablePackage(
 
 .wiz-presence-mark {
   flex: none;
+}
+
+/* Live while the client has said it is working: a slow pulse on the mark. */
+.wiz-presence--editing .wiz-presence-mark,
+.wiz-presence--editing .wiz-presence-dot {
+  animation: wiz-presence-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes wiz-presence-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wiz-presence--editing .wiz-presence-mark,
+  .wiz-presence--editing .wiz-presence-dot { animation: none; }
+}
+
+.wiz-presence-meta {
+  color: rgba(var(--fg-rgb), 0.55);
+  font-variant-numeric: tabular-nums;
+}
+
+.wiz-presence-plan {
+  min-width: 0;
+  max-width: 320px;
+  overflow: hidden;
+  color: rgba(var(--fg-rgb), 0.7);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .wiz-presence-dot,
@@ -7434,6 +7492,12 @@ async function enablePackage(
 .wiz-named-providers button:hover { background: rgba(var(--fg-rgb), 0.1); }
 .wiz-named-providers button:focus-visible { outline: 1px solid rgba(var(--fg-rgb), 0.55); outline-offset: 2px; }
 .wiz-named-providers-hint { color: rgba(var(--fg-rgb), 0.45); font-size: 10px; }
+
+/* Waiting on another agent: the field reads as unavailable, not broken. */
+.wiz-compose--locked {
+  opacity: 0.55;
+  pointer-events: none;
+}
 
 .wiz-compose {
   position: relative;
@@ -8753,4 +8817,11 @@ button:disabled {
   padding-left: 14px;
 }
 
+.wiz-bubble-change-summary {
+  display: block;
+  margin-top: 3px;
+  color: rgba(var(--fg-rgb), 0.62);
+  font-size: 12px;
+  line-height: 1.4;
+}
 </style>

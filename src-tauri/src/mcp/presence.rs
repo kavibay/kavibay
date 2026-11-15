@@ -18,6 +18,9 @@ use crate::runtime_extensions::drafts::McpClientKind;
 
 pub const EVENT: &str = "runtime-draft:presence";
 pub const RECENT_FOR_MS: i64 = 60_000;
+/// How long an editing session survives without a tool call. A client that
+/// crashes or forgets `end_editing` stops claiming the widget after this.
+pub const EDITING_IDLE_MS: i64 = 5 * 60_000;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -27,6 +30,12 @@ pub struct DraftPresence {
     pub client_name: Option<String>,
     pub tool: String,
     pub active: bool,
+    /// Between `begin_editing` and `end_editing`: the client said it is
+    /// working on this widget, including while the model thinks between calls.
+    pub editing: bool,
+    pub editing_since: Option<i64>,
+    /// What the client said it is about to do, from `begin_editing`.
+    pub plan: Option<String>,
     pub last_seen: i64,
     pub expires_at: i64,
 }
@@ -44,6 +53,8 @@ struct PresenceEntry {
     client_name: Option<String>,
     tool: String,
     active_requests: u32,
+    editing_since: Option<i64>,
+    plan: Option<String>,
     last_seen: i64,
     expires_at: i64,
 }
@@ -56,9 +67,33 @@ impl PresenceEntry {
             client_name: self.client_name.clone(),
             tool: self.tool.clone(),
             active: self.active_requests > 0,
+            editing: self.editing_since.is_some(),
+            editing_since: self.editing_since,
+            plan: self.plan.clone(),
             last_seen: self.last_seen,
             expires_at: self.expires_at,
         }
+    }
+
+    /// Seen now: an open session holds the widget longer than one call does.
+    fn touch(&mut self, now: i64) {
+        self.last_seen = now;
+        self.expires_at = now
+            + if self.editing_since.is_some() {
+                EDITING_IDLE_MS
+            } else {
+                RECENT_FOR_MS
+            };
+    }
+}
+
+fn presence_key(id: &str, client: Option<McpClientKind>, client_name: Option<&str>) -> PresenceKey {
+    PresenceKey {
+        id: id.to_string(),
+        client_key: client_name
+            .map(str::to_string)
+            .or_else(|| client.map(|known| known.label().to_string()))
+            .unwrap_or_else(|| "mcp".to_string()),
     }
 }
 
@@ -79,14 +114,7 @@ impl McpPresenceState {
         client_name: Option<&str>,
         now: i64,
     ) -> (PresenceKey, DraftPresence) {
-        let client_key = client_name
-            .map(str::to_string)
-            .or_else(|| client.map(|known| known.label().to_string()))
-            .unwrap_or_else(|| "mcp".to_string());
-        let key = PresenceKey {
-            id: id.to_string(),
-            client_key,
-        };
+        let key = presence_key(id, client, client_name);
         let mut book = self
             .0
             .lock()
@@ -102,6 +130,8 @@ impl McpPresenceState {
                 client_name: client_name.map(str::to_string),
                 tool: tool.to_string(),
                 active_requests: 0,
+                editing_since: None,
+                plan: None,
                 last_seen: now,
                 expires_at: now + RECENT_FOR_MS,
             });
@@ -109,9 +139,78 @@ impl McpPresenceState {
         entry.client_name = client_name.map(str::to_string);
         entry.tool = tool.to_string();
         entry.active_requests = entry.active_requests.saturating_add(1);
-        entry.last_seen = now;
-        entry.expires_at = now + RECENT_FOR_MS;
+        entry.touch(now);
         (key, entry.payload())
+    }
+
+    /// Open (or renew) an editing session for one client on one widget.
+    ///
+    /// Only ever called inside that client's own tool call, so `start_at` has
+    /// already created the entry; a missing one means nothing to mark.
+    fn begin_editing_at(
+        &self,
+        id: &str,
+        client: Option<McpClientKind>,
+        client_name: Option<&str>,
+        plan: Option<String>,
+        now: i64,
+    ) -> bool {
+        let key = presence_key(id, client, client_name);
+        let mut book = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(entry) = book.entries.get_mut(&key) else {
+            return false;
+        };
+        // A second begin renews the session and keeps when it started.
+        entry.editing_since.get_or_insert(now);
+        if plan.is_some() {
+            entry.plan = plan;
+        }
+        entry.touch(now);
+        true
+    }
+
+    /// Close the session; the widget then reads "active just now" for a minute.
+    fn end_editing_at(
+        &self,
+        id: &str,
+        client: Option<McpClientKind>,
+        client_name: Option<&str>,
+        now: i64,
+    ) -> bool {
+        let key = presence_key(id, client, client_name);
+        let mut book = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(entry) = book.entries.get_mut(&key) else {
+            return false;
+        };
+        let was_editing = entry.editing_since.take().is_some();
+        entry.plan = None;
+        entry.touch(now);
+        was_editing
+    }
+
+    pub fn begin_editing(
+        &self,
+        id: &str,
+        client: Option<McpClientKind>,
+        client_name: Option<&str>,
+        plan: Option<String>,
+    ) -> bool {
+        self.begin_editing_at(id, client, client_name, plan, now_ms())
+    }
+
+    pub fn end_editing(
+        &self,
+        id: &str,
+        client: Option<McpClientKind>,
+        client_name: Option<&str>,
+    ) -> bool {
+        self.end_editing_at(id, client, client_name, now_ms())
     }
 
     fn finish_at(&self, key: &PresenceKey, now: i64) -> Option<DraftPresence> {
@@ -121,8 +220,7 @@ impl McpPresenceState {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let entry = book.entries.get_mut(key)?;
         entry.active_requests = entry.active_requests.saturating_sub(1);
-        entry.last_seen = now;
-        entry.expires_at = now + RECENT_FOR_MS;
+        entry.touch(now);
         Some(entry.payload())
     }
 
@@ -228,6 +326,46 @@ mod tests {
         assert_eq!(finished.tool, "write_draft");
         assert_eq!(state.list_at(1_030).len(), 1);
         assert!(state.list_at(1_030 + RECENT_FOR_MS).is_empty());
+    }
+
+    #[test]
+    fn an_editing_session_outlives_its_calls_until_it_ends_or_idles_out() {
+        let state = McpPresenceState::default();
+        let client = Some(McpClientKind::Claude);
+        let name = Some("claude-code");
+
+        let (key, _) = state.start_at("clock", "begin_editing", client, name, 1_000);
+        assert!(state.begin_editing_at("clock", client, name, Some("Bigger digits".into()), 1_000));
+        let open = state.finish_at(&key, 1_010).unwrap();
+        assert!(
+            open.editing && !open.active,
+            "thinking between calls is still editing"
+        );
+        assert_eq!(open.editing_since, Some(1_000));
+        assert_eq!(open.plan.as_deref(), Some("Bigger digits"));
+        assert_eq!(
+            state.list_at(1_010 + RECENT_FOR_MS).len(),
+            1,
+            "a session is not dropped after the one-minute lease"
+        );
+
+        // A later call renews the session and keeps when it started.
+        let (key, _) = state.start_at("clock", "edit_draft", client, name, 200_000);
+        let renewed = state.finish_at(&key, 200_010).unwrap();
+        assert!(renewed.editing);
+        assert_eq!(renewed.editing_since, Some(1_000));
+
+        let (key, _) = state.start_at("clock", "end_editing", client, name, 210_000);
+        assert!(state.end_editing_at("clock", client, name, 210_000));
+        let ended = state.finish_at(&key, 210_010).unwrap();
+        assert!(!ended.editing && ended.plan.is_none());
+        assert!(state.list_at(210_010 + RECENT_FOR_MS).is_empty());
+
+        // Forgotten end: the session idles out on its own.
+        let (key, _) = state.start_at("clock", "begin_editing", client, name, 300_000);
+        state.begin_editing_at("clock", client, name, None, 300_000);
+        state.finish_at(&key, 300_000);
+        assert!(state.list_at(300_000 + EDITING_IDLE_MS).is_empty());
     }
 
     #[test]

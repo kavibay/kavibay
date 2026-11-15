@@ -71,6 +71,10 @@ pub struct DraftSummary {
     pub last_client: Option<McpClientKind>,
     /// The exact clientInfo name, when the MCP client supplied one.
     pub last_client_name: Option<String>,
+    /// What the MCP client said it changed, when it said so (`summary` on
+    /// write_draft / edit_draft). Cleared by every later write, so it always
+    /// describes the latest one.
+    pub last_summary: Option<String>,
     /// Milliseconds since the epoch, for "2 minutes ago" next to the author.
     pub updated_at: Option<i64>,
 }
@@ -86,6 +90,7 @@ pub struct DraftSnapshot {
     pub last_writer: Option<DraftWriteOrigin>,
     pub last_client: Option<McpClientKind>,
     pub last_client_name: Option<String>,
+    pub last_summary: Option<String>,
     pub updated_at: Option<i64>,
 }
 
@@ -283,6 +288,8 @@ struct DraftOriginNote {
     last_client: Option<McpClientKind>,
     #[serde(default)]
     last_client_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_summary: Option<String>,
     updated_at: i64,
 }
 
@@ -310,10 +317,51 @@ fn record_origin(
         last_writer: origin,
         last_client: client,
         last_client_name: client_name.and_then(sanitize_client_name),
+        // Every write starts without one; an MCP write adds its own afterwards
+        // (`record_summary`), so a summary never outlives the change it named.
+        last_summary: None,
         updated_at: now_ms(),
     };
     if let Ok(text) = serde_json::to_string(&note) {
         let _ = fs::write(origin_path(root, id), text);
+    }
+}
+
+/// Longest summary kept: a sentence or two for a chat line, not a changelog.
+const MAX_SUMMARY_CHARS: usize = 280;
+
+/// One line of plain text: control characters dropped, whitespace collapsed,
+/// cut at `MAX_SUMMARY_CHARS`. `None` when nothing is left.
+pub(crate) fn sanitize_summary(text: &str) -> Option<String> {
+    let collapsed = text
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let clean: String = collapsed.chars().take(MAX_SUMMARY_CHARS).collect();
+    (!clean.is_empty()).then_some(clean)
+}
+
+/// Add the writer's own account of a write to the note that write just made.
+/// Best effort, like the note itself.
+fn record_summary(root: &Path, id: &str, summary: Option<&str>) {
+    let Some(text) = summary.and_then(sanitize_summary) else {
+        return;
+    };
+    let Some(mut note) = read_origin(root, id) else {
+        return;
+    };
+    note.last_summary = Some(text);
+    if let Ok(serialized) = serde_json::to_string(&note) {
+        let _ = fs::write(origin_path(root, id), serialized);
     }
 }
 
@@ -632,6 +680,7 @@ fn summarize(id: &str, dir: &Path) -> Result<DraftSummary, String> {
         last_writer: note.as_ref().map(|note| note.last_writer),
         last_client,
         last_client_name: note.as_ref().and_then(|note| note.last_client_name.clone()),
+        last_summary: note.as_ref().and_then(|note| note.last_summary.clone()),
         updated_at: note
             .as_ref()
             .map(|note| note.updated_at)
@@ -649,6 +698,7 @@ fn snapshot(id: &str, dir: &Path) -> Result<DraftSnapshot, String> {
         last_writer: summary.last_writer,
         last_client: summary.last_client,
         last_client_name: summary.last_client_name,
+        last_summary: summary.last_summary,
         updated_at: summary.updated_at,
     })
 }
@@ -875,9 +925,10 @@ pub(crate) fn write_draft<R: Runtime>(
     expected_revision: Option<&str>,
     origin: DraftWriteOrigin,
 ) -> Result<DraftSummary, String> {
-    write_draft_with_client(app, id, files, expected_revision, origin, None, None)
+    write_draft_with_client(app, id, files, expected_revision, origin, None, None, None)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn write_draft_with_client<R: Runtime>(
     app: &AppHandle<R>,
     id: &str,
@@ -886,13 +937,14 @@ pub(crate) fn write_draft_with_client<R: Runtime>(
     origin: DraftWriteOrigin,
     client: Option<McpClientKind>,
     client_name: Option<&str>,
+    change_summary: Option<&str>,
 ) -> Result<DraftSummary, String> {
     if !is_valid_package_id(id) {
         return Err("invalid_package_id".into());
     }
     check_files(files)?;
     let root = drafts_root(app)?;
-    let summary = write_draft_tree_with_client(
+    let mut summary = write_draft_tree_with_client(
         &root,
         id,
         files,
@@ -901,6 +953,9 @@ pub(crate) fn write_draft_with_client<R: Runtime>(
         client,
         client_name,
     )?;
+    // Before the event: the Wizard reads the note when it hears about the write.
+    record_summary(&root, &summary.id, change_summary);
+    summary.last_summary = change_summary.and_then(sanitize_summary);
     // The id the draft has *now*, which is not the id that was asked for when
     // the manifest renamed it.
     emit_changed(
@@ -1052,6 +1107,7 @@ fn edit_draft_tree_with_client(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn edit_draft_with_client<R: Runtime>(
     app: &AppHandle<R>,
     id: &str,
@@ -1060,9 +1116,10 @@ pub(crate) fn edit_draft_with_client<R: Runtime>(
     origin: DraftWriteOrigin,
     client: Option<McpClientKind>,
     client_name: Option<&str>,
+    change_summary: Option<&str>,
 ) -> Result<DraftDelta, EditError> {
     let root = drafts_root(app).map_err(EditError::Failed)?;
-    let delta = edit_draft_tree_with_client(
+    let mut delta = edit_draft_tree_with_client(
         &root,
         id,
         expected_revision,
@@ -1071,6 +1128,8 @@ pub(crate) fn edit_draft_with_client<R: Runtime>(
         client,
         client_name,
     )?;
+    record_summary(&root, &delta.summary.id, change_summary);
+    delta.summary.last_summary = change_summary.and_then(sanitize_summary);
     emit_changed(
         app,
         &delta.summary.id,
@@ -1875,6 +1934,50 @@ mod tests {
         assert_eq!(
             wizard.revision, mcp.revision,
             "the same bytes keep the same revision whoever wrote them"
+        );
+    }
+
+    /// A writer's summary is kept beside the draft, outside its revision, and
+    /// the next write — whoever makes it — drops it.
+    #[test]
+    fn a_change_summary_belongs_to_one_write() {
+        let root = temp_root("summary_note");
+        let files = [file("manifest.json", r#"{"id":"counter"}"#)];
+
+        let first =
+            write_draft_tree(&root, "counter", &files, None, DraftWriteOrigin::Mcp).unwrap();
+        record_summary(&root, "counter", Some("  Raised the goal\n to 8000  "));
+        let after = summarize("counter", &root.join("counter")).unwrap();
+        assert_eq!(
+            after.last_summary.as_deref(),
+            Some("Raised the goal to 8000")
+        );
+        assert_eq!(after.revision, first.revision, "the summary is not content");
+
+        record_summary(&root, "counter", Some(" \u{7} "));
+        assert_eq!(
+            summarize("counter", &root.join("counter"))
+                .unwrap()
+                .last_summary
+                .as_deref(),
+            Some("Raised the goal to 8000"),
+            "a blank summary does not overwrite a real one"
+        );
+
+        let next = write_draft_tree(
+            &root,
+            "counter",
+            &files,
+            Some(&first.revision),
+            DraftWriteOrigin::Wizard,
+        )
+        .unwrap();
+        assert_eq!(next.last_summary, None, "a later write starts without one");
+
+        let long = "x".repeat(MAX_SUMMARY_CHARS + 50);
+        assert_eq!(
+            sanitize_summary(&long).map(|text| text.chars().count()),
+            Some(MAX_SUMMARY_CHARS)
         );
     }
 
