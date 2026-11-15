@@ -11,12 +11,19 @@ import type {
 import { currentViewportSize, normalizeViewport } from "./viewportLayout";
 import { normalizeWidgetAppearance } from "./widgetAppearance";
 
-/** Default palette center for a new desk (viewport center when available). */
+/**
+ * Where the palette sits on a new desk and after "Move to Center": centered
+ * across, but a third down rather than halfway, so the results that open below
+ * it have room and the search field is where the eye lands first.
+ */
+export function homePalettePosition(width: number, height: number): WidgetPosition {
+  return { x: width / 2, y: height / 3 };
+}
+
 function defaultPalettePosition(): WidgetPosition {
-  return {
-    x: typeof window !== "undefined" ? window.innerWidth / 2 : 0,
-    y: typeof window !== "undefined" ? window.innerHeight / 2 : 0,
-  };
+  return typeof window !== "undefined"
+    ? homePalettePosition(window.innerWidth, window.innerHeight)
+    : { x: 0, y: 0 };
 }
 
 /** Display label for a newly created desk ("Desk 1", "Desk 2", …). */
