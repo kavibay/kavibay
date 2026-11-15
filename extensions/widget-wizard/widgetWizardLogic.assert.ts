@@ -45,6 +45,8 @@ import {
   describeProjectChange,
   projectTime,
   orderProjects,
+  pinnedFirst,
+  togglePinned,
   nextProjectOrder,
   moveProject,
   dropProject,
@@ -1091,6 +1093,26 @@ assert(
     ["fresh", "a", "b", "c"],
     "a project created a second ago is not filed at the bottom of forty rows",
   );
+
+  // Pinned rows go first; both groups keep the order they had.
+  const ordered = orderProjects(byTime, ["a", "b", "c"]);
+  assertEq(
+    pinnedFirst(ordered, ["c"]).map((row) => row.key),
+    ["c", "a", "b"],
+    "a pinned project leads, the rest keep their places",
+  );
+  assertEq(
+    pinnedFirst(ordered, ["c", "b"]).map((row) => row.key),
+    ["b", "c", "a"],
+    "several pins keep the list's own order among themselves",
+  );
+  assertEq(
+    pinnedFirst(ordered, ["gone"]).map((row) => row.key),
+    ["a", "b", "c"],
+    "a pin for a deleted project changes nothing",
+  );
+  assertEq(togglePinned(["a"], "b"), ["a", "b"], "pinning appends");
+  assertEq(togglePinned(["a", "b"], "a"), ["b"], "and pinning again unpins");
 
   // Everything the order has not placed keeps the time order it arrived in,
   // above everything it has.

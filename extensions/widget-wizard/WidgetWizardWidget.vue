@@ -39,6 +39,7 @@ import {
   ImageIcon,
   MessageSquareIcon,
   PanelLeftIcon,
+  PinIcon,
   PlugIcon,
   ServerPlusIcon,
   SparklesIcon,
@@ -178,6 +179,8 @@ import {
   describeProjectStatus as describeProjectStatusAt,
   projectIsLive,
   orderProjects,
+  pinnedFirst,
+  togglePinned,
   nextProjectOrder,
   moveProject,
   dropProject,
@@ -695,15 +698,18 @@ const activeHeader = computed<ConversationHeader | null>(() => {
 });
 
 const projectRows = computed(() =>
-  orderProjects(
-    buildProjectRows({
-      widgets: myWidgets.value,
-      drafts: drafts.value,
-      conversations: activeHeader.value
-        ? [activeHeader.value, ...headers.value]
-        : headers.value,
-    }),
-    projectOrder.value,
+  pinnedFirst(
+    orderProjects(
+      buildProjectRows({
+        widgets: myWidgets.value,
+        drafts: drafts.value,
+        conversations: activeHeader.value
+          ? [activeHeader.value, ...headers.value]
+          : headers.value,
+      }),
+      projectOrder.value,
+    ),
+    pinnedProjects.value,
   ),
 );
 
@@ -715,13 +721,30 @@ const projectRows = computed(() =>
  */
 const PROJECT_ORDER_KEY = "projectOrder";
 const projectOrder = ref<string[]>([]);
+/** Pinned project keys, kept beside the order and for the same reason. */
+const PINNED_PROJECTS_KEY = "pinnedProjects";
+const pinnedProjects = ref<string[]>([]);
 const shared = props.model.shared;
 
+const asKeys = (stored: unknown): string[] =>
+  Array.isArray(stored) ? stored.filter((key): key is string => typeof key === "string") : [];
+
 async function hydrateProjectOrder(): Promise<void> {
-  const stored = await shared?.get<unknown>(PROJECT_ORDER_KEY).catch(() => undefined);
-  projectOrder.value = Array.isArray(stored)
-    ? stored.filter((key): key is string => typeof key === "string")
-    : [];
+  const [order, pinned] = await Promise.all([
+    shared?.get<unknown>(PROJECT_ORDER_KEY).catch(() => undefined),
+    shared?.get<unknown>(PINNED_PROJECTS_KEY).catch(() => undefined),
+  ]);
+  projectOrder.value = asKeys(order);
+  pinnedProjects.value = asKeys(pinned);
+}
+
+function isPinned(row: ProjectRow): boolean {
+  return pinnedProjects.value.includes(row.key);
+}
+
+function togglePinnedProject(row: ProjectRow): void {
+  pinnedProjects.value = togglePinned(pinnedProjects.value, row.key);
+  void shared?.set(PINNED_PROJECTS_KEY, pinnedProjects.value).catch(() => undefined);
 }
 
 /**
@@ -942,6 +965,11 @@ function openSidebarMenu(row: ProjectRow, event: MouseEvent, conversation?: stri
 function closeSidebarMenu(restoreFocus = false) {
   if (restoreFocus) sidebarMenu.value?.trigger.querySelector<HTMLButtonElement>("button")?.focus();
   sidebarMenu.value = null;
+}
+function pinSidebarItem() {
+  const row = sidebarMenu.value?.row;
+  closeSidebarMenu(true);
+  if (row) togglePinnedProject(row);
 }
 function runSidebarWidget() {
   const row = sidebarMenu.value?.row;
@@ -4579,6 +4607,13 @@ async function enablePackage(
                       >!</span>
                       {{ row.title }}
                     </span>
+                    <PinIcon
+                      v-if="isPinned(row)"
+                      class="wiz-side-pin"
+                      :size="12"
+                      v-tip="'Pinned'"
+                      aria-label="Pinned"
+                    />
                     <span
                       v-if="widgetPresence(row.packageId)"
                       class="wiz-side-presence"
@@ -5900,7 +5935,10 @@ async function enablePackage(
       :y="sidebarMenu.y"
       :can-run="sidebarMenu.row.saved && !!sidebarMenu.row.packageId"
       :can-create="!!sidebarMenu.row.packageId && !sidebarMenu.conversation"
+      :can-pin="!sidebarMenu.conversation"
+      :pinned="isPinned(sidebarMenu.row)"
       :busy="busy"
+      @pin="pinSidebarItem"
       @run="runSidebarWidget"
       @create="createSidebarConversation"
       @delete="deleteSidebarItem"
@@ -6183,6 +6221,12 @@ async function enablePackage(
   display: flex;
   align-items: center;
   gap: 2px;
+}
+
+/* Quiet: it marks the row, it is not something to click. */
+.wiz-side-pin {
+  flex-shrink: 0;
+  color: rgba(var(--fg-rgb), 0.4);
 }
 
 .wiz-side-name {
