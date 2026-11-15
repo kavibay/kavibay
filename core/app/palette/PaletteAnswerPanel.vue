@@ -94,7 +94,7 @@ defineExpose({ focusComposer });
           <path d="M19 12H5" />
         </svg>
       </button>
-      <span>Ask Chatgpt</span>
+      <span>Ask ChatGPT</span>
       <button v-if="busy" type="button" class="palette-answer-action" @click="$emit('stop')">Stop</button>
       <button
         v-else-if="webSearch && webSearchAvailable && !answer.webSearch && (answer.phase === 'done' || answer.phase === 'stopped')"

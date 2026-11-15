@@ -461,6 +461,7 @@ function toRegistered(definitionId: string): RegisteredExtension | undefined {
     params: [...(action.params ?? [])],
     needsInstance: action.needsInstance !== false,
     ...(action.replacesCatalogRow ? { replacesCatalogRow: true } : {}),
+    ...(action.doneMessage ? { doneMessage: action.doneMessage } : {}),
   }));
   const actionHandlers = Object.fromEntries(
     localActions.map((action) => [
@@ -533,6 +534,7 @@ function toRegistered(definitionId: string): RegisteredExtension | undefined {
     opaque: metadata.opaque ?? false,
     keepAliveWhenHidden: metadata.keepAliveWhenHidden ?? false,
     ...(metadata.ownWindow ? { ownWindow: true } : {}),
+    ...(metadata.openIn ? { openIn: metadata.openIn } : {}),
     ...(metadata.appearance ? { appearance: metadata.appearance } : {}),
     ...(metadata.appearanceEditable ? { appearanceEditable: true } : {}),
     permissions: [],

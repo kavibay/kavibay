@@ -14,7 +14,8 @@
       "ui": {
         "defaultOffset": { "x": -320, "y": 280 },
         "defaultSize": { "w": 288, "h": 280 },
-        "grabCursor": false
+        "grabCursor": false,
+        "openIn": "panel"
       },
       "actions": [
         {

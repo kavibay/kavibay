@@ -50,8 +50,11 @@ my-widget/
 `ui` describes the state a fresh card opens in. `defaultOffset` and
 `defaultSize` are required; `defaultHideTitle` (`true` opens without the title
 bar) and `defaultScale` (content zoom, `1` = unzoomed — the factor
-Ctrl+mousewheel writes, clamped to `0.5`…`3`) are optional. A value the host
-cannot use falls back to its own default instead of failing the package.
+Ctrl+mousewheel writes, clamped to `0.5`…`3`) are optional. So is
+`"openIn": "panel"`: the palette then opens the widget in its main panel instead
+of as a card, and Ctrl+Enter puts it on the desk — for something used briefly,
+like a calculator. A value the host cannot use falls back to its own default
+instead of failing the package.
 
 `defaultSize` applies to the *first* card of your package. After someone resizes
 one, the host reuses that size for every later one, so treat the manifest value

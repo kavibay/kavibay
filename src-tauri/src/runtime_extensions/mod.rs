@@ -68,6 +68,8 @@ pub struct ScannedRuntimeExtension {
     pub chat: Option<bool>,
     /// `false` when the card drops its padding, from `ui.padding`.
     pub padding: Option<bool>,
+    /// `"panel"` when the palette opens it in its main panel, from `ui.openIn`.
+    pub open_in: Option<String>,
     /// Content zoom the card opens at, from `ui.defaultScale` (1 = unzoomed).
     /// The host clamps it; anything non-positive is dropped here.
     pub default_scale: Option<f64>,
@@ -248,6 +250,7 @@ fn validate_manifest_on_disk(
         default_hide_title: None,
         chat: None,
         padding: None,
+        open_in: None,
         default_scale: None,
         icon: None,
         permissions: Vec::new(),
@@ -344,6 +347,7 @@ fn validate_manifest_on_disk(
     // host default rather than failing the package.
     partial.default_hide_title = ui.get("defaultHideTitle").and_then(Value::as_bool);
     partial.padding = ui.get("padding").and_then(Value::as_bool);
+    partial.open_in = open_in(ui.get("openIn"));
     partial.default_scale = ui
         .get("defaultScale")
         .and_then(Value::as_f64)
@@ -515,6 +519,13 @@ fn load_api_declaration(
     Ok((declaration.summaries(), Some(declaration_hash(&text))))
 }
 
+/// `ui.openIn`: only `"panel"` means anything. Anything else is dropped rather
+/// than failing the package — the desk is the default, and a typo is not worth
+/// a dead widget. Mirrored in `core/app/runtime/manifestValidate.ts`.
+fn open_in(value: Option<&Value>) -> Option<String> {
+    (value.and_then(Value::as_str) == Some("panel")).then(|| "panel".to_string())
+}
+
 /// Fields filled while validating (may be partial on error).
 struct PartialScan {
     id: String,
@@ -526,6 +537,7 @@ struct PartialScan {
     default_hide_title: Option<bool>,
     chat: Option<bool>,
     padding: Option<bool>,
+    open_in: Option<String>,
     default_scale: Option<f64>,
     icon: Option<String>,
     permissions: Vec<String>,
@@ -569,6 +581,7 @@ fn scan_row(
         default_hide_title: partial.default_hide_title,
         chat: partial.chat,
         padding: partial.padding,
+        open_in: partial.open_in.clone(),
         default_scale: partial.default_scale,
         icon: partial.icon.clone(),
         permissions: partial.permissions.clone(),
@@ -601,6 +614,7 @@ fn scan_package_dir(
         default_hide_title: None,
         chat: None,
         padding: None,
+        open_in: None,
         default_scale: None,
         icon: None,
         permissions: Vec::new(),
@@ -754,6 +768,7 @@ fn contract_partial(
         // block is the runtime format's vocabulary and is not read here.
         chat: raw.pointer("/ui/chat").and_then(Value::as_bool),
         padding: None,
+        open_in: open_in(raw.pointer("/ui/openIn")),
         default_scale: None,
         // Same rules as a runtime package's icon, but a bad one is no icon
         // rather than a broken package: it is decoration, and the Wizard writes it.
@@ -874,6 +889,41 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    /// `ui.openIn` reaches the FE for both formats; an unknown value is dropped.
+    #[test]
+    fn open_in_panel_is_carried() {
+        let root = temp_package();
+        let raw = manifest(serde_json::json!({
+            "ui": {
+                "entry": "ui/index.html",
+                "defaultOffset": { "x": 0, "y": 0 },
+                "openIn": "panel",
+            },
+        }));
+        let (partial, error) = validate_manifest_on_disk("demo", &root, &raw);
+        assert_eq!(error, None);
+        assert_eq!(partial.open_in.as_deref(), Some("panel"));
+
+        let odd = manifest(serde_json::json!({
+            "ui": {
+                "entry": "ui/index.html",
+                "defaultOffset": { "x": 0, "y": 0 },
+                "openIn": "window",
+            },
+        }));
+        let (partial, error) = validate_manifest_on_disk("demo", &root, &odd);
+        assert_eq!(error, None);
+        assert_eq!(partial.open_in, None);
+
+        let (contract, _) = contract_partial(
+            "sleep",
+            &root,
+            &serde_json::json!({ "format": "contract", "ui": { "openIn": "panel" } }),
+        );
+        assert_eq!(contract.open_in.as_deref(), Some("panel"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
     /// A nonsense scale falls back to the host default instead of failing the
     /// package — same treatment `defaultSize` already gets.
     #[test]
@@ -944,6 +994,7 @@ mod tests {
             default_hide_title: None,
             chat: None,
             padding: None,
+            open_in: None,
             default_scale: None,
             icon: None,
             permissions: Vec::new(),
