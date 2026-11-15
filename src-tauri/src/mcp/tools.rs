@@ -40,7 +40,7 @@ const RUNTIME_RESOURCE: &str = "kavibay://authoring/runtime-package";
 const CONTRACT_RESOURCE: &str = "kavibay://authoring/contract-package";
 const PROVIDER_RESOURCE: &str = "kavibay://authoring/provider-schema";
 
-const TOOL_NAMES: [&str; 10] = [
+const TOOL_NAMES: [&str; 12] = [
     "get_authoring_guide",
     "list_widget_providers",
     "list_drafts",
@@ -51,6 +51,8 @@ const TOOL_NAMES: [&str; 10] = [
     "list_custom_widgets",
     "read_custom_widget",
     "checkout_custom_widget",
+    "begin_editing",
+    "end_editing",
 ];
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -72,6 +74,20 @@ struct GetAuthoringGuideInput {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct IdInput {
     id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BeginEditingInput {
+    id: String,
+    plan: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EditingOutput {
+    id: String,
+    editing: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,12 +125,17 @@ impl From<McpDraftEdit> for drafts::DraftEdit {
     }
 }
 
+/// Shown to the person in the Wizard beside the change; asked for on both
+/// write tools in the same words.
+const SUMMARY_DESCRIPTION: &str = "One short sentence for the person, in their language, saying what this change does and why, e.g. \"Raised the daily goal to 8000 steps\". Shown in the Widget Wizard beside the change. Recommended on every write.";
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct EditDraftInput {
     id: String,
     expected_revision: String,
     edits: Vec<McpDraftEdit>,
+    summary: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -123,6 +144,7 @@ struct WriteDraftInput {
     id: String,
     expected_revision: Option<String>,
     files: Vec<McpDraftFile>,
+    summary: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -398,6 +420,8 @@ fn tracks_draft_presence(name: &str) -> bool {
             | "validate_draft"
             | "read_custom_widget"
             | "checkout_custom_widget"
+            | "begin_editing"
+            | "end_editing"
     )
 }
 
@@ -448,6 +472,7 @@ fn dispatch_tool(
                 drafts::DraftWriteOrigin::Mcp,
                 client,
                 client_name,
+                input.summary.as_deref(),
             ))
         }),
         "edit_draft" => parse_input(arguments).map(|input: EditDraftInput| {
@@ -463,6 +488,7 @@ fn dispatch_tool(
                 drafts::DraftWriteOrigin::Mcp,
                 client,
                 client_name,
+                input.summary.as_deref(),
             ))
         }),
         "validate_draft" => parse_input(arguments)
@@ -508,6 +534,28 @@ fn dispatch_tool(
                 ))
             })
         }
+        // Presence only: nothing on disk changes. The call itself already
+        // holds a presence entry (`tracks_draft_presence`), which these mark.
+        "begin_editing" => parse_input(arguments).and_then(|input: BeginEditingInput| {
+            if !drafts::is_valid_package_id(&input.id) {
+                return service_call::<EditingOutput>(Err("invalid_package_id".into()));
+            }
+            let state = app.state::<presence::McpPresenceState>();
+            let plan = input.plan.as_deref().and_then(drafts::sanitize_summary);
+            let editing = state.begin_editing(&input.id, client, client_name, plan);
+            Ok(success(EditingOutput {
+                id: input.id,
+                editing,
+            }))
+        }),
+        "end_editing" => parse_input(arguments).map(|input: IdInput| {
+            let state = app.state::<presence::McpPresenceState>();
+            state.end_editing(&input.id, client, client_name);
+            success(EditingOutput {
+                id: input.id,
+                editing: false,
+            })
+        }),
         _ => Err(ErrorData::new(
             ErrorCode::METHOD_NOT_FOUND,
             "Unknown MCP tool.",
@@ -767,6 +815,10 @@ fn tool_definitions() -> Vec<Tool> {
                         "type": "string",
                         "description": "Leave this out to create a new draft; that fails with draft_conflict if one exists. To update, pass the revision read_draft or the last write returned. A stale revision fails with draft_conflict and the current one."
                     },
+                    "summary": {
+                        "type": "string",
+                        "description": SUMMARY_DESCRIPTION
+                    },
                     "files": {
                         "type": "array",
                         "description": "The complete file set. Files not listed here are removed from the draft.",
@@ -797,6 +849,10 @@ fn tool_definitions() -> Vec<Tool> {
                     "expectedRevision": {
                         "type": "string",
                         "description": "The revision your copy of the draft is from: what read_draft, checkout_custom_widget or your last write returned."
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": SUMMARY_DESCRIPTION
                     },
                     "edits": {
                         "type": "array",
@@ -859,6 +915,27 @@ fn tool_definitions() -> Vec<Tool> {
                 &["id"],
             ),
             false,
+        ),
+        tool(
+            "begin_editing",
+            "Tell the person you are starting work on one widget, before you read or change it. The Widget Wizard then shows that you are editing it — also while you think between calls — until end_editing, or until five minutes pass without a call. Calling it again renews the session. Changes nothing on disk.",
+            object_schema(
+                json!({
+                    "id": { "type": "string", "description": "Draft or widget id you are about to work on." },
+                    "plan": { "type": "string", "description": "One short sentence, in the person's language, saying what you are about to do." }
+                }),
+                &["id"],
+            ),
+            true,
+        ),
+        tool(
+            "end_editing",
+            "Tell the person you have finished working on a widget you called begin_editing for. Call it when you are done, also after a failure. Changes nothing on disk.",
+            object_schema(
+                json!({ "id": { "type": "string", "description": "The id you passed to begin_editing." } }),
+                &["id"],
+            ),
+            true,
         ),
     ]
 }
@@ -1079,6 +1156,7 @@ mod tests {
             last_writer: Some(drafts::DraftWriteOrigin::Mcp),
             last_client: None,
             last_client_name: None,
+            last_summary: None,
             updated_at: Some(1),
         };
         let ok = edit_reply(Ok(drafts::DraftDelta {

@@ -554,6 +554,11 @@ export interface WizardDraftPresence {
   clientName: string | null;
   tool: string;
   active: boolean;
+  /** Between the client's begin_editing and end_editing (absent from older hosts). */
+  editing?: boolean;
+  editingSince?: number | null;
+  /** What the client said it is about to do. */
+  plan?: string | null;
   lastSeen: number;
   expiresAt: number;
 }
@@ -588,12 +593,23 @@ export function presenceForWidget(
       .filter((presence) => presence.id === id && (presence.active || presence.expiresAt > now))
       .sort(
         (left, right) =>
-          Number(right.active) - Number(left.active) || right.lastSeen - left.lastSeen,
+          Number(right.editing === true) - Number(left.editing === true) ||
+          Number(right.active) - Number(left.active) ||
+          right.lastSeen - left.lastSeen,
       )[0] ?? null
   );
 }
 
-/** Honest copy: exact while a request runs, explicitly recent between calls. */
+/** "12 s", "3 min": how long an editing session has been open. */
+export function describeEditingFor(since: number, now: number): string {
+  const seconds = Math.max(0, Math.floor((now - since) / 1000));
+  return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min`;
+}
+
+/**
+ * Honest copy: an announced session is "editing", a running request is exact,
+ * and between calls without a session it is explicitly recent.
+ */
 export function describeDraftPresence(presence: WizardDraftPresence): string {
   const author = draftAuthorWithClientName(presence.client ?? "mcp", presence.clientName);
   const who =
@@ -602,6 +618,7 @@ export function describeDraftPresence(presence: WizardDraftPresence): string {
       : author === "claude"
         ? "Claude Code"
         : presence.clientName || "An MCP client";
+  if (presence.editing) return `${who} is editing this widget`;
   return presence.active
     ? `${who} is working on this widget right now`
     : `${who} was active on this widget just now`;
@@ -617,6 +634,8 @@ export interface WizardDraftSnapshot {
   lastClient?: DraftClient;
   /** Exact, sanitized MCP clientInfo.name for transparent hover attribution. */
   lastClientName?: string | null;
+  /** What the MCP client said this write does (`summary` on write/edit_draft). */
+  lastSummary?: string | null;
   updatedAt?: number | null;
 }
 
@@ -2706,6 +2725,8 @@ export interface WizardBubble {
   author?: DraftAuthor;
   /** Exact MCP clientInfo.name for an externally updated checkpoint. */
   clientName?: string | null;
+  /** The MCP client's own one-line account of that change, when it gave one. */
+  changeSummary?: string | null;
   /** Thumbnails of what was attached, so the transcript shows what was asked. */
   images?: WizardAttachment[];
   /**

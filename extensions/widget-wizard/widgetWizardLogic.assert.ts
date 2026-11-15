@@ -36,6 +36,7 @@ import {
   describeDraftAuthor,
   describeDraftClient,
   describeDraftPresence,
+  describeEditingFor,
   draftClientFromName,
   draftAuthorWithClientName,
   presenceForWidget,
@@ -1466,6 +1467,21 @@ assertEq(
     "between calls the copy is explicitly recent rather than exact",
   );
   assertEq(presenceForWidget(rows, "clock", 62_000), null, "recent presence expires");
+
+  const editing = { ...finished, editing: true, editingSince: 500, plan: "Bigger digits", expiresAt: 302_000 };
+  assertEq(
+    describeDraftPresence(editing),
+    "Codex is editing this widget",
+    "an announced session reads as editing, also between calls",
+  );
+  const other = { ...active, clientName: "claude-code", client: "claude" as const, lastSeen: 3_000 };
+  assertEq(
+    presenceForWidget([other, editing], "clock", 3_000),
+    editing,
+    "an open session wins over another client's single call",
+  );
+  assertEq(describeEditingFor(500, 12_900), "12 s", "seconds under a minute");
+  assertEq(describeEditingFor(500, 200_500), "3 min", "minutes after that");
 }
 assertEq(describeDraftAuthor("wizard"), "you", "and this one is not a third party");
 assertEq(draftAuthorOf("mcp", "codex"), "codex", "Codex handshake identity is retained");

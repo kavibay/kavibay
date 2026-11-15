@@ -93,6 +93,8 @@ The reviewed tool allowlist contains exactly these ten tools:
 | `read_draft` | Read the complete text file set, revision and current validation error for one draft. |
 | `write_draft` | Create or replace a complete draft file set with optimistic revision checking. |
 | `edit_draft` | Change or add files of an existing draft by exact text replacement, all edits or none, with a per-file revision check. |
+| `begin_editing` | Announce that you are starting work on one widget, with an optional one-line `plan`. Changes nothing on disk. |
+| `end_editing` | Announce that you are done with it. Changes nothing on disk. |
 | `validate_draft` | Run the same validator used before promotion and return its stable error code. |
 | `list_custom_widgets` | List metadata for custom-root widgets only; installed packages are hidden. |
 | `read_custom_widget` | Read a custom widget's text source and content revision. |
@@ -148,6 +150,28 @@ than a `write_draft` of every file. Edits apply in order, all or none: one that
 cannot be placed fails the call with `edit_not_found`, `edit_ambiguous`,
 `edit_file_not_found`, `edit_file_exists` or `edit_empty` and the offending
 `path`, and nothing is written. Removing a file is still a `write_draft`.
+
+### Saying you are working: `begin_editing` / `end_editing`
+
+A tool call is visible to the Wizard; a model thinking between two calls is
+not, so without help the Wizard can only say "was active just now". Calling
+`begin_editing` before working on a widget opens a session: the Wizard shows
+"… is editing this widget", how long for, and the `plan` if one was given,
+until `end_editing` — or until five minutes pass without any call from that
+client, so a crashed or forgetful client does not claim the widget forever.
+Every tool call on the widget renews the session. Both are presence only and
+never touch the draft.
+
+### Saying what changed: `summary`
+
+`write_draft` and `edit_draft` both take an optional `summary`: one short
+sentence, in the person's language, about what the change does and why
+(`"Raised the daily goal to 8000 steps"`). The Widget Wizard shows it under
+the "Updated via …" line of that change, so someone watching the draft move
+does not have to read a diff to know what happened. It is stored beside the
+draft, outside its revision, cut to 280 characters and one line, and dropped
+by the next write — whoever makes it — so it never describes a later change
+than its own.
 
 The revision check is per file. The host keeps a short history of each draft's
 revisions with a hash per file, beside the draft and outside its revision, so
