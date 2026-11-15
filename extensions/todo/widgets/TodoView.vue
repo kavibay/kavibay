@@ -206,6 +206,17 @@ function onFocusRequest(event: Event) {
   focusRow(empty?.id ?? props.model.rows.value[0]?.id ?? props.model.state.value.items[0]!.id);
 }
 
+/**
+ * The visible way to add a to-do, for anyone who does not know Enter does it.
+ * A trailing empty to-do is reused rather than stacked under another one.
+ */
+function addAtEnd() {
+  const roots = props.model.rows.value.filter((row) => row.depth === 0);
+  const last = roots[roots.length - 1];
+  if (last && !props.model.itemById.value.get(last.id)?.text.trim()) focusRow(last.id);
+  else focusRow(props.model.addRoot());
+}
+
 onMounted(() => window.addEventListener(WIDGET_FOCUS_EVENT, onFocusRequest));
 onBeforeUnmount(() => {
   window.removeEventListener(WIDGET_FOCUS_EVENT, onFocusRequest);
@@ -265,12 +276,21 @@ onBeforeUnmount(() => {
           @lostpointercapture="onPointerDragCancel"
         >⠿</span>
       </li>
+      <li class="todo-row todo-row--add">
+        <button type="button" class="todo-add" @click="addAtEnd">
+          <span v-if="hasNesting" class="todo-chevron-spacer" aria-hidden="true" />
+          <span class="todo-add-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M5 12h14" /><path d="M12 5v14" /></svg>
+          </span>
+          <span>Add to-do</span>
+        </button>
+      </li>
     </ul>
   </div>
 </template>
 
 <style scoped>
-.todo-widget { display: flex; flex-direction: column; min-width: 0; min-height: 0; box-sizing: border-box; color: rgba(var(--fg-rgb), 0.92); --todo-rail: 0px; }
+.todo-widget { display: flex; flex-direction: column; min-width: 0; min-height: 0; box-sizing: border-box; color: rgba(var(--fg-rgb), 0.92); --todo-rail: 8px; }
 .todo-widget--inline { --todo-rail: 21px; }
 .todo-list { list-style: none; margin: 0; padding: 0; flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 1px; }
 .todo-row { position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px 2px calc(var(--todo-rail) + var(--todo-depth, 0) * 14px); border-radius: 6px; }
@@ -293,7 +313,10 @@ onBeforeUnmount(() => {
 .todo-chevron:hover .todo-chevron-icon { color: rgba(var(--fg-rgb), 0.9); }
 .todo-chevron:focus-visible { outline: 1px solid rgba(var(--fg-rgb), 0.55); outline-offset: 1px; }
 .todo-check { flex-shrink: 0; display: grid; place-items: center; border: 0; background: transparent; padding: 2px 0; cursor: pointer; }
-.todo-check:focus-visible { outline: 1px solid rgba(var(--fg-rgb), 0.55); outline-offset: 1px; border-radius: 6px; }
+/* The ring hugs the box itself: on the button it framed the button's extra
+   height too, a second, taller square around the checkbox. */
+.todo-check:focus-visible { outline: none; }
+.todo-check:focus-visible .todo-check-box { box-shadow: 0 0 0 2px rgb(var(--surface-bg-rgb)), 0 0 0 3px rgba(var(--fg-rgb), 0.55); }
 .todo-check-box { display: grid; place-items: center; box-sizing: border-box; width: 18px; height: 18px; border: 1px solid rgba(var(--fg-rgb), 0.35); border-radius: 6px; }
 .todo-check-box svg { width: 14px; height: 14px; fill: none; stroke: rgb(var(--surface-bg-rgb)); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; visibility: hidden; }
 .todo-check-box.checked { background: rgb(var(--fg-rgb)); border-color: rgb(var(--fg-rgb)); }
@@ -305,4 +328,9 @@ onBeforeUnmount(() => {
 .todo-row:hover .todo-delete, .todo-row:focus-within .todo-delete { opacity: 1; }
 .todo-delete:hover { color: rgba(var(--fg-rgb), 0.85); background: rgba(var(--fg-rgb), 0.08); }
 .todo-delete:focus-visible { outline: 1px solid rgba(var(--fg-rgb), 0.55); outline-offset: 1px; }
+/* Reads as one more, empty row: the plus sits in the checkbox column. */
+.todo-add { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; padding: 3px 0; border: 0; background: transparent; color: rgba(var(--fg-rgb), 0.38); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.todo-add-icon { display: grid; place-items: center; flex-shrink: 0; width: 18px; height: 18px; }
+.todo-add-icon svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.todo-add:hover, .todo-add:focus-visible { color: rgba(var(--fg-rgb), 0.75); outline: none; }
 </style>
