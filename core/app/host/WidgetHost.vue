@@ -44,6 +44,7 @@ import {
   catalogNotOnDesk,
   deleteDesk,
   desksWithInstance,
+  homePalettePosition,
   instancesForDesk,
   moveToDesk,
   normalizeCatalogEntry,
@@ -1392,10 +1393,9 @@ function onTogglePin(instanceId: string) {
   scheduleRegionSync();
 }
 
-/** Move the palette to the viewport center; keep widgets fixed on screen. */
+/** Move the palette to its home spot (centered, a third down); keep widgets fixed on screen. */
 function centerPalette() {
-  const cx = window.innerWidth / 2;
-  const cy = window.innerHeight / 2;
+  const { x: cx, y: cy } = homePalettePosition(window.innerWidth, window.innerHeight);
   const dx = cx - palettePos.x;
   const dy = cy - palettePos.y;
   if (dx === 0 && dy === 0) return;
