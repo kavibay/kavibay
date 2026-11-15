@@ -151,6 +151,16 @@ assert(
     assert(r.manifest.ui.defaultSize?.w === 240, "defaultSize passed through");
   }
 }
+
+// --- ui.openIn: only "panel" survives (mirrors `open_in` in Rust) ---
+for (const [value, expected] of [["panel", "panel"], ["window", undefined], [true, undefined]] as const) {
+  const r = validateRuntimeManifest(
+    "demo",
+    baseManifest({ ui: { entry: "ui/index.html", defaultOffset: { x: 0, y: 0 }, openIn: value } }),
+  );
+  assert(r.ok === true, `openIn ${String(value)} does not fail the package`);
+  if (r.ok) assert(r.manifest.ui.openIn === expected, `openIn ${String(value)} → ${String(expected)}`);
+}
 {
   // A bad value must not kill the package — the host has a fallback for each.
   const r = validateRuntimeManifest(

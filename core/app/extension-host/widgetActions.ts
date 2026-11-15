@@ -21,6 +21,11 @@ export interface WidgetActionDeclaration {
    * the card, so its catalog row is the only way to add the widget at all.
    */
   replacesCatalogRow?: boolean;
+  /**
+   * One line the palette shows once the action has run ("Copied to clipboard"),
+   * for an action whose effect is not on screen. Absent: nothing is shown.
+   */
+  doneMessage?: string;
 }
 
 const asRecord = (value: unknown): Record<string, unknown> =>
@@ -73,6 +78,9 @@ export function toActionDeclarations(
       params: Array.isArray(entry.params) ? (entry.params as WidgetActionParam[]) : [],
       needsInstance: entry.needsInstance !== false,
       ...(entry.replacesCatalogRow === true ? { replacesCatalogRow: true } : {}),
+      ...(typeof entry.doneMessage === "string" && entry.doneMessage.trim()
+        ? { doneMessage: entry.doneMessage.trim() }
+        : {}),
     });
   }
 

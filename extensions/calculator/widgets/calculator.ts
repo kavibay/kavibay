@@ -1,5 +1,5 @@
-import { computed, ref, watch, type ComputedRef, type Ref } from "vue";
-import { defineWidget, type WidgetContext } from "@sdk/contract/sdk";
+import { computed, onScopeDispose, ref, watch, type ComputedRef, type Ref } from "vue";
+import { defineWidget, type WidgetActionContext, type WidgetContext } from "@sdk/contract/sdk";
 import { CURRENCY_ALIASES, CURRENCY_HOST, currencyRates, loadCurrencyRates, looksLikeCurrency } from "./currency";
 
 /** `unit` and `from` are set only for a conversion: the target's symbol, and what was converted. */
@@ -465,6 +465,27 @@ function tokenize(input: string): Token[] {
   return tokens;
 }
 
+/** Mounted calculators, so the palette action can type into one that is open. */
+const liveSetters = new Map<string, (value: string) => void>();
+/** An expression for a calculator still loading its saved state; applied once it has. */
+const pendingExpressions = new Map<string, string>();
+
+/** Palette action: put an expression in the calculator's input, ready to edit or commit. */
+export async function runCalculateAction({
+  ctx,
+  args,
+}: WidgetActionContext<Record<string, never>>): Promise<void> {
+  const expression = (args.expression ?? "").trim();
+  const live = liveSetters.get(ctx.instanceId);
+  if (live) {
+    live(expression);
+    return;
+  }
+  pendingExpressions.set(ctx.instanceId, expression);
+  const saved = normalizeCalculatorState(await ctx.data.get(CALCULATOR_STATE_KEY));
+  await ctx.data.set(CALCULATOR_STATE_KEY, { ...saved, expression, selectedIndex: null });
+}
+
 export const calculatorWidget = defineWidget<Record<string, never>>({
   name: "calculator",
   displayName: "Calculator",
@@ -475,6 +496,7 @@ export const calculatorWidget = defineWidget<Record<string, never>>({
     clipboard: true,
     http: { hosts: [CURRENCY_HOST], methods: ["GET"] },
   },
+  actions: { calculate: runCalculateAction },
   component: {
     async setup(ctx: WidgetContext<Record<string, never>>): Promise<CalculatorModel> {
       const history = ref<CalcHistoryEntry[]>([]);
@@ -509,6 +531,9 @@ export const calculatorWidget = defineWidget<Record<string, never>>({
           if (ctx.http && looksLikeCurrency(value)) void loadCurrencyRates(ctx.http);
         },
       );
+
+      // Also before the await, for the same reason as the watchers above.
+      onScopeDispose(() => liveSetters.delete(ctx.instanceId));
 
       const saved = normalizeCalculatorState(await ctx.data.get(CALCULATOR_STATE_KEY));
       history.value = saved.history;
@@ -546,6 +571,14 @@ export const calculatorWidget = defineWidget<Record<string, never>>({
         recallIndex = null;
         expression.value = value;
       };
+
+      // Registered only now: earlier, hydration would overwrite what the action typed.
+      const pending = pendingExpressions.get(ctx.instanceId);
+      if (pending !== undefined) {
+        pendingExpressions.delete(ctx.instanceId);
+        setExpression(pending);
+      }
+      liveSetters.set(ctx.instanceId, setExpression);
 
       const selectHistory = (index: number) => {
         if (index < 0 || index >= history.value.length) return;

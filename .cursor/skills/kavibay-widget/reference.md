@@ -71,6 +71,7 @@ Notes:
 - Declare Tauri command names in `commands` when the extension invokes them (enforcement later)
 - `credentials: [{ "type": "githubPat", "required": true }]` when the widget needs an account — type ids come from `src-tauri/src/credentials/registry.rs`
 - `grabCursor: false` for text-heavy widgets (e.g. notes)
+- `openIn: "panel"` → the palette opens it in its main panel; Ctrl+Enter puts it on the desk (runtime packages too)
 - Categories used elsewhere: `productivity`, `tools`, etc. — match neighbors
 
 ## `index.ts`

@@ -56,6 +56,7 @@ export interface ContractCatalogMetadata {
   opaque?: boolean;
   keepAliveWhenHidden?: boolean;
   ownWindow?: boolean;
+  openIn?: "panel";
   appearance?: WidgetAppearance;
   appearanceEditable?: boolean;
 }
@@ -234,6 +235,7 @@ function toCatalogMetadata(entry: Record<string, unknown>): ContractCatalogMetad
     opaque: asBool(ui.opaque),
     keepAliveWhenHidden: asBool(ui.keepAliveWhenHidden),
     ownWindow: asBool(ui.ownWindow),
+    openIn: ui.openIn === "panel" ? "panel" : undefined,
     appearance: normalizeWidgetAppearance(ui.appearance),
     appearanceEditable: asBool(asRecord(ui.appearance).editable),
   };

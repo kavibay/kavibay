@@ -1,9 +1,9 @@
 /**
- * The two catalog ids core itself drives, in one place.
+ * The catalog ids core itself drives, in one place.
  *
  * Core is not supposed to know what is in `extensions/`, and everywhere else it
  * does not: the catalog, the palette, the layout and Settings all work off
- * `RegisteredExtension` and never name a folder. These two are the exceptions,
+ * `RegisteredExtension` and never name a folder. These are the exceptions,
  * and they are exceptions because the dependency runs the other way — a core
  * feature *is* the reason the widget exists, not the other way round:
  *
@@ -11,6 +11,9 @@
  *   `open-gallery` command opens it, and the guided tour teaches with it.
  * - The Widget Wizard is the AI builder's entry point, opened from the plus
  *   button next to the palette.
+ * - The Calculator is where the palette's inline arithmetic hands off: the
+ *   palette evaluates with its code and "Open in Calculator" runs its
+ *   `calculate` action.
  *
  * Naming them here does not remove the coupling — it makes it one greppable
  * fact instead of fourteen string literals spread over the host, the palette
@@ -24,6 +27,9 @@ export const GALLERY_WIDGET_ID = "gallery";
 
 /** Catalog id of the Widget Wizard. */
 export const WIDGET_WIZARD_ID = "widget-wizard";
+
+/** Catalog id of the Calculator. */
+export const CALCULATOR_WIDGET_ID = "calculator";
 
 /**
  * Whether a placed tile is the gallery.

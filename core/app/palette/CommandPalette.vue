@@ -28,7 +28,8 @@ import { getQuickActionModel, listLlmCatalog } from "../settings/ai/aiApi";
 import { quickModelChoices } from "../settings/ai/aiPanelLogic";
 import { useSearchPrefs } from "../settings/useSearchPrefs";
 import { usePaletteWidgetPrefs } from "../settings/usePaletteWidgetPrefs";
-import { buildWebSearchUrl, type SearchActionId, type WebSearchActionId } from "./searchActions";
+import { buildWebSearchUrl, searchActionLabel, type SearchActionId, type WebSearchActionId } from "./searchActions";
+import PaletteSearchActionIcon from "./PaletteSearchActionIcon.vue";
 import { connectionEpoch, HOST_OWNER } from "../settings/credentials/connections";
 import { tauriWidgetCapabilityTransport } from "../extension-host/tauriWidgetCapabilityTransport";
 import {
@@ -169,7 +170,7 @@ import {
   useRuntimeExtensions,
 } from "../runtime/useRuntimeExtensions";
 import type { WidgetInstance } from "../host/types";
-import { GALLERY_WIDGET_ID, WIDGET_WIZARD_ID } from "../host/builtinWidgetIds";
+import { CALCULATOR_WIDGET_ID, GALLERY_WIDGET_ID, WIDGET_WIZARD_ID } from "../host/builtinWidgetIds";
 import type {
   ActionArgs,
   ActionParam,
@@ -185,7 +186,7 @@ import type { HttpCapability } from "@sdk/contract/sdk";
 import { useAppearance } from "../settings/useAppearance";
 import { useExtensionsPrefs } from "../settings/useExtensionsPrefs";
 import { useSettingsModal } from "../settings/useSettingsModal";
-import { FolderIcon, SquareArrowOutUpRightIcon } from "@sdk/icons";
+import { CalculatorIcon, FolderIcon, SquareArrowOutUpRightIcon } from "@sdk/icons";
 import InlineWidgetBody from "../host/InlineWidgetBody.vue";
 import PinIcon from "../host/PinIcon.vue";
 import {
@@ -343,6 +344,18 @@ const widgetShortcutsEl = ref<InstanceType<typeof PaletteWidgetShortcuts> | null
 const inlineWidgetBodyEl = ref<InstanceType<typeof InlineWidgetBody> | null>(null);
 const answerPanelEl = ref<InstanceType<typeof PaletteAnswerPanel> | null>(null);
 const paletteActionError = ref<string | null>(null);
+/** An action's `doneMessage`, shown for a moment after it ran. */
+const paletteActionNotice = ref<string | null>(null);
+let paletteActionNoticeTimer: ReturnType<typeof setTimeout> | undefined;
+
+function showActionNotice(message: string) {
+  paletteActionNotice.value = message;
+  clearTimeout(paletteActionNoticeTimer);
+  paletteActionNoticeTimer = setTimeout(() => {
+    paletteActionNotice.value = null;
+  }, 2200);
+}
+onUnmounted(() => clearTimeout(paletteActionNoticeTimer));
 
 /** A failed action keeps its query and arguments, and explains what went wrong. */
 function reportActionFailure(label: string, error?: unknown): void {
@@ -403,6 +416,32 @@ function askSearchAi() {
   paletteActionError.value = null;
   void paletteAi.ask(query.value);
   void nextTick(() => answerPanelEl.value?.focusComposer());
+}
+
+/** Row text under "No matches"; "Ask ChatGPT" matches the answer panel's header. */
+function emptySearchActionLabel(id: SearchActionId): string {
+  if (id === "ai") return "Ask ChatGPT";
+  if (id === "chatgpt" || id === "claude") return `Open ${searchActionLabel(id)}`;
+  return `Search on ${searchActionLabel(id)}`;
+}
+
+const emptyActionsEl = ref<HTMLElement | null>(null);
+
+/** Arrows move between the "No matches" rows; Up from the first goes back to search. */
+function onEmptyActionsKeydown(event: KeyboardEvent) {
+  // Enter stays the focused button's own click, not the palette's row action.
+  if (event.key === "Enter") {
+    event.stopPropagation();
+    return;
+  }
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  event.preventDefault();
+  event.stopPropagation();
+  const buttons = [...(emptyActionsEl.value?.querySelectorAll("button") ?? [])];
+  const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  const next = index + (event.key === "ArrowDown" ? 1 : -1);
+  if (next < 0) focusSearchInput();
+  else buttons[Math.min(next, buttons.length - 1)]?.focus();
 }
 
 function runSearchAction(id: SearchActionId) {
@@ -1369,6 +1408,8 @@ const enumSuggestions = computed(() => {
   const param = argParams.value[activeParamIndex.value];
   if (!param?.options?.length) return [];
   const needle = (argValues.value[activeParamIndex.value] ?? "").trim().toLowerCase();
+  // A chip that already holds one of the choices is decided: no list over it.
+  if (needle && param.options.some((option) => option.toLowerCase() === needle)) return [];
   return (param.options ?? []).filter((option) => option.toLowerCase().includes(needle));
 });
 
@@ -1382,6 +1423,16 @@ function selectEnumSuggestion(index = enumSuggestionIndex.value, advance = false
   argValues.value[activeParamIndex.value] = option;
   enumSuggestionIndex.value = index;
   if (advance) focusParamChip(nextParamIndex(activeParamIndex.value, argParams.value.length));
+}
+
+/** Enter on a suggestion: take it, then go on to the next chip or run the action. */
+async function commitEnumSuggestion() {
+  const from = activeParamIndex.value;
+  selectEnumSuggestion();
+  // The chips can depend on the choice (dynamicActionParams), so count them after it.
+  await nextTick();
+  if (from + 1 < argParams.value.length) focusParamChip(from + 1);
+  else await runResultAt(selectedIndex.value);
 }
 
 /** Collect chip inputs in template order (v-for refs arrive unordered). */
@@ -1784,9 +1835,13 @@ watch([selectedIndex, results], syncPreviewFromSelection, { immediate: true });
 let iconWarmTimer: ReturnType<typeof setTimeout> | undefined;
 watch(results, (rows) => {
   if (iconWarmTimer) clearTimeout(iconWarmTimer);
-  const paths = rows
-    .filter((row): row is Extract<PaletteRow, { kind: "app" }> => row.kind === "app")
-    .map((row) => row.path);
+  const paths = [
+    ...rows
+      .filter((row): row is Extract<PaletteRow, { kind: "app" }> => row.kind === "app")
+      .map((row) => row.path),
+    // Shortcuts and programs in a file listing carry their own icon.
+    ...rows.map(rowPerFileIconPath).filter((path): path is string => path !== null),
+  ];
   const cached = hydrateAppIconsFromCache(paths);
   iconWarmTimer = setTimeout(() => {
     if (paths.length > 0) void cached.then(() => ensureAppIcons(paths));
@@ -1814,8 +1869,24 @@ function rowFileTypeKey(row: PaletteRow): string | null {
   return fileTypeIconKey(row.title, row.isDir);
 }
 
+/**
+ * Types whose icon belongs to the file, not to the extension: a shortcut shows
+ * its target's icon, a program its own. These go through the app icon path
+ * (per file, disk-cached) instead of the one-per-extension shell lookup.
+ */
+const PER_FILE_ICON_TYPES = new Set(["lnk", "exe", "url"]);
+
+/** The file's own path when its icon is per file, else null. */
+function rowPerFileIconPath(row: PaletteRow): string | null {
+  const key = rowFileTypeKey(row);
+  return row.kind === "path" && key && PER_FILE_ICON_TYPES.has(key) ? row.path : null;
+}
+
 /** Loaded shell icon for a row, or null while the drawn mark stands in. */
 function rowFileTypeIcon(row: PaletteRow): string | null {
+  const own = rowPerFileIconPath(row);
+  // Until the file's own icon arrives, the generic one for its type stands in.
+  if (own && installedAppIcons.value[own]) return installedAppIcons.value[own]!;
   const key = rowFileTypeKey(row);
   return key ? fileTypeIcons.value[key] ?? null : null;
 }
@@ -1838,8 +1909,11 @@ function closeRecentOverview() {
 const overviewHeaderTitle = computed(() => {
   // A valid expression owns the results panel. Do not leave the browse
   // breadcrumb visible when the palette has switched to calculator mode.
-  if (calcDisplay.value !== null) return null;
+  // An open widget owns the panel even while a sum is still in the query.
   if (inlineWidgetOpen.value) return inlineWidgetTitle.value;
+  if (calcDisplay.value !== null) return null;
+  // The AI answer brings its own header, so it owns the panel the same way.
+  if (aiAnswer.value) return null;
   if (widgetsOpen.value) return "Widgets";
   if (recentOpen.value) return "Recently opened";
   return null;
@@ -2307,6 +2381,21 @@ async function openNewTypeAction(typeId: string) {
   if (await openNewType(typeId)) afterPaletteAction();
 }
 
+/**
+ * The manifest's `ui.openIn`: does Enter open this widget in the main panel?
+ * Resolved like the inline view itself, so community packages answer too.
+ */
+function opensInPanel(typeId: string): boolean {
+  return resolveExtension(typeId)?.openIn === "panel";
+}
+
+/** What Enter does for a desk-first widget, reached by Ctrl/Cmd+Enter on a panel-first one. */
+async function openRowOnDesk(row: PaletteTypeRow | PaletteWidgetRow) {
+  if (row.kind === "type") await runTypeRow(row);
+  else if (row.offDesk) placeOffDeskRow(row);
+  else await focusWidgetRow(row);
+}
+
 /** Smart-open a catalog type row (show / focus / create). */
 async function runTypeRow(row: PaletteTypeRow, notifyAction = true) {
   let handled = false;
@@ -2429,6 +2518,17 @@ async function runResultAt(index: number) {
       return;
     }
     await runAction(action, validated.args);
+    return;
+  }
+
+  // The manifest can ask for the main panel first (`ui.openIn`); Ctrl/Cmd+Enter
+  // is then the desk. An instance on another desk is not mounted here, so it
+  // still comes over as a card.
+  if (
+    (row.kind === "type" || (row.kind === "widget" && !row.offDesk)) &&
+    opensInPanel(row.typeId)
+  ) {
+    openInlineWidget(index);
     return;
   }
 
@@ -2678,12 +2778,45 @@ async function runAction(action: PaletteRowAction, args: ActionArgs) {
     reportActionFailure(`run “${action.actionId}”`);
     return;
   }
+  const doneMessage = ext?.actions.find((item) => item.id === action.actionId)?.doneMessage;
+  if (doneMessage) showActionNotice(doneMessage);
   // Draw the eye to what changed — same courtesy the type rows do on open.
   if (instanceId) await focusWidget?.(instanceId);
   exitArgMode(false);
   afterPaletteAction();
   // No dismiss: the cockpit stays open so the effect is visible — closing it
   // would hide the very widget the action just started.
+}
+
+/**
+ * Hand the typed expression to the Calculator widget through its own palette
+ * action (`calculate` in its manifest), so it opens with the sum ready to go on.
+ */
+const calcOpenEl = ref<HTMLButtonElement | null>(null);
+
+async function openInCalculator() {
+  // The button goes where the Calculator's manifest says it opens.
+  if (!opensInPanel(CALCULATOR_WIDGET_ID)) {
+    void runAction(
+      { extId: CALCULATOR_WIDGET_ID, actionId: "calculate", params: [], needsInstance: true },
+      { expression: query.value },
+    );
+    return;
+  }
+  const widget = widgetCatalog.value.find((entry) => entry.id === CALCULATOR_WIDGET_ID);
+  if (!widget) return;
+  // In the main panel, with the same reuse rule as a widget shortcut: the desk's
+  // calculator when there is one, else the palette's own.
+  const target = resolveInlineWidgetTarget(buildTypeRows([widget], widgetInstances ?? [])[0]);
+  if (!target) return;
+  const expression = query.value;
+  showInlineWidget(target);
+  const ok = await runExtensionAction(getExtension(CALCULATOR_WIDGET_ID), "calculate", {
+    instanceId: inlineWidget.value?.instanceId ?? "",
+    args: { expression },
+  });
+  if (!ok) reportActionFailure("open the calculator");
+  void nextTick(() => inlineWidgetBodyEl.value?.focusEntry());
 }
 
 /** Open Settings from palette command or chrome menu. */
@@ -2918,11 +3051,30 @@ function onKeydown(event: KeyboardEvent) {
       selectEnumSuggestion(enumSuggestionIndex.value, true);
       return;
     }
+    // Enter takes the highlighted choice, then carries on the way Enter does
+    // in a filled chip: the next chip if the choice brought any (a snippet's
+    // `{name}`), otherwise run the action.
+    if (event.key === "Enter" && !event.shiftKey && !mod) {
+      event.preventDefault();
+      event.stopPropagation();
+      void commitEnumSuggestion();
+      return;
+    }
   }
 
   switch (event.key) {
     case "ArrowDown":
       event.preventDefault();
+      // A sum: step down to "Open in Calculator".
+      if (calcOpenEl.value) {
+        calcOpenEl.value.focus();
+        break;
+      }
+      // "No matches": step down into the action rows below it.
+      if (results.value.length === 0 && emptyActionsEl.value) {
+        emptyActionsEl.value.querySelector("button")?.focus();
+        break;
+      }
       // Empty search: open last-12 used runs (or move within that list).
       if (
         !folderScopeActive.value &&
@@ -3160,7 +3312,10 @@ function onKeydown(event: KeyboardEvent) {
       // view of the same widget.
       if (mod && !event.altKey && (row?.kind === "widget" || row?.kind === "type")) {
         event.stopPropagation();
-        openInlineWidget(selectedIndex.value);
+        // The chord is always the other place: the panel, or the desk for a
+        // widget whose manifest opens it in the panel.
+        if (opensInPanel(row.typeId)) void openRowOnDesk(row);
+        else openInlineWidget(selectedIndex.value);
         break;
       }
       // Ctrl/Cmd+Enter on a filesystem row reveals it instead of opening it.
@@ -3875,6 +4030,16 @@ onUnmounted(() => {
         @select="runSearchAction"
         @back="focusSearchInput"
       />
+      <!-- An action's `doneMessage`: a quiet confirmation at the end of the
+           field, so nothing below has to open for it. -->
+      <Transition name="palette-search-notice">
+        <span v-if="paletteActionNotice" class="palette-search-notice" role="status">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path class="palette-search-notice-check" d="M20 6 9 17l-5-5" pathLength="1" />
+          </svg>
+          {{ paletteActionNotice }}
+        </span>
+      </Transition>
     </div>
 
     <div class="palette-statusbar">
@@ -4027,6 +4192,7 @@ onUnmounted(() => {
           @select="openWidgetShortcut"
           @enter="enterWidgetShortcut"
           @back="leaveWidgetShortcuts"
+          @close="leaveWidgetShortcuts"
           @settings="openSettingsSection('search', 'widgets')"
         />
         <!-- Drop a dragged card here to add its widget as a shortcut. -->
@@ -4206,7 +4372,7 @@ onUnmounted(() => {
         @resize-end="onPaletteResizeEnd"
       />
       <p v-if="paletteActionError" class="palette-action-error" role="alert">{{ paletteActionError }}</p>
-      <div v-if="calcDisplay !== null" class="palette-calc" aria-live="polite">
+      <div v-if="calcDisplay !== null && !inlineWidgetOpen" class="palette-calc" aria-live="polite">
         <span v-if="calcDisplay.from" class="palette-calc-kind">Convert</span>
         <span v-if="calcDisplay.from" class="palette-calc-from">{{ calcDisplay.from }}</span>
         <span class="palette-calc-eq">=</span>
@@ -4214,6 +4380,20 @@ onUnmounted(() => {
         <span v-else class="palette-calc-hint">
           in <template v-if="calcDisplay.targets">{{ calcDisplay.targets }} …</template><template v-else>…</template>
         </span>
+        <button
+          v-if="calcDisplay.value"
+          type="button"
+          ref="calcOpenEl"
+          class="palette-calc-open"
+          data-icon-motion
+          @click="openInCalculator"
+          @keydown.up.prevent="focusSearchInput"
+        >
+          Open in
+          <!-- The tile lets the icon colour itself, as in the result list. -->
+          <span class="palette-calc-open-tile" data-icon-tile><CalculatorIcon :size="14" animated /></span>
+          Calculator
+        </button>
       </div>
       <!-- Which folder the list belongs to. The chip names only the leaf, and
            after two levels down that stops being enough to place yourself. -->
@@ -4297,6 +4477,18 @@ onUnmounted(() => {
           @click="inlineMenuOpen = !inlineMenuOpen"
         >
           ⋯
+        </button>
+        <button
+          v-if="widgetsOpen && !inlineWidgetOpen"
+          type="button"
+          class="palette-widget-overview-popout palette-widget-overview-create"
+          @click="openWidgetWizard"
+        >
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h14" />
+            <path d="M12 5v14" />
+          </svg>
+          <span>Create new widget</span>
         </button>
         <!-- Only the inline widget has somewhere to go; the browse views do not. -->
         <button
@@ -4682,6 +4874,17 @@ onUnmounted(() => {
             <template v-if="index === selectedIndex">
             <KbdHint class="palette-item-mod" :keys="[modKeyLabel]" />
             <button
+              v-if="opensInPanel(row.typeId)"
+              type="button"
+              class="palette-item-action palette-item-action--secondary"
+              v-tip="'Give it a card on the desk'"
+              @click="runTypeRow(row)"
+            >
+              <KbdHint :keys="secondaryKeys('enter')" />
+              <span>Desk</span>
+            </button>
+            <button
+              v-else
               type="button"
               class="palette-item-action palette-item-action--secondary"
               v-tip="'Open inside the palette'"
@@ -4710,6 +4913,17 @@ onUnmounted(() => {
               <span>New</span>
             </button>
             <button
+              v-if="opensInPanel(row.typeId)"
+              type="button"
+              class="palette-item-action palette-item-action--primary"
+              v-tip="'Open inside the palette'"
+              @click="openInlineWidget(index)"
+            >
+              <KbdHint :keys="['enter']" />
+              <span>Open</span>
+            </button>
+            <button
+              v-else
               type="button"
               class="palette-item-action palette-item-action--primary"
               v-tip="
@@ -4743,6 +4957,17 @@ onUnmounted(() => {
             <template v-else-if="index === selectedIndex">
               <KbdHint class="palette-item-mod" :keys="[modKeyLabel]" />
               <button
+                v-if="opensInPanel(row.typeId) && !row.offDesk"
+                type="button"
+                class="palette-item-action palette-item-action--secondary"
+                v-tip="row.hidden ? 'Put its card back on the desk' : 'Jump to its card'"
+                @click="focusWidgetRow(row)"
+              >
+                <KbdHint :keys="secondaryKeys('enter')" />
+                <span>{{ row.hidden ? "Show" : "Focus" }}</span>
+              </button>
+              <button
+                v-else
                 type="button"
                 class="palette-item-action palette-item-action--secondary"
                 v-tip="'Open inside the palette'"
@@ -4770,6 +4995,17 @@ onUnmounted(() => {
                 <span>Delete</span>
               </button>
               <button
+                v-if="opensInPanel(row.typeId) && !row.offDesk"
+                type="button"
+                class="palette-item-action palette-item-action--primary"
+                v-tip="'Open inside the palette'"
+                @click="openInlineWidget(index)"
+              >
+                <KbdHint :keys="['enter']" />
+                <span>Open</span>
+              </button>
+              <button
+                v-else
                 type="button"
                 class="palette-item-action palette-item-action--primary"
                 v-tip="row.hidden ? 'Put its card back on the desk' : 'Jump to its card'"
@@ -4816,7 +5052,32 @@ onUnmounted(() => {
           "
           class="palette-empty"
         >
-          {{ folderScopeActive ? folderScopeEmptyLabel : "No matches" }}
+          <span class="palette-empty-label">{{ folderScopeActive ? folderScopeEmptyLabel : "No matches" }}</span>
+          <!-- Same actions as the icons next to the search field, spelled out. -->
+          <div
+            v-if="!folderScopeActive"
+            ref="emptyActionsEl"
+            class="palette-empty-actions"
+            @keydown="onEmptyActionsKeydown"
+          >
+            <button
+              v-for="id in showSearchActions ? enabledSearchActions : []"
+              :key="id"
+              type="button"
+              class="palette-empty-action"
+              @click="runSearchAction(id)"
+            >
+              <PaletteSearchActionIcon :action="id" :ai-provider="searchAiModel?.credentialType" />
+              <span>{{ emptySearchActionLabel(id) }}</span>
+            </button>
+            <button type="button" class="palette-empty-action" @click="openWidgetWizard">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M5 12h14" />
+                <path d="M12 5v14" />
+              </svg>
+              <span>Create new widget</span>
+            </button>
+          </div>
         </li>
         <li
           v-if="scopedSearchHasOtherResults"
@@ -4900,6 +5161,60 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.palette-search-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.06);
+  color: rgba(var(--fg-rgb), 0.65);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.palette-search-notice svg {
+  color: #6fcf97;
+}
+
+/* The check draws itself once the pill has arrived. */
+.palette-search-notice-check {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  animation: palette-search-notice-check 0.32s ease-out 0.12s both;
+}
+
+@keyframes palette-search-notice-check {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+
+.palette-search-notice-enter-active {
+  transition: opacity 0.18s ease-out, transform 0.18s ease-out;
+}
+
+.palette-search-notice-leave-active {
+  transition: opacity 0.3s ease-in;
+}
+
+.palette-search-notice-enter-from {
+  opacity: 0;
+  transform: translateX(6px);
+}
+
+.palette-search-notice-leave-to {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .palette-search-notice-check { animation: none; }
+  .palette-search-notice-enter-active,
+  .palette-search-notice-leave-active { transition: none; }
+}
+
 .palette-action-error {
   margin: 0;
   padding: 10px 16px;
@@ -5509,6 +5824,16 @@ onUnmounted(() => {
   outline: none;
 }
 
+.palette-widget-overview-create {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  padding: 0 10px;
+  font: inherit;
+  font-weight: 500;
+}
+
 /* The inline frame only clips. Widgets that genuinely need a list own the one
    scroll surface themselves; letting this frame scroll too creates twin rails. */
 .palette-inline-widget {
@@ -6064,13 +6389,43 @@ onUnmounted(() => {
 
 .palette-empty {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 28px;
   height: 100%;
   padding: 16px 12px;
   font-size: 13px;
   color: rgba(var(--fg-rgb), 0.5);
   text-align: center;
+}
+
+.palette-empty-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: min(280px, 100%);
+}
+
+.palette-empty-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(var(--fg-rgb), 0.82);
+  font: inherit;
+  cursor: pointer;
+}
+
+.palette-empty-action:hover,
+.palette-empty-action:focus-visible {
+  background: rgba(var(--fg-rgb), 0.08);
+  color: rgba(var(--fg-rgb), 0.95);
+  outline: none;
 }
 
 .palette-statusbar {
@@ -6540,5 +6895,39 @@ onUnmounted(() => {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: rgba(var(--fg-rgb), 0.95);
+}
+
+.palette-calc-open {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(var(--fg-rgb), 0.06);
+  color: rgba(var(--fg-rgb), 0.7);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.palette-calc-open-tile {
+  display: grid;
+  place-items: center;
+  padding: 3px;
+  border-radius: 5px;
+  color: var(--icon-tile-fg, currentColor);
+  background: var(--icon-tile-bg, rgba(var(--fg-rgb), 0.08));
+}
+
+/* Keyboard focus comes from the search field's ↓, so :focus, not only :focus-visible. */
+.palette-calc-open:focus,
+.palette-calc-open:hover,
+.palette-calc-open:focus-visible {
+  background: rgba(var(--fg-rgb), 0.12);
+  color: rgba(var(--fg-rgb), 0.95);
+  outline: none;
 }
 </style>

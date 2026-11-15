@@ -62,6 +62,8 @@ export interface HostExtensionRef {
   resizable: boolean;
   playground: boolean;
   hugHeight: boolean;
+  /** `ui.openIn: "panel"`: the palette opens it in its main panel; Ctrl/Cmd+Enter is the desk. */
+  openIn?: "panel";
   /** Card is drawn on an opaque ground rather than the shared glass. */
   opaque: boolean;
   /** The card's own surface, from the manifest's `ui.appearance`. Bundled widgets only. */
@@ -133,6 +135,8 @@ export interface ScannedRuntimeExtension {
   chat?: boolean;
   /** `ui.padding` from the manifest, when it declares one. */
   padding?: boolean;
+  /** `ui.openIn` from the manifest; Rust passes only `"panel"`. */
+  openIn?: "panel" | null;
   /** `ui.defaultScale` from the manifest, when it declares one. */
   defaultScale?: number;
   status: "ready" | "error" | string;
@@ -186,6 +190,7 @@ export interface RuntimeManifest {
     resizable?: boolean;
     playground?: boolean;
     hugHeight?: boolean;
+    openIn?: "panel";
   };
   commands: string[];
   permissions: string[];

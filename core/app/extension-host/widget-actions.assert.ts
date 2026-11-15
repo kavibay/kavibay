@@ -83,4 +83,15 @@ try {
   assert(message.includes("search-emojis"), `and the action, got "${message}"`);
 }
 
+/** `doneMessage` survives trimmed; blank or non-string is dropped. */
+{
+  const handler = () => undefined;
+  const [done] = toActionDeclarations("snippets", "snippets", [{ id: "expand", title: "Expand", doneMessage: " Copied to clipboard " }], { expand: handler });
+  assert(done?.doneMessage === "Copied to clipboard", "doneMessage is carried, trimmed");
+  const [blank] = toActionDeclarations("snippets", "snippets", [{ id: "expand", title: "Expand", doneMessage: "  " }], { expand: handler });
+  assert(blank?.doneMessage === undefined, "a blank doneMessage is dropped");
+  const [odd] = toActionDeclarations("snippets", "snippets", [{ id: "expand", title: "Expand", doneMessage: 3 }], { expand: handler });
+  assert(odd?.doneMessage === undefined, "a non-string doneMessage is dropped");
+}
+
 console.log("widget-actions.assert.ts: ok");

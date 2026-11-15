@@ -13,8 +13,20 @@
       "categories": ["tools"],
       "ui": {
         "defaultOffset": { "x": 480, "y": 380 },
-        "defaultSize": { "w": 200, "h": 280 }
-      }
+        "defaultSize": { "w": 200, "h": 280 },
+        "openIn": "panel"
+      },
+      "actions": [
+        {
+          "id": "calculate",
+          "title": "Calculate",
+          "subtitle": "Open an expression in the calculator",
+          "keywords": ["calculate", "calc", "math", "rechnen"],
+          "params": [
+            { "name": "expression", "type": "text", "required": true, "placeholder": "Expression (12*7, 5 km in mi)" }
+          ]
+        }
+      ]
     }
   }
 }

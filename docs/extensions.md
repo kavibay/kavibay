@@ -195,6 +195,8 @@ extension folder, resolved by `bundledExtensions.ts`; unsafe paths (`..`,
 absolute) are ignored. Runtime packages use the same manifest field, served via
 `kavibay-ext://<id>/<icon>`. No icon → the host shows a generic widget mark.
 
+When `ui.openIn: "panel"`, opening the widget from the palette (Enter or a click) shows it in the palette's main panel instead of giving it a card; `Ctrl+Enter` puts it on the desk. Absent means the desk, with `Ctrl+Enter` for the panel. Fits widgets you use for a moment and put away, like `calculator`. Runtime packages read the same key (`docs/runtime-packages.md`).
+
 When `ui.hugHeight: true`, height follows widget content; only `defaultSize.w` is applied on Add (`defaultSize.h` is ignored for sizing).
 
 When `ui.padding: false`, the card drops its padding so the body reaches every card edge. The title floats over the top-left corner at its usual inset, without the gradient `ui.flush` puts behind it. The body gets `--widget-title-inset` (36px, or 0px with the title hidden): start content below it, let backgrounds run under it.
@@ -351,6 +353,10 @@ row's keywords, so its handler never runs from there. Widget actions are reached
 from an **instance** row (Tab → chips). An action that must be runnable from a
 bare query needs `"needsInstance": false`, which gives it a row of its own — and
 then opening a card, if it wants one, is the handler's job.
+
+**`"doneMessage"`** is one line the palette shows for a moment after the action
+ran — `"Copied to clipboard"` for Snippets' "Expand Snippet", whose effect is
+otherwise invisible. Leave it out when the result is on screen anyway.
 
 **`"replacesCatalogRow": true`** drops the extension's catalog row from search
 results while the action's own row is in them. For the Widget Wizard the two

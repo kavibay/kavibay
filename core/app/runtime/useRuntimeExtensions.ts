@@ -133,6 +133,7 @@ export function scannedToHostRef(
     resizable: true,
     playground: false,
     hugHeight: false,
+    ...(row.openIn === "panel" ? { openIn: "panel" as const } : {}),
     // A dropped-in package cannot declare itself opaque; see `ui.opaque`.
     opaque: false,
     // From the grant, not the manifest: running hidden is what the person
@@ -173,6 +174,7 @@ export function builtinToHostRef(ext: RegisteredExtension): HostExtensionRef {
     resizable: ext.resizable,
     playground: ext.playground,
     hugHeight: ext.hugHeight,
+    ...(ext.openIn ? { openIn: ext.openIn } : {}),
     opaque: ext.opaque,
     keepAliveWhenHidden: ext.keepAliveWhenHidden,
     ...(ext.appearance ? { appearance: { ...ext.appearance } } : {}),

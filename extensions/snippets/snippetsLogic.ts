@@ -68,7 +68,7 @@ export function snippetActionParams(
     name: "template",
     type: "text",
     required: true,
-    placeholder: names.length ? "Snippet or template" : "Template (hallo {name})",
+    placeholder: names.length ? "Snippet or template" : "Template (Hi {name})",
     ...(names.length ? { options: names } : {}),
   };
   const body = resolveSnippetTemplate(snippets, values[0] ?? "");

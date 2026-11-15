@@ -228,6 +228,12 @@ export function validateRuntimeManifest(
     }
   }
 
+  // Where the palette opens it. Only "panel" means anything; anything else is
+  // dropped, the desk being the default. Mirrors `open_in` in Rust's scan.
+  if (uiRaw.openIn === "panel") {
+    manifest.ui.openIn = "panel";
+  }
+
   // Optional opening geometry. Bad values are dropped rather than rejected —
   // the host has a fallback for each, and a typo here is not worth a dead package.
   if (isPlainObject(uiRaw.defaultSize)) {

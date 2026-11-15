@@ -4,8 +4,8 @@ import { SettingsIcon } from "@sdk/icons";
 import PaletteWidgetIcon from "./PaletteWidgetIcon.vue";
 import type { PaletteTypeCatalogEntry } from "./paletteResults";
 
-defineProps<{ widgets: readonly PaletteTypeCatalogEntry[]; activeId: string | null }>();
-const emit = defineEmits<{ select: [id: string]; enter: []; back: []; settings: [] }>();
+const props = defineProps<{ widgets: readonly PaletteTypeCatalogEntry[]; activeId: string | null }>();
+const emit = defineEmits<{ select: [id: string]; enter: []; back: []; settings: []; close: [] }>();
 const root = ref<HTMLElement | null>(null);
 const focusedId = ref<string | null>(null);
 
@@ -39,6 +39,21 @@ function leaveRow() {
 }
 
 onBeforeUnmount(stopDwell);
+
+/**
+ * A shortcut is a toggle: clicking the one that is already open closes it.
+ * Read on pointerdown, because the focus that follows already opens it, so by
+ * the time `click` fires every shortcut looks open.
+ */
+let openBeforePress: string | null = null;
+function onPress(id: string) {
+  openBeforePress = props.activeId === id ? id : null;
+}
+function onClick(id: string) {
+  if (openBeforePress === id) emit("close");
+  else emit("select", id);
+  openBeforePress = null;
+}
 
 function focusFirst() {
   root.value?.querySelector("button")?.focus();
@@ -77,7 +92,8 @@ defineExpose({ focusFirst });
       v-tip:below="widget.title"
       @focus="onFocus(widget.id)"
       @blur="focusedId = null"
-      @click="$emit('select', widget.id)"
+      @pointerdown="onPress(widget.id)"
+      @click="onClick(widget.id)"
       @pointerenter="startDwell"
       @pointerleave="stopDwell"
       @keydown.enter.stop.prevent="$emit('enter')"

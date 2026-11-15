@@ -65,6 +65,11 @@ export interface ExtensionAction {
    * it and is left out of search results. The + menu and the gallery keep it.
    */
   replacesCatalogRow?: boolean;
+  /**
+   * One line the palette shows once the action has run ("Copied to clipboard"),
+   * for an action whose effect is not on screen. Absent: nothing is shown.
+   */
+  doneMessage?: string;
 }
 
 /** Validated action arguments, keyed by `ActionParam.name`. */
@@ -298,6 +303,12 @@ export interface RegisteredExtension {
    * can sit beside other apps in Alt+Tab. Hosts without windows ignore it.
    */
   ownWindow?: boolean;
+  /**
+   * `ui.openIn: "panel"`: opening it from the palette shows it in the palette's
+   * main panel, and Ctrl/Cmd+Enter puts it on the desk instead. Absent means the
+   * desk first, as it always was.
+   */
+  openIn?: "panel";
   /** The card's own surface from `ui.appearance`. */
   appearance?: WidgetAppearance;
   /** `ui.appearance.editable`: each instance may change it in its settings. */
