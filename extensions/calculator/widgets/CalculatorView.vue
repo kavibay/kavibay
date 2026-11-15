@@ -167,12 +167,15 @@ void scrollHistoryToEnd();
   width: 100%;
   flex: 0 0 auto;
   box-sizing: border-box;
-  padding: 8px 10px;
+  /* Explicit line height so the text sits centred whatever font the host
+     inherits; the side inset matches the radius so the caret never hugs the edge. */
+  padding: 9px 14px;
   border: 1px solid rgba(var(--fg-rgb), 0.12);
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(0, 0, 0, 0.25);
   color: rgba(var(--fg-rgb), 0.95);
   font-size: 16px;
+  line-height: 20px;
   font-variant-numeric: tabular-nums;
   text-align: right;
   outline: none;

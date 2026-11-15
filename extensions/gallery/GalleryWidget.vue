@@ -5,6 +5,7 @@
  * Sonderform entry points live in the host (+ menu / first-open); this is a normal card.
  */
 import { computed, inject, ref } from "vue";
+import type { WidgetSurface } from "@sdk";
 import {
   buildGalleryTiles,
   collectGalleryCategories,
@@ -25,6 +26,9 @@ const addWidget = inject<
   ) => string | undefined
 >("kavibayAddWidget");
 const focusWidget = inject<(instanceId: string) => void | Promise<void>>("kavibayFocusWidget");
+
+/** The palette panel does not pad its body the way a desk card does. */
+const widgetSurface = inject<WidgetSurface>("widgetSurface", "desk");
 
 const query = ref("");
 /** `null` = All categories. */
@@ -146,7 +150,11 @@ async function onAdd(id: string) {
 </script>
 
 <template>
-  <div class="gallery-root" data-onboarding-target="widget-gallery">
+  <div
+    class="gallery-root"
+    :class="{ 'gallery-root--inline': widgetSurface === 'inline' }"
+    data-onboarding-target="widget-gallery"
+  >
     <div class="gallery-toolbar">
       <input
         v-model="query"
@@ -248,6 +256,16 @@ async function onAdd(id: string) {
   padding: 0;
 }
 
+/* In the palette panel nothing pads the body, so the gallery brings the
+   card's inset itself; the bottom one lives on the grid, which scrolls. */
+.gallery-root--inline {
+  padding: 14px 16px 0;
+}
+
+.gallery-root--inline .gallery-grid {
+  padding-bottom: 16px;
+}
+
 .gallery-toolbar {
   display: flex;
   flex-direction: column;
@@ -332,6 +350,9 @@ async function onAdd(id: string) {
   align-content: start;
   overflow-x: hidden;
   overflow-y: auto;
+  /* Room for the hover lift: the scrolling grid would clip the top row's -3px. */
+  padding-top: 4px;
+  margin-top: -4px;
 }
 
 /* Outer cell: do not stretch with the grid track. */
