@@ -17,6 +17,8 @@ import {
 } from "../snippetsLogic";
 
 export const SNIPPETS_DATA_KEY = "snippets";
+/** Which cards this widget shows folded: view state, so per instance, not in the shared library. */
+const COLLAPSED_DATA_KEY = "collapsed";
 
 /** One shared list for every Snippets widget and the palette action. */
 const sharedSnippets: Ref<Snippet[]> = ref([]);
@@ -80,6 +82,18 @@ export const snippetsWidget = defineWidget({
     setup(ctx: WidgetContext): SnippetsModel {
       void hydrateShared(ctx);
 
+      const collapsed = ref<string[]>([]);
+      void ctx.data.get<unknown>(COLLAPSED_DATA_KEY).then((raw) => {
+        if (Array.isArray(raw)) collapsed.value = raw.filter((id) => typeof id === "string");
+      });
+
+      function toggleCollapsed(id: string): void {
+        collapsed.value = collapsed.value.includes(id)
+          ? collapsed.value.filter((item) => item !== id)
+          : [...collapsed.value, id];
+        void ctx.data.set(COLLAPSED_DATA_KEY, collapsed.value);
+      }
+
       function add(): string {
         const row = createSnippet({ name: "Snippet" });
         persistShared(ctx, [...sharedSnippets.value, row]);
@@ -98,15 +112,18 @@ export const snippetsWidget = defineWidget({
 
       function remove(id: string): void {
         persistShared(ctx, sharedSnippets.value.filter((item) => item.id !== id));
+        if (collapsed.value.includes(id)) toggleCollapsed(id);
       }
 
-      return { snippets: sharedSnippets, add, update, remove };
+      return { snippets: sharedSnippets, collapsed, toggleCollapsed, add, update, remove };
     },
   },
 });
 
 export interface SnippetsModel {
   snippets: Ref<Snippet[]>;
+  collapsed: Ref<string[]>;
+  toggleCollapsed(id: string): void;
   add(): string;
   update(id: string, patch: Partial<Pick<Snippet, "name" | "template">>): void;
   remove(id: string): void;
