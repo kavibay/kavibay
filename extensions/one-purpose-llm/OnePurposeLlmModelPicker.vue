@@ -30,7 +30,14 @@ const menuEl = ref<HTMLElement | null>(null);
 const menuStyle = ref<Record<string, string>>({});
 
 const selected = computed(() => props.models.find((model) => model.id === props.model));
-const label = computed(() => selected.value?.label ?? "Choose a model");
+const distinguishOpenAiConnections = computed(() =>
+  ["openai", "chatgpt"].every((provider) => props.models.some((model) => model.provider === provider && model.configured)),
+);
+const label = computed(() => selected.value ? modelLabel(selected.value) : "Choose a model");
+
+function modelLabel(model: LlmModelOption) {
+  return distinguishOpenAiConnections.value ? model.label : model.label.replace(/ \(ChatGPT plan\)$/, "");
+}
 
 /**
  * Grouped by provider, in the order the host listed them. Which key a model
@@ -206,7 +213,7 @@ onUnmounted(() => {
           >
             <OnePurposeLlmVendorLogo :vendor="item.vendor" :size="18" />
             <span class="opl-picker-option-body">
-              <span class="opl-picker-option-label">{{ item.label }}</span>
+              <span class="opl-picker-option-label">{{ modelLabel(item) }}</span>
               <span class="opl-picker-option-note">{{ item.note }}</span>
               <span v-if="formatModelPricing(item)" class="opl-picker-option-pricing">
                 {{ formatModelPricing(item) }}

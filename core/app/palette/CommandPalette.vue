@@ -24,7 +24,8 @@ import PaletteSearchActions from "./PaletteSearchActions.vue";
 import PaletteWidgetShortcuts from "./PaletteWidgetShortcuts.vue";
 import PaletteAnswerPanel from "./PaletteAnswerPanel.vue";
 import { usePaletteAnswer } from "./usePaletteAnswer";
-import { getQuickActionModelDefinition } from "../settings/ai/aiApi";
+import { getQuickActionModel, listLlmCatalog } from "../settings/ai/aiApi";
+import { quickModelChoices } from "../settings/ai/aiPanelLogic";
 import { useSearchPrefs } from "../settings/useSearchPrefs";
 import { usePaletteWidgetPrefs } from "../settings/usePaletteWidgetPrefs";
 import { buildWebSearchUrl, type SearchActionId, type WebSearchActionId } from "./searchActions";
@@ -358,12 +359,24 @@ const widgetShortcuts = computed(() => widgetShortcutIds.value.flatMap((id) => {
   return widget ? [widget] : [];
 }));
 const paletteAi = usePaletteAnswer({
-  loadModel: getQuickActionModelDefinition,
-  stream: (request, onEvent) =>
-    tauriWidgetCapabilityTransport.llmStream("palette-search", request, onEvent, HOST_OWNER),
+  async loadModels() {
+    const [quickAction, catalog] = await Promise.all([getQuickActionModel(), listLlmCatalog()]);
+    return { defaultId: quickAction.resolved, choices: quickModelChoices(catalog) };
+  },
+  stream: (request, onEvent, webSearch) =>
+    tauriWidgetCapabilityTransport.llmStream("palette-search", request, onEvent, HOST_OWNER, webSearch),
   cancel: (requestId) => tauriWidgetCapabilityTransport.llmCancel(requestId),
 });
-const { model: searchAiModel, answer: aiAnswer, messages: aiMessages, busy: aiBusy } = paletteAi;
+const {
+  model: searchAiModel,
+  modelChoices: aiModelChoices,
+  chatModel: aiChatModel,
+  answer: aiAnswer,
+  messages: aiMessages,
+  busy: aiBusy,
+  webSearch: aiWebSearch,
+  webSearchAvailable: aiWebSearchAvailable,
+} = paletteAi;
 
 // The tour's ask-AI lesson is passed by a finished answer; the composable
 // ignores this on every other step.
@@ -692,6 +705,10 @@ const viewportListHeight = ref(Number.POSITIVE_INFINITY);
 const renderedListHeight = computed(() =>
   Math.max(0, Math.min(resizeListHeight.value, viewportListHeight.value)),
 );
+const ANSWER_EXTRA_HEIGHT = 80;
+const answerPanelHeight = computed(() =>
+  Math.min(resizeListHeight.value + ANSWER_EXTRA_HEIGHT, viewportListHeight.value),
+);
 const sevenRowsHeight = ref(Number.POSITIVE_INFINITY);
 /**
  * Seven rows is the default cap, not a ceiling: once somebody has sized the
@@ -704,12 +721,12 @@ const resultsListHeight = computed(() =>
 );
 
 function syncViewportListHeight() {
-  const top = listShellEl.value?.getBoundingClientRect().top;
-  if (top === undefined) return;
+  const panel = aiAnswer.value ? resultsPanelEl.value : listShellEl.value;
+  if (!panel) return;
 
   viewportListHeight.value = Math.max(
     0,
-    window.innerHeight - top - RESULTS_VIEWPORT_GAP,
+    window.innerHeight - panel.getBoundingClientRect().top - panel.clientTop - RESULTS_VIEWPORT_GAP,
   );
 }
 
@@ -4299,12 +4316,18 @@ onUnmounted(() => {
         ref="answerPanelEl"
         :answer="aiAnswer"
         :messages="aiMessages"
+        :model="aiChatModel"
+        :models="aiModelChoices"
         :busy="aiBusy"
-        :style="{ height: `${renderedListHeight}px` }"
+        :web-search="aiWebSearch"
+        :web-search-available="aiWebSearchAvailable"
+        :style="{ height: `${answerPanelHeight}px` }"
         @back="closeAiAnswer"
         @stop="paletteAi.stop"
         @retry="paletteAi.retry"
         @follow-up="paletteAi.followUp"
+        @select-model="paletteAi.selectModel"
+        @toggle-web-search="paletteAi.toggleWebSearch"
         @settings="showSettingsSection('ai')"
       />
       <!-- Inline height is per widget type; only this lower edge can resize it,

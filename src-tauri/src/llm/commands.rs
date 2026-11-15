@@ -139,6 +139,7 @@ pub fn llm_chat_stream(
     messages: Vec<ChatMessage>,
     tools: Option<Vec<ToolDef>>,
     tool_choice: Option<ToolChoice>,
+    web_search: Option<bool>,
 ) -> Result<(), String> {
     let Some(model_def) = catalog::find_model(model.trim()) else {
         return emit_chat_error(
@@ -160,6 +161,23 @@ pub fn llm_chat_stream(
         );
     }
     let provider = model_def.provider;
+    let web_search = web_search.unwrap_or_default();
+    if web_search
+        && (owner != crate::credentials::bindings::HOST_OWNER
+            || instance_id != "palette-search"
+            || !matches!(
+                provider,
+                catalog::LlmProvider::Openai | catalog::LlmProvider::Chatgpt
+            )
+            || !model_def.capabilities.iter().any(|cap| cap == "webSearch"))
+    {
+        return emit_chat_error(
+            &app,
+            &instance_id,
+            &request_id,
+            "Web search is unavailable for this request or model.".to_string(),
+        );
+    }
 
     let app_for_task = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -195,6 +213,7 @@ pub fn llm_chat_stream(
             &messages,
             tools.as_deref(),
             tool_choice.unwrap_or_default(),
+            web_search,
         )
         .await
         {
