@@ -171,7 +171,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="emoji" @pointerdown.stop>
+  <div class="emoji" :class="{ 'emoji--inline': widgetSurface === 'inline' }" @pointerdown.stop>
     <input
       ref="searchInput"
       v-model="query"
@@ -278,6 +278,11 @@ onUnmounted(() => {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
+}
+
+/* The palette panel does not pad its body the way a desk card does. */
+.emoji--inline {
+  padding: 14px 16px;
 }
 
 .emoji-search {
