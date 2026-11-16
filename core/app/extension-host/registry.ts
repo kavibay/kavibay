@@ -137,6 +137,18 @@ function satisfiesRange(version: string, range: string): boolean {
   return satisfies(version, range, { includePrerelease: true });
 }
 
+/**
+ * Contract versions this app still implements besides its own. Under caret
+ * semantics `^0.1` refuses 0.2.0, yet 0.2 did not break the contract — and
+ * every widget a person saved with the Wizard says `^0.1`. Drop an entry only
+ * when a release really breaks that contract.
+ */
+const COMPATIBLE_ENGINES = ["0.1.0"];
+
+export function engineSupported(range: string): boolean {
+  return [APP_VERSION, ...COMPATIBLE_ENGINES].some((version) => satisfiesRange(version, range));
+}
+
 export interface RegistryEntry extends LoadedExtension {
   providers: Map<ProviderId, ProviderDefinition>;
   widgets: Map<string, WidgetDefinition<any>>;
@@ -169,7 +181,7 @@ export class ExtensionRegistry {
       this.errors.push(`duplicate extension id ${id}`);
       return undefined;
     }
-    if (!satisfiesRange(APP_VERSION, manifest.engines.kavibay)) {
+    if (!engineSupported(manifest.engines.kavibay)) {
       this.errors.push(`${id} requires kavibay ${manifest.engines.kavibay}, app is ${APP_VERSION}`);
       return undefined;
     }
